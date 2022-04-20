@@ -1,7 +1,7 @@
 [tool.kedro]
 package_name = "pasteur"
 project_name = "Pasteur"
-project_version = "0.17.7"
+project_version = "0.18.0"
 
 [tool.isort]
 multi_line_output = 3
