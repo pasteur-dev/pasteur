@@ -160,3 +160,6 @@ venv.bak/
 
 # vscode
 .vscode
+
+# vscode sql extension
+*.session.sql

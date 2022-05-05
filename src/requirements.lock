@@ -74,6 +74,8 @@ gitdb==4.0.9
     # via gitpython
 gitpython==3.1.27
     # via kedro
+greenlet==1.1.2
+    # via sqlalchemy
 idna==2.10
     # via
     #   anyio
@@ -256,6 +258,8 @@ prompt-toolkit==3.0.29
     #   jupyter-console
 psutil==5.9.0
     # via ipykernel
+psycopg2-binary==2.9.3
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 ptyprocess==0.7.0
     # via
     #   pexpect
@@ -333,6 +337,8 @@ sniffio==1.2.0
     # via anyio
 soupsieve==2.3.2.post1
     # via beautifulsoup4
+sqlalchemy==1.4.36
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 terminado==0.13.3
     # via
     #   jupyter-server
