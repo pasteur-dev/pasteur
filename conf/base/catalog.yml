@@ -3,7 +3,7 @@
 # Documentation for this file format can be found in "The Data Catalog"
 # Link: https://kedro.readthedocs.io/en/stable/05_data/01_data_catalog.html
 
-mimic_keys_sql:
+mimic_keys.in:
   type: pandas.SQLQueryDataSet
   sql: "select subject_id from mimic_core.patients order by subject_id;"
   credentials: mimic_db
@@ -12,24 +12,24 @@ mimic_keys_sql:
 
 _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
-  # filepath: orig/keys/mimic_keys_wrk.pq
+  # filepath: data/orig/keys/mimic_keys_wrk.pq
 
-mimic_keys:
+mimic_keys.all:
   <<: *mimic_keys
-  filepath: orig/keys/mimic_keys.pq
+  filepath: data/orig/keys/mimic_keys.pq
 
-mimic_keys_wrk:
+mimic_keys.wrk:
   <<: *mimic_keys
-  filepath: orig/keys/mimic_keys.wrk.pq
+  filepath: data/orig/keys/mimic_keys.wrk.pq
 
-mimic_keys_ref:
+mimic_keys.ref:
   <<: *mimic_keys
-  filepath: orig/keys/mimic_keys.ref.pq
+  filepath: data/orig/keys/mimic_keys.ref.pq
 
-mimic_keys_val:
+mimic_keys.val:
   <<: *mimic_keys
-  filepath: orig/keys/mimic_keys.val.pq
+  filepath: data/orig/keys/mimic_keys.val.pq
 
-mimic_keys_tst:
+mimic_keys.tst:
   <<: *mimic_keys
-  filepath: orig/keys/mimic_keys.tst.pq
+  filepath: data/orig/keys/mimic_keys.tst.pq

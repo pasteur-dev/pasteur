@@ -1,5 +1,6 @@
-# This is a boilerplate parameters config generated for pipeline 'mimic'
-# using Kedro 0.18.0.
-#
-# Documentation for this file format can be found in "Parameters"
-# Link: https://kedro.readthedocs.io/en/0.18.0/kedro_project_setup/configuration.html#parameters
+mimic_ratios:
+  wrk: 0.4
+  ref: 0.4
+  val: 0.1
+  dev: 0.1
+  random_state: 102
