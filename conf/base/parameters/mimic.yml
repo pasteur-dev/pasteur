@@ -3,5 +3,3 @@ mimic_ratios:
   ref: 0.4
   val: 0.1
   dev: 0.1
-  
-  random_state: 102

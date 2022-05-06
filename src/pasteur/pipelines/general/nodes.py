@@ -2,7 +2,7 @@
 This file contains nodes for general pre-processing of data.
 """
 import logging
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ def identity(data):
 
 
 def split_keys(
-    keys: pd.DataFrame, params: Dict[str, Any]
+    keys: pd.DataFrame, params: Dict[str, Any], random_state: Optional[int] = None
 ) -> Tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
     """Splits keys to work (wrk), reference (ref), test (dev), and validation (val) sets.
 
@@ -25,8 +25,6 @@ def split_keys(
     Returns:
         Dataframe series for each of the keys
     """
-
-    random_state = params.get("random_state")
 
     r_wrk = params['wrk']
     r_ref = params['ref']
