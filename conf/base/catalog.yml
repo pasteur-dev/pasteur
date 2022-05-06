@@ -3,8 +3,33 @@
 # Documentation for this file format can be found in "The Data Catalog"
 # Link: https://kedro.readthedocs.io/en/stable/05_data/01_data_catalog.html
 
-mimic_keys:
+mimic_keys_sql:
   type: pandas.SQLQueryDataSet
-  sql: "select subject_id from mimic_core.patients;"
+  sql: "select subject_id from mimic_core.patients order by subject_id;"
   credentials: mimic_db
-  layer: raw
+  # load_args:
+  #   index_col: [subject_id]
+
+_mimic_keys: &mimic_keys
+  type: pandas.ParquetDataSet
+  # filepath: orig/keys/mimic_keys_wrk.pq
+
+mimic_keys:
+  <<: *mimic_keys
+  filepath: orig/keys/mimic_keys.pq
+
+mimic_keys_wrk:
+  <<: *mimic_keys
+  filepath: orig/keys/mimic_keys.wrk.pq
+
+mimic_keys_ref:
+  <<: *mimic_keys
+  filepath: orig/keys/mimic_keys.ref.pq
+
+mimic_keys_val:
+  <<: *mimic_keys
+  filepath: orig/keys/mimic_keys.val.pq
+
+mimic_keys_tst:
+  <<: *mimic_keys
+  filepath: orig/keys/mimic_keys.tst.pq
