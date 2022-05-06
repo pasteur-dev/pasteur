@@ -3,13 +3,18 @@
 # Documentation for this file format can be found in "The Data Catalog"
 # Link: https://kedro.readthedocs.io/en/stable/05_data/01_data_catalog.html
 
-mimic_keys.in:
-  type: pandas.SQLQueryDataSet
-  sql: "select subject_id from mimic_core.patients order by subject_id;"
-  credentials: mimic_db
-  # load_args:
-  #   index_col: [subject_id]
+# mimic_keys.in:
+#   type: pandas.SQLQueryDataSet
+#   sql: "select subject_id from mimic_core.patients order by subject_id;"
+#   credentials: mimic_db
 
+mimic_keys.in:
+  type: pandas.CSVDataSet
+  filepath: data/orig/raw/mimiciv_1_0/core/patients.csv.gz
+  load_args:
+    usecols: [subject_id]
+    sep: ","
+    
 _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
   # filepath: data/orig/keys/mimic_keys_wrk.pq

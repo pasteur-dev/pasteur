@@ -10,8 +10,7 @@ from math import floor
 
 
 def identity(data):
-    """Returns the argument that was submitted.
-    """
+    """Returns the argument that was submitted."""
     return data
 
 
@@ -26,10 +25,12 @@ def split_keys(
         Dataframe series for each of the keys
     """
 
-    r_wrk = params['wrk']
-    r_ref = params['ref']
-    r_dev = params['dev']
-    r_val = params['val']
+    keys = keys.sort_values(by=keys.keys()[0])
+
+    r_wrk = params["wrk"]
+    r_ref = params["ref"]
+    r_dev = params["dev"]
+    r_val = params["val"]
     assert r_wrk + r_ref + r_dev + r_val <= 1, "Dataset ratios exceed 100%"
 
     n_all = len(keys)
