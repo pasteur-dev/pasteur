@@ -26,7 +26,7 @@ def split_keys(
         Dataframe series for each of the keys
     """
 
-    random_state = params.get("random_state", default=None)
+    random_state = params.get("random_state")
 
     r_wrk = params['wrk']
     r_ref = params['ref']

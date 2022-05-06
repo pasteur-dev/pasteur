@@ -26,10 +26,10 @@ mimic_keys.ref:
   <<: *mimic_keys
   filepath: data/orig/keys/mimic_keys.ref.pq
 
+mimic_keys.dev:
+  <<: *mimic_keys
+  filepath: data/orig/keys/mimic_keys.dev.pq
+
 mimic_keys.val:
   <<: *mimic_keys
   filepath: data/orig/keys/mimic_keys.val.pq
-
-mimic_keys.tst:
-  <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.tst.pq
