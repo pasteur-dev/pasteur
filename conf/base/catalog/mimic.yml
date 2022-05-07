@@ -89,12 +89,12 @@ mimic.raw.hosp.emar_detail:
     # engine: c
     # nrows: 10000000
     dtype:
-      subject_id: int64
+      subject_id: int32
       emar_id: object
-      emar_seq: int64
-      parent_field_ordinal: float64
+      emar_seq: int32
+      parent_field_ordinal: float32
       administration_type: category
-      pharmacy_id: Int64
+      pharmacy_id: Int32
       barcode_type: category
       reason_for_no_barcode: object
       complete_dose_not_given: category
@@ -229,9 +229,12 @@ mimic.raw.icu.chartevents:
   load_args:
     parse_dates: [charttime, storetime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
       itemid: category
       value: object
-      valuenum: float64
+      valuenum: float32
       valueuom: category
       warning: bool
 
