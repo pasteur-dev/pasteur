@@ -18,14 +18,31 @@ _mimic_in_csv: &mimic_csv
 mimic.raw.core.patients:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/patients.csv.gz
+  load_args:
+    parse_dates: [dod]
+    dtype:
+      gender: category
 
 mimic.raw.core.transfers:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/transfers.csv.gz
+  load_args:
+    parse_dates: [intime, outtime]
+    dtype:
+      hadm_id: Int64
+      eventtype: category
 
 mimic.raw.core.admissions:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/admissions.csv.gz
+  load_args:
+    parse_dates: [admittime, dischtime, deathtime, edregtime, edouttime]
+    dtype:
+      admission_type: category
+      insurance: category
+      language: category
+      marital_status: category
+      ethnicity: category
 
 mimic.raw.hosp.d_hcpcs:
   <<: *mimic_csv
@@ -50,58 +67,183 @@ mimic.raw.hosp.d_labitems:
 mimic.raw.hosp.drgcodes:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/drgcodes.csv.gz
+  load_args:
+    dtype:
+      drg_type: category
+      drg_severity: category
+      drg_mortality: category
 
 mimic.raw.hosp.emar:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/emar.csv.gz
+  load_args:
+    parse_dates: [scheduletime, storetime, charttime]
+    dtype:
+      hadm_id: Int64
+      pharmacy_id: Int64
 
 mimic.raw.hosp.emar_detail:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/emar_detail.csv.gz
+  load_args:
+    # engine: c
+    # nrows: 10000000
+    dtype:
+      subject_id: int64
+      emar_id: object
+      emar_seq: int64
+      parent_field_ordinal: float64
+      administration_type: category
+      pharmacy_id: Int64
+      barcode_type: category
+      reason_for_no_barcode: object
+      complete_dose_not_given: category
+      dose_due: category
+      dose_due_unit: category
+      dose_given: category
+      dose_given_unit: category
+      will_remainder_of_dose_be_given: category
+      product_amount_given: category
+      product_unit: category
+      product_code: category
+      product_description: object
+      product_description_other: category
+      prior_infusion_rate: category
+      infusion_rate: category
+      infusion_rate_adjustment: category
+      infusion_rate_adjustment_amount: category
+      infusion_rate_unit: category
+      route: category
+      infusion_complete: category
+      completion_interval: category
+      new_iv_bag_hung: category
+      continued_infusion_in_other_location: category
+      restart_interval: category
+      side: category
+      site: category
+      non_formulary_visual_verification: category
 
 mimic.raw.hosp.hcpcsevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/hcpcsevents.csv.gz
+  load_args:
+    parse_dates: [chartdate]
+    dtype:
+      hcpcs_cd: category
 
 mimic.raw.hosp.labevents:
-  <<: *mimic_csv
+  <<: *mimic_csv 
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/labevents.csv.gz
+  load_args:
+    parse_dates: [storetime, charttime]
+    dtype:
+      hadm_id: Int64
+      itemid: category
+      flag: category
+      value: category
+      valuenum: category
+      valueuom: category
+      ref_range_lower: category
+      ref_range_upper: category
+      priority: category
+      valueuom: category
+      comments: category
 
 mimic.raw.hosp.microbiologyevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/microbiologyevents.csv.gz
+  load_args:
+    parse_dates: [chartdate, charttime, storedate, storetime]
+    dtype:
+      hadm_id: Int64
+      ab_itemid: Int64
+      isolate_num: Int32
+      org_itemid: Int32
+      interpretation: category
+      quantity: object
+      comments: object
 
 mimic.raw.hosp.pharmacy:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/pharmacy.csv.gz
+  load_args:
+    parse_dates: [starttime, stoptime, entertime, verifiedtime, expirationdate]
+    dtype:
+      lockout_interval: object
+      one_hr_max: object
+      fill_quantity: object
 
 mimic.raw.hosp.poe:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe.csv.gz
+  load_args:
+    parse_dates: [ordertime]
+    dtype:
+      order_status: category
+      transaction_type: category
+      order_subtype: category
+      order_type: category
 
 mimic.raw.hosp.poe_detail:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe_detail.csv.gz
+  load_args:
+    dtype:
+      field_name: category
 
 mimic.raw.hosp.prescriptions:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/prescriptions.csv.gz
+  load_args:
+    parse_dates: [starttime, stoptime]
+    dtype:
+      pharmacy_id: Int64
+      gsn: object
+      form_unit_disp: category
+      drug_type: category
+      dose_unit_rx: category
+      form_rx: category
+      doses_per_24_hrs: category
+      route: category
 
 mimic.raw.hosp.procedures_icd:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/procedures_icd.csv.gz
+  load_args:
+    parse_dates: [chartdate]
+    dtype:
+      icd_version: category
 
 mimic.raw.hosp.services:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/services.csv.gz
+  load_args:
+    parse_dates: [transfertime]
+    dtype:
+      prev_service: category
+      curr_service: category
 
 mimic.raw.icu.chartevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/chartevents.csv
+  load_args:
+    parse_dates: [charttime, storetime]
+    dtype:
+      itemid: category
+      value: object
+      valuenum: float64
+      valueuom: category
+      warning: bool
 
 mimic.raw.icu.datetimeevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/datetimeevents.csv.gz
+  load_args:
+    parse_dates: [charttime, storetime, value]
+    dtype:
+      itemid: category
+      valueuom: category
+      warning: bool
 
 mimic.raw.icu.d_items:
   <<: *mimic_csv
@@ -110,18 +252,57 @@ mimic.raw.icu.d_items:
 mimic.raw.icu.icustays:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/icustays.csv.gz
+  load_args:
+    parse_dates: [intime, outtime]
+    dtype:
+      first_careunit: category
+      last_careunit: category
 
 mimic.raw.icu.inputevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/inputevents.csv.gz
+  load_args:
+    parse_dates: [starttime, endtime, storetime] #, comments_date]
+    dtype:
+      itemid: category
+      amountuom: category
+      rateuom: category
+      ordercategoryname: category
+      secondaryordercategoryname: category
+      ordercomponenttypedescription: category
+      ordercategorydescription: category
+      totalamountuom: category
+      isopenbag: bool
+      continueinnextdept: category
+      cancelreason: category
+      statusdescription: category
 
 mimic.raw.icu.outputevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/outputevents.csv.gz
+  load_args:
+    parse_dates: [charttime, storetime]
+    dtype:
+      itemid: category
+      valueom: category
 
 mimic.raw.icu.procedureevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/procedureevents.csv.gz
+  load_args:
+    parse_dates: [starttime, endtime, storetime, comments_date]
+    dtype:
+      itemid: category
+      valueuom: category
+      locationcategory: category
+      ordercategoryname: category
+      secondaryordercategoryname: category
+      ordercategorydescription: category
+      isopenbag: bool
+      continueinnextdept: category
+      cancelreason: category
+      statusdescription: category
+      original_rate: category
 
 #
 # Intermediate
