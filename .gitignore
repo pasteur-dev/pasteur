@@ -163,3 +163,6 @@ venv.bak/
 
 # vscode sql extension
 *.session.sql
+
+# ShelveStore sessions
+sessions/

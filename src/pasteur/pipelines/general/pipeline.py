@@ -10,13 +10,7 @@ from kedro.pipeline import Pipeline, node, pipeline
 def create_pipeline_split_keys(**kwargs) -> Pipeline:
     return pipeline(
         [
-            node(
-                func=identity,
-                inputs=["in"],
-                outputs="all",
-                name="save_keys",
-                tags="sql",
-            ),
+            node(func=identity, inputs=["in"], outputs="all", name="save_keys"),
             node(
                 func=split_keys,
                 inputs=["all", "params:split_ratios", "params:random_state"],
