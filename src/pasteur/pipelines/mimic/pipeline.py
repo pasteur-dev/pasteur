@@ -7,8 +7,18 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ..general.pipeline import create_pipeline_split_keys
 
+
 def create_pipeline_split_mimic_keys(**kwargs) -> Pipeline:
-    return modular_pipeline(create_pipeline_split_keys(), namespace="mimic_keys", parameters={"split_ratios": "mimic_ratios", "random_state": "random_state"})
+    return modular_pipeline(
+        create_pipeline_split_keys(),
+        namespace="keys",
+        parameters={"split_ratios": "ratios", "random_state": "random_state"},
+    )
+
 
 def create_pipeline(**kwargs) -> Pipeline:
-    return create_pipeline_split_mimic_keys()
+    return modular_pipeline(
+        create_pipeline_split_mimic_keys(),
+        namespace="mimic",
+        parameters={"random_state": "random_state"},
+    )

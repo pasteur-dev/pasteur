@@ -8,7 +8,238 @@
 #   sql: "select subject_id from mimic_core.patients order by subject_id;"
 #   credentials: mimic_db
 
-mimic_keys.in:
+#
+# Raw
+#
+_mimic_in_csv: &mimic_csv
+  type: pandas.CSVDataSet
+
+mimic.raw.core.patients:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/core/patients.csv.gz
+
+mimic.raw.core.transfers:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/core/transfers.csv.gz
+
+mimic.raw.core.admissions:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/core/admissions.csv.gz
+
+mimic.raw.hosp.d_hcpcs:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/d_hcpcs.csv.gz
+
+mimic.raw.hosp.diagnoses_icd:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/diagnoses_icd.csv.gz
+
+mimic.raw.hosp.d_icd_diagnoses:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/d_icd_diagnoses.csv.gz
+
+mimic.raw.hosp.d_icd_procedures:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/d_icd_procedures.csv.gz
+
+mimic.raw.hosp.d_labitems:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/d_labitems.csv.gz
+
+mimic.raw.hosp.drgcodes:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/drgcodes.csv.gz
+
+mimic.raw.hosp.emar:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/emar.csv.gz
+
+mimic.raw.hosp.emar_detail:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/emar_detail.csv.gz
+
+mimic.raw.hosp.hcpcsevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/hcpcsevents.csv.gz
+
+mimic.raw.hosp.labevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/labevents.csv.gz
+
+mimic.raw.hosp.microbiologyevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/microbiologyevents.csv.gz
+
+mimic.raw.hosp.pharmacy:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/pharmacy.csv.gz
+
+mimic.raw.hosp.poe:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/poe.csv.gz
+
+mimic.raw.hosp.poe_detail:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/poe_detail.csv.gz
+
+mimic.raw.hosp.prescriptions:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/prescriptions.csv.gz
+
+mimic.raw.hosp.procedures_icd:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/procedures_icd.csv.gz
+
+mimic.raw.hosp.services:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/hosp/services.csv.gz
+
+mimic.raw.icu.chartevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/chartevents.csv
+
+mimic.raw.icu.datetimeevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/datetimeevents.csv.gz
+
+mimic.raw.icu.d_items:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/d_items.csv.gz
+
+mimic.raw.icu.icustays:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/icustays.csv.gz
+
+mimic.raw.icu.inputevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/inputevents.csv.gz
+
+mimic.raw.icu.outputevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/outputevents.csv.gz
+
+mimic.raw.icu.procedureevents:
+  <<: *mimic_csv
+  filepath: data/orig/raw/mimiciv_1_0/icu/procedureevents.csv.gz
+
+#
+# Intermediate
+#
+_mimic_pq: &mimic_pq
+  type: pandas.ParquetDataSet
+
+mimic.core.patients:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/core/patients.pq
+
+mimic.core.transfers:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/core/transfers.pq
+
+mimic.core.admissions:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/core/admissions.pq
+
+mimic.hosp.d_hcpcs:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/d_hcpcs.pq
+
+mimic.hosp.diagnoses_icd:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/diagnoses_icd.pq
+
+mimic.hosp.d_icd_diagnoses:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/d_icd_diagnoses.pq
+
+mimic.hosp.d_icd_procedures:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/d_icd_procedures.pq
+
+mimic.hosp.d_labitems:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/d_labitems.pq
+
+mimic.hosp.drgcodes:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/drgcodes.pq
+
+mimic.hosp.emar:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/emar.pq
+
+mimic.hosp.emar_detail:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/emar_detail.pq
+
+mimic.hosp.hcpcsevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/hcpcsevents.pq
+
+mimic.hosp.labevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/labevents.pq
+
+mimic.hosp.microbiologyevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/microbiologyevents.pq
+
+mimic.hosp.pharmacy:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/pharmacy.pq
+
+mimic.hosp.poe:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/poe.pq
+
+mimic.hosp.poe_detail:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/poe_detail.pq
+
+mimic.hosp.prescriptions:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/prescriptions.pq
+
+mimic.hosp.procedures_icd:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/procedures_icd.pq
+
+mimic.hosp.services:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/hosp/services.pq
+
+mimic.icu.chartevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/chartevents.pq
+
+mimic.icu.datetimeevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/datetimeevents.pq
+
+mimic.icu.d_items:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/d_items.pq
+
+mimic.icu.icustays:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/icustays.pq
+
+mimic.icu.inputevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/inputevents.pq
+
+mimic.icu.outputevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/outputevents.pq
+
+mimic.icu.procedureevents:
+  <<: *mimic_pq
+  filepath: data/orig/intermediate/mimic/icu/procedureevents.pq
+
+#
+# Keys
+#
+mimic.keys.in:
   type: pandas.CSVDataSet
   filepath: data/orig/raw/mimiciv_1_0/core/patients.csv.gz
   load_args:
@@ -19,22 +250,22 @@ _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
   # filepath: data/orig/keys/mimic_keys_wrk.pq
 
-mimic_keys.all:
+mimic.keys.all:
   <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.pq
+  filepath: data/orig/keys/mimic/keys.all.pq
 
-mimic_keys.wrk:
+mimic.keys.wrk:
   <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.wrk.pq
+  filepath: data/orig/keys/mimic/keys.wrk.pq
 
-mimic_keys.ref:
+mimic.keys.ref:
   <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.ref.pq
+  filepath: data/orig/keys/mimic/keys.ref.pq
 
-mimic_keys.dev:
+mimic.keys.dev:
   <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.dev.pq
+  filepath: data/orig/keys/mimic/keys.dev.pq
 
-mimic_keys.val:
+mimic.keys.val:
   <<: *mimic_keys
-  filepath: data/orig/keys/mimic_keys.val.pq
+  filepath: data/orig/keys/mimic/keys.val.pq
