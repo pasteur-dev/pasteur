@@ -2,71 +2,87 @@
 This file contains pipelines specific to processing the dataset MIMIC-IV.
 """
 
+from typing import Set
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ..general.pipeline import create_pipeline_split_keys
+from pasteur.pipelines.mimic.nodes import select_id
+
+from ..general.pipeline import create_node_split_keys
 from ..general.nodes import identity
 
 
-def create_pipeline_split_mimic_keys(**kwargs) -> Pipeline:
-    return modular_pipeline(
-        create_pipeline_split_keys(),
-        namespace="keys",
-        parameters={"split_ratios": "ratios", "random_state": "random_state"},
-    )
-
-
-def create_intermediate_data(**kwargs) -> Pipeline:
-    mimic_tables = [
-        "core.patients",
-        "core.transfers",
-        "core.admissions",
-        "hosp.d_hcpcs",
-        "hosp.diagnoses_icd",
-        "hosp.d_icd_diagnoses",
-        "hosp.d_icd_procedures",
-        "hosp.d_labitems",
-        "hosp.drgcodes",
-        "hosp.emar",
-        "hosp.emar_detail",
-        "hosp.hcpcsevents",
-        "hosp.labevents",
-        "hosp.microbiologyevents",
-        "hosp.pharmacy",
-        "hosp.poe",
-        "hosp.poe_detail",
-        "hosp.prescriptions",
-        "hosp.procedures_icd",
-        "hosp.services",
-        "icu.chartevents",
-        "icu.datetimeevents",
-        "icu.d_items",
-        "icu.icustays",
-        "icu.inputevents",
-        "icu.outputevents",
-        "icu.procedureevents",
+def create_intermediate_data(inputs: Set) -> Pipeline:
+    mimic_tables_all = [
+        "core_patients",
+        "core_transfers",
+        "core_admissions",
+        "hosp_d_hcpcs",
+        "hosp_diagnoses_icd",
+        "hosp_d_icd_diagnoses",
+        "hosp_d_icd_procedures",
+        "hosp_d_labitems",
+        "hosp_drgcodes",
+        "hosp_emar",
+        "hosp_emar_detail",
+        "hosp_hcpcsevents",
+        "hosp_labevents",
+        "hosp_microbiologyevents",
+        "hosp_pharmacy",
+        "hosp_poe",
+        "hosp_poe_detail",
+        "hosp_prescriptions",
+        "hosp_procedures_icd",
+        "hosp_services",
+        "icu_chartevents",
+        "icu_datetimeevents",
+        "icu_d_items",
+        "icu_icustays",
+        "icu_inputevents",
+        "icu_outputevents",
+        "icu_procedureevents",
     ]
 
-    return modular_pipeline(
+    mimic_tables = inputs.intersection(mimic_tables_all)
+    # mimic_tables = mimic_tables_all
+
+    parquet_pipeline = pipeline(
         [
             node(
                 func=identity,
-                inputs=["raw.%s" % t],
-                outputs="data.%s" % t,
-                name="convert_to_pq_%s" % t,
+                inputs=["mimic_iv@%s" % t],
+                outputs=t,
+                name="ingest_%s" % t,
             )
             for t in mimic_tables
+        ]
+    )
+
+    # return modular_pipeline(
+    #     parquet_pipeline,
+    #     namespace="ingestion",
+    #     inputs=["mimic_iv"],
+    #     outputs={t: t for t in mimic_tables},
+    # )
+    return parquet_pipeline
+
+
+def create_pipeline_split_mimic_keys(**kwargs) -> Pipeline:
+    return pipeline(
+        [
+            node(select_id, inputs=["core_patients"], outputs="keys_all"),
+            create_node_split_keys(),
         ],
-        namespace="preprocessing",
-        inputs={"raw.%s" % t: "raw.%s" % t for t in mimic_tables},
-        outputs={"data.%s" % t: "data.%s" % t for t in mimic_tables},
     )
 
 
 def create_pipeline(**kwargs) -> Pipeline:
+    mimic_pipeline = create_pipeline_split_mimic_keys()
+    mimic_inputs = create_intermediate_data(mimic_pipeline.inputs())
+
     return modular_pipeline(
-        create_pipeline_split_mimic_keys() + create_intermediate_data(),
+        mimic_pipeline + mimic_inputs,
         namespace="mimic",
+        inputs={"mimic_iv": "mimic_iv"},
         parameters={"random_state": "random_state"},
     )

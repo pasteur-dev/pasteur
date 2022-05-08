@@ -15,74 +15,86 @@ _mimic_in_csv: &mimic_csv
   type: pandas.CSVDataSet
   layer: raw
 
-mimic.raw.core.patients:
+mimic_iv@core_patients:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/patients.csv.gz
   load_args:
     parse_dates: [dod]
     dtype:
+      subject_id: int32
       gender: category
 
-mimic.raw.core.transfers:
+mimic_iv@core_transfers:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/transfers.csv.gz
   load_args:
     parse_dates: [intime, outtime]
     dtype:
-      hadm_id: Int64
+      subject_id: int32
+      hadm_id: Int32
+      transfer_id: int32
       eventtype: category
 
-mimic.raw.core.admissions:
+mimic_iv@core_admissions:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/admissions.csv.gz
   load_args:
     parse_dates: [admittime, dischtime, deathtime, edregtime, edouttime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
       admission_type: category
       insurance: category
       language: category
       marital_status: category
       ethnicity: category
 
-mimic.raw.hosp.d_hcpcs:
+mimic_iv@hosp_d_hcpcs:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_hcpcs.csv.gz
 
-mimic.raw.hosp.diagnoses_icd:
-  <<: *mimic_csv
-  filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/diagnoses_icd.csv.gz
-
-mimic.raw.hosp.d_icd_diagnoses:
+mimic_iv@hosp_d_icd_diagnoses:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_icd_diagnoses.csv.gz
 
-mimic.raw.hosp.d_icd_procedures:
+mimic_iv@hosp_d_icd_procedures:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_icd_procedures.csv.gz
 
-mimic.raw.hosp.d_labitems:
+mimic_iv@hosp_d_labitems:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_labitems.csv.gz
 
-mimic.raw.hosp.drgcodes:
+mimic_iv@hosp_diagnoses_icd:
+  <<: *mimic_csv
+  filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/diagnoses_icd.csv.gz
+  load_args:
+    dtype:
+      subject_id: int32
+      hadm_id: int32
+
+mimic_iv@hosp_drgcodes:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/drgcodes.csv.gz
   load_args:
     dtype:
+      subject_id: int32
+      hadm_id: int32
       drg_type: category
       drg_severity: category
       drg_mortality: category
 
-mimic.raw.hosp.emar:
+mimic_iv@hosp_emar:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/emar.csv.gz
   load_args:
     parse_dates: [scheduletime, storetime, charttime]
     dtype:
-      hadm_id: Int64
-      pharmacy_id: Int64
+      subject_id: int32
+      hadm_id: Int32
+      pharmacy_id: Int32
 
-mimic.raw.hosp.emar_detail:
+mimic_iv@hosp_emar_detail:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/emar_detail.csv.gz
   load_args:
@@ -123,21 +135,26 @@ mimic.raw.hosp.emar_detail:
       site: category
       non_formulary_visual_verification: category
 
-mimic.raw.hosp.hcpcsevents:
+mimic_iv@hosp_hcpcsevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/hcpcsevents.csv.gz
   load_args:
     parse_dates: [chartdate]
     dtype:
+      subject_id: int32
+      hadm_id: int32
       hcpcs_cd: category
+      seq_num: int32
 
-mimic.raw.hosp.labevents:
+mimic_iv@hosp_labevents:
   <<: *mimic_csv 
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/labevents.csv.gz
   load_args:
     parse_dates: [storetime, charttime]
     dtype:
-      hadm_id: Int64
+      labevent_id: int32
+      subject_id: int32
+      hadm_id: Int32
       itemid: category
       flag: category
       value: category
@@ -149,55 +166,67 @@ mimic.raw.hosp.labevents:
       valueuom: category
       comments: category
 
-mimic.raw.hosp.microbiologyevents:
+mimic_iv@hosp_microbiologyevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/microbiologyevents.csv.gz
   load_args:
     parse_dates: [chartdate, charttime, storedate, storetime]
     dtype:
-      hadm_id: Int64
-      ab_itemid: Int64
+      microevent_id: int32
+      subject_id: int32
+      hadm_id: Int32
+      micro_specimen_id: int32
+      ab_itemid: Int32
       isolate_num: Int32
       org_itemid: Int32
       interpretation: category
       quantity: object
       comments: object
 
-mimic.raw.hosp.pharmacy:
+mimic_iv@hosp_pharmacy:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/pharmacy.csv.gz
   load_args:
     parse_dates: [starttime, stoptime, entertime, verifiedtime, expirationdate]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      pharmacy_id: int32
       lockout_interval: object
       one_hr_max: object
       fill_quantity: object
 
-mimic.raw.hosp.poe:
+mimic_iv@hosp_poe:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe.csv.gz
   load_args:
     parse_dates: [ordertime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
       order_status: category
       transaction_type: category
       order_subtype: category
       order_type: category
 
-mimic.raw.hosp.poe_detail:
+mimic_iv@hosp_poe_detail:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe_detail.csv.gz
   load_args:
     dtype:
+      poe_seq: int32
+      subject_id: int32
       field_name: category
 
-mimic.raw.hosp.prescriptions:
+mimic_iv@hosp_prescriptions:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/prescriptions.csv.gz
   load_args:
     parse_dates: [starttime, stoptime]
     dtype:
-      pharmacy_id: Int64
+      subject_id: int32
+      hadm_id: int32
+      pharmacy_id: Int32
       gsn: object
       form_unit_disp: category
       drug_type: category
@@ -206,24 +235,29 @@ mimic.raw.hosp.prescriptions:
       doses_per_24_hrs: category
       route: category
 
-mimic.raw.hosp.procedures_icd:
+mimic_iv@hosp_procedures_icd:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/procedures_icd.csv.gz
   load_args:
     parse_dates: [chartdate]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      seq_num: int32
       icd_version: category
 
-mimic.raw.hosp.services:
+mimic_iv@hosp_services:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/services.csv.gz
   load_args:
     parse_dates: [transfertime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
       prev_service: category
       curr_service: category
 
-mimic.raw.icu.chartevents:
+mimic_iv@icu_chartevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/chartevents.csv
   load_args:
@@ -238,35 +272,45 @@ mimic.raw.icu.chartevents:
       valueuom: category
       warning: bool
 
-mimic.raw.icu.datetimeevents:
+mimic_iv@icu_datetimeevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/datetimeevents.csv.gz
   load_args:
     parse_dates: [charttime, storetime, value]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
       itemid: category
       valueuom: category
       warning: bool
 
-mimic.raw.icu.d_items:
+mimic_iv@icu_d_items:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/d_items.csv.gz
 
-mimic.raw.icu.icustays:
+mimic_iv@icu_icustays:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/icustays.csv.gz
   load_args:
     parse_dates: [intime, outtime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
       first_careunit: category
       last_careunit: category
 
-mimic.raw.icu.inputevents:
+mimic_iv@icu_inputevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/inputevents.csv.gz
   load_args:
     parse_dates: [starttime, endtime, storetime] #, comments_date]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
+      icustay_id: int32
       itemid: category
       amountuom: category
       rateuom: category
@@ -280,21 +324,27 @@ mimic.raw.icu.inputevents:
       cancelreason: category
       statusdescription: category
 
-mimic.raw.icu.outputevents:
+mimic_iv@icu_outputevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/outputevents.csv.gz
   load_args:
     parse_dates: [charttime, storetime]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
       itemid: category
       valueom: category
 
-mimic.raw.icu.procedureevents:
+mimic_iv@icu_procedureevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/procedureevents.csv.gz
   load_args:
     parse_dates: [starttime, endtime, storetime, comments_date]
     dtype:
+      subject_id: int32
+      hadm_id: int32
+      stay_id: int32
       itemid: category
       valueuom: category
       locationcategory: category
@@ -314,144 +364,143 @@ _mimic_pq: &mimic_pq
   type: pandas.ParquetDataSet
   layer: intermediate
 
-mimic.data.core.patients:
+mimic.core_patients:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/patients.pq
 
-mimic.data.core.transfers:
+mimic.core_transfers:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/transfers.pq
 
-mimic.data.core.admissions:
+mimic.core_admissions:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/admissions.pq
 
-mimic.data.hosp.d_hcpcs:
+mimic.hosp_d_hcpcs:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_hcpcs.pq
 
-mimic.data.hosp.diagnoses_icd:
+mimic.hosp_diagnoses_icd:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/diagnoses_icd.pq
 
-mimic.data.hosp.d_icd_diagnoses:
+mimic.hosp_d_icd_diagnoses:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_icd_diagnoses.pq
 
-mimic.data.hosp.d_icd_procedures:
+mimic.hosp_d_icd_procedures:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_icd_procedures.pq
 
-mimic.data.hosp.d_labitems:
+mimic.hosp_d_labitems:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_labitems.pq
 
-mimic.data.hosp.drgcodes:
+mimic.hosp_drgcodes:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/drgcodes.pq
 
-mimic.data.hosp.emar:
+mimic.hosp_emar:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/emar.pq
 
-mimic.data.hosp.emar_detail:
+mimic.hosp_emar_detail:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/emar_detail.pq
 
-mimic.data.hosp.hcpcsevents:
+mimic.hosp_hcpcsevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/hcpcsevents.pq
 
-mimic.data.hosp.labevents:
+mimic.hosp_labevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/labevents.pq
 
-mimic.data.hosp.microbiologyevents:
+mimic.hosp_microbiologyevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/microbiologyevents.pq
 
-mimic.data.hosp.pharmacy:
+mimic.hosp_pharmacy:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/pharmacy.pq
 
-mimic.data.hosp.poe:
+mimic.hosp_poe:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/poe.pq
 
-mimic.data.hosp.poe_detail:
+mimic.hosp_poe_detail:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/poe_detail.pq
 
-mimic.data.hosp.prescriptions:
+mimic.hosp_prescriptions:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/prescriptions.pq
 
-mimic.data.hosp.procedures_icd:
+mimic.hosp_procedures_icd:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/procedures_icd.pq
 
-mimic.data.hosp.services:
+mimic.hosp_services:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/services.pq
 
-mimic.data.icu.chartevents:
+mimic.icu_chartevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/chartevents.pq
 
-mimic.data.icu.datetimeevents:
+mimic.icu_datetimeevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/datetimeevents.pq
 
-mimic.data.icu.d_items:
+mimic.icu_d_items:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/d_items.pq
 
-mimic.data.icu.icustays:
+mimic.icu_icustays:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/icustays.pq
 
-mimic.data.icu.inputevents:
+mimic.icu_inputevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/inputevents.pq
 
-mimic.data.icu.outputevents:
+mimic.icu_outputevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/outputevents.pq
 
-mimic.data.icu.procedureevents:
+mimic.icu_procedureevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/procedureevents.pq
 
 #
 # Keys
 #
-mimic.keys.in:
-  type: pandas.CSVDataSet
-  filepath: ${base_location}/orig/raw/mimiciv_1_0/core/patients.csv.gz
-  load_args:
-    usecols: [subject_id]
-    sep: ","
+# mimic.core_patients@keys:
+#   <<: *mimic_pq
+#   filepath: ${base_location}/orig/intermediate/mimic/core/patients.pq
+#   load_args:
+#     columns: [subject_id]
     
 _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
   # filepath: ${base_location}/orig/keys/mimic_keys_wrk.pq
 
-mimic.keys.all:
+mimic.keys_all:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.all.pq
 
-mimic.keys.wrk:
+mimic.keys_wrk:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.wrk.pq
 
-mimic.keys.ref:
+mimic.keys_ref:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.ref.pq
 
-mimic.keys.dev:
+mimic.keys_dev:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.dev.pq
 
-mimic.keys.val:
+mimic.keys_val:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.val.pq

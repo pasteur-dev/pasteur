@@ -7,17 +7,12 @@ from .nodes import identity, split_keys
 from kedro.pipeline import Pipeline, node, pipeline
 
 
-def create_pipeline_split_keys(**kwargs) -> Pipeline:
-    return pipeline(
-        [
-            node(func=identity, inputs=["in"], outputs="all", name="save_keys"),
-            node(
-                func=split_keys,
-                inputs=["all", "params:split_ratios", "params:random_state"],
-                outputs=["wrk", "ref", "dev", "val"],
-                name="split_keys",
-            ),
-        ]
+def create_node_split_keys(**kwargs) -> Pipeline:
+    return node(
+        func=split_keys,
+        inputs=["keys_all", "params:ratios", "params:random_state"],
+        outputs=["keys_wrk", "keys_ref", "keys_dev", "keys_val"],
+        name="split_keys",
     )
 
 
