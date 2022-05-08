@@ -2,7 +2,7 @@
 This file contains pipelines specific to processing the dataset MIMIC-IV.
 """
 
-from typing import Set
+from typing import Optional, Set
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
@@ -12,7 +12,7 @@ from ..general.pipeline import create_node_split_keys
 from ..general.nodes import identity
 
 
-def create_intermediate_data(inputs: Set) -> Pipeline:
+def create_intermediate_data(inputs: Optional[Set] = None) -> Pipeline:
     mimic_tables_all = [
         "core_patients",
         "core_transfers",
@@ -43,8 +43,7 @@ def create_intermediate_data(inputs: Set) -> Pipeline:
         "icu_procedureevents",
     ]
 
-    mimic_tables = inputs.intersection(mimic_tables_all)
-    # mimic_tables = mimic_tables_all
+    mimic_tables = inputs.intersection(mimic_tables_all) if inputs else mimic_tables_all
 
     parquet_pipeline = pipeline(
         [
@@ -73,6 +72,24 @@ def create_pipeline_split_mimic_keys(**kwargs) -> Pipeline:
             node(select_id, inputs=["core_patients"], outputs="keys_all"),
             create_node_split_keys(),
         ],
+    )
+
+
+def create_pipeline_mimic_tasks(**kwargs) -> Pipeline:
+    return create_pipeline_split_mimic_keys()
+
+
+def create_pipeline_ingest():
+    return modular_pipeline(
+        create_intermediate_data(), namespace="mimic", inputs={"mimic_iv": "mimic_iv"}
+    )
+
+
+def create_pipeline_experiment():
+    return modular_pipeline(
+        create_pipeline_mimic_tasks(),
+        namespace="mimic",
+        parameters={"random_state": "random_state"},
     )
 
 
