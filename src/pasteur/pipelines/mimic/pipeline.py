@@ -56,13 +56,6 @@ def create_intermediate_data(inputs: Optional[Set] = None) -> Pipeline:
             for t in mimic_tables
         ]
     )
-
-    # return modular_pipeline(
-    #     parquet_pipeline,
-    #     namespace="ingestion",
-    #     inputs=["mimic_iv"],
-    #     outputs={t: t for t in mimic_tables},
-    # )
     return parquet_pipeline
 
 
@@ -81,7 +74,7 @@ def create_pipeline_mimic_tasks(**kwargs) -> Pipeline:
 
 def create_pipeline_ingest():
     return modular_pipeline(
-        create_intermediate_data(), namespace="mimic", inputs={"mimic_iv": "mimic_iv"}
+        create_intermediate_data(), namespace="mimic", inputs=["mimic_iv"]
     )
 
 
@@ -89,7 +82,7 @@ def create_pipeline_experiment():
     return modular_pipeline(
         create_pipeline_mimic_tasks(),
         namespace="mimic",
-        parameters={"random_state": "random_state"},
+        parameters=["random_state"],
     )
 
 
@@ -100,6 +93,6 @@ def create_pipeline(**kwargs) -> Pipeline:
     return modular_pipeline(
         mimic_pipeline + mimic_inputs,
         namespace="mimic",
-        inputs={"mimic_iv": "mimic_iv"},
-        parameters={"random_state": "random_state"},
+        inputs=["mimic_iv"],
+        parameters=["random_state"],
     )
