@@ -19,6 +19,7 @@ mimic_iv@core_patients:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/patients.csv.gz
   load_args:
+    index_col: subject_id
     parse_dates: [dod]
     dtype:
       subject_id: int32
@@ -28,6 +29,7 @@ mimic_iv@core_transfers:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/transfers.csv.gz
   load_args:
+    index_col: transfer_id
     parse_dates: [intime, outtime]
     dtype:
       subject_id: int32
@@ -39,6 +41,7 @@ mimic_iv@core_admissions:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/core/admissions.csv.gz
   load_args:
+    index_col: hadm_id
     parse_dates: [admittime, dischtime, deathtime, edregtime, edouttime]
     dtype:
       subject_id: int32
@@ -52,18 +55,26 @@ mimic_iv@core_admissions:
 mimic_iv@hosp_d_hcpcs:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_hcpcs.csv.gz
+  load_args:
+    index_col: code
 
 mimic_iv@hosp_d_icd_diagnoses:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_icd_diagnoses.csv.gz
+  load_args:
+    index_col: icd_code
 
 mimic_iv@hosp_d_icd_procedures:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_icd_procedures.csv.gz
+  load_args:
+    index_col: icd_code
 
 mimic_iv@hosp_d_labitems:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/d_labitems.csv.gz
+  load_args:
+    index_col: itemid
 
 mimic_iv@hosp_diagnoses_icd:
   <<: *mimic_csv
@@ -150,6 +161,7 @@ mimic_iv@hosp_labevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/labevents.csv.gz
   load_args:
+    index_col: labevent_id
     parse_dates: [storetime, charttime]
     dtype:
       labevent_id: int32
@@ -169,6 +181,7 @@ mimic_iv@hosp_microbiologyevents:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/microbiologyevents.csv.gz
   load_args:
+    index_col: microevent_id
     parse_dates: [chartdate, charttime, storedate, storetime]
     dtype:
       microevent_id: int32
@@ -199,6 +212,7 @@ mimic_iv@hosp_poe:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe.csv.gz
   load_args:
+    index_col: poe_id
     parse_dates: [ordertime]
     dtype:
       subject_id: int32
@@ -212,6 +226,7 @@ mimic_iv@hosp_poe_detail:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/poe_detail.csv.gz
   load_args:
+    index_col: poe_id
     dtype:
       poe_seq: int32
       subject_id: int32
@@ -287,11 +302,16 @@ mimic_iv@icu_datetimeevents:
 mimic_iv@icu_d_items:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/d_items.csv.gz
+  load_args:
+    index_col: itemid
+    dtype:
+      itemid: int32
 
 mimic_iv@icu_icustays:
   <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/icu/icustays.csv.gz
   load_args:
+    index_col: stay_id
     parse_dates: [intime, outtime]
     dtype:
       subject_id: int32
@@ -502,3 +522,14 @@ mimic.keys_dev:
 mimic.keys_val:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.val.pq
+
+#
+# Inputs for views
+#
+mimic.core_admissions@tab:
+  <<: *mimic_core_admissions
+
+mimic.core_patients@tab:
+  <<: *mimic_core_patients
+  load_args:
+    columns: ["subject_id", "gender", "dod"]

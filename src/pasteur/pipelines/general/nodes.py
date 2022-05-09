@@ -25,7 +25,10 @@ def split_keys(
         Dataframe series for each of the keys
     """
 
-    keys = keys.sort_values(by=keys.keys()[0])
+    if keys.keys().empty:
+        keys = keys.sort_values(by=keys.index.name)
+    else:
+        keys = keys.sort_values(by=keys.keys()[0])
 
     r_wrk = params["wrk"]
     r_ref = params["ref"]
@@ -49,3 +52,7 @@ def split_keys(
     val = keys.sample(n=n_val, random_state=random_state)
 
     return wrk, ref, dev, val
+
+
+def filter_by_keys(**kwargs):
+    pass
