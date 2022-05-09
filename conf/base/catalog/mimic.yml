@@ -147,7 +147,7 @@ mimic_iv@hosp_hcpcsevents:
       seq_num: int32
 
 mimic_iv@hosp_labevents:
-  <<: *mimic_csv 
+  <<: *mimic_csv
   filepath: ${base_location}/orig/raw/mimiciv_1_0/hosp/labevents.csv.gz
   load_args:
     parse_dates: [storetime, charttime]
@@ -163,7 +163,6 @@ mimic_iv@hosp_labevents:
       ref_range_lower: category
       ref_range_upper: category
       priority: category
-      valueuom: category
       comments: category
 
 mimic_iv@hosp_microbiologyevents:
@@ -364,126 +363,125 @@ _mimic_pq: &mimic_pq
   type: pandas.ParquetDataSet
   layer: intermediate
 
-mimic.core_patients:
+mimic.core_patients@all: &mimic_core_patients
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/patients.pq
 
-mimic.core_transfers:
+mimic.core_transfers@all: &mimic_core_transfers
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/transfers.pq
 
-mimic.core_admissions:
+mimic.core_admissions@all: &mimic_core_admissions
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/core/admissions.pq
 
-mimic.hosp_d_hcpcs:
+mimic.hosp_d_hcpcs@all: &mimic_hosp_d_hcpcs
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_hcpcs.pq
 
-mimic.hosp_diagnoses_icd:
+mimic.hosp_diagnoses_icd@all: &mimic_hosp_diagnoses_icd
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/diagnoses_icd.pq
 
-mimic.hosp_d_icd_diagnoses:
+mimic.hosp_d_icd_diagnoses@all: &mimic_hosp_d_icd_diagnoses
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_icd_diagnoses.pq
 
-mimic.hosp_d_icd_procedures:
+mimic.hosp_d_icd_procedures@all: &mimic_hosp_d_icd_procedures
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_icd_procedures.pq
 
-mimic.hosp_d_labitems:
+mimic.hosp_d_labitems@all: &mimic_hosp_d_labitems
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/d_labitems.pq
 
-mimic.hosp_drgcodes:
+mimic.hosp_drgcodes@all: &mimic_hosp_drgcodes
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/drgcodes.pq
 
-mimic.hosp_emar:
+mimic.hosp_emar@all: &mimic_hosp_emar
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/emar.pq
 
-mimic.hosp_emar_detail:
+mimic.hosp_emar_detail@all: &mimic_hosp_emar_detail
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/emar_detail.pq
 
-mimic.hosp_hcpcsevents:
+mimic.hosp_hcpcsevents@all: &mimic_hosp_hcpcsevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/hcpcsevents.pq
 
-mimic.hosp_labevents:
+mimic.hosp_labevents@all: &mimic_hosp_labevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/labevents.pq
 
-mimic.hosp_microbiologyevents:
+mimic.hosp_microbiologyevents@all: &mimic_hosp_microbiologyevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/microbiologyevents.pq
 
-mimic.hosp_pharmacy:
+mimic.hosp_pharmacy@all: &mimic_hosp_pharmacy
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/pharmacy.pq
 
-mimic.hosp_poe:
+mimic.hosp_poe@all: &mimic_hosp_poe
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/poe.pq
 
-mimic.hosp_poe_detail:
+mimic.hosp_poe_detail@all: &mimic_hosp_poe_detail
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/poe_detail.pq
 
-mimic.hosp_prescriptions:
+mimic.hosp_prescriptions@all: &mimic_hosp_prescriptions
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/prescriptions.pq
 
-mimic.hosp_procedures_icd:
+mimic.hosp_procedures_icd@all: &mimic_hosp_procedures_icd
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/procedures_icd.pq
 
-mimic.hosp_services:
+mimic.hosp_services@all: &mimic_hosp_services
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/hosp/services.pq
 
-mimic.icu_chartevents:
+mimic.icu_chartevents@all: &mimic_icu_chartevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/chartevents.pq
 
-mimic.icu_datetimeevents:
+mimic.icu_datetimeevents@all: &mimic_icu_datetimeevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/datetimeevents.pq
 
-mimic.icu_d_items:
+mimic.icu_d_items@all: &mimic_icu_d_items
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/d_items.pq
 
-mimic.icu_icustays:
+mimic.icu_icustays@all: &mimic_icu_icustays
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/icustays.pq
 
-mimic.icu_inputevents:
+mimic.icu_inputevents@all: &mimic_icu_inputevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/inputevents.pq
 
-mimic.icu_outputevents:
+mimic.icu_outputevents@all: &mimic_icu_outputevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/outputevents.pq
 
-mimic.icu_procedureevents:
+mimic.icu_procedureevents@all: &mimic_icu_procedureevents
   <<: *mimic_pq
   filepath: ${base_location}/orig/intermediate/mimic/icu/procedureevents.pq
 
 #
 # Keys
 #
-# mimic.core_patients@keys:
-#   <<: *mimic_pq
-#   filepath: ${base_location}/orig/intermediate/mimic/core/patients.pq
-#   load_args:
-#     columns: [subject_id]
-    
 _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
-  # filepath: ${base_location}/orig/keys/mimic_keys_wrk.pq
+  layer: keys
+
+mimic.core_patients@keys:
+  <<: *mimic_core_patients
+  load_args:
+    columns: [subject_id]
 
 mimic.keys_all:
   <<: *mimic_keys
