@@ -4,16 +4,16 @@ _mimic_views: &mimic_views
 
 mimic_views.tab.admissions.main:
   <<: *mimic_views
-  filepath: ${base_location}/views/orig/mimic/tab/admissions/main.pq
+  filepath: ${base_location}/views/interim/mimic/tab/admissions/main.pq
 
 mimic_views.mm.core.patients:
   <<: *mimic_views
-  filepath: ${base_location}/views/orig/mimic/mm/core/patients.pq
+  filepath: ${base_location}/views/interim/mimic/mm/core/patients.pq
 
 mimic_views.mm.core.admissions:
   <<: *mimic_views
-  filepath: ${base_location}/views/orig/mimic/mm/core/admissions.pq
+  filepath: ${base_location}/views/interim/mimic/mm/core/admissions.pq
 
 mimic_views.mm.core.transfers:
   <<: *mimic_views
-  filepath: ${base_location}/views/orig/mimic/mm/core/transfers.pq
+  filepath: ${base_location}/views/interim/mimic/mm/core/transfers.pq
