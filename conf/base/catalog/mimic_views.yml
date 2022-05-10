@@ -2,18 +2,18 @@ _mimic_views: &mimic_views
   type: pandas.ParquetDataSet
   layer: primary
 
-mimic_views.tab.admissions.main:
+mimic_views.tab_admissions.table:
   <<: *mimic_views
-  filepath: ${base_location}/views/interim/mimic/tab/admissions/main.pq
+  filepath: ${base_location}/views/primary/mimic/tab/admissions.pq
 
-mimic_views.mm.core.patients:
+mimic_views.mm_core.patients:
   <<: *mimic_views
-  filepath: ${base_location}/views/interim/mimic/mm/core/patients.pq
+  filepath: ${base_location}/views/primary/mimic/mm/core/patients.pq
 
-mimic_views.mm.core.admissions:
+mimic_views.mm_core.admissions:
   <<: *mimic_views
-  filepath: ${base_location}/views/interim/mimic/mm/core/admissions.pq
+  filepath: ${base_location}/views/primary/mimic/mm/core/admissions.pq
 
-mimic_views.mm.core.transfers:
+mimic_views.mm_core.transfers:
   <<: *mimic_views
-  filepath: ${base_location}/views/interim/mimic/mm/core/transfers.pq
+  filepath: ${base_location}/views/primary/mimic/mm/core/transfers.pq

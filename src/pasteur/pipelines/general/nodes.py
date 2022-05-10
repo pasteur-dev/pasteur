@@ -1,8 +1,9 @@
 """
 This file contains nodes for general pre-processing of data.
 """
+from hashlib import new
 import logging
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -25,10 +26,13 @@ def split_keys(
         Dataframe series for each of the keys
     """
 
+    # Sort to ensure consistent split every time
+    # Dataframe should consist of up to 1 column (which is the key) or an index
     if keys.keys().empty:
         keys = keys.sort_values(by=keys.index.name)
     else:
-        keys = keys.sort_values(by=keys.keys()[0])
+        assert False, "Keys df should only have an index (0 columns)"
+        # keys = keys.sort_values(by=keys.keys()[0])
 
     r_wrk = params["wrk"]
     r_ref = params["ref"]
@@ -54,5 +58,24 @@ def split_keys(
     return wrk, ref, dev, val
 
 
-def filter_by_keys(**kwargs):
-    pass
+def filter_by_keys(*args):
+    assert len(args) > 1, "Keys/Data omitted/not provided"
+
+    keys: pd.DataFrame = args[-1]
+    tables: List[pd.DataFrame] = args[:-1]
+
+    # Sort to ensure consistent split every time
+    # Dataframe should consist of up to 1 column (which is the key) or an index
+    if keys.keys().empty:
+        col = keys.index.name
+    else:
+        assert False, "Keys df should only have an index (0 columns)"
+        # assert len.keys() == 1, "Keys df should only have one column"
+        # col = keys.keys()[0]
+
+    outputs = []
+    for table in tables:
+        new_table = table.join(keys, on=col)
+        outputs.append(new_table)
+
+    return outputs

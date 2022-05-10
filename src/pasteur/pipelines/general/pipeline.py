@@ -2,7 +2,7 @@
 This file contains pipelines for general pre-processing of data.
 """
 
-from .nodes import identity, split_keys
+from .nodes import split_keys
 
 from kedro.pipeline import Pipeline, node, pipeline
 

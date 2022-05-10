@@ -503,10 +503,6 @@ mimic.core_patients@keys:
   load_args:
     columns: [subject_id]
 
-mimic.keys_all:
-  <<: *mimic_keys
-  filepath: ${base_location}/orig/keys/mimic/keys.all.pq
-
 mimic.keys_wrk:
   <<: *mimic_keys
   filepath: ${base_location}/orig/keys/mimic/keys.wrk.pq

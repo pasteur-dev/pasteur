@@ -68,8 +68,9 @@ def create_pipeline_split_mimic_keys() -> Pipeline:
 
 def map_mimic_inputs(inputs: Set[str], transcode: str = "all") -> Dict[str, str]:
     def fix_mimic_import(i):
-        if i in mimic_tables_all:
-            return "mimic.%s@%s" % (i, transcode)
+        name = i.split(".")[-1]
+        if name in mimic_tables_all:
+            return "mimic.%s@%s" % (name, transcode)
         return i
 
     return {i: fix_mimic_import(i) for i in inputs}
