@@ -14,6 +14,7 @@
 _mimic_in_csv: &mimic_csv
   type: pandas.CSVDataSet
   layer: raw
+  filepath: ""
 
 mimic_iv@core_patients:
   <<: *mimic_csv
@@ -382,6 +383,7 @@ mimic_iv@icu_procedureevents:
 _mimic_pq: &mimic_pq
   type: pandas.ParquetDataSet
   layer: interim
+  filepath: ""
 
 mimic.core_patients@all: &mimic_core_patients
   <<: *mimic_pq
@@ -497,6 +499,7 @@ mimic.icu_procedureevents@all: &mimic_icu_procedureevents
 _mimic_keys: &mimic_keys
   type: pandas.ParquetDataSet
   layer: keys
+  filepath: ""
 
 mimic.core_patients@keys:
   <<: *mimic_core_patients
