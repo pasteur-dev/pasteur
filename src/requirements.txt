@@ -11,10 +11,10 @@ pytest-cov~=3.0
 pytest-mock>=1.7.1, <2.0
 pytest~=6.2
 
-kedro==0.18.0
+kedro==0.18.1
 kedro[pandas]
 kedro-viz
-sqlalchemy
-psycopg2-binary
 
 parquet-tools
+sdmetrics==0.4.1
+sdv
