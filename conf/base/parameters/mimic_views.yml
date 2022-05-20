@@ -1,2 +1,84 @@
-mimic_tab:
-  schema:
+# Metadata definition for sdv
+mimic_views.mm_core.metadata:
+  tables:
+    patients:
+      primary_key: subject_id
+      fields:
+        subject_id:
+          type: id
+          subtype: integer
+        gender:
+          type: categorical
+        anchor_age:
+          type: numerical
+          subtype: integer
+        anchor_year:
+          type: numerical
+          subtype: integer
+        anchor_year_group:
+          type: categorical
+        dod:
+          type: datetime
+
+    admissions:
+      primary_key: hadm_id
+      fields:
+        hadm_id:
+          type: id
+          subtype: integer
+        subject_id:
+          ref:
+            table: patients
+            field: subject_id
+          type: id
+          subtype: integer
+        admittime:
+          type: datetime
+        dischtime:
+          type: datetime
+        deathtime:
+          type: datetime
+        admission_type:
+          type: categorical
+        admission_location:
+          type: categorical
+        discharge_location:
+          type: categorical
+        insurance:
+          type: categorical
+        language:
+          type: categorical
+        marital_status:
+          type: categorical
+        ethnicity:
+          type: categorical
+        edregtime:
+          type: datetime
+        edouttime:
+          type: datetime
+        hospital_expire_flag:
+          type: categorical
+
+    transfers:
+      primary_key: transfer_id
+      fields:
+        subject_id:
+          type: id
+          subtype: integer
+        hadm_id:
+          ref:
+            table: admissions
+            field: hadm_id
+          type: id
+          subtype: integer
+        transfer_id:
+          type: id
+          subtype: integer
+        eventtype:
+          type: categorical
+        careunit:
+          type: categorical
+        intime:
+          type: datetime
+        outtime:
+          type: datetime

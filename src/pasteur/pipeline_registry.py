@@ -6,6 +6,7 @@ from kedro.pipeline import Pipeline, pipeline
 
 from .pipelines.mimic import create_pipeline as create_pipeline_mimic
 from .pipelines.mimic_views import create_pipeline as create_pipeline_mimic_views
+from .pipelines.synth import create_pipeline as create_pipeline_synth
 
 
 def register_pipelines() -> Dict[str, Pipeline]:
@@ -32,7 +33,9 @@ def register_pipelines() -> Dict[str, Pipeline]:
     }
 
     for name, pipe in mimic_views_pipelines.items():
-        pipelines[name] = pipe
-        pipelines["%s_full" % name] = pipe + create_pipeline_mimic(pipe.inputs())
+        pipelines[name] = create_pipeline_synth(name, pipe.outputs())
+        pipelines["%s_full" % name] = (
+            pipe + pipelines[name] + create_pipeline_mimic(pipe.inputs())
+        )
 
     return pipelines

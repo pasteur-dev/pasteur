@@ -46,4 +46,4 @@ def create_pipeline() -> Pipeline:
         for name, pipe in pipelines.items()
     }
 
-    return pipelines
+    return {"mimic_views.%s" % n: p for n, p in pipelines.items()}
