@@ -1,5 +1,6 @@
 """Project pipelines."""
 from typing import Dict
+from functools import reduce
 
 from kedro.pipeline import Pipeline, pipeline
 
@@ -14,13 +15,24 @@ def register_pipelines() -> Dict[str, Pipeline]:
         A mapping from a pipeline name to a ``Pipeline`` object.
     """
 
-    mimic_ingest_pipeline = create_pipeline_mimic()
-    mimic_views = create_pipeline_mimic_views()
-    mimic_pipeline = create_pipeline_mimic(mimic_views.inputs()) + mimic_views
+    ingest_pipeline = create_pipeline_mimic()
 
-    return {
-        "__default__": mimic_pipeline,
-        "mimic": mimic_pipeline,
-        "mimic_ingest": mimic_ingest_pipeline,
-        "mimic_experiment": mimic_views,
+    mimic_views_pipelines = create_pipeline_mimic_views()
+    mimic_views_pipelines_combined = reduce(
+        lambda a, b: a + b, mimic_views_pipelines.values(), pipeline([])
+    )
+    mimic_views_pipelines_combined += create_pipeline_mimic(
+        mimic_views_pipelines_combined.inputs()
+    )
+
+    pipelines = {
+        "__default__": mimic_views_pipelines_combined,
+        "ingest": ingest_pipeline,
+        "mimic_views": mimic_views_pipelines_combined,
     }
+
+    for name, pipe in mimic_views_pipelines.items():
+        pipelines[name] = pipe
+        pipelines["%s_full" % name] = pipe + create_pipeline_mimic(pipe.inputs())
+
+    return pipelines

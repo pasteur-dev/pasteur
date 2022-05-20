@@ -16,5 +16,4 @@ kedro[pandas]
 kedro-viz
 
 parquet-tools
-sdmetrics==0.4.1
 sdv

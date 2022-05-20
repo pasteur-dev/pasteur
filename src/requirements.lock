@@ -568,9 +568,7 @@ scipy==1.7.3
     #   scikit-learn
     #   sdmetrics
 sdmetrics==0.4.1
-    # via
-    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
-    #   sdv
+    # via sdv
 sdv==0.14.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 semver==2.13.0

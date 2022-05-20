@@ -7,6 +7,8 @@ from .nodes import mm_core_transform_tables, tab_join_tables
 
 
 def create_pipeline() -> Pipeline:
+    pipelines = {}
+
     tab_pipeline_m = modular_pipeline(
         pipe=pipeline(
             [
@@ -20,6 +22,7 @@ def create_pipeline() -> Pipeline:
         ),
         namespace="tab_admissions",
     )
+    pipelines["tab_admissions"] = tab_pipeline_m
 
     mm_core_pipeline_m = modular_pipeline(
         pipe=pipeline(
@@ -34,10 +37,13 @@ def create_pipeline() -> Pipeline:
         ),
         namespace="mm_core",
     )
+    pipelines["mm_core"] = mm_core_pipeline_m
 
-    combined_pipeline = tab_pipeline_m + mm_core_pipeline_m
-    return modular_pipeline(
-        combined_pipeline,
-        inputs=map_mimic_inputs(combined_pipeline.inputs()),
-        namespace="mimic_views",
-    )
+    pipelines = {
+        name: modular_pipeline(
+            pipe=pipe, inputs=map_mimic_inputs(pipe.inputs()), namespace="mimic_views"
+        )
+        for name, pipe in pipelines.items()
+    }
+
+    return pipelines

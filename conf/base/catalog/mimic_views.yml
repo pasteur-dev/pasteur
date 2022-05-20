@@ -1,6 +1,7 @@
 _mimic_views: &mimic_views
   type: pandas.ParquetDataSet
   layer: primary
+  filepath: ""
 
 mimic_views.tab_admissions.table:
   <<: *mimic_views

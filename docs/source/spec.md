@@ -113,8 +113,9 @@ pasteur/
       # Encoded is an intermediary form, where data has been processed using
       # transformers in a lossy reversible way and can be fed into a model
       encoded/
-        myview.<schema>.pq
-        myview.<schema>.dict.json
+        myview.<schema>/
+          timeseries.wrk.pq
+          core.wrk.pq
       # Decoded reverses the previous lossy encoding to bring the data to its
       # original form. This is useful because the transformer might bias the
       # data in some way. This would produce an unfair comparison if the algorithm
@@ -123,6 +124,8 @@ pasteur/
         myview.<schema>/
           timeseries.wrk.csv
           core.wrk.csv
+      transformers/
+        myview.<schema>.pkl
     synth/
       compressors/
         timeseries.pq/XXXXX00Z/timeseries.pq
