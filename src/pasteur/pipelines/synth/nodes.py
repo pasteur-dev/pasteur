@@ -6,32 +6,16 @@ from sdv.metadata import Metadata, Table
 import pandas as pd
 
 
-def transform_tables(metadata: Dict, **tables: pd.DataFrame):
-    metadata = Metadata(metadata)
-
-    transformers = {}
-    encoded = {}
-
-    for name, table in tables.items():
-        transformer = Table.from_dict(metadata.get_table_meta(name))
-        transformer.fit(table.reset_index())
-
-        transformers[name] = transformer
-        encoded[name] = transformer.transform(table)
-
-    encoded = {
-        name: metadata.get_table_meta(name).fit(table.reset_index())
-        for name, table in tables.items()
-    }
-    return {"transformers": transformers, **encoded}
+def fit_table(table: pd.DataFrame, metadata: Dict):
+    transformer = Table.from_dict(metadata)
+    transformer._dtype_transformers.update({"O": "categorical_fuzzy"})
+    transformer.fit(table.reset_index())
+    return transformer
 
 
-def reverse_transform_tables(transformers: Dict[str, Table], **encoded: pd.DataFrame):
-    return {
-        name: transformers[name].reverse_transform(table)
-        for name, table in encoded.items()
-    }
+def transform_table(table: pd.DataFrame, transformer: Table):
+    return transformer.transform(table.reset_index())
 
 
-def create_sdv_model(metadata: Metadata, **encoded: pd.DataFrame):
-    pass
+def reverse_transform_table(table: pd.DataFrame, transformer: Table):
+    return transformer.reverse_transform(table)
