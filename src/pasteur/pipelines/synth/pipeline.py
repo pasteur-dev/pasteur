@@ -17,21 +17,18 @@ def create_transform_pipeline(tables):
         table_nodes += [
             node(
                 func=fit_table,
-                inputs=["primary.%s" % t, "params:metadata.tables.%s" % t],
-                outputs="transformer.%s" % t,
-                namespace="transformer",
+                inputs=[t, "params:metadata.tables.%s" % t],
+                outputs="transformer_%s" % t,
             ),
             node(
                 func=transform_table,
-                inputs=["primary.%s" % t, "transformer.%s" % t],
-                outputs="encoded.%s" % t,
-                namespace="encoded",
+                inputs=[t, "transformer_%s" % t],
+                outputs="encoded_%s" % t,
             ),
             node(
                 func=reverse_transform_table,
-                inputs=["encoded.%s" % t, "transformer.%s" % t],
-                outputs="decoded.%s" % t,
-                namespace="decoded",
+                inputs=["encoded_%s" % t, "transformer_%s" % t],
+                outputs="decoded_%s" % t,
             ),
         ]
 
@@ -39,7 +36,6 @@ def create_transform_pipeline(tables):
 
 
 def create_pipeline(dataset: str, tables: Collection[str]) -> Pipeline:
-    table_mapping = {"primary.%s" % t.split(".")[-1]: t for t in tables}
     parameters = {
         "params:metadata.tables.%s"
         % t.split(".")[-1]: "params:%s.metadata.tables.%s"
@@ -49,7 +45,6 @@ def create_pipeline(dataset: str, tables: Collection[str]) -> Pipeline:
 
     return modular_pipeline(
         pipe=create_transform_pipeline(tables),
-        namespace="view",
-        inputs=table_mapping,
+        namespace=dataset,
         parameters=parameters,
     )

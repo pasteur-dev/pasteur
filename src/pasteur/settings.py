@@ -2,9 +2,14 @@
 from the Kedro defaults. For further information, including these default values, see
 https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
+base_location = "data/"
+
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-# HOOKS = (ProjectHooks(),)
+from .pipelines.synth import AddDatasetsForViewsHook
+from .pipelines.mimic_views import get_datasets
+
+HOOKS = (AddDatasetsForViewsHook(base_location, get_datasets()),)
 
 # Installed plugins for which to disable hook auto-registration.
 # DISABLE_HOOKS_FOR_PLUGINS = ("kedro-viz",)
@@ -28,7 +33,10 @@ from kedro.config import TemplatedConfigLoader
 
 CONFIG_LOADER_CLASS = TemplatedConfigLoader
 # Keyword arguments to pass to the `CONFIG_LOADER_CLASS` constructor.
-CONFIG_LOADER_ARGS = {"globals_pattern": "*globals.yml", "globals_dict": {}}
+CONFIG_LOADER_ARGS = {
+    "globals_pattern": "*globals.yml",
+    "globals_dict": {"base_location": base_location},
+}
 
 # Class that manages the Data Catalog.
 # from kedro.io import DataCatalog

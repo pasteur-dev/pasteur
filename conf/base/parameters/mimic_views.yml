@@ -1,5 +1,5 @@
 # Metadata definition for sdv
-mimic_views.mm_core.metadata:
+mimic_mm_core.metadata:
   tables:
     patients:
       primary_key: subject_id
