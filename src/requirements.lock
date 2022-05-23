@@ -535,6 +535,7 @@ qtpy==2.1.0
     # via qtconsole
 rdt==0.6.4
     # via
+    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   ctgan
     #   sdmetrics
     #   sdv

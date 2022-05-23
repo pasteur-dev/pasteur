@@ -1,21 +1,22 @@
 from __future__ import absolute_import
 from typing import Dict
-from sdv import sdv
-from sdv.metadata import Metadata, Table
+
+from rdt import HyperTransformer
 
 import pandas as pd
 
+from .transformers import IdHyperTransformer
+
 
 def fit_table(table: pd.DataFrame, metadata: Dict):
-    transformer = Table.from_dict(metadata)
-    transformer._dtype_transformers.update({"O": "categorical_fuzzy"})
-    transformer.fit(table.reset_index())
+    transformer = IdHyperTransformer(metadata=metadata)
+    transformer.fit(table)
     return transformer
 
 
-def transform_table(table: pd.DataFrame, transformer: Table):
-    return transformer.transform(table.reset_index())
+def transform_table(table: pd.DataFrame, transformer: HyperTransformer):
+    return transformer.transform(table)
 
 
-def reverse_transform_table(table: pd.DataFrame, transformer: Table):
+def reverse_transform_table(table: pd.DataFrame, transformer: HyperTransformer):
     return transformer.reverse_transform(table)

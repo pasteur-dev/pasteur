@@ -17,3 +17,4 @@ kedro-viz
 
 parquet-tools
 sdv
+rdt
