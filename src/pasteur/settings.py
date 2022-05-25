@@ -6,10 +6,11 @@ base_location = "data/"
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
+from pasteur.pipelines.synth.pipeline import get_algs
 from .pipelines.synth import AddDatasetsForViewsHook
 from .pipelines.mimic_views import get_datasets
 
-HOOKS = (AddDatasetsForViewsHook(base_location, get_datasets()),)
+HOOKS = (AddDatasetsForViewsHook(base_location, get_datasets(), get_algs()),)
 
 # Installed plugins for which to disable hook auto-registration.
 # DISABLE_HOOKS_FOR_PLUGINS = ("kedro-viz",)

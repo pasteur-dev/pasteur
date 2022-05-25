@@ -118,3 +118,7 @@ def create_pipeline(
     )
 
     return preprocess_mpipe + synth_mpipe
+
+
+def get_algs():
+    return ["hma1"]

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Collection, Dict
+from typing import Any, Collection, Dict, List, Union
 from os import path
 
 from kedro.framework.hooks import hook_impl
@@ -9,11 +9,18 @@ from kedro.extras.datasets.pickle import PickleDataSet
 
 
 class AddDatasetsForViewsHook:
-    def __init__(self, base_location, *datasets: Dict[str, Collection[str]]) -> None:
+    def __init__(
+        self, base_location, *info: Union[Dict[str, Collection[str]], List[str]]
+    ) -> None:
         self.base_location = base_location
         self.datasets = {}
-        for dataset in datasets:
-            self.datasets.update(dataset)
+        self.algs = []
+
+        for item in info:
+            if isinstance(item, dict):
+                self.datasets.update(item)
+            elif isinstance(item, list):
+                self.algs.extend(item)
 
     @property
     def _logger(self):
@@ -33,9 +40,9 @@ class AddDatasetsForViewsHook:
 
         for dataset, tables in self.datasets.items():
             for table in tables:
-                # Primarh dataset doesn't have prefix
+                # Add primary dataset tables
                 catalog.add(
-                    "%s.%s" % (dataset, table),
+                    "%s.view.%s" % (dataset, table),
                     ParquetDataSet(
                         path.join(
                             self.base_location,
@@ -48,32 +55,90 @@ class AddDatasetsForViewsHook:
                     ),
                 )
 
-                # For each materialized view table, add datasets for encoded, decoded forms
-                for type in ["encoded", "decoded"]:
+                # Add datasets for splits
+                for split in ["wrk"]:
                     catalog.add(
-                        "%s.%s_%s" % (dataset, type, table),
+                        "%s.%s.%s" % (dataset, split, table),
                         ParquetDataSet(
                             path.join(
                                 self.base_location,
                                 "views",
-                                type,
-                                dataset,
+                                "primary",
+                                "%s.%s" % (dataset, split),
                                 table + ".pq",
                             ),
                             save_args=save_args,
                         ),
                     )
 
-                # Add pickle dataset for transformers
+                    # For each materialized view table, add datasets for encoded, decoded forms
+                    for type in ["encoded", "decoded"]:
+                        catalog.add(
+                            "%s.%s.%s_%s" % (dataset, split, type, table),
+                            ParquetDataSet(
+                                path.join(
+                                    self.base_location,
+                                    "views",
+                                    type,
+                                    "%s.%s" % (dataset, split),
+                                    table + ".pq",
+                                ),
+                                save_args=save_args,
+                            ),
+                        )
+
+                    # Add pickle dataset for transformers
+                    catalog.add(
+                        "%s.%s.%s_%s" % (dataset, split, "transformer", table),
+                        PickleDataSet(
+                            path.join(
+                                self.base_location,
+                                "views",
+                                "transformer",
+                                "%s.%s" % (dataset, split),
+                                table + ".pkl",
+                            )
+                        ),
+                    )
+
+        for dataset, tables in self.datasets.items():
+            for alg in self.algs:
                 catalog.add(
-                    "%s.%s_%s" % (dataset, "transformer", table),
+                    "%s.%s.%s" % (dataset, alg, "model"),
                     PickleDataSet(
                         path.join(
                             self.base_location,
-                            "views",
-                            "transformer",
-                            dataset,
-                            table + ".pkl",
+                            "synth",
+                            "models",
+                            "%s.%s.pkl" % (dataset, alg),
                         )
                     ),
                 )
+                for table in tables:
+                    catalog.add(
+                        "%s.%s.%s_%s" % (dataset, alg, "encoded", table),
+                        ParquetDataSet(
+                            path.join(
+                                self.base_location,
+                                "synth",
+                                "encoded",
+                                "%s.%s" % (dataset, alg),
+                                table + ".pq",
+                            ),
+                            save_args=save_args,
+                        ),
+                    )
+
+                    catalog.add(
+                        "%s.%s.%s" % (dataset, alg, table),
+                        ParquetDataSet(
+                            path.join(
+                                self.base_location,
+                                "synth",
+                                "decoded",
+                                "%s.%s" % (dataset, alg),
+                                table + ".pq",
+                            ),
+                            save_args=save_args,
+                        ),
+                    )
