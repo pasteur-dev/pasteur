@@ -28,7 +28,9 @@ def reverse_transform_table(table: pd.DataFrame, transformer: HyperTransformer):
     return transformer.reverse_transform(table)
 
 
-def sdv_fit(metadata: Dict, **kwargs: pd.DataFrame):
+def synth_fit(alg: str, metadata: Dict, **kwargs: pd.DataFrame):
+    assert alg.lower() == "hma1"
+
     tables = kwargs
     metadata = Metadata(metadata)
 
@@ -38,5 +40,18 @@ def sdv_fit(metadata: Dict, **kwargs: pd.DataFrame):
     return model
 
 
-def sdv_sample(model: BaseRelationalModel):
+def synth_fit_closure(alg: str):
+    fun = lambda *args, **kwargs: synth_fit(alg, *args, **kwargs)
+    fun.__name__ = "fit_%s_model" % alg
+    return fun
+
+
+def synth_sample(alg: str, model: BaseRelationalModel):
+    assert alg.lower() == "hma1"
     return model.sample()
+
+
+def synth_sample_closure(alg: str):
+    fun = lambda *args, **kwargs: synth_sample(alg, *args, **kwargs)
+    fun.__name__ = "sample_with_%s" % alg
+    return fun

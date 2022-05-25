@@ -33,7 +33,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
     }
 
     for name, pipe in mimic_views_pipelines.items():
-        pipelines[name] = create_pipeline_synth("mimic", name, pipe.outputs())
+        pipelines[name] = create_pipeline_synth("mimic", name, "hma1", pipe.outputs())
         pipelines["%s_full" % name] = (
             pipe + pipelines[name] + create_pipeline_mimic(pipe.inputs())
         )

@@ -37,7 +37,7 @@ def create_pipeline() -> Dict[str, Pipeline]:
         % name: modular_pipeline(
             pipe=pipe,
             inputs=map_mimic_inputs(pipe.inputs()),
-            namespace="mimic_%s" % name,
+            namespace="mimic_%s.view" % name,
         )
         for name, pipe in pipelines.items()
     }
