@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from copy import deepcopy
 from curses import meta
 from importlib.metadata import metadata
 from statistics import median
@@ -31,8 +32,31 @@ def reverse_transform_table(table: pd.DataFrame, transformer: HyperTransformer):
 def synth_fit(alg: str, metadata: Dict, **kwargs: pd.DataFrame):
     assert alg.lower() == "hma1"
 
+    # Reset primary key index since sdv doesn't support indexes
     tables = kwargs
-    metadata = Metadata(metadata)
+    tables = {n: t.reset_index() for n, t in tables.items()}
+
+    # Create new metadata for transformed data
+    new_meta = deepcopy(metadata)
+
+    # Keep only IDs from previous dictionary
+    for name, old_dict in metadata["tables"].items():
+        new_dict = new_meta["tables"][name]
+
+        new_dict["fields"] = {
+            n: t for n, t in old_dict["fields"].items() if t["type"] == "id"
+        }
+
+    # Add all other inputs (already encoded) as float
+    for name, table in tables.items():
+        for col in table.keys():
+            if col not in new_meta["tables"][name]["fields"]:
+                new_meta["tables"][name]["fields"][col] = {
+                    "type": "numerical",
+                    "subtype": "float",
+                }
+
+    metadata = Metadata(new_meta)
 
     model = HMA1(metadata)
     model.fit(tables)

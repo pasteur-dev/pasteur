@@ -78,4 +78,4 @@ def filter_by_keys(*args):
         new_table = table.join(keys, on=col)
         outputs.append(new_table)
 
-    return outputs
+    return outputs if len(outputs) > 1 else outputs[0]
