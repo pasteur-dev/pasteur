@@ -41,8 +41,9 @@ class AddDatasetsForViewsHook:
         for dataset, tables in self.datasets.items():
             for table in tables:
                 # Add primary dataset tables
+                name = "%s.view.%s" % (dataset, table)
                 catalog.add(
-                    "%s.view.%s" % (dataset, table),
+                    name,
                     ParquetDataSet(
                         path.join(
                             self.base_location,
@@ -54,11 +55,13 @@ class AddDatasetsForViewsHook:
                         save_args=save_args,
                     ),
                 )
+                catalog.layers["primary"].add(name)
 
                 # Add datasets for splits
                 for split in ["wrk"]:
+                    name = "%s.%s.%s" % (dataset, split, table)
                     catalog.add(
-                        "%s.%s.%s" % (dataset, split, table),
+                        name,
                         ParquetDataSet(
                             path.join(
                                 self.base_location,
@@ -70,11 +73,13 @@ class AddDatasetsForViewsHook:
                             save_args=save_args,
                         ),
                     )
+                    catalog.layers["split"].add(name)
 
                     # For each materialized view table, add datasets for encoded, decoded forms
                     for type in ["encoded", "decoded"]:
+                        name = "%s.%s.%s_%s" % (dataset, split, type, table)
                         catalog.add(
-                            "%s.%s.%s_%s" % (dataset, split, type, table),
+                            name,
                             ParquetDataSet(
                                 path.join(
                                     self.base_location,
@@ -86,10 +91,12 @@ class AddDatasetsForViewsHook:
                                 save_args=save_args,
                             ),
                         )
+                        catalog.layers["split_%s" % type].add(name)
 
                     # Add pickle dataset for transformers
+                    name = "%s.%s.%s_%s" % (dataset, split, "transformer", table)
                     catalog.add(
-                        "%s.%s.%s_%s" % (dataset, split, "transformer", table),
+                        name,
                         PickleDataSet(
                             path.join(
                                 self.base_location,
@@ -100,11 +107,13 @@ class AddDatasetsForViewsHook:
                             )
                         ),
                     )
+                    catalog.layers["transformers"].add(name)
 
         for dataset, tables in self.datasets.items():
             for alg in self.algs:
+                name = "%s.%s.%s" % (dataset, alg, "model")
                 catalog.add(
-                    "%s.%s.%s" % (dataset, alg, "model"),
+                    name,
                     PickleDataSet(
                         path.join(
                             self.base_location,
@@ -114,9 +123,12 @@ class AddDatasetsForViewsHook:
                         )
                     ),
                 )
+                catalog.layers["synth_models"].add(name)
+
                 for table in tables:
+                    name = "%s.%s.%s_%s" % (dataset, alg, "encoded", table)
                     catalog.add(
-                        "%s.%s.%s_%s" % (dataset, alg, "encoded", table),
+                        name,
                         ParquetDataSet(
                             path.join(
                                 self.base_location,
@@ -128,9 +140,11 @@ class AddDatasetsForViewsHook:
                             save_args=save_args,
                         ),
                     )
+                    catalog.layers["synth_encoded"].add(name)
 
+                    name = "%s.%s.%s" % (dataset, alg, table)
                     catalog.add(
-                        "%s.%s.%s" % (dataset, alg, table),
+                        name,
                         ParquetDataSet(
                             path.join(
                                 self.base_location,
@@ -142,3 +156,4 @@ class AddDatasetsForViewsHook:
                             save_args=save_args,
                         ),
                     )
+                    catalog.layers["synth_decoded"].add(name)
