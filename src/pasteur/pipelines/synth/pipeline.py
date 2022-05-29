@@ -64,7 +64,7 @@ def create_synth_pipeline(alg: str, tables: List[str]):
             node(
                 func=synth_sample_closure(alg),
                 inputs="model",
-                outputs=["encoded_%s" % t for t in tables],
+                outputs={t: "encoded_%s" % t for t in tables},
             ),
         ]
     )

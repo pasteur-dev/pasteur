@@ -25,14 +25,14 @@ class IdHyperTransformer(HyperTransformer):
             self.ids = None
 
     def fit(self, data: pd.DataFrame):
-        super().fit(data.reset_index().drop(columns=self.ids))
+        super().fit(data.reset_index(drop=not data.index.name).drop(columns=self.ids))
 
     def _call_without_ids(
         self, data: pd.DataFrame, callback: Callable[[pd.DataFrame], pd.DataFrame]
     ):
         is_idx_key = self.primary_key and data.index.name == self.primary_key
 
-        data_new_idx = data.reset_index()
+        data_new_idx = data.reset_index(drop=not data.index.name)
         data_ids = data_new_idx[list(self.ids)]
         data_cols = data_new_idx.drop(columns=list(self.ids))
 

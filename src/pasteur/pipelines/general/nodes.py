@@ -75,7 +75,10 @@ def filter_by_keys(*args):
 
     outputs = []
     for table in tables:
-        new_table = table.join(keys, on=col)
+        idx = table.index.name
+        new_table = table.reset_index(drop=not idx).merge(keys, on=col)
+        if idx:
+            new_table.set_index(idx)
         outputs.append(new_table)
 
     return outputs if len(outputs) > 1 else outputs[0]

@@ -34,7 +34,7 @@ def synth_fit(alg: str, metadata: Dict, **kwargs: pd.DataFrame):
 
     # Reset primary key index since sdv doesn't support indexes
     tables = kwargs
-    tables = {n: t.reset_index() for n, t in tables.items()}
+    tables = {n: t.reset_index(drop=not t.index.name) for n, t in tables.items()}
 
     # Create new metadata for transformed data
     new_meta = deepcopy(metadata)
