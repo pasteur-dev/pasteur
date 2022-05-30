@@ -1,28 +1,16 @@
 from typing import Collection, List
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
-from pasteur.pipelines.general.nodes import filter_by_keys
 
-from pasteur.pipelines.synth.nodes import (
+from pasteur.pipelines.general.pipeline import create_split_pipeline
+
+from .nodes import (
     fit_table,
     synth_fit_closure,
     synth_sample_closure,
     transform_table,
     reverse_transform_table,
 )
-
-
-def create_split_pipeline(tables):
-    return pipeline(
-        [
-            node(
-                func=filter_by_keys,
-                inputs=["in_%s" % t, "keys"],
-                outputs=t,
-            )
-            for t in tables
-        ]
-    )
 
 
 def create_transform_pipeline(tables):
@@ -88,13 +76,11 @@ def create_pipeline(
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
 
-    preprocess_mpipe = modular_pipeline(
-        pipe=create_transform_pipeline(tables) + create_split_pipeline(tables),
+    split_mpipe = create_split_pipeline("wrk", dataset, view, tables)
+
+    transform_mpipe = modular_pipeline(
+        pipe=create_transform_pipeline(tables),
         namespace="%s.wrk" % view,
-        inputs={
-            "keys": "%s.keys_wrk" % dataset,
-            **{"in_%s" % t: "%s.view.%s" % (view, t) for t in tables},
-        },
         parameters={
             **{
                 "metadata.tables.%s" % t: "%s.metadata.tables.%s" % (view, t)
@@ -117,7 +103,7 @@ def create_pipeline(
         parameters={"metadata": "%s.metadata" % view},
     )
 
-    return preprocess_mpipe + synth_mpipe
+    return split_mpipe + transform_mpipe + synth_mpipe
 
 
 def get_algs():
