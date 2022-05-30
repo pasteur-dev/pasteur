@@ -16,6 +16,7 @@ logs/**
 # except their sub-folders
 !data/**/
 !logs/**/
+!data/**/readme.md
 
 # also keep all .gitkeep files
 !.gitkeep
