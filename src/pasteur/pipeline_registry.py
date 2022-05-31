@@ -19,7 +19,8 @@ def register_pipelines() -> Dict[str, Pipeline]:
     """
 
     pipelines = {}
-    pipe_ingest_all = create_pipeline_mimic()
+    pipe_ingest_datasets = create_pipeline_mimic()
+    pipe_ingest_views = pipeline([])
 
     mimic_views_pipelines = create_pipeline_mimic_views()
     for name, pipe in mimic_views_pipelines.items():
@@ -27,14 +28,16 @@ def register_pipelines() -> Dict[str, Pipeline]:
         pipe_split = create_split_pipeline("wrk", "mimic", name, pipe.outputs())
 
         pipe_ingest = pipe_input + pipe + pipe_split
-        pipe_ingest_all += pipe_ingest
+        pipe_ingest_views += pipe_ingest
         pipelines[f"{name}.ingest"] = pipe_ingest
 
         for alg in get_algs():
-            pipe_synth = create_pipeline_synth(name, "wrk", "hma1", pipe.outputs())
+            pipe_synth = create_pipeline_synth(name, "wrk", alg, pipe.outputs())
             pipelines[f"{name}.{alg}"] = pipe_synth
             pipelines[f"{name}.{alg}_full"] = pipe_ingest + pipe_synth
 
-    pipelines["__default__"] = pipelines["mimic_mm_core.hma1_full"]
-    pipelines["ingest"] = pipe_ingest_all
+    pipelines["__default__"] = pipelines["mimic_mm_core.hma1"]
+    pipelines["ingest"] = pipe_ingest_views + pipe_ingest_datasets
+    pipelines["ingest.datasets"] = pipe_ingest_datasets
+    pipelines["ingest.views"] = pipe_ingest_views
     return pipelines
