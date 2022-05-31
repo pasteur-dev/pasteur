@@ -4,14 +4,16 @@ https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from kedro_mlflow.framework.hooks import MlflowPipelineHook, MlflowNodeHook
+from kedro_mlflow.framework.hooks import MlflowPipelineHook
+
+from .pipelines.measure import CustomMlflowParameterHook
 from .pipelines.synth import AddDatasetsForViewsHook, get_algs
 from .pipelines.mimic_views import get_datasets
 
 HOOKS = (
     AddDatasetsForViewsHook(get_datasets(), get_algs()),
     MlflowPipelineHook(),
-    MlflowNodeHook(),  # Node hook logs parameters in a messy automatic way, should not be done automatically. Temp solution
+    CustomMlflowParameterHook(),
 )
 
 # Installed plugins for which to disable hook auto-registration.
