@@ -2,18 +2,20 @@
 from the Kedro defaults. For further information, including these default values, see
 https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
-base_location = "data/"
-
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from pasteur.pipelines.synth.pipeline import get_algs
-from .pipelines.synth import AddDatasetsForViewsHook
+from kedro_mlflow.framework.hooks import MlflowPipelineHook, MlflowNodeHook
+from .pipelines.synth import AddDatasetsForViewsHook, get_algs
 from .pipelines.mimic_views import get_datasets
 
-HOOKS = (AddDatasetsForViewsHook(base_location, get_datasets(), get_algs()),)
+HOOKS = (
+    AddDatasetsForViewsHook(get_datasets(), get_algs()),
+    MlflowPipelineHook(),
+    MlflowNodeHook(),  # Node hook logs parameters in a messy automatic way, should not be done automatically. Temp solution
+)
 
 # Installed plugins for which to disable hook auto-registration.
-# DISABLE_HOOKS_FOR_PLUGINS = ("kedro-viz",)
+DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow",)
 
 # Class that manages storing KedroSession data.
 from kedro.framework.session.store import ShelveStore
@@ -36,7 +38,7 @@ CONFIG_LOADER_CLASS = TemplatedConfigLoader
 # Keyword arguments to pass to the `CONFIG_LOADER_CLASS` constructor.
 CONFIG_LOADER_ARGS = {
     "globals_pattern": "*globals.yml",
-    "globals_dict": {"base_location": base_location},
+    "globals_dict": {},
 }
 
 # Class that manages the Data Catalog.

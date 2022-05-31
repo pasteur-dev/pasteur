@@ -2,6 +2,7 @@ import logging
 from typing import Any, Collection, Dict, List, Union
 from os import path
 
+from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.extras.datasets.pandas import ParquetDataSet
@@ -10,17 +11,19 @@ from kedro.extras.datasets.pickle import PickleDataSet
 
 class AddDatasetsForViewsHook:
     def __init__(
-        self, base_location, *info: Union[Dict[str, Collection[str]], List[str]]
+        self,
+        datasets: Dict[str, Collection[str]],
+        algs: Collection[str],
     ) -> None:
-        self.base_location = base_location
-        self.datasets = {}
-        self.algs = []
+        self.datasets = datasets
+        self.algs = algs
 
-        for item in info:
-            if isinstance(item, dict):
-                self.datasets.update(item)
-            elif isinstance(item, list):
-                self.algs.extend(item)
+    @hook_impl
+    def after_context_created(
+        self,
+        context: KedroContext,
+    ) -> None:
+        self.base_location = context.params["base_location"]
 
     @property
     def _logger(self):

@@ -167,3 +167,6 @@ venv.bak/
 
 # ShelveStore sessions
 sessions/
+
+# MLflwo dir
+mlruns/
