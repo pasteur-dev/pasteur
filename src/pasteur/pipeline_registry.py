@@ -28,7 +28,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
         pipe_split = create_split_pipeline("wrk", "mimic", name, pipe.outputs())
 
         pipe_ingest = pipe_input + pipe + pipe_split
-        pipe_ingest_views += pipe_ingest
+        pipe_ingest_views += pipe + pipe_split
         pipelines[f"{name}.ingest"] = pipe_ingest
 
         for alg in get_algs():
