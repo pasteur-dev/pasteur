@@ -19,18 +19,18 @@ def create_transform_pipeline(tables):
         table_nodes += [
             node(
                 func=fit_table,
-                inputs=[t, "params:metadata.tables.%s" % t],
-                outputs="transformer_%s" % t,
+                inputs=[t, f"params:metadata.tables.{t}"],
+                outputs=f"transformer_{t}",
             ),
             node(
                 func=transform_table,
-                inputs=[t, "transformer_%s" % t],
-                outputs="encoded_%s" % t,
+                inputs=[t, f"transformer_{t}"],
+                outputs=f"encoded_{t}",
             ),
             node(
                 func=reverse_transform_table,
-                inputs=["encoded_%s" % t, "transformer_%s" % t],
-                outputs="decoded_%s" % t,
+                inputs=[f"encoded_{t}", f"transformer_{t}"],
+                outputs=f"decoded_{t}",
             ),
         ]
 
@@ -45,14 +45,14 @@ def create_synth_pipeline(alg: str, tables: List[str]):
                 func=synth_fit_closure(alg),
                 inputs={
                     "metadata": "params:metadata",
-                    **{t: "in_%s" % t for t in tables},
+                    **{t: f"in_{t}" for t in tables},
                 },
                 outputs="model",
             ),
             node(
                 func=synth_sample_closure(alg),
                 inputs="model",
-                outputs={t: "encoded_%s" % t for t in tables},
+                outputs={t: f"encoded_{t}" for t in tables},
             ),
         ]
     )
@@ -61,7 +61,7 @@ def create_synth_pipeline(alg: str, tables: List[str]):
         [
             node(
                 func=reverse_transform_table,
-                inputs=["encoded_%s" % t, "transformer_%s" % t],
+                inputs=[f"encoded_{t}", f"transformer_{t}"],
                 outputs=t,
             )
             for t in tables
@@ -80,27 +80,21 @@ def create_pipeline(
 
     transform_mpipe = modular_pipeline(
         pipe=create_transform_pipeline(tables),
-        namespace="%s.wrk" % view,
+        namespace=f"{view}.wrk",
         parameters={
-            **{
-                "metadata.tables.%s" % t: "%s.metadata.tables.%s" % (view, t)
-                for t in tables
-            },
+            **{f"metadata.tables.{t}": f"{view}.metadata.tables.{t}" for t in tables},
         },
     )
 
     synth_pipe = create_synth_pipeline(alg, tables)
     synth_mpipe = modular_pipeline(
         pipe=synth_pipe,
-        namespace="%s.%s" % (view, alg),
+        namespace=f"{view}.{alg}",
         inputs={
-            **{"in_%s" % t: "%s.wrk.encoded_%s" % (view, t) for t in tables},
-            **{
-                "transformer_%s" % t: "%s.wrk.transformer_%s" % (view, t)
-                for t in tables
-            },
+            **{f"in_{t}": f"{view}.wrk.encoded_{t}" for t in tables},
+            **{f"transformer_{t}": f"{view}.wrk.transformer_{t}" for t in tables},
         },
-        parameters={"metadata": "%s.metadata" % view},
+        parameters={"metadata": f"{view}.metadata"},
     )
 
     return split_mpipe + transform_mpipe + synth_mpipe

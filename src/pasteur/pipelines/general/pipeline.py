@@ -12,9 +12,12 @@ def create_split_pipeline(split, dataset, view, tables):
         [
             node(
                 func=filter_by_keys,
-                inputs=["%s.view.%s" % (view, t), "%s.keys_%s" % (dataset, split)],
-                outputs="%s.%s.%s" % (view, split, t),
-                namespace="%s.%s" % (view, split),
+                inputs=[
+                    f"{view}.view.{t}",
+                    f"{dataset}.keys_{split}",
+                ],
+                outputs=f"{view}.{split}.{t}",
+                namespace=f"{view}.{split}",
             )
             for t in tables
         ]

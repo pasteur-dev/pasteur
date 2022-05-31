@@ -50,9 +50,9 @@ def create_intermediate_data(inputs: Optional[Set] = None) -> Pipeline:
         [
             node(
                 func=identity,
-                inputs=["mimic_iv@%s" % t],
-                outputs="%s@all" % t,
-                name="ingest_%s" % t,
+                inputs=[f"mimic_iv@{t}"],
+                outputs=f"{t}@all",
+                name=f"ingest_{t}",
             )
             for t in mimic_tables
         ]
@@ -70,7 +70,7 @@ def map_mimic_inputs(inputs: Set[str], transcode: str = "all") -> Dict[str, str]
     def fix_mimic_import(i):
         name = i.split(".")[-1]
         if name in mimic_tables_all:
-            return "mimic.%s@%s" % (name, transcode)
+            return f"mimic.{name}@{transcode}"
         return i
 
     return {i: fix_mimic_import(i) for i in inputs}
