@@ -2,7 +2,7 @@ from typing import Collection, Dict
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from pasteur.pipelines.mimic.pipeline import map_mimic_inputs
+from ..mimic import map_mimic_inputs
 
 from .nodes import mm_core_transform_tables, tab_join_tables
 

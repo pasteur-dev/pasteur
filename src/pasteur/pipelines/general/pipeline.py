@@ -8,6 +8,9 @@ from kedro.pipeline import Pipeline, node, pipeline
 
 
 def create_split_pipeline(split, dataset, view, tables):
+    assert split in ["wrk", "ref", "dev", "val"]
+    tables = [t.split(".")[-1] for t in tables]
+
     return pipeline(
         [
             node(

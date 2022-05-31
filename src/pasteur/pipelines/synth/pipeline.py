@@ -2,8 +2,6 @@ from typing import Collection, List
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from pasteur.pipelines.general.pipeline import create_split_pipeline
-
 from .nodes import (
     fit_table,
     synth_fit_closure,
@@ -72,15 +70,13 @@ def create_synth_pipeline(alg: str, tables: List[str]):
 
 
 def create_pipeline(
-    dataset: str, view: str, alg: str, tables: Collection[str]
+    view: str, split: str, alg: str, tables: Collection[str]
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
 
-    split_mpipe = create_split_pipeline("wrk", dataset, view, tables)
-
     transform_mpipe = modular_pipeline(
         pipe=create_transform_pipeline(tables),
-        namespace=f"{view}.wrk",
+        namespace=f"{view}.{split}",
         parameters={
             **{f"metadata.tables.{t}": f"{view}.metadata.tables.{t}" for t in tables},
         },
@@ -91,13 +87,13 @@ def create_pipeline(
         pipe=synth_pipe,
         namespace=f"{view}.{alg}",
         inputs={
-            **{f"in_{t}": f"{view}.wrk.encoded_{t}" for t in tables},
-            **{f"transformer_{t}": f"{view}.wrk.transformer_{t}" for t in tables},
+            **{f"in_{t}": f"{view}.{split}.encoded_{t}" for t in tables},
+            **{f"transformer_{t}": f"{view}.{split}.transformer_{t}" for t in tables},
         },
         parameters={"metadata": f"{view}.metadata"},
     )
 
-    return split_mpipe + transform_mpipe + synth_mpipe
+    return transform_mpipe + synth_mpipe
 
 
 def get_algs():

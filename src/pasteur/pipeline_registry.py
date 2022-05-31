@@ -7,6 +7,8 @@ from kedro.pipeline import Pipeline, pipeline
 from .pipelines.mimic import create_pipeline as create_pipeline_mimic
 from .pipelines.mimic_views import create_pipeline as create_pipeline_mimic_views
 from .pipelines.synth import create_pipeline as create_pipeline_synth
+from .pipelines.synth import get_algs
+from .pipelines.general import create_split_pipeline
 
 
 def register_pipelines() -> Dict[str, Pipeline]:
@@ -16,26 +18,23 @@ def register_pipelines() -> Dict[str, Pipeline]:
         A mapping from a pipeline name to a ``Pipeline`` object.
     """
 
-    ingest_pipeline = create_pipeline_mimic()
+    pipelines = {}
+    pipe_ingest_all = create_pipeline_mimic()
 
     mimic_views_pipelines = create_pipeline_mimic_views()
-    mimic_views_pipelines_combined = reduce(
-        lambda a, b: a + b, mimic_views_pipelines.values(), pipeline([])
-    )
-    mimic_views_pipelines_combined += create_pipeline_mimic(
-        mimic_views_pipelines_combined.inputs()
-    )
-
-    pipelines = {
-        "__default__": mimic_views_pipelines_combined,
-        "ingest": ingest_pipeline,
-        "mimic_views": mimic_views_pipelines_combined,
-    }
-
     for name, pipe in mimic_views_pipelines.items():
-        pipelines[name] = create_pipeline_synth("mimic", name, "hma1", pipe.outputs())
-        pipelines["%s_full" % name] = (
-            pipe + pipelines[name] + create_pipeline_mimic(pipe.inputs())
-        )
+        pipe_input = create_pipeline_mimic(pipe.inputs())
+        pipe_split = create_split_pipeline("wrk", "mimic", name, pipe.outputs())
 
+        pipe_ingest = pipe_input + pipe + pipe_split
+        pipe_ingest_all += pipe_ingest
+        pipelines[f"{name}.ingest"] = pipe_ingest
+
+        for alg in get_algs():
+            pipe_synth = create_pipeline_synth(name, "wrk", "hma1", pipe.outputs())
+            pipelines[f"{name}.{alg}"] = pipe_synth
+            pipelines[f"{name}.{alg}_full"] = pipe_ingest + pipe_synth
+
+    pipelines["__default__"] = pipelines["mimic_mm_core.hma1_full"]
+    pipelines["ingest"] = pipe_ingest_all
     return pipelines
