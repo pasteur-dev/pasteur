@@ -3,6 +3,7 @@ mimic_mm_core.metadata:
   tables:
     patients:
       primary_key: subject_id
+      target: anchor_age
       fields:
         subject_id:
           type: id
@@ -22,6 +23,7 @@ mimic_mm_core.metadata:
 
     admissions:
       primary_key: hadm_id
+      target: admission_type
       fields:
         hadm_id:
           type: id
@@ -61,6 +63,7 @@ mimic_mm_core.metadata:
 
     transfers:
       primary_key: transfer_id
+      target: eventtype
       fields:
         # subject_id:
         #   type: id

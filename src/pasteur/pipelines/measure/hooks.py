@@ -7,7 +7,6 @@ from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
-from kedro.pipeline.node import Node
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
 from kedro_mlflow.config import get_mlflow_config
