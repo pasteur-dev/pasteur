@@ -12,8 +12,8 @@ from .pipelines.mimic_views import get_datasets
 
 HOOKS = (
     AddDatasetsForViewsHook(get_datasets(), get_algs()),
-    MlflowPipelineHook(),
     CustomMlflowParameterHook(),
+    MlflowPipelineHook(),
 )
 
 # Installed plugins for which to disable hook auto-registration.
