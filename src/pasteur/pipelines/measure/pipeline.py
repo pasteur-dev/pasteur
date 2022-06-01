@@ -6,7 +6,10 @@ generated using Kedro 0.18.1
 from typing import Collection
 from kedro.pipeline import Pipeline, node, pipeline
 
-from pasteur.pipelines.measure.nodes import measure_sdmetrics_single_table
+from pasteur.pipelines.measure.nodes import (
+    measure_sdmetrics_multi_table,
+    measure_sdmetrics_single_table,
+)
 
 
 def create_pipeline(
@@ -26,5 +29,17 @@ def create_pipeline(
                 outputs=f"{view}.{alg}.metrics_sdst_{t}",
             )
             for t in tables
+        ]
+    ) + pipeline(
+        [
+            node(
+                func=measure_sdmetrics_multi_table,
+                inputs={
+                    "metadata": f"params:{view}.metadata",
+                    **{f"real.{t}": f"{view}.{split}.{t}" for t in tables},
+                    **{f"synth.{t}": f"{view}.{alg}.{t}" for t in tables},
+                },
+                outputs=f"{view}.{alg}.metrics_sdmt",
+            )
         ]
     )

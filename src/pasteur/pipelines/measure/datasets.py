@@ -13,10 +13,10 @@ from mlflow.tracking import MlflowClient
 class MlflowSDMetricsDataset(CSVDataSet):
     """Wraps a DataFrame SDMetrics result as a CSV artifact and logs the results as metrics"""
 
-    def __init__(self, table, local_path, artifact_path):
+    def __init__(self, prefix, local_path, artifact_path):
         super().__init__(filepath=local_path)
         self.run_id = None
-        self.table = table
+        self.prefix = prefix
         self.artifact_path = artifact_path
         self._logging_activated = True
 
@@ -36,7 +36,7 @@ class MlflowSDMetricsDataset(CSVDataSet):
             metric = row["metric"]
             score = row["raw_score"]
             if score and not isnan(score):
-                mlflow.log_metric(f"{self.table}.{metric}", score)
+                mlflow.log_metric(f"{self.prefix}.{metric}", score)
 
         # _get_save_path needs to be called before super, otherwise
         # it will throw exception that file under path already exist.

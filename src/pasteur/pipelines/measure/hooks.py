@@ -140,13 +140,25 @@ class CustomMlflowTrackingHook:
         # Add Mlflow Metrics Datasets
         for dataset, tables in self.datasets.items():
             for alg in [*self.algs, "ref"]:
+                #
+                name = f"{dataset}.{alg}.metrics_sdmt"
+                catalog.add(
+                    name,
+                    MlflowSDMetricsDataset(
+                        prefix="multi_table",
+                        local_path=f"{self.base_location}/reporting/cache/sdmetrics/multi_table.csv",
+                        artifact_path=f"sdmetrics",
+                    ),
+                )
+                catalog.layers["metrics"].add(name)
+
                 for table in tables:
                     for metric in ["sdst"]:
                         name = f"{dataset}.{alg}.metrics_{metric}_{table}"
                         catalog.add(
                             name,
                             MlflowSDMetricsDataset(
-                                table=table,
+                                prefix=table,
                                 local_path=f"{self.base_location}/reporting/cache/sdmetrics/single_table/{table}.csv",
                                 artifact_path=f"sdmetrics/single_table",
                             ),
