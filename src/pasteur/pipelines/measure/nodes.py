@@ -1,5 +1,21 @@
 from math import isnan
 import sdmetrics
+import pandas as pd
+
+
+def sdv_compat(table: pd.DataFrame) -> pd.DataFrame:
+    # Move primary key from index to column
+    table = table.reset_index(drop=not table.index.name)
+
+    # Convert Categorical columns to objects
+    categorical = {
+        field: "O"
+        for field, type in table.dtypes.items()
+        if isinstance(type, pd.CategoricalDtype)
+    }
+    table = table.astype(categorical)
+
+    return table
 
 
 def measure_sdmetrics_single_table(metadata, real, synthetic):
@@ -7,8 +23,8 @@ def measure_sdmetrics_single_table(metadata, real, synthetic):
 
     return sdmetrics.compute_metrics(
         metrics,
-        real.reset_index(drop=not real.index.name),
-        synthetic.reset_index(drop=not synthetic.index.name),
+        sdv_compat(real),
+        sdv_compat(synthetic),
         metadata=metadata,
     )
 
@@ -19,12 +35,14 @@ def measure_sdmetrics_multi_table(**kwargs):
     synth = {}
 
     for name, table in kwargs.items():
-        table = table.reset_index(drop=not table.index.name)
+        table = sdv_compat(table)
 
         if "real" in name:
-            real[name.replace("real.", "")] = table
+            name = name.replace("real.", "")
+            real[name] = table
         if "synth" in name:
-            synth[name.replace("synth.", "")] = table
+            name = name.replace("synth.", "")
+            synth[name] = table
 
     metrics = sdmetrics.multi_table.MultiTableMetric.get_subclasses()
 
