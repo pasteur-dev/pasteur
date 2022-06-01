@@ -1,6 +1,6 @@
 from copy import deepcopy
 import logging
-from typing import Any, Dict, Union
+from typing import Any, Collection, Dict, Union
 
 import mlflow
 from kedro.framework.context import KedroContext
@@ -12,9 +12,18 @@ from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 from kedro_mlflow.config import get_mlflow_config
 from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
 
+from pasteur.pipelines.measure.datasets import MlflowSDMetricsDataset
 
-class CustomMlflowParameterHook:
-    def __init__(self):
+
+class CustomMlflowTrackingHook:
+    def __init__(
+        self,
+        datasets: Dict[str, Collection[str]],
+        algs: Collection[str],
+    ):
+        self.datasets = datasets
+        self.algs = algs
+
         self.recursive = True
         self.sep = "."
         self.long_parameters_strategy = "fail"
@@ -37,6 +46,7 @@ class CustomMlflowParameterHook:
         """
         self.mlflow_config = get_mlflow_config(context)
         self.params = context.params
+        self.base_location = self.params["base_location"]
 
     @hook_impl
     def before_pipeline_run(
@@ -119,3 +129,26 @@ class CustomMlflowParameterHook:
                     f"Parameter '{name}' (value length {str_value_length}) is truncated to its {MAX_PARAM_VAL_LENGTH} first characters."
                 )
                 mlflow.log_param(name, str_value[0:MAX_PARAM_VAL_LENGTH])
+
+    @hook_impl
+    def after_catalog_created(
+        self,
+        catalog: DataCatalog,
+        conf_catalog: Dict[str, Any],
+        conf_creds: Dict[str, Any],
+    ) -> None:
+        # Add Mlflow Metrics Datasets
+        for dataset, tables in self.datasets.items():
+            for alg in [*self.algs, "ref"]:
+                for table in tables:
+                    for metric in ["sdst"]:
+                        name = f"{dataset}.{alg}.metrics_{metric}_{table}"
+                        catalog.add(
+                            name,
+                            MlflowSDMetricsDataset(
+                                table=table,
+                                local_path=f"{self.base_location}/reporting/cache/sdmetrics/single_table/{table}.csv",
+                                artifact_path=f"sdmetrics/single_table",
+                            ),
+                        )
+                        catalog.layers["metrics"].add(name)

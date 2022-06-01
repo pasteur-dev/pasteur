@@ -6,13 +6,14 @@ https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 # from iris_example.hooks import ProjectHooks
 from kedro_mlflow.framework.hooks import MlflowPipelineHook
 
-from .pipelines.measure import CustomMlflowParameterHook
+from .pipelines.measure import CustomMlflowTrackingHook
 from .pipelines.synth import AddDatasetsForViewsHook, get_algs
 from .pipelines.mimic_views import get_datasets
 
+datasets, algs = get_datasets(), get_algs()
 HOOKS = (
-    AddDatasetsForViewsHook(get_datasets(), get_algs()),
-    CustomMlflowParameterHook(),
+    AddDatasetsForViewsHook(datasets, algs),
+    CustomMlflowTrackingHook(datasets, algs),
     MlflowPipelineHook(),
 )
 

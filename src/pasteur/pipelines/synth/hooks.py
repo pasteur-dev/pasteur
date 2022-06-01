@@ -7,7 +7,6 @@ from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
-from kedro_mlflow.io.metrics.mlflow_metrics_dataset import MlflowMetricsDataSet
 
 
 class AddDatasetsForViewsHook:
@@ -161,10 +160,3 @@ class AddDatasetsForViewsHook:
                         ),
                     )
                     catalog.layers["synth_decoded"].add(name)
-
-            for alg in [*self.algs, "ref"]:
-                for table in tables:
-                    for metric in ["sdst"]:
-                        name = f"{dataset}.{alg}.metrics_{metric}_{table}"
-                        catalog.add(name, MlflowMetricsDataSet(prefix=table))
-                        catalog.layers["metrics"].add(name)
