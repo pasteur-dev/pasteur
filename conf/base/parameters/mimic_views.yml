@@ -65,9 +65,9 @@ mimic_mm_core.metadata:
       primary_key: transfer_id
       target: eventtype
       fields:
-        # subject_id:
-        #   type: id
-        #   subtype: integer
+        subject_id:
+          type: id
+          subtype: integer
         hadm_id:
           ref:
             table: admissions

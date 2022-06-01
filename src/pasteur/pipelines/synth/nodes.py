@@ -70,8 +70,26 @@ def synth_fit_closure(alg: str):
     return fun
 
 
-def synth_sample(alg: str, model: BaseRelationalModel):
+def synth_sample(alg: str, model: HMA1):
     assert alg.lower() == "hma1"
+
+    # Patch finalize to add stray keys not included by default
+    # FIXME: remove me when SDV is fixed
+    old_finalize = model._finalize
+    metadata = model.metadata
+
+    def new_finalize(sampled_data):
+        for name, table in sampled_data.items():
+            for field, data in metadata.get_fields(name).items():
+                if field == metadata.get_primary_key(name) or field in table:
+                    continue
+                if data["type"] == "id" and "ref" not in data:
+                    table[field] = range(len(table))
+
+        return old_finalize(sampled_data)
+
+    model._finalize = new_finalize
+
     return model.sample()
 
 
