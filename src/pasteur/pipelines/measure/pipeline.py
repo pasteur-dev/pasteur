@@ -12,7 +12,7 @@ from pasteur.pipelines.measure.nodes import (
 )
 
 
-def create_pipeline(
+def create_sdmetrics_pipeline(
     view: str, split: str, alg: str, tables: Collection[str]
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
@@ -43,3 +43,9 @@ def create_pipeline(
             )
         ]
     )
+
+
+def create_pipeline(
+    view: str, split: str, alg: str, tables: Collection[str]
+) -> Pipeline:
+    return pipeline([])

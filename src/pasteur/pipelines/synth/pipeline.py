@@ -4,8 +4,8 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .nodes import (
     fit_table,
-    synth_fit_closure,
-    synth_sample_closure,
+    synth_alg_get_fit,
+    synth_alg_get_sample,
     transform_table,
     reverse_transform_table,
 )
@@ -40,7 +40,7 @@ def create_synth_pipeline(alg: str, tables: List[str]):
     synth_pipe = pipeline(
         [
             node(
-                func=synth_fit_closure(alg),
+                func=synth_alg_get_fit(alg),
                 inputs={
                     "metadata": "params:metadata",
                     **{t: f"in_{t}" for t in tables},
@@ -48,7 +48,7 @@ def create_synth_pipeline(alg: str, tables: List[str]):
                 outputs="model",
             ),
             node(
-                func=synth_sample_closure(alg),
+                func=synth_alg_get_sample(alg),
                 inputs="model",
                 outputs={t: f"encoded_{t}" for t in tables},
             ),

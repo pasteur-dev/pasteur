@@ -1,14 +1,8 @@
 from __future__ import absolute_import
 from copy import deepcopy
-from curses import meta
-from importlib.metadata import metadata
-from statistics import median
 from typing import Dict
 
 from rdt import HyperTransformer
-from sdv.relational import HMA1
-from sdv.relational.base import BaseRelationalModel
-from sdv.metadata import Metadata
 
 import pandas as pd
 
@@ -29,8 +23,9 @@ def reverse_transform_table(table: pd.DataFrame, transformer: HyperTransformer):
     return transformer.reverse_transform(table)
 
 
-def synth_fit(alg: str, metadata: Dict, **kwargs: pd.DataFrame):
-    assert alg.lower() == "hma1"
+def hma1_fit(metadata: Dict, **kwargs: pd.DataFrame):
+    from sdv.relational import HMA1
+    from sdv.metadata import Metadata
 
     # Reset primary key index since sdv doesn't support indexes
     tables = kwargs
@@ -64,15 +59,12 @@ def synth_fit(alg: str, metadata: Dict, **kwargs: pd.DataFrame):
     return model
 
 
-def synth_fit_closure(alg: str):
-    fun = lambda *args, **kwargs: synth_fit(alg, *args, **kwargs)
-    fun.__name__ = "fit_%s_model" % alg
-    return fun
-
-
-def synth_sample(alg: str, model: HMA1):
+def synth_alg_get_fit(alg: str):
     assert alg.lower() == "hma1"
+    return hma1_fit
 
+
+def hma1_sample(model):
     # Patch finalize to add stray keys not included by default
     # FIXME: remove me when SDV is fixed
     old_finalize = model._finalize
@@ -93,7 +85,6 @@ def synth_sample(alg: str, model: HMA1):
     return model.sample()
 
 
-def synth_sample_closure(alg: str):
-    fun = lambda *args, **kwargs: synth_sample(alg, *args, **kwargs)
-    fun.__name__ = "sample_with_%s" % alg
-    return fun
+def synth_alg_get_sample(alg: str):
+    assert alg.lower() == "hma1"
+    return hma1_sample

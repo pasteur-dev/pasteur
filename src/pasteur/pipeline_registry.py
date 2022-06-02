@@ -21,7 +21,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
 
     pipelines = {}
     pipe_ingest_datasets = create_pipeline_mimic()
-    pipe_ingest_views = pipeline([])
+    pipe_ingest_views = create_pipeline_mimic(set())  # add key generation
 
     mimic_views_pipelines = create_pipeline_mimic_views()
     for name, pipe in mimic_views_pipelines.items():

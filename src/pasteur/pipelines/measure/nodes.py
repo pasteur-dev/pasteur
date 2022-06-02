@@ -1,5 +1,4 @@
 from math import isnan
-import sdmetrics
 import pandas as pd
 
 
@@ -19,6 +18,8 @@ def sdv_compat(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def measure_sdmetrics_single_table(metadata, real, synthetic):
+    import sdmetrics
+
     metrics = sdmetrics.single_table.SingleTableMetric.get_subclasses()
 
     return sdmetrics.compute_metrics(
@@ -30,6 +31,8 @@ def measure_sdmetrics_single_table(metadata, real, synthetic):
 
 
 def measure_sdmetrics_multi_table(**kwargs):
+    import sdmetrics
+
     metadata = kwargs.pop("metadata")
     real = {}
     synth = {}
