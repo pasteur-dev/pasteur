@@ -12,8 +12,6 @@ from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 from kedro_mlflow.config import get_mlflow_config
 from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
 
-from pasteur.pipelines.measure.datasets import MlflowSDMetricsDataset
-
 
 class CustomMlflowTrackingHook:
     def __init__(
@@ -129,38 +127,3 @@ class CustomMlflowTrackingHook:
                     f"Parameter '{name}' (value length {str_value_length}) is truncated to its {MAX_PARAM_VAL_LENGTH} first characters."
                 )
                 mlflow.log_param(name, str_value[0:MAX_PARAM_VAL_LENGTH])
-
-    @hook_impl
-    def after_catalog_created(
-        self,
-        catalog: DataCatalog,
-        conf_catalog: Dict[str, Any],
-        conf_creds: Dict[str, Any],
-    ) -> None:
-        # Add Mlflow Metrics Datasets
-        for dataset, tables in self.datasets.items():
-            for alg in [*self.algs, "ref"]:
-                #
-                name = f"{dataset}.{alg}.metrics_sdmt"
-                catalog.add(
-                    name,
-                    MlflowSDMetricsDataset(
-                        prefix="multi_table",
-                        local_path=f"{self.base_location}/reporting/cache/sdmetrics/multi_table.csv",
-                        artifact_path=f"sdmetrics",
-                    ),
-                )
-                catalog.layers["metrics"].add(name)
-
-                for table in tables:
-                    for metric in ["sdst"]:
-                        name = f"{dataset}.{alg}.metrics_{metric}_{table}"
-                        catalog.add(
-                            name,
-                            MlflowSDMetricsDataset(
-                                prefix=table,
-                                local_path=f"{self.base_location}/reporting/cache/sdmetrics/single_table/{table}.csv",
-                                artifact_path=f"sdmetrics/single_table",
-                            ),
-                        )
-                        catalog.layers["metrics"].add(name)
