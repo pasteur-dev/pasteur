@@ -6,8 +6,10 @@
 #
 aiofiles==0.6.0
     # via kedro-viz
-alembic==1.7.7
+alembic==1.8.0
     # via mlflow
+altair==4.2.0
+    # via great-expectations
 anyconfig==0.10.1
     # via kedro
 anyio==3.6.1
@@ -34,6 +36,10 @@ backcall==0.2.0
     # via ipython
 backports-cached-property==1.0.1
     # via strawberry-graphql
+backports-zoneinfo==0.2.1
+    # via
+    #   pytz-deprecation-shim
+    #   tzlocal
 beautifulsoup4==4.11.1
     # via nbconvert
 binaryornot==0.4.4
@@ -42,9 +48,9 @@ black==22.3.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 bleach==5.0.0
     # via nbconvert
-boto3==1.23.10
+boto3==1.24.1
     # via parquet-tools
-botocore==1.26.10
+botocore==1.27.1
     # via
     #   boto3
     #   s3transfer
@@ -55,7 +61,9 @@ cachetools==4.2.4
 certifi==2022.5.18.1
     # via requests
 cffi==1.15.0
-    # via argon2-cffi-bindings
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
 chardet==4.0.0
     # via binaryornot
 charset-normalizer==2.0.12
@@ -66,6 +74,7 @@ click==8.1.3
     #   cookiecutter
     #   databricks-cli
     #   flask
+    #   great-expectations
     #   kedro
     #   mlflow
     #   pip-tools
@@ -75,6 +84,7 @@ cloudpickle==2.1.0
     # via mlflow
 colorama==0.4.4
     # via
+    #   great-expectations
     #   halo
     #   log-symbols
     #   parquet-tools
@@ -86,6 +96,8 @@ copulas==0.7.0
     #   sdv
 coverage[toml]==6.4
     # via pytest-cov
+cryptography==36.0.2
+    # via great-expectations
 ctgan==0.5.1
     # via sdv
 cursor==1.3.4
@@ -110,6 +122,7 @@ dynaconf==3.1.8
     # via kedro
 entrypoints==0.4
     # via
+    #   altair
     #   jupyter-client
     #   mlflow
     #   nbconvert
@@ -174,6 +187,8 @@ graphql-core==3.2.1
     # via strawberry-graphql
 graphviz==0.20
     # via sdv
+great-expectations==0.15.7
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 greenlet==1.1.2
     # via sqlalchemy
 grpcio==1.46.3
@@ -199,6 +214,7 @@ importlib-metadata==4.11.4
     # via
     #   alembic
     #   flask
+    #   great-expectations
     #   jupyterlab-server
     #   mlflow
 importlib-resources==5.7.1
@@ -217,6 +233,7 @@ ipykernel==6.13.0
 ipython==7.34.0
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
+    #   great-expectations
     #   ipykernel
     #   ipywidgets
     #   jupyter-console
@@ -235,10 +252,12 @@ itsdangerous==2.1.2
     # via flask
 jedi==0.18.1
     # via ipython
-jinja2==3.1.2
+jinja2==3.0.3
     # via
+    #   altair
     #   cookiecutter
     #   flask
+    #   great-expectations
     #   jinja2-time
     #   jupyter-server
     #   jupyterlab
@@ -258,8 +277,14 @@ joblib==1.1.0
     #   scikit-learn
 json5==0.9.8
     # via jupyterlab-server
-jsonschema==4.5.1
+jsonpatch==1.32
+    # via great-expectations
+jsonpointer==2.3
+    # via jsonpatch
+jsonschema==4.6.0
     # via
+    #   altair
+    #   great-expectations
     #   jupyterlab-server
     #   nbformat
 jupyter==1.0.0
@@ -312,7 +337,7 @@ llvmlite==0.38.1
     # via numba
 log-symbols==0.0.14
     # via halo
-lxml==4.8.0
+lxml==4.9.0
     # via kedro
 mako==1.2.0
     # via alembic
@@ -330,14 +355,16 @@ matplotlib-inline==0.1.3
 mccabe==0.6.1
     # via flake8
 mistune==0.8.4
-    # via nbconvert
+    # via
+    #   great-expectations
+    #   nbconvert
 mlflow==1.26.1
     # via kedro-mlflow
 mypy-extensions==0.4.3
     # via black
 nbclassic==0.3.7
     # via jupyterlab
-nbclient==0.6.3
+nbclient==0.6.4
     # via nbconvert
 nbconvert==6.5.0
     # via
@@ -346,6 +373,7 @@ nbconvert==6.5.0
     #   notebook
 nbformat==5.4.0
     # via
+    #   great-expectations
     #   ipywidgets
     #   jupyter-server
     #   nbclient
@@ -364,6 +392,7 @@ networkx==2.8.2
     # via kedro-viz
 notebook==6.4.11
     # via
+    #   great-expectations
     #   jupyter
     #   nbclassic
     #   widgetsnbextension
@@ -375,10 +404,12 @@ numexpr==2.8.1
     # via tables
 numpy==1.22.4
     # via
+    #   altair
     #   copulas
     #   ctgan
     #   db-dtypes
     #   deepecho
+    #   great-expectations
     #   matplotlib
     #   mlflow
     #   numba
@@ -405,6 +436,7 @@ packaging==21.3
     #   ctgan
     #   db-dtypes
     #   google-cloud-bigquery
+    #   great-expectations
     #   ipykernel
     #   jupyter-server
     #   jupyterlab
@@ -418,10 +450,12 @@ packaging==21.3
     #   tables
 pandas==1.4.2
     # via
+    #   altair
     #   copulas
     #   ctgan
     #   db-dtypes
     #   deepecho
+    #   great-expectations
     #   kedro
     #   kedro-viz
     #   mlflow
@@ -529,8 +563,9 @@ pygments==2.12.0
     #   strawberry-graphql
 pyjwt==2.4.0
     # via databricks-cli
-pyparsing==3.0.9
+pyparsing==2.4.7
     # via
+    #   great-expectations
     #   matplotlib
     #   packaging
 pyrsistent==0.18.1
@@ -550,6 +585,7 @@ python-dateutil==2.8.2
     #   botocore
     #   faker
     #   google-cloud-bigquery
+    #   great-expectations
     #   jupyter-client
     #   matplotlib
     #   pandas
@@ -567,8 +603,11 @@ pyts==0.12.0
 pytz==2022.1
     # via
     #   babel
+    #   great-expectations
     #   mlflow
     #   pandas
+pytz-deprecation-shim==0.1.0.post0
+    # via tzlocal
 pyyaml==5.4.1
     # via
     #   kedro
@@ -600,6 +639,7 @@ requests==2.27.1
     #   docker
     #   google-api-core
     #   google-cloud-bigquery
+    #   great-expectations
     #   jupyterlab-server
     #   mlflow
     #   requests-oauthlib
@@ -610,7 +650,11 @@ rope==0.21.1
     # via kedro
 rsa==4.8
     # via google-auth
-s3transfer==0.5.2
+ruamel-yaml==0.17.17
+    # via great-expectations
+ruamel-yaml-clib==0.2.6
+    # via ruamel-yaml
+s3transfer==0.6.0
     # via boto3
 scikit-learn==1.1.1
     # via
@@ -621,6 +665,7 @@ scikit-learn==1.1.1
 scipy==1.7.3
     # via
     #   copulas
+    #   great-expectations
     #   mlflow
     #   pyts
     #   rdt
@@ -656,7 +701,7 @@ soupsieve==2.3.2.post1
     # via beautifulsoup4
 spinners==0.0.24
     # via halo
-sqlalchemy==1.4.36
+sqlalchemy==1.4.37
     # via
     #   alembic
     #   kedro
@@ -677,7 +722,9 @@ tabulate==0.8.9
 tenacity==8.0.1
     # via plotly
 termcolor==1.1.0
-    # via halo
+    # via
+    #   great-expectations
+    #   halo
 terminado==0.15.0
     # via
     #   jupyter-server
@@ -701,6 +748,8 @@ tomli==2.0.1
     #   black
     #   coverage
     #   pep517
+toolz==0.11.2
+    # via altair
 toposort==1.7
     # via kedro
 torch==1.11.0
@@ -722,8 +771,9 @@ tornado==6.1
 tqdm==4.64.0
     # via
     #   deepecho
+    #   great-expectations
     #   sdv
-traitlets==5.2.1.post0
+traitlets==5.2.2.post1
     # via
     #   ipykernel
     #   ipython
@@ -740,13 +790,19 @@ traitlets==5.2.1.post0
 typing-extensions==4.2.0
     # via
     #   black
+    #   great-expectations
     #   pydantic
     #   strawberry-graphql
     #   torch
     #   torchvision
+tzdata==2022.1
+    # via pytz-deprecation-shim
+tzlocal==4.2
+    # via great-expectations
 urllib3==1.26.9
     # via
     #   botocore
+    #   great-expectations
     #   requests
 uvicorn[standard]==0.17.6
     # via kedro-viz

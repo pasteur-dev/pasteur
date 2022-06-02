@@ -17,5 +17,7 @@ kedro-viz
 kedro-mlflow
 
 parquet-tools
+great_expectations
+
 sdv
 rdt
