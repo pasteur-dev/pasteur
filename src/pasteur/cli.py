@@ -6,6 +6,8 @@ import click
 from kedro.framework.cli.utils import CONTEXT_SETTINGS
 import logging
 
+from kedro.framework.startup import ProjectMetadata
+
 log = logging.getLogger(__name__)
 
 
@@ -88,25 +90,24 @@ def cli():
     default=False,
     help='Assume "yes" for all prompts.',
 )
-@click.option(
-    "--env",
-    "-e",
-    required=False,
-    default="local",
-    help="The environment within conf folder we want to retrieve.",
-)
 @click.pass_context
-def ge_cli(ctx: click.Context, v3_api: bool, assume_yes: bool, env: str) -> None:
+@click.pass_obj
+def ge_cli(
+    metadata: ProjectMetadata,
+    ctx: click.Context,
+    v3_api: bool,
+    assume_yes: bool,
+) -> None:
     """
     Great Expectations shunt to use kedro config loader. Use instead of `great_expectations` command.
     """
 
     # Avoid loading ge unless the command is run
     import os
-    from pathlib import Path
 
     from kedro.framework.session import KedroSession
     from kedro.framework.context import KedroContext
+    from kedro.framework.cli.utils import KedroCliError
     from kedro.framework.startup import bootstrap_project
 
     from great_expectations.data_context import DataContext
@@ -116,6 +117,15 @@ def ge_cli(ctx: click.Context, v3_api: bool, assume_yes: bool, env: str) -> None
     from great_expectations.data_context.types.base import (
         DataContextConfig,
     )
+
+    def _create_session(package_name: str, **kwargs):
+        kwargs.setdefault("save_on_close", False)
+        try:
+            return KedroSession.create(package_name, **kwargs)
+        except Exception as exc:
+            raise KedroCliError(
+                f"Unable to instantiate Kedro session.\nError: {exc}"
+            ) from exc
 
     # Add Context that loads from Kedro
     class KedroDataContext(DataContext):
@@ -169,14 +179,8 @@ def ge_cli(ctx: click.Context, v3_api: bool, assume_yes: bool, env: str) -> None
         def get_data_context_from_config_file(self) -> DataContext:
             return self._data_context
 
-    project_path = Path().cwd()
-    bootstrap_project(project_path)
-    with KedroSession.create(
-        project_path=project_path,
-        env=env,
-    ) as session:
-        context = session.load_context()
-        data_context = KedroDataContext(context)
+    context = _create_session(metadata.package_name).load_context()
+    data_context = KedroDataContext(context)
 
     ctx.obj = CLIStateShunt(
         v3_api=v3_api, data_context=data_context, assume_yes=assume_yes
