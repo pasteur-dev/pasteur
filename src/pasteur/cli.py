@@ -92,6 +92,13 @@ def cli():
     default=False,
     help='Assume "yes" for all prompts.',
 )
+@click.option(
+    "--env",
+    "-e",
+    required=False,
+    default=None,
+    help="The kedro environment that will be launched with the jupyter notebook.",
+)
 @click.pass_context
 @click.pass_obj
 def ge_cli(
@@ -99,10 +106,32 @@ def ge_cli(
     ctx: click.Context,
     v3_api: bool,
     assume_yes: bool,
+    env: str,
 ) -> None:
     """
     Great Expectations shunt to use kedro config loader. Use instead of `great_expectations` command.
     """
+
+    # Patch ge jupyter command to launch kedro lab in the beginning
+    import os
+    from kedro.framework.cli.jupyter import _create_kernel
+    from kedro.framework.cli.utils import python_call
+    from great_expectations.cli import toolkit
+
+    kernel_name = f"kedro_{metadata.package_name}"
+
+    def launch_jupyter_lab(*args, **kwargs):
+        _create_kernel(kernel_name, f"Kedro ({metadata.package_name})")
+
+        if env:
+            os.environ["KEDRO_ENV"] = env
+
+        python_call(
+            "jupyter",
+            ["lab", f"--MultiKernelManager.default_kernel_name={kernel_name}"],
+        )
+
+    toolkit.launch_jupyter_notebook = launch_jupyter_lab
 
     # Avoid loading ge unless the command is run
     from kedro.framework.session import KedroSession
