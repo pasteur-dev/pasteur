@@ -42,6 +42,11 @@ def dataset_to_datasource(datasets: List[str]) -> Dict[str, Dict[str, Dict[str, 
         if is_decoded:
             asset = asset.replace("decoded_", "")
 
+        # Join view with asset in name
+        # Since asset names are treated by ge as unique
+        # (ex. new expectations don't prefix data source)
+        asset = f"{datasource}.{asset}"
+
         if datasource not in datasources:
             datasources[datasource] = {}
 
