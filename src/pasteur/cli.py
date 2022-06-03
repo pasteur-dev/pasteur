@@ -109,7 +109,7 @@ def ge_cli(ctx: click.Context, v3_api: bool, assume_yes: bool, env: str) -> None
     from kedro.framework.context import KedroContext
     from kedro.framework.startup import bootstrap_project
 
-    from great_expectations import DataContext
+    from great_expectations.data_context import DataContext
     import great_expectations.exceptions as ge_exceptions
     from great_expectations.cli.cli import CLIState
     from great_expectations.cli.pretty_printing import cli_message
