@@ -15,6 +15,10 @@ config_version: 3
 # add a new datasource. Read more at https://docs.greatexpectations.io/docs/guides/connecting_to_your_data/connect_to_data_overview
 datasources: {}
 
+# Exclude kedro datasets if they contain any of the following
+kedro_dataset_filter:
+  ["keys_", "mimic_iv", "mimic.", "model", "transformer", "encoded"]
+
 # This config file supports variable substitution which enables: 1) keeping
 # secrets out of source control & 2) environment-based configuration changes
 # such as staging vs prod.

@@ -8,6 +8,8 @@ import logging
 
 from kedro.framework.startup import ProjectMetadata
 
+from pasteur.pipelines.measure.expectations.data_context import KedroDataContext
+
 log = logging.getLogger(__name__)
 
 
@@ -19,8 +21,8 @@ class CLI(click.MultiCommand):
             "checkpoint",
             "datasource",
             "docs",
-            "init",
-            "project",
+            # "init",
+            # "project",
             "store",
             "suite",
         ]
@@ -103,20 +105,12 @@ def ge_cli(
     """
 
     # Avoid loading ge unless the command is run
-    import os
-
     from kedro.framework.session import KedroSession
-    from kedro.framework.context import KedroContext
     from kedro.framework.cli.utils import KedroCliError
-    from kedro.framework.startup import bootstrap_project
 
     from great_expectations.data_context import DataContext
-    import great_expectations.exceptions as ge_exceptions
     from great_expectations.cli.cli import CLIState
     from great_expectations.cli.pretty_printing import cli_message
-    from great_expectations.data_context.types.base import (
-        DataContextConfig,
-    )
 
     def _create_session(package_name: str, **kwargs):
         kwargs.setdefault("save_on_close", False)
@@ -126,43 +120,6 @@ def ge_cli(
             raise KedroCliError(
                 f"Unable to instantiate Kedro session.\nError: {exc}"
             ) from exc
-
-    # Add Context that loads from Kedro
-    class KedroDataContext(DataContext):
-        def __init__(self, context: KedroContext):
-            self._context = context
-            super().__init__(context_root_dir=context.project_path)
-
-        def _load_project_config(self):
-            """
-            Loads the project config from kedro template files
-            """
-            config_commented_map_from_yaml = self._context.config_loader.get(
-                "expectations*", "*expectations*", "**/*expectations*"
-            )
-
-            try:
-                return DataContextConfig.from_commented_map(
-                    commented_map=config_commented_map_from_yaml
-                )
-            except ge_exceptions.InvalidDataContextConfigError:
-                # Just to be explicit about what we intended to catch
-                raise
-
-        def _save_project_config(self):
-            """Save the current project to expanded config file."""
-            MOD_CONFIG = "expectations.yml.new"
-            config_filepath = os.path.join(self._context.project_path, MOD_CONFIG)
-            # Do not overwrite config file
-            i = 1
-            while os.path.exists(config_filepath):
-                config_filepath = f"{config_filepath}-{i}"
-                i += 1
-
-            log.info(f"Saving modified config (expanded) to {config_filepath}")
-
-            with open(config_filepath, "w") as outfile:
-                self.config.to_yaml(outfile)
 
     # State shunt that overrides config file cmd
     class CLIStateShunt(CLIState):
@@ -185,8 +142,6 @@ def ge_cli(
     ctx.obj = CLIStateShunt(
         v3_api=v3_api, data_context=data_context, assume_yes=assume_yes
     )
-
-    # Add cls in command to avoid loading ge
 
     if v3_api:
         cli_message("Using v3 (Batch Request) API")

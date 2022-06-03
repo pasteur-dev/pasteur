@@ -1,6 +1,6 @@
 mimic:
   ratios:
     wrk: 0.004
-    ref: 0.004
-    val: 0.001
-    dev: 0.001
+    ref: 0.4
+    val: 0.1
+    dev: 0.1
