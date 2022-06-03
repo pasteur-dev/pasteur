@@ -1,7 +1,7 @@
 from copy import deepcopy
 import os
 import logging
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from kedro.framework.context import KedroContext
 
@@ -30,6 +30,30 @@ log = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 kedro_context = None
+kedro_assets = None
+
+
+def dataset_to_datasource(datasets: List[str]) -> Dict[str, Dict[str, Dict[str, str]]]:
+    """This function maps kedro datasets to datasources, assets, and tags used by ge"""
+    datasources = {}
+    for dataset in datasets:
+        datasource, split, asset = dataset.split(".")
+        is_decoded = "decoded_" in asset
+        if is_decoded:
+            asset = asset.replace("decoded_", "")
+
+        if datasource not in datasources:
+            datasources[datasource] = {}
+
+        if asset not in datasources[datasource]:
+            datasources[datasource][asset] = {}
+
+        datasources[datasource][asset][dataset] = {
+            "split": split,
+            "is_decoded": is_decoded,
+        }
+
+    return datasources
 
 
 class KedroDataConnector(DataConnector):
@@ -53,6 +77,8 @@ class KedroDataConnector(DataConnector):
         )
 
         self._name = datasource_name
+        global kedro_assets
+        self._assets = kedro_assets[datasource_name]
 
     def get_batch_data_and_metadata(
         self,
@@ -74,27 +100,41 @@ class KedroDataConnector(DataConnector):
     def build_batch_spec(
         self, batch_definition: BatchDefinition
     ) -> RuntimeDataBatchSpec:
+        global kedro_context
         batch_spec: BatchSpec = super().build_batch_spec(
             batch_definition=batch_definition
         )
-        batch_spec["batch_data"] = kedro_context.catalog.load(self._name)
+        asset = self._assets[batch_definition.data_asset_name]
+        found = False
+        for name, batch in asset.items():
+            if batch == batch_definition["batch_identifiers"]:
+                found = True
+                break
+        if not found:
+            logger.warning(
+                f"Batch matching IDs {str(batch_spec['batch_identifiers'])} not found, loading {name}."
+            )
+        batch_spec["batch_data"] = kedro_context.catalog.load(name)
         return RuntimeDataBatchSpec(batch_spec)
 
     def get_available_data_asset_names(self) -> List[str]:
-        return [self._name]
+        return list(self._assets.keys())
 
     def get_batch_definition_list_from_batch_request(
         self,
         batch_request: Union[BatchRequest, RuntimeBatchRequest],
     ) -> List[BatchDefinition]:
+        asset = self._assets[batch_request.data_asset_name]
         return [
             BatchDefinition(
                 datasource_name=self.datasource_name,
                 data_connector_name=self.name,
                 data_asset_name=batch_request.data_asset_name,
-                batch_identifiers=IDDict(batch_request.batch_identifiers or dict()),
+                batch_identifiers=IDDict(batch),
                 batch_spec_passthrough=batch_request.batch_spec_passthrough,
             )
+            for name, batch in asset.items()
+            if kedro_context.catalog.exists(name)
         ]
 
     def _generate_batch_spec_parameters_from_batch_definition(
@@ -104,8 +144,11 @@ class KedroDataConnector(DataConnector):
 
 
 class KedroDataContext(DataContext):
-    def __init__(self, context: KedroContext):
+    def __init__(
+        self, context: KedroContext, dataset_to_datasource=dataset_to_datasource
+    ):
         self._context = context
+        self._dataset_to_datasource = dataset_to_datasource
         global kedro_context
         if not kedro_context:
             kedro_context = context
@@ -134,8 +177,13 @@ class KedroDataContext(DataContext):
             )
 
             datasets = self._context.catalog.list()
+            datasets = [
+                name for name in datasets if not any(f in name for f in dataset_filter)
+            ]
+            global kedro_assets
+            kedro_assets = dataset_to_datasource(datasets)
 
-            datasources = {
+            datasources_spec = {
                 name: {
                     "name": name,
                     "class_name": "Datasource",
@@ -148,15 +196,14 @@ class KedroDataContext(DataContext):
                         "kedro": {
                             "class_name": "KedroDataConnector",
                             "module_name": "pasteur.pipelines.measure.expectations.data_context",
-                            # "batch_identifiers": ["default_identifier_name"],
+                            # "batch_identifiers": ["split", "is_decoded"],
                         },
                     },
                 }
-                for name in datasets
-                if not any(f in name for f in dataset_filter)
+                for name in kedro_assets.keys()
             }
 
-            config["datasources"] = {**config["datasources"], **datasources}
+            config["datasources"] = {**config["datasources"], **datasources_spec}
 
             return config
         except ge_exceptions.InvalidDataContextConfigError:
