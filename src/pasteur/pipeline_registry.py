@@ -37,17 +37,17 @@ def register_pipelines() -> Dict[str, Pipeline]:
 
         # Algorithm pipeline
         for alg in get_algs():
-            pipe_synth = create_pipeline_synth(
-                name, "wrk", alg, tables
-            ) + create_measure_pipeline(name, "wrk", alg, tables)
-            pipelines[f"{name}.{alg}"] = pipe_synth
-            pipelines[f"{name}.{alg}_full"] = pipe_ingest + pipe_synth
+            pipe_synth = create_pipeline_synth(name, "wrk", alg, tables)
+            pipe_measure = create_measure_pipeline(name, "wrk", alg, tables)
+            pipelines[f"{name}.{alg}"] = pipe_ingest + pipe_synth + pipe_measure
+            pipelines[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
+            pipelines[f"{name}.{alg}.measure"] = pipe_measure
 
         # Validation (sister dataset)
         pipe_ingest = pipe_input + pipe + pipe_split + pipe_split_ref
         pipe_measure = create_measure_pipeline(name, "wrk", "ref", tables)
-        pipelines[f"{name}.ref"] = pipe_measure
-        pipelines[f"{name}.ref_full"] = pipe_ingest + pipe_measure
+        pipelines[f"{name}.ref"] = pipe_ingest + pipe_measure
+        pipelines[f"{name}.ref.measure"] = pipe_measure
 
     pipelines["__default__"] = pipelines["mimic_mm_core.hma1"]
     pipelines["ingest"] = pipe_ingest_views + pipe_ingest_datasets
