@@ -13,6 +13,7 @@ nbformat and python are the only dependencies
 $ pip install nbformat
 """
 
+from copy import deepcopy
 import re
 import sys
 import argparse
@@ -64,7 +65,20 @@ def strip_output(nb):
                 cell["outputs"] = []
             else:
                 # Handle Nonsensitive outputs
-                pass
+                new_outs = []
+                for out in cell["outputs"]:
+                    if "text" in out:
+                        # Remove timestamps in logs to allow versioning
+                        new_out = deepcopy(out)
+                        new_out["text"] = re.sub(
+                            "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{3}",
+                            "2000-01-01 00:00:00,000",
+                            out["text"],
+                        )
+                    else:
+                        new_out = out
+                    new_outs.append(new_out)
+                cell["outputs"] = new_outs
 
     # Remove interpreter hash and kernelspec (contains info about kernel used)
     if "metadata" in nb:
