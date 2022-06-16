@@ -16,8 +16,8 @@ kedro[pandas]
 kedro-viz
 kedro-mlflow
 
+ipympl
 parquet-tools
-great_expectations
 
 sdv
 rdt

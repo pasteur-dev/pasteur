@@ -8,8 +8,6 @@ aiofiles==0.6.0
     # via kedro-viz
 alembic==1.8.0
     # via mlflow
-altair==4.2.0
-    # via great-expectations
 anyconfig==0.10.1
     # via kedro
 anyio==3.6.1
@@ -30,16 +28,12 @@ attrs==21.4.0
     # via
     #   jsonschema
     #   pytest
-babel==2.10.1
+babel==2.10.3
     # via jupyterlab-server
 backcall==0.2.0
     # via ipython
-backports-cached-property==1.0.1
+backports-cached-property==1.0.2
     # via strawberry-graphql
-backports-zoneinfo==0.2.1
-    # via
-    #   pytz-deprecation-shim
-    #   tzlocal
 beautifulsoup4==4.11.1
     # via nbconvert
 binaryornot==0.4.4
@@ -48,9 +42,9 @@ black==22.3.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 bleach==5.0.0
     # via nbconvert
-boto3==1.24.2
+boto3==1.24.10
     # via parquet-tools
-botocore==1.27.2
+botocore==1.27.10
     # via
     #   boto3
     #   s3transfer
@@ -58,12 +52,10 @@ cachetools==4.2.4
     # via
     #   google-auth
     #   kedro
-certifi==2022.5.18.1
+certifi==2022.6.15
     # via requests
 cffi==1.15.0
-    # via
-    #   argon2-cffi-bindings
-    #   cryptography
+    # via argon2-cffi-bindings
 chardet==4.0.0
     # via binaryornot
 charset-normalizer==2.0.12
@@ -74,7 +66,6 @@ click==8.1.3
     #   cookiecutter
     #   databricks-cli
     #   flask
-    #   great-expectations
     #   kedro
     #   mlflow
     #   pip-tools
@@ -82,9 +73,8 @@ click==8.1.3
     #   uvicorn
 cloudpickle==2.1.0
     # via mlflow
-colorama==0.4.4
+colorama==0.4.5
     # via
-    #   great-expectations
     #   halo
     #   log-symbols
     #   parquet-tools
@@ -96,17 +86,15 @@ copulas==0.7.0
     #   sdv
 coverage[toml]==6.4.1
     # via pytest-cov
-cryptography==36.0.2
-    # via great-expectations
 ctgan==0.5.1
     # via sdv
-cursor==1.3.4
+cursor==1.3.5
     # via halo
 cycler==0.11.0
     # via matplotlib
-databricks-cli==0.16.6
+databricks-cli==0.16.8
     # via mlflow
-db-dtypes==1.0.1
+db-dtypes==1.0.2
     # via pandas-gbq
 debugpy==1.6.0
     # via ipykernel
@@ -118,11 +106,10 @@ defusedxml==0.7.1
     # via nbconvert
 docker==5.0.3
     # via mlflow
-dynaconf==3.1.8
+dynaconf==3.1.9
     # via kedro
 entrypoints==0.4
     # via
-    #   altair
     #   jupyter-client
     #   mlflow
     #   nbconvert
@@ -150,30 +137,30 @@ gitpython==3.1.27
     # via
     #   kedro
     #   mlflow
-google-api-core[grpc]==2.8.1
+google-api-core[grpc]==2.8.2
     # via
     #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   pandas-gbq
-google-auth==2.6.6
+google-auth==2.8.0
     # via
     #   google-api-core
     #   google-auth-oauthlib
     #   google-cloud-core
     #   pandas-gbq
     #   pydata-google-auth
-google-auth-oauthlib==0.5.1
+google-auth-oauthlib==0.5.2
     # via
     #   pandas-gbq
     #   pydata-google-auth
-google-cloud-bigquery==3.1.0
+google-cloud-bigquery==3.2.0
     # via pandas-gbq
-google-cloud-bigquery-storage==2.13.1
+google-cloud-bigquery-storage==2.13.2
     # via
     #   google-cloud-bigquery
     #   pandas-gbq
-google-cloud-core==2.3.0
+google-cloud-core==2.3.1
     # via google-cloud-bigquery
 google-crc32c==1.3.0
     # via google-resumable-media
@@ -187,8 +174,6 @@ graphql-core==3.2.1
     # via strawberry-graphql
 graphviz==0.20
     # via sdv
-great-expectations==0.15.8
-    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 greenlet==1.1.2
     # via sqlalchemy
 grpcio==1.46.3
@@ -214,50 +199,52 @@ importlib-metadata==4.11.4
     # via
     #   alembic
     #   flask
-    #   great-expectations
     #   jupyterlab-server
     #   mlflow
-importlib-resources==5.7.1
+importlib-resources==5.8.0
     # via
     #   alembic
     #   jsonschema
 iniconfig==1.1.1
     # via pytest
-ipykernel==6.13.0
+ipykernel==6.15.0
     # via
     #   ipywidgets
     #   jupyter
     #   jupyter-console
     #   notebook
     #   qtconsole
+ipympl==0.9.1
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 ipython==7.34.0
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
-    #   great-expectations
     #   ipykernel
+    #   ipympl
     #   ipywidgets
     #   jupyter-console
     #   jupyterlab
     #   kedro-viz
 ipython-genutils==0.2.0
     # via
+    #   ipympl
     #   ipywidgets
     #   notebook
     #   qtconsole
 ipywidgets==7.7.0
-    # via jupyter
+    # via
+    #   ipympl
+    #   jupyter
 isort==5.10.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 itsdangerous==2.1.2
     # via flask
 jedi==0.18.1
     # via ipython
-jinja2==3.0.3
+jinja2==3.1.2
     # via
-    #   altair
     #   cookiecutter
     #   flask
-    #   great-expectations
     #   jinja2-time
     #   jupyter-server
     #   jupyterlab
@@ -277,19 +264,13 @@ joblib==1.1.0
     #   scikit-learn
 json5==0.9.8
     # via jupyterlab-server
-jsonpatch==1.32
-    # via great-expectations
-jsonpointer==2.3
-    # via jsonpatch
 jsonschema==4.6.0
     # via
-    #   altair
-    #   great-expectations
     #   jupyterlab-server
     #   nbformat
 jupyter==1.0.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
-jupyter-client==7.3.1
+jupyter-client==7.3.4
     # via
     #   ipykernel
     #   jupyter-console
@@ -308,13 +289,13 @@ jupyter-core==4.10.0
     #   nbformat
     #   notebook
     #   qtconsole
-jupyter-server==1.17.0
+jupyter-server==1.17.1
     # via
     #   jupyterlab
     #   jupyterlab-server
     #   nbclassic
     #   notebook-shim
-jupyterlab==3.4.2
+jupyterlab==3.4.3
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 jupyterlab-pygments==0.2.2
     # via nbconvert
@@ -331,7 +312,7 @@ kedro-mlflow==0.10.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 kedro-viz==4.6.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
-kiwisolver==1.4.2
+kiwisolver==1.4.3
     # via matplotlib
 llvmlite==0.38.1
     # via numba
@@ -347,7 +328,9 @@ markupsafe==2.1.1
     #   mako
     #   nbconvert
 matplotlib==3.5.2
-    # via copulas
+    # via
+    #   copulas
+    #   ipympl
 matplotlib-inline==0.1.3
     # via
     #   ipykernel
@@ -355,9 +338,7 @@ matplotlib-inline==0.1.3
 mccabe==0.6.1
     # via flake8
 mistune==0.8.4
-    # via
-    #   great-expectations
-    #   nbconvert
+    # via nbconvert
 mlflow==1.26.1
     # via kedro-mlflow
 mypy-extensions==0.4.3
@@ -373,7 +354,6 @@ nbconvert==6.5.0
     #   notebook
 nbformat==5.4.0
     # via
-    #   great-expectations
     #   ipywidgets
     #   jupyter-server
     #   nbclient
@@ -388,11 +368,10 @@ nest-asyncio==1.5.5
     #   jupyter-client
     #   nbclient
     #   notebook
-networkx==2.8.2
+networkx==2.8.4
     # via kedro-viz
-notebook==6.4.11
+notebook==6.4.12
     # via
-    #   great-expectations
     #   jupyter
     #   nbclassic
     #   widgetsnbextension
@@ -404,12 +383,11 @@ numexpr==2.8.1
     # via tables
 numpy==1.22.4
     # via
-    #   altair
     #   copulas
     #   ctgan
     #   db-dtypes
     #   deepecho
-    #   great-expectations
+    #   ipympl
     #   matplotlib
     #   mlflow
     #   numba
@@ -436,7 +414,6 @@ packaging==21.3
     #   ctgan
     #   db-dtypes
     #   google-cloud-bigquery
-    #   great-expectations
     #   ipykernel
     #   jupyter-server
     #   jupyterlab
@@ -450,12 +427,10 @@ packaging==21.3
     #   tables
 pandas==1.4.2
     # via
-    #   altair
     #   copulas
     #   ctgan
     #   db-dtypes
     #   deepecho
-    #   great-expectations
     #   kedro
     #   kedro-viz
     #   mlflow
@@ -464,11 +439,11 @@ pandas==1.4.2
     #   rdt
     #   sdmetrics
     #   sdv
-pandas-gbq==0.17.5
+pandas-gbq==0.17.6
     # via kedro
 pandocfilters==1.5.0
     # via nbconvert
-parquet-tools==0.2.10
+parquet-tools==0.2.11
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 parso==0.8.3
     # via jedi
@@ -482,13 +457,14 @@ pickleshare==0.7.5
     # via ipython
 pillow==9.1.1
     # via
+    #   ipympl
     #   matplotlib
     #   torchvision
 pip-tools==6.6.2
     # via kedro
 platformdirs==2.5.2
     # via black
-plotly==5.8.0
+plotly==5.8.2
     # via kedro-viz
 pluggy==1.0.0
     # via
@@ -501,13 +477,13 @@ prometheus-client==0.14.1
     #   jupyter-server
     #   notebook
     #   prometheus-flask-exporter
-prometheus-flask-exporter==0.20.1
+prometheus-flask-exporter==0.20.2
     # via mlflow
 prompt-toolkit==3.0.29
     # via
     #   ipython
     #   jupyter-console
-proto-plus==1.20.5
+proto-plus==1.20.6
     # via
     #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
@@ -515,6 +491,7 @@ protobuf==3.20.1
     # via
     #   google-api-core
     #   google-cloud-bigquery
+    #   google-cloud-bigquery-storage
     #   googleapis-common-protos
     #   grpcio-status
     #   mlflow
@@ -563,9 +540,8 @@ pygments==2.12.0
     #   strawberry-graphql
 pyjwt==2.4.0
     # via databricks-cli
-pyparsing==2.4.7
+pyparsing==3.0.9
     # via
-    #   great-expectations
     #   matplotlib
     #   packaging
 pyrsistent==0.18.1
@@ -585,7 +561,6 @@ python-dateutil==2.8.2
     #   botocore
     #   faker
     #   google-cloud-bigquery
-    #   great-expectations
     #   jupyter-client
     #   matplotlib
     #   pandas
@@ -603,11 +578,8 @@ pyts==0.12.0
 pytz==2022.1
     # via
     #   babel
-    #   great-expectations
     #   mlflow
     #   pandas
-pytz-deprecation-shim==0.1.0.post0
-    # via tzlocal
 pyyaml==5.4.1
     # via
     #   kedro
@@ -616,11 +588,12 @@ pyyaml==5.4.1
     #   uvicorn
 pyzmq==23.1.0
     # via
+    #   ipykernel
     #   jupyter-client
     #   jupyter-server
     #   notebook
     #   qtconsole
-qtconsole==5.3.0
+qtconsole==5.3.1
     # via jupyter
 qtpy==2.1.0
     # via qtconsole
@@ -632,14 +605,13 @@ rdt==0.6.4
     #   ctgan
     #   sdmetrics
     #   sdv
-requests==2.27.1
+requests==2.28.0
     # via
     #   cookiecutter
     #   databricks-cli
     #   docker
     #   google-api-core
     #   google-cloud-bigquery
-    #   great-expectations
     #   jupyterlab-server
     #   mlflow
     #   requests-oauthlib
@@ -650,10 +622,6 @@ rope==0.21.1
     # via kedro
 rsa==4.8
     # via google-auth
-ruamel-yaml==0.17.17
-    # via great-expectations
-ruamel-yaml-clib==0.2.6
-    # via ruamel-yaml
 s3transfer==0.6.0
     # via boto3
 scikit-learn==1.1.1
@@ -665,7 +633,6 @@ scikit-learn==1.1.1
 scipy==1.7.3
     # via
     #   copulas
-    #   great-expectations
     #   mlflow
     #   pyts
     #   rdt
@@ -711,7 +678,7 @@ sqlparse==0.4.2
     # via mlflow
 starlette==0.14.2
     # via fastapi
-strawberry-graphql==0.114.0
+strawberry-graphql==0.114.2
     # via kedro-viz
 tables==3.7.0
     # via kedro
@@ -722,9 +689,7 @@ tabulate==0.8.9
 tenacity==8.0.1
     # via plotly
 termcolor==1.1.0
-    # via
-    #   great-expectations
-    #   halo
+    # via halo
 terminado==0.15.0
     # via
     #   jupyter-server
@@ -748,8 +713,6 @@ tomli==2.0.1
     #   black
     #   coverage
     #   pep517
-toolz==0.11.2
-    # via altair
 toposort==1.7
     # via kedro
 torch==1.11.0
@@ -771,11 +734,11 @@ tornado==6.1
 tqdm==4.64.0
     # via
     #   deepecho
-    #   great-expectations
     #   sdv
-traitlets==5.2.2.post1
+traitlets==5.3.0
     # via
     #   ipykernel
+    #   ipympl
     #   ipython
     #   ipywidgets
     #   jupyter-client
@@ -790,19 +753,13 @@ traitlets==5.2.2.post1
 typing-extensions==4.2.0
     # via
     #   black
-    #   great-expectations
     #   pydantic
     #   strawberry-graphql
     #   torch
     #   torchvision
-tzdata==2022.1
-    # via pytz-deprecation-shim
-tzlocal==4.2
-    # via great-expectations
 urllib3==1.26.9
     # via
     #   botocore
-    #   great-expectations
     #   requests
 uvicorn[standard]==0.17.6
     # via kedro-viz
