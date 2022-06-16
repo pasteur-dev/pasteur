@@ -15,8 +15,6 @@ $ pip install nbformat
 
 import re
 import sys
-from io import StringIO
-import codecs
 import argparse
 
 py2 = True
@@ -61,7 +59,7 @@ def strip_output(nb):
             cell["metadata"]["ExecuteTime"] = {}
 
         if "outputs" in cell:
-            if "source" in cell and re.search("(--|#) ?sensitive", cell["source"]):
+            if "source" in cell and re.search("(--|#) ?[Ss]ensitive", cell["source"]):
                 # Remove sensitive outputs (which contain comment)
                 cell["outputs"] = []
             else:
