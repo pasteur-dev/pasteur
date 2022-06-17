@@ -59,6 +59,9 @@ def strip_output(nb):
         if "metadata" in cell and "ExecuteTime" in cell["metadata"]:
             cell["metadata"]["ExecuteTime"] = {}
 
+        # Hide execution number
+        cell.pop("execution_count", None)
+
         if "outputs" in cell:
             if "source" in cell and re.search("(--|#) ?[Ss]ensitive", cell["source"]):
                 # Remove sensitive outputs (which contain comment)
