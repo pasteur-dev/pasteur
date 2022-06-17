@@ -8,6 +8,7 @@ https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 import logging
 
 logging.getLogger().setLevel(logging.ERROR)
+logging.captureWarnings(True)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
