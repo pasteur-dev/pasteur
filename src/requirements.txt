@@ -17,6 +17,8 @@ kedro-viz
 kedro-mlflow
 
 ipympl
+ipywidgets
+
 parquet-tools
 
 sdv
