@@ -27,12 +27,18 @@ def split_keys(
     """
 
     # Sort to ensure consistent split every time
-    # Dataframe should consist of up to 1 column (which is the key) or an index
+    # Dataframe should consist of one column that is the index
     if keys.keys().empty:
-        keys = keys.sort_values(by=keys.index.name)
+        # If DataFrame is empty assume index is key
+        assert keys.index.name, "No index column available"
+    elif keys.index.name:
+        # If index has a name, assume it is the key and drop other columns
+        keys = keys[[]]
     else:
-        assert False, "Keys df should only have an index (0 columns)"
-        # keys = keys.sort_values(by=keys.keys()[0])
+        # Otherwise, pick first column as index and drop the others
+        keys.set_index(keys.columns[0])[[]]
+
+    keys = keys.sort_values(by=keys.index.name)
 
     r_wrk = params["wrk"]
     r_ref = params["ref"]

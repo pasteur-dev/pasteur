@@ -51,7 +51,7 @@ def create_intermediate_data(inputs: Optional[Set] = None) -> Pipeline:
             node(
                 func=identity,
                 inputs=[f"mimic_iv@{t}"],
-                outputs=f"{t}@all",
+                outputs=t,
                 name=f"ingest_{t}",
             )
             for t in mimic_tables
@@ -62,15 +62,15 @@ def create_intermediate_data(inputs: Optional[Set] = None) -> Pipeline:
 
 def create_pipeline_split_mimic_keys() -> Pipeline:
     return modular_pipeline(
-        pipeline([create_node_split_keys()]), inputs={"keys_all": "core_patients@keys"}
+        pipeline([create_node_split_keys()]), inputs={"keys_all": "core_patients"}
     )
 
 
-def map_mimic_inputs(inputs: Set[str], transcode: str = "all") -> Dict[str, str]:
+def map_mimic_inputs(inputs: Set[str]) -> Dict[str, str]:
     def fix_mimic_import(i):
         name = i.split(".")[-1]
         if name in mimic_tables_all:
-            return f"mimic.{name}@{transcode}"
+            return f"mimic.{name}"
         return i
 
     return {i: fix_mimic_import(i) for i in inputs}
