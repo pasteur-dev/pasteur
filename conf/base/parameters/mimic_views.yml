@@ -16,9 +16,9 @@ mimic_mm_core.metadata:
         anchor_year_group:
           type: categorical
         dod:
-          type: datetime
+          type: timespan
         aod:
-          type: datetime
+          type: timespan
 
     admissions:
       primary_key: hadm_id
@@ -44,11 +44,11 @@ mimic_mm_core.metadata:
           type: id
           subtype: integer
         admittime:
-          type: datetime
+          type: timespan
         dischtime:
-          type: datetime
+          type: timespan
         deathtime:
-          type: datetime
+          type: timespan
         admission_type:
           type: categorical
         admission_location:
@@ -64,9 +64,9 @@ mimic_mm_core.metadata:
         ethnicity:
           type: categorical
         edregtime:
-          type: datetime
+          type: timespan
         edouttime:
-          type: datetime
+          type: timespan
         hospital_expire_flag:
           type: categorical
 
@@ -91,6 +91,6 @@ mimic_mm_core.metadata:
         careunit:
           type: categorical
         intime:
-          type: datetime
+          type: timespan
         outtime:
-          type: datetime
+          type: timespan
