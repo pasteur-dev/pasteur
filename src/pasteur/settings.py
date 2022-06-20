@@ -12,8 +12,6 @@ logging.captureWarnings(True)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from kedro_mlflow.framework.hooks import MlflowPipelineHook
-
 from .pipelines.measure import CustomMlflowTrackingHook
 from .pipelines.synth import AddDatasetsForViewsHook, get_algs
 from .pipelines.mimic_views import get_datasets
@@ -22,7 +20,6 @@ datasets, algs = get_datasets(), get_algs()
 HOOKS = (
     AddDatasetsForViewsHook(datasets, algs),
     CustomMlflowTrackingHook(datasets, algs),
-    MlflowPipelineHook(),
 )
 
 # Installed plugins for which to disable hook auto-registration.
