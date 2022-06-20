@@ -60,7 +60,16 @@ def mm_core_transform_tables(
     patients: pd.DataFrame, admissions: pd.DataFrame, transfers: pd.DataFrame
 ):
 
-    patients_new = patients.drop(labels=["anchor_year"], axis=1)
+    patients_new = patients.drop(labels=["anchor_year", "dod"], axis=1).copy(deep=False)
+    patients_new["aod"] = (
+        patients["dod"].dt.year.astype("Int64")
+        - patients["anchor_year"]
+        + patients["anchor_age"]
+    )
+    patients_new["dod"] = patients["dod"] - pd.to_datetime(
+        patients["anchor_year"], format="%Y"
+    )
+
     admissions_new = patients_mk_dates_relative(admissions, patients)
     transfers_new = admissions_mk_dates_relative(transfers, admissions)
 
