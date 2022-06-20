@@ -13,12 +13,11 @@ mimic_mm_core.metadata:
         anchor_age:
           type: numerical
           subtype: integer
-        anchor_year:
-          type: numerical
-          subtype: integer
         anchor_year_group:
           type: categorical
         dod:
+          type: datetime
+        aod:
           type: datetime
 
     admissions:
