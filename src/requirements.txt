@@ -21,3 +21,8 @@ pyarrow
 
 sdv
 rdt
+
+pandas
+numpy
+scipy
+scikit-learn

@@ -331,6 +331,7 @@ numba==0.55.2
     # via pyts
 numpy==1.22.4
     # via
+    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   copulas
     #   ctgan
     #   deepecho
@@ -363,6 +364,7 @@ packaging==21.3
     #   qtpy
 pandas==1.4.2
     # via
+    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   copulas
     #   ctgan
     #   deepecho
@@ -527,12 +529,14 @@ s3transfer==0.6.0
     # via boto3
 scikit-learn==1.1.1
     # via
+    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   ctgan
     #   pyts
     #   rdt
     #   sdmetrics
 scipy==1.7.3
     # via
+    #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   copulas
     #   mlflow
     #   pyts
