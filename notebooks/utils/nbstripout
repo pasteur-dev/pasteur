@@ -60,7 +60,8 @@ def strip_output(nb):
             cell["metadata"]["ExecuteTime"] = {}
 
         # Hide execution number
-        cell.pop("execution_count", None)
+        if "execution_count" in cell:
+            cell["execution_count"] = None
 
         if "outputs" in cell:
             if "source" in cell and re.search("(--|#) ?[Ss]ensitive", cell["source"]):
