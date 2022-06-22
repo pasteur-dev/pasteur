@@ -43,18 +43,20 @@ def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.Data
 def mm_core_transform_tables(
     patients: pd.DataFrame, admissions: pd.DataFrame, transfers: pd.DataFrame
 ):
-    # Calculate rel patient date
-    birth_year = patients["anchor_year"] - patients["anchor_age"]
-    birth_year_date = pd.to_datetime(birth_year, format="%Y")
+    # # Calculate rel patient date
+    # birth_year = patients["anchor_year"] - patients["anchor_age"]
+    # birth_year_date = pd.to_datetime(birth_year, format="%Y")
 
-    patients_new = patients.drop(
-        labels=["anchor_year", "anchor_age", "dod"], axis=1
-    ).copy(deep=False)
-    patients_new["death_age"] = patients["dod"].dt.year.astype("Int64") - birth_year
-    patients_new["death_date"] = patients["dod"] - birth_year_date
-    patients_new.rename(columns={"anchor_year_group": "year_group"}, inplace=True)
+    # patients_new = patients.drop(
+    #     labels=["anchor_year", "anchor_age", "dod"], axis=1
+    # ).copy(deep=False)
+    # patients_new["death_age"] = patients["dod"].dt.year.astype("Int64") - birth_year
+    # patients_new["death_date"] = patients["dod"] - birth_year_date
+    # patients_new.rename(columns={"anchor_year_group": "year_group"}, inplace=True)
 
-    admissions_new = mk_dates_relative(admissions, "subject_id", birth_year_date)
-    transfers_new = mk_dates_relative(transfers, "hadm_id", admissions["admittime"])
+    # admissions_new = mk_dates_relative(admissions, "subject_id", birth_year_date)
+    # transfers_new = mk_dates_relative(transfers, "hadm_id", admissions["admittime"])
 
-    return patients_new, admissions_new, transfers_new
+    # return patients_new, admissions_new, transfers_new
+
+    return patients, admissions, transfers
