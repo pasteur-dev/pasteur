@@ -10,15 +10,13 @@ mimic_mm_core.metadata:
           subtype: integer
         gender:
           type: categorical
-        anchor_age:
+        year_group:
+          type: categorical
+        death_date:
+          type: timespan
+        death_age:
           type: numerical
           subtype: integer
-        anchor_year_group:
-          type: categorical
-        dod:
-          type: timespan
-        aod:
-          type: timespan
 
     admissions:
       primary_key: hadm_id
