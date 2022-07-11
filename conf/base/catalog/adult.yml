@@ -1,0 +1,43 @@
+adult_raw:
+  type: pandas.CSVDataSet
+  layer: raw
+  filepath: ${base_location}/raw/adult/adult.data
+
+  load_args:
+    names:
+      - age
+      - workclass
+      - fnlwgt
+      - education
+      - education-num
+      - marital-status
+      - occupation
+      - relationship
+      - race
+      - sex
+      - capital-gain
+      - capital-loss
+      - hours-per-week
+      - native-country
+
+    index_col: false
+    dtype:
+      age: int32
+      workclass: category
+      fnlwgt: int32
+      education: category
+      education-num: int32
+      marital-status: category
+      occupation: category
+      relationship: category
+      race: category
+      sex: category
+      capital-gain: int32
+      capital-loss: int32
+      hours_per_week: int32
+      native-country: category
+
+adult:
+  type: pandas.ParquetDataSet
+  layer: interim
+  filepath: ${base_location}/orig/interim/mimic/core/patients.pq
