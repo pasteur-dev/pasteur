@@ -1,4 +1,4 @@
-adult_raw:
+adult.raw:
   type: pandas.CSVDataSet
   layer: raw
   filepath: ${base_location}/raw/adult/adult.data
@@ -37,7 +37,7 @@ adult_raw:
       hours_per_week: int32
       native-country: category
 
-adult:
+adult.interim:
   type: pandas.ParquetDataSet
   layer: interim
-  filepath: ${base_location}/orig/interim/mimic/core/patients.pq
+  filepath: ${base_location}/orig/interim/adult/table.pq

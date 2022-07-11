@@ -1,4 +1,5 @@
 """Project pipelines."""
+from itertools import chain
 from typing import Dict
 from functools import reduce
 
@@ -10,6 +11,7 @@ from .pipelines.synth import create_pipeline as create_pipeline_synth
 from .pipelines.synth import get_algs
 from .pipelines.general import create_split_pipeline
 from .pipelines.measure import create_pipeline as create_measure_pipeline
+from .pipelines.tab import create_ingest_pipelines, create_views_pipeline
 
 
 def register_pipelines() -> Dict[str, Pipeline]:
@@ -20,16 +22,29 @@ def register_pipelines() -> Dict[str, Pipeline]:
     """
 
     pipelines = {}
-    pipe_ingest_datasets = create_pipeline_mimic()
+
+    mimic_ingest_pipeline = create_pipeline_mimic()
+    tab_ingest_pipelines = create_ingest_pipelines()
+    tab_views_pipelines = create_views_pipeline()
+
+    pipe_ingest_datasets = mimic_ingest_pipeline + reduce(
+        lambda a, b: a + b, tab_ingest_pipelines.values()
+    )
     pipe_ingest_views = create_pipeline_mimic(set())  # add key generation
 
     mimic_views_pipelines = create_pipeline_mimic_views()
-    for name, pipe in mimic_views_pipelines.items():
+    for name, pipe in chain(mimic_views_pipelines.items(), tab_views_pipelines.items()):
+        if isinstance(pipe, tuple):
+            ingest, pipe = pipe
+            pipe_input = tab_ingest_pipelines[ingest]
+        else:
+            ingest = "mimic"
+            pipe_input = create_pipeline_mimic(pipe.inputs())
+
         tables = [t.split(".")[-1] for t in pipe.outputs()]
 
-        pipe_input = create_pipeline_mimic(pipe.inputs())
-        pipe_split = create_split_pipeline("wrk", "mimic", name, tables)
-        pipe_split_ref = create_split_pipeline("ref", "mimic", name, tables)
+        pipe_split = create_split_pipeline("wrk", ingest, name, tables)
+        pipe_split_ref = create_split_pipeline("ref", ingest, name, tables)
 
         pipe_ingest = pipe_input + pipe + pipe_split
         pipe_ingest_views += pipe + pipe_split + pipe_split_ref
