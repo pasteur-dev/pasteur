@@ -2,6 +2,7 @@ from typing import Collection, Dict, Tuple
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from .nodes import set_index_name_closure
 from ..general.nodes import identity
 from ..general.pipeline import create_node_split_keys
 
@@ -11,7 +12,7 @@ def create_ingest_pipelines(**kwargs) -> Pipeline:
     adult_pipeline = pipeline(
         [
             node(
-                func=identity,
+                func=set_index_name_closure("id"),
                 inputs=["adult.raw"],
                 outputs="adult.interim",
                 name="ingest_adult",
