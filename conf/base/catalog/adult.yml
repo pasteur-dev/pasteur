@@ -34,7 +34,7 @@ adult.raw:
       sex: category
       capital-gain: int32
       capital-loss: int32
-      hours_per_week: int32
+      hours-per-week: int32
       native-country: category
 
 adult.interim:

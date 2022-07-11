@@ -4,3 +4,23 @@ adult:
     ref: 0.4
     val: 0.1
     dev: 0.1
+
+tab_adult.metadata:
+  tables:
+    table:
+      primary_key: id
+      fields:
+        age: numerical
+        workclass: categorical
+        fnlwgt: numerical
+        education: categorical
+        education-num: numerical
+        marital-status: categorical
+        occupation: categorical
+        relationship: categorical
+        race: categorical
+        sex: categorical
+        capital-gain: numerical
+        capital-loss: numerical
+        hours-per-week: numerical
+        native-country: categorical
