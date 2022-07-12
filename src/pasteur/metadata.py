@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 import pandas as pd
 
 
@@ -7,13 +7,13 @@ class ColumnMeta:
         self.type = type
         self.dtype = dtype
 
-    def is_categorical(self):
+    def is_categorical(self) -> bool:
         return self.type == "categorical"
 
-    def is_cat(self):
+    def is_cat(self) -> bool:
         return self.is_categorical()
 
-    def is_id(self):
+    def is_id(self) -> bool:
         return self.type == "id"
 
 
@@ -52,19 +52,28 @@ class TableMeta:
     def cols(self):
         return self.columns
 
-    def __getitem__(self, col):
+    def __getitem__(self, col) -> ColumnMeta:
         return self._columns[col]
 
 
 class DatasetMeta:
     def __init__(self, meta: Dict, data: Optional[Dict[str, pd.DataFrame]] = None):
-        self.tables = {
+        self._tables = {
             name: TableMeta(tmeta, data.get(name, None) if data is not None else None)
             for name, tmeta in meta["tables"].items()
         }
 
     def get_table(self, name):
-        return self.tables[name]
+        return self._tables[name]
+
+    @property
+    def tables(self):
+        return list(self._tables.keys())
+
+    def __getitem__(self, name) -> Union[TableMeta, ColumnMeta]:
+        if isinstance(name, tuple):
+            return self._tables[name[0]][name[1]]
+        return self._tables[name]
 
 
 class Metadata(DatasetMeta):
