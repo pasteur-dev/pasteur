@@ -19,7 +19,7 @@ ipywidgets
 parquet-tools
 pyarrow
 
-sdv
+# sdv
 rdt
 
 pandas
