@@ -11,7 +11,10 @@ tab_adult.metadata:
       primary_key: id
       fields:
         age: numerical
-        workclass: categorical
+        workclass:
+          type: categorical
+          metrics:
+            y_log: True
         fnlwgt: numerical
         education: categorical
         education-num: numerical
@@ -20,7 +23,16 @@ tab_adult.metadata:
         relationship: categorical
         race: categorical
         sex: categorical
-        capital-gain: numerical
-        capital-loss: numerical
+        capital-gain:
+          type: numerical
+          metrics:
+            y_log: True
+        capital-loss:
+          type: numerical
+          metrics:
+            y_log: True
         hours-per-week: numerical
-        native-country: categorical
+        native-country:
+          type: categorical
+          metrics:
+            y_log: True

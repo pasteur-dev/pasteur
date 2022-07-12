@@ -1,11 +1,24 @@
 from typing import Dict, Optional, Union
+from types import SimpleNamespace
+from collections import namedtuple
 import pandas as pd
 
 
 class ColumnMeta:
-    def __init__(self, type, dtype, *args, **kwargs):
+    DEFAULT_METRICS = {
+        "bin": 20,
+        "x_log": False,
+        "y_log": False,
+        "x_min": None,
+        "x_max": None,
+        "y_min": None,
+        "y_max": None,
+    }
+
+    def __init__(self, type, dtype, metrics, *args, **kwargs):
         self.type = type
         self.dtype = dtype
+        self.metrics = SimpleNamespace(**{**self.DEFAULT_METRICS, **metrics})
 
     def is_categorical(self) -> bool:
         return self.type == "categorical"
@@ -38,15 +51,17 @@ class TableMeta:
 
             if isinstance(field, str):
                 type = field
+                metrics = {}
             else:
                 type = field["type"]
                 dtype = field.get("dtype", dtype)
+                metrics = field.get("metrics", {})
 
-            self._columns[name] = ColumnMeta(type, dtype)
+            self._columns[name] = ColumnMeta(type, dtype, metrics)
 
     @property
     def columns(self):
-        return list(self._columns.keys())
+        return self._columns
 
     @property
     def cols(self):
