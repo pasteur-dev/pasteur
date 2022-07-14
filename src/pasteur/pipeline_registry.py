@@ -43,7 +43,9 @@ def register_pipelines() -> Dict[str, Pipeline]:
 
         tables = [t.split(".")[-1] for t in pipe.outputs()]
 
-        pipe_split = create_split_pipeline("wrk", ingest, name, tables)
+        pipe_split = create_split_pipeline(
+            "wrk", ingest, name, tables
+        ) + create_split_pipeline("dev", ingest, name, tables)
         pipe_split_ref = create_split_pipeline("ref", ingest, name, tables)
 
         pipe_ingest = pipe_input + pipe + pipe_split
