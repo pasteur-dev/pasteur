@@ -33,6 +33,12 @@ class ColumnMeta:
 class TableMeta:
     def __init__(self, meta: Dict, data: Optional[pd.DataFrame] = None):
         self.primary_key = meta["primary_key"]
+
+        self.targets = meta.get("targets", meta.get("target", []))
+        if isinstance(self.targets, str):
+            self.targets = [self.targets]
+        self.sensitive = meta.get("sensitive", [])
+
         self._columns = {}
 
         # Run a key check to ensure metadata and table have the same keys
@@ -60,11 +66,11 @@ class TableMeta:
             self._columns[name] = ColumnMeta(type, dtype, metrics)
 
     @property
-    def columns(self):
+    def columns(self) -> Dict[str, ColumnMeta]:
         return self._columns
 
     @property
-    def cols(self):
+    def cols(self) -> Dict[str, ColumnMeta]:
         return self.columns
 
     def __getitem__(self, col) -> ColumnMeta:

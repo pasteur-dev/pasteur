@@ -9,6 +9,10 @@ tab_adult.metadata:
   tables:
     table:
       primary_key: id
+
+      targets: [education]
+      sensitive: [race, relationship]
+
       fields:
         age: numerical
         workclass:
