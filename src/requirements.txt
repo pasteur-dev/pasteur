@@ -26,3 +26,5 @@ pandas
 numpy
 scipy
 scikit-learn
+
+tqdm
