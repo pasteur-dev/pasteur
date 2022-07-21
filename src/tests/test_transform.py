@@ -48,3 +48,38 @@ def test_onehot_transformer():
         (dec["objects"] == [1, 2, 5, 23, "sfas", 122, None, 542, -1])
         | pd.isna(dec["objects"])
     )
+
+
+def test_gray_transformer():
+    from pasteur.transform import GrayTransformer
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    t = GrayTransformer()
+
+    t.fit(test_data)
+
+    enc = t.transform(test_data)
+
+    dec = t.reverse(enc)
+    assert np.all(dec == test_data)
+
+
+def test_basen_transformer():
+    from pasteur.transform import BaseNTransformer
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    for b in range(2, 6):
+        t = BaseNTransformer(b)
+
+        t.fit(test_data)
+        enc = t.transform(test_data)
+        dec = t.reverse(enc)
+
+        assert t.out_type == ("bin" if b == 2 else f"b{b}")
+        assert np.all(dec == test_data)
