@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+from pasteur.transform import Transformer
+
 
 def test_bin_transformer():
     from pasteur.transform import BinTransformer
@@ -83,3 +85,59 @@ def test_basen_transformer():
 
         assert t.out_type == ("bin" if b == 2 else f"b{b}")
         assert np.all(dec == test_data)
+
+
+def test_norm_transformer():
+    from pasteur.transform import NormalizeTransformer
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    t = NormalizeTransformer()
+
+    t.fit(test_data[:-1])
+    enc = t.transform(test_data)
+    dec = t.reverse(enc)
+
+    assert np.all(dec[:-1] == test_data[:-1])
+    assert all(dec[-1:] == np.max(test_data[:-1]))
+
+
+def test_norm_dist_transformer():
+    from pasteur.transform import NormalDistTransformer
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    t = NormalDistTransformer()
+
+    t.fit(test_data[:-1])
+    enc = t.transform(test_data)
+    dec = t.reverse(enc)
+
+    assert np.all(dec == test_data)
+
+
+def test_chain_transformer():
+    from pasteur.transform import (
+        ChainTransformer,
+        NormalDistTransformer,
+        BinTransformer,
+        GrayTransformer,
+    )
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    transformers = [NormalDistTransformer(), BinTransformer(8), GrayTransformer()]
+
+    t = ChainTransformer(transformers)
+
+    t.fit(test_data[:-1])
+    enc = t.transform(test_data)
+    dec = t.reverse(enc)
+
+    assert np.all(dec == np.expand_dims(np.array([1,2,5,2,3,3,9,9]), axis=1))

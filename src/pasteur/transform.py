@@ -1,3 +1,4 @@
+from typing import List
 import pandas as pd
 import numpy as np
 import math
@@ -9,15 +10,55 @@ class Transformer:
 
     deterministic = True
     lossless = True
+    stateful = False
 
     def fit(self, data: pd.DataFrame):
         pass
+
+    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        self.fit(data)
+        return self.transform(data)
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
+
+
+class ChainTransformer(Transformer):
+    in_type = None
+    out_type = None
+
+    deterministic = True
+    lossless = True
+    stateful = False
+
+    def __init__(self, transformers: List[Transformer]) -> None:
+        self.transformers = transformers
+        self.in_type = transformers[0].in_type
+        self.out_type = transformers[-1].out_type
+
+        self.deterministic = all(t.deterministic for t in transformers)
+        self.lossless = all(t.lossless for t in transformers)
+
+    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        for t in self.transformers:
+            data = t.fit_transform(data)
+        return data
+
+    def fit(self, data: pd.DataFrame):
+        self.fit_transform(data)
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        for t in self.transformers:
+            data = t.transform(data)
+        return data
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        for t in reversed(self.transformers):
+            data = t.reverse(data)
+        return data
 
 
 class BinTransformer(Transformer):
@@ -166,7 +207,7 @@ class GrayTransformer(Transformer):
 
 
 class BaseNTransformer(Transformer):
-    """Converts an ordinal variable into a gray encoding."""
+    """Converts an ordinal integer based value into a fixed base-n encoding."""
 
     in_type = "ordinal"
     out_type = "basen"
@@ -212,5 +253,98 @@ class BaseNTransformer(Transformer):
                 out_col += data[f"{col}_{i}"].to_numpy() * (self.base**i)
 
             out[col] = out_col
+
+        return out
+
+
+class NormalizeTransformer(Transformer):
+    """Normalizes numerical columns to (0, 1).
+
+    The max, min values are chosen when calling fit(), if a larger value appears
+    during transform it is clipped to (0, 1)."""
+
+    in_type = "numerical"
+    out_type = "numerical"
+
+    deterministic = True
+    lossless = False
+    stateful = True
+
+    def fit(self, data: pd.DataFrame):
+        self.min = {}
+        self.max = {}
+        self.types = {}
+
+        for col in data:
+            self.min[col] = data[col].min(axis=0)
+            self.max[col] = data[col].max(axis=0)
+            self.types[col] = data[col].dtype
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in data:
+            n = data[col].to_numpy().copy()
+            n_min = self.min[col]
+            n_max = self.max[col]
+
+            out[col] = ((n - n_min) / (n_max - n_min)).clip(0, 1)
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in self.min:
+            n = data[col]
+            n_min = self.min[col]
+            n_max = self.max[col]
+
+            out[col] = (n_min + (n_max - n_min) * n).astype(self.types[col])
+
+        return out
+
+
+class NormalDistTransformer(Transformer):
+    """Normalizes column to std 1, mean 0 on a normal distribution."""
+
+    in_type = "numerical"
+    out_type = "numerical"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def fit(self, data: pd.DataFrame):
+        self.std = {}
+        self.mean = {}
+        self.types = {}
+
+        for col in data:
+            self.std[col] = data[col].mean()
+            self.mean[col] = data[col].std()
+            self.types[col] = data[col].dtype
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in data:
+            n = data[col].to_numpy()
+            std = self.std[col]
+            mean = self.mean[col]
+
+            out[col] = (n - mean) / std
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in self.std:
+            n = data[col].to_numpy()
+            std = self.std[col]
+            mean = self.mean[col]
+
+            out[col] = (n * std + mean).astype(self.types[col])
 
         return out
