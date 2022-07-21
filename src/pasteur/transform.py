@@ -5,6 +5,7 @@ import math
 
 
 class Transformer:
+    name = "base"
     in_type = None
     out_type = None
 
@@ -35,6 +36,7 @@ class ChainTransformer(Transformer):
     When transforming, an NA bool column will be added and the NA value will be replaced
     by na_val before transforming."""
 
+    name = "chain"
     in_type = None
     out_type = None
 
@@ -96,6 +98,7 @@ class BinTransformer(Transformer):
 
     Reversed output has a step effect due to discretization, but is deterministic."""
 
+    name = "discrete"
     in_type = "numerical"
     out_type = "ordinal"
 
@@ -135,6 +138,7 @@ class OneHotTransformer(Transformer):
     The array with idx len(vals.unique()) becomes True when the transform encounters a value that's not in the fit data.
     This value becomes None/NAN after the reverse transform."""
 
+    name = "onehot"
     in_type = "categorical"
     out_type = "bin"
 
@@ -189,6 +193,7 @@ class OneHotTransformer(Transformer):
 class GrayTransformer(Transformer):
     """Converts an ordinal variable into a gray encoding."""
 
+    name = "gray"
     in_type = "ordinal"
     out_type = "bin"
 
@@ -239,6 +244,7 @@ class GrayTransformer(Transformer):
 class BaseNTransformer(Transformer):
     """Converts an ordinal integer based value into a fixed base-n encoding."""
 
+    name = "basen"
     in_type = "ordinal"
     out_type = "basen"
 
@@ -293,6 +299,7 @@ class NormalizeTransformer(Transformer):
     The max, min values are chosen when calling fit(), if a larger value appears
     during transform it is clipped to (0, 1)."""
 
+    name = "normalize"
     in_type = "numerical"
     out_type = "numerical"
 
@@ -338,6 +345,7 @@ class NormalizeTransformer(Transformer):
 class NormalDistTransformer(Transformer):
     """Normalizes column to std 1, mean 0 on a normal distribution."""
 
+    name = "normdist"
     in_type = "numerical"
     out_type = "numerical"
 
@@ -378,3 +386,6 @@ class NormalDistTransformer(Transformer):
             out[col] = (n * std + mean).astype(self.types[col])
 
         return out
+
+
+TRANSFORMERS = {t.name: t for t in Transformer.__subclasses__()}
