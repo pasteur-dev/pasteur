@@ -27,6 +27,14 @@ class Transformer:
 
 
 class ChainTransformer(Transformer):
+    """Allows chain applying transformers together to a column.
+
+    If nullable is set to true, null columns will be omitted when fitting the transformers.
+    This is to prevent the na_value from biasing the transformers.
+
+    When transforming, an NA bool column will be added and the NA value will be replaced
+    by na_val before transforming."""
+
     in_type = None
     out_type = None
 
@@ -34,30 +42,52 @@ class ChainTransformer(Transformer):
     lossless = True
     stateful = False
 
-    def __init__(self, transformers: List[Transformer]) -> None:
+    def __init__(
+        self, transformers: List[Transformer], nullable=False, na_val=0
+    ) -> None:
         self.transformers = transformers
         self.in_type = transformers[0].in_type
         self.out_type = transformers[-1].out_type
+        self.nullable = nullable
+        self.na_val = na_val
 
         self.deterministic = all(t.deterministic for t in transformers)
         self.lossless = all(t.lossless for t in transformers)
 
-    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def fit(self, data: pd.DataFrame):
+        if self.nullable:
+            assert (
+                len(data.columns) == 1
+            ), "Can only handle one column when checking for NA"
+            self.na_col = f"{data.columns[0]}_na"
+            na_col = np.any(data.isna(), axis=1)
+            data = data[~na_col].infer_objects()
+
         for t in self.transformers:
             data = t.fit_transform(data)
-        return data
-
-    def fit(self, data: pd.DataFrame):
-        self.fit_transform(data)
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        if self.nullable:
+            na_col = np.any(data.isna(), axis=1)
+            data = data.where(~na_col, other=self.na_val)
+
         for t in self.transformers:
             data = t.transform(data)
+
+        if self.nullable:
+            data[self.na_col] = na_col
         return data
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        if self.nullable:
+            na_col = data[self.na_col]
+            data = data.drop(columns=[self.na_col])
+
         for t in reversed(self.transformers):
             data = t.reverse(data)
+
+        if self.nullable:
+            data[na_col] = pd.NA
         return data
 
 
