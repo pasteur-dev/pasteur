@@ -28,6 +28,30 @@ def test_bin_transformer():
     )
 
 
+def test_idx_transformer():
+    from pasteur.transform import IdxTransformer
+
+    test_data = pd.DataFrame()
+    test_data["floats"] = [1, 2, 5, 23.1, 643, 122, 10, 542, 543]
+    test_data["ints"] = [1, 2, 5, 23, 643, 122, 10, 542, 543]
+    test_data["objects"] = [1, 2, 5, 23, "sfas", 122, None, 542, 543]
+
+    t = IdxTransformer(-1)
+
+    t.fit(test_data[:-1])
+
+    enc = t.transform(test_data)
+
+    dec = t.reverse(enc)
+
+    assert all(dec["floats"] == [1.0, 2.0, 5.0, 23.1, 643.0, 122.0, 10.0, 542.0, -1.0])
+    assert all(dec["ints"] == [1, 2, 5, 23, 643, 122, 10, 542, -1])
+    assert all(
+        (dec["objects"] == [1, 2, 5, 23, "sfas", 122, None, 542, -1])
+        | pd.isna(dec["objects"])
+    )
+
+
 def test_onehot_transformer():
     from pasteur.transform import OneHotTransformer
 

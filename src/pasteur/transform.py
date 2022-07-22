@@ -132,6 +132,56 @@ class BinTransformer(Transformer):
         return out
 
 
+class IdxTransformer(Transformer):
+    """Transforms categorical values of any type into integer based values"""
+
+    name = "idx"
+    in_type = "categorical"
+    out_type = "basen"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def __init__(self, unknown_value):
+        self.unknown_value = unknown_value
+
+    def fit(self, data: pd.DataFrame):
+        self.vals = {}
+        self.mapping = {}
+        self.types = {}
+
+        for col in data:
+            vals = list(data[col].unique())
+            self.mapping[col] = {val: i for i, val in enumerate(vals)}
+            self.vals[col] = {
+                i: val for i, val in enumerate(vals + [self.unknown_value])
+            }
+
+            self.types[col] = data[col].dtype
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in data:
+            out[col] = (
+                data[col]
+                .map(self.mapping[col])
+                .fillna(len(self.mapping[col]))
+                .astype("int16")
+            )
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col, vals in self.vals.items():
+            out[col] = data[col].map(vals).astype(self.types[col])
+
+        return out
+
+
 class OneHotTransformer(Transformer):
     """Transforms a categorical array of any type (fixed num of values) into a set of one hot encoded arrays (suffixed with _i)
 
@@ -388,4 +438,4 @@ class NormalDistTransformer(Transformer):
         return out
 
 
-TRANSFORMERS = {t.name: t for t in Transformer.__subclasses__()}
+TRANSFORMERS = lambda: {t.name: t for t in Transformer.__subclasses__()}
