@@ -49,13 +49,14 @@ class ChainTransformer(Transformer):
     stateful = False
 
     @staticmethod
-    def from_dict(data: Dict):
-        transformer_names = data["transformers"]
+    def from_dict(transformer_names: List[str] | str, args: Dict):
+        if isinstance(transformer_names, str):
+            transformer_names = [transformer_names]
 
         tdict = TRANSFORMERS()
-        transformers = [tdict[name](**data) for name in transformer_names]
+        transformers = [tdict[name](**args) for name in transformer_names]
 
-        return ChainTransformer(transformers=transformers, **data)
+        return ChainTransformer(transformers=transformers, **args)
 
     def __init__(
         self, transformers: List[Transformer], nullable=None, na_val=0, **_

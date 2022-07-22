@@ -1,8 +1,6 @@
 import pandas as pd
 import numpy as np
 
-from pasteur.transform import Transformer
-
 
 def test_bin_transformer():
     from pasteur.transform import BinTransformer

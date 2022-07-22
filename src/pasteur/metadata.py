@@ -1,24 +1,72 @@
 from typing import Dict, Optional, Union
 from types import SimpleNamespace
-from collections import namedtuple
 import pandas as pd
+
+DEFAULT_METRICS = {
+    "x_log": False,
+    "y_log": False,
+    "x_min": None,
+    "x_max": None,
+    "y_min": None,
+    "y_max": None,
+}
+
+DEFAULT_NUM_TRANSFORMERS = {
+    "numerical": "normdist",
+    "ordinal": ("idx", "normalize"),
+    "categorical": ("idx", "normalize"),
+}
+
+DEFAULT_BIN_TRANSFORMERS = {
+    "numerical": ("discrete", "gray"),
+    "ordinal": ("idx", "gray"),
+    "categorical": "onehot",
+}
+
+DEFAULT_IDX_TRANSFORMERS = {
+    "numerical": "discrete",
+    "ordinal": "idx",
+    "categorical": "idx",
+}
+
+DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
 
 
 class ColumnMeta:
-    DEFAULT_METRICS = {
-        "bin": 20,
-        "x_log": False,
-        "y_log": False,
-        "x_min": None,
-        "x_max": None,
-        "y_min": None,
-        "y_max": None,
-    }
 
-    def __init__(self, type, dtype, metrics, *args, **kwargs):
-        self.type = type
-        self.dtype = dtype
-        self.metrics = SimpleNamespace(**{**self.DEFAULT_METRICS, **metrics})
+    DEFAULT_COLUMN_META = DEFAULT_COLUMN_META
+
+    def __init__(self, **kwargs):
+        # Basic type and dtype data
+        self.type = kwargs["type"]
+        self.dtype = kwargs.get("dtype", None)
+
+        # Create metrics structure by merging the default dict with the
+        # user overrides. Bins can be set universally for both transformers and
+        # metrics or just metrics
+        metrics = {}
+        metrics.update(self.DEFAULT_COLUMN_META["metrics"])
+        if "bins" in self.DEFAULT_COLUMN_META:
+            metrics.update({"bins": self.DEFAULT_COLUMN_META["bins"]})
+        if "bins" in kwargs:
+            metrics.update({"bins": kwargs["bins"]})
+        metrics.update(kwargs.get("metrics", {}))
+        self.metrics = SimpleNamespace(**metrics)
+
+        # Add transformer chains from data, with fallback to table chains
+        # specific to type.
+        self.t_num = kwargs.get(
+            "transformers_num", kwargs["td"]["num"].get(self.type, ())
+        )
+        self.t_idx = kwargs.get(
+            "transformers_idx", kwargs["td"]["idx"].get(self.type, ())
+        )
+        self.t_bin = kwargs.get(
+            "transformers_bin", kwargs["td"]["bin"].get(self.type, ())
+        )
+
+        # Add untyped version of args to use with transformers
+        self.args = kwargs
 
     def is_categorical(self) -> bool:
         return self.type == "categorical"
@@ -31,6 +79,11 @@ class ColumnMeta:
 
 
 class TableMeta:
+    COLUMN_CLS = ColumnMeta
+    DEFAULT_NUM_TRANSFORMERS = DEFAULT_NUM_TRANSFORMERS
+    DEFAULT_BIN_TRANSFORMERS = DEFAULT_BIN_TRANSFORMERS
+    DEFAULT_IDX_TRANSFORMERS = DEFAULT_IDX_TRANSFORMERS
+
     def __init__(self, meta: Dict, data: Optional[pd.DataFrame] = None):
         self.primary_key = meta["primary_key"]
 
@@ -38,6 +91,22 @@ class TableMeta:
         if isinstance(self.targets, str):
             self.targets = [self.targets]
         self.sensitive = meta.get("sensitive", [])
+
+        # Update transformer chain dict from table entries
+        self.td = {
+            "num": {
+                **self.DEFAULT_NUM_TRANSFORMERS,
+                **meta.get("transformers_num", {}),
+            },
+            "idx": {
+                **self.DEFAULT_IDX_TRANSFORMERS,
+                **meta.get("transformers_idx", {}),
+            },
+            "bin": {
+                **self.DEFAULT_BIN_TRANSFORMERS,
+                **meta.get("transformers_bin", {}),
+            },
+        }
 
         self._columns = {}
 
@@ -53,17 +122,17 @@ class TableMeta:
 
         fields = meta["fields"]
         for name, field in fields.items():
-            dtype = str(field.dtypes["name"]) if data is not None else None
+            dtype = str(data.dtypes[name]) if data is not None else None
 
             if isinstance(field, str):
-                type = field
-                metrics = {}
+                args = {"type": field, "td": self.td}
             else:
-                type = field["type"]
-                dtype = field.get("dtype", dtype)
-                metrics = field.get("metrics", {})
+                args = field.copy()
+                if "dtype" not in args:
+                    args["dtype"] = dtype
+                args["td"] = self.td
 
-            self._columns[name] = ColumnMeta(type, dtype, metrics)
+            self._columns[name] = self.COLUMN_CLS(**args)
 
     @property
     def columns(self) -> Dict[str, ColumnMeta]:
@@ -78,9 +147,13 @@ class TableMeta:
 
 
 class DatasetMeta:
+    TABLE_CLS = TableMeta
+
     def __init__(self, meta: Dict, data: Optional[Dict[str, pd.DataFrame]] = None):
         self._tables = {
-            name: TableMeta(tmeta, data.get(name, None) if data is not None else None)
+            name: self.TABLE_CLS(
+                tmeta, data.get(name, None) if data is not None else None
+            )
             for name, tmeta in meta["tables"].items()
         }
 
