@@ -3,7 +3,7 @@ from typing import Dict
 
 import pandas as pd
 
-from ...dataset_transform import TableTransformer
+from ...table_transform import TableTransformer
 from ...metadata import Metadata
 
 
@@ -27,7 +27,7 @@ def reverse_table(
     table: pd.DataFrame,
     **parents: Dict[str, pd.DataFrame]
 ):
-    return transformer.reverse(ids, table, parents)
+    return transformer.reverse(table, ids, parents)
 
 
 def transform_table_tab(
@@ -42,4 +42,4 @@ def reverse_table_tab(
     table: pd.DataFrame,
     **parents: Dict[str, pd.DataFrame]
 ):
-    return transformer.reverse(None, table, parents)
+    return transformer.reverse(table, None, parents)

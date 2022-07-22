@@ -31,7 +31,7 @@ class TableTransformer:
                 if col.ref:
                     ref_table = col.ref.table
                     ref_col = col.ref.col
-                    if not id:
+                    if not ref_col:
                         ref_col = self.meta[ref_table].primary_key
                     res.append((name, ref_table, ref_col))
         return res
@@ -43,7 +43,7 @@ class TableTransformer:
         return [
             n
             for n, col in meta.cols.items()
-            if col.is_id() and n != meta.primary_key and (not ref or meta[n].col.ref)
+            if col.is_id() and n != meta.primary_key and (not ref or meta[n].ref)
         ]
 
     def get_table_data(self, name: str, table: pd.DataFrame):
@@ -59,14 +59,14 @@ class TableTransformer:
 
         The id lookup table is composed of columns that have the foreign table name and
         contain its index key to join on."""
-        ids = self.get_foreign_keys(name, tables[table])
+        ids = self.get_foreign_keys(name, tables[name])
 
         for col, table, foreign_col in self.find_parents(name):
             assert (
                 foreign_col == self.meta[table].primary_key
             ), "Only referencing primary keys supported for now."
 
-            ids.rename(columns={col: table})
+            ids = ids.rename(columns={col: table})
             foreign_ids = self.find_foreign_ids(table, tables)
             ids = ids.join(foreign_ids, on=table)
 
@@ -78,7 +78,7 @@ class TableTransformer:
         name = self.name
         meta = self.meta[name]
 
-        for col in meta.col.values():
+        for col in meta.cols.values():
             if not col.is_id() and col.ref is not None and col.ref.table is not None:
                 return True
         return False
@@ -103,6 +103,7 @@ class TableTransformer:
                 continue
 
             # Add foreign column if required
+            ref_col = None
             if col.ref:
                 f_table, f_col = col.ref.table, col.ref.col
                 if f_table:
@@ -111,13 +112,12 @@ class TableTransformer:
                 else:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
-                table = pd.concat([table, ref_col.rename(f"{name}_ref")])
 
             # Fit transformer with proper chain
             chain = col.chains[self.type]
             args = col.args.copy()
             t = ChainTransformer.from_dict(chain, args)
-            t.fit(table)
+            t.fit(table[[name]], ref_col)
 
             self.transformers[name] = t
 
@@ -133,6 +133,7 @@ class TableTransformer:
                 continue
 
             # Add foreign column if required
+            ref_col = None
             if col.ref:
                 f_table, f_col = col.ref.table, col.ref.col
                 if f_table:
@@ -141,17 +142,16 @@ class TableTransformer:
                 else:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
-                table = pd.concat([table, ref_col.rename(f"{name}_ref")])
 
-            tt = self.transformers[name].transform(table)
+            tt = self.transformers[name].transform(table[[name]], ref_col)
             tts.append(tt)
 
-        return pd.concat(tts), ids
+        return pd.concat(tts, axis=1), ids
 
     def reverse(
         self,
-        ids: Optional[pd.DataFrame],
         table: pd.DataFrame,
+        ids: Optional[pd.DataFrame],
         parent_tables: Dict[str, pd.DataFrame],
     ):
         # If there are no ids that reference a foreign table, the ids parameter
@@ -165,34 +165,37 @@ class TableTransformer:
             if col.is_id() or col.ref is not None:
                 continue
 
-            tt = self.transformers[name].transform(table)
+            tt = self.transformers[name].reverse(table[[name]])
             tts.append(tt)
 
         # Process columns with dependencies afterwards.
         # fix-me: assumes no nested dependencies within the same table
-        parent_cols = pd.concat(tts)
+        parent_cols = pd.concat(tts, axis=1)
         for name, col in meta.cols.items():
             if col.is_id() or col.ref is None:
                 continue
 
+            ref_col = None
             f_table, f_col = col.ref.table, col.ref.col
             if f_table:
                 # Foreign column from another table
+                assert (
+                    f_table in parent_tables
+                ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
                 ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
             else:
                 # Local column, duplicate and rename
                 ref_col = parent_cols[f_col]
-            table = pd.concat([table, ref_col.rename(f"{name}_ref")])
 
-            tt = self.transformers[name].transform(table)
+            tt = self.transformers[name].reverse(table[[name]], ref_col)
             tts.append(tt)
 
         # Re-add ids
         # If an id references another table it will be merged from the ids
         # dataframe. Otherwise, it will be set to 0 (irrelevant to data synthesis).
-        dec_table = pd.concat(tts)
+        dec_table = pd.concat(tts, axis=1)
         for name, col in meta.cols.items():
-            if not col.is_id():
+            if not col.is_id() or name == meta.primary_key:
                 continue
 
             if col.ref is not None:

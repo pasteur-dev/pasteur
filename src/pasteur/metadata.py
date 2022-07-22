@@ -145,7 +145,12 @@ class TableMeta:
 
         fields = meta["fields"]
         for name, field in fields.items():
-            dtype = str(data.dtypes[name]) if data is not None else None
+            dtype = None
+            if data is not None:
+                if data.index.name == name:
+                    dtype = data.index.dtype
+                else:
+                    dtype = str(data.dtypes[name])
 
             if isinstance(field, str):
                 args = {"type": field, "td": self.td}
