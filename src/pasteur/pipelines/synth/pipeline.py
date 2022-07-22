@@ -7,7 +7,13 @@ from .synth import (
     synth_alg_get_sample,
 )
 
-from .transform import fit_table_closure, transform_table, reverse_table
+from .transform import (
+    fit_table_closure,
+    transform_table,
+    reverse_table,
+    transform_table_tab,
+    reverse_table_tab,
+)
 
 
 def create_transform_pipeline(tables, type):
@@ -22,7 +28,7 @@ def create_transform_pipeline(tables, type):
             node(
                 func=transform_table,
                 inputs={"transformer": f"trn_{t}", **{t: t for t in tables}},
-                outputs=[f"ids_{t}", f"enc_{t}"],
+                outputs=[f"enc_{t}", f"ids_{t}"],
             ),
             node(
                 func=reverse_table,
@@ -87,7 +93,7 @@ def create_pipeline(
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
 
-    type = "ids"
+    type = "idx"
     transform_mpipe = modular_pipeline(
         pipe=create_transform_pipeline(tables, type),
         namespace=f"{view}.{split}",

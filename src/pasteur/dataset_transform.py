@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 import math
@@ -146,14 +146,17 @@ class TableTransformer:
             tt = self.transformers[name].transform(table)
             tts.append(tt)
 
-        return ids, pd.concat(tts)
+        return pd.concat(tts), ids
 
     def reverse(
         self,
-        ids: pd.DataFrame,
+        ids: Optional[pd.DataFrame],
         table: pd.DataFrame,
         parent_tables: Dict[str, pd.DataFrame],
     ):
+        # If there are no ids that reference a foreign table, the ids parameter
+        # can be set to None (ex. tabular data).
+
         meta = self.meta[self.name]
 
         # Process columns with no dependencies first
@@ -172,16 +175,14 @@ class TableTransformer:
             if col.is_id() or col.ref is None:
                 continue
 
-            # Add foreign column if required
-            if col.ref:
-                f_table, f_col = col.ref.table, col.ref.col
-                if f_table:
-                    # Foreign column from another table
-                    ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
-                else:
-                    # Local column, duplicate and rename
-                    ref_col = parent_cols[f_col]
-                table = pd.concat([table, ref_col.rename(f"{name}_ref")])
+            f_table, f_col = col.ref.table, col.ref.col
+            if f_table:
+                # Foreign column from another table
+                ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
+            else:
+                # Local column, duplicate and rename
+                ref_col = parent_cols[f_col]
+            table = pd.concat([table, ref_col.rename(f"{name}_ref")])
 
             tt = self.transformers[name].transform(table)
             tts.append(tt)

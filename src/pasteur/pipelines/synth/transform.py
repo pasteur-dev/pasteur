@@ -28,3 +28,18 @@ def reverse_table(
     **parents: Dict[str, pd.DataFrame]
 ):
     return transformer.reverse(ids, table, parents)
+
+
+def transform_table_tab(
+    transformer: TableTransformer, **tables: Dict[str, pd.DataFrame]
+):
+    table = transformer.transform(tables)
+    return table
+
+
+def reverse_table_tab(
+    transformer: TableTransformer,
+    table: pd.DataFrame,
+    **parents: Dict[str, pd.DataFrame]
+):
+    return transformer.reverse(None, table, parents)
