@@ -1,4 +1,5 @@
-from typing import List
+from glob import escape
+from typing import Dict, List
 import pandas as pd
 import numpy as np
 import math
@@ -12,6 +13,9 @@ class Transformer:
     deterministic = True
     lossless = True
     stateful = False
+
+    def __init__(self, **_):
+        pass
 
     def fit(self, data: pd.DataFrame):
         pass
@@ -44,8 +48,17 @@ class ChainTransformer(Transformer):
     lossless = True
     stateful = False
 
+    @staticmethod
+    def from_dict(data: Dict):
+        transformer_names = data["transformers"]
+
+        tdict = TRANSFORMERS()
+        transformers = [tdict[name](**data) for name in transformer_names]
+
+        return ChainTransformer(transformers=transformers, **data)
+
     def __init__(
-        self, transformers: List[Transformer], nullable=False, na_val=0
+        self, transformers: List[Transformer], nullable=None, na_val=0, **_
     ) -> None:
         self.transformers = transformers
         self.in_type = transformers[0].in_type
@@ -106,7 +119,7 @@ class BinTransformer(Transformer):
     lossless = False
     stateful = True
 
-    def __init__(self, bins):
+    def __init__(self, bins=32, **_):
         self.n_bins = bins
 
     def fit(self, data: pd.DataFrame):
@@ -133,17 +146,19 @@ class BinTransformer(Transformer):
 
 
 class IdxTransformer(Transformer):
-    """Transforms categorical values of any type into integer based values"""
+    """Transforms categorical values of any type into integer based values.
+
+    If the values are sortable, they will have adjacent integer values"""
 
     name = "idx"
-    in_type = "categorical"
+    in_type = ("categorical", "ordinal")
     out_type = "basen"
 
     deterministic = True
     lossless = True
     stateful = True
 
-    def __init__(self, unknown_value):
+    def __init__(self, unknown_value=-1, **_):
         self.unknown_value = unknown_value
 
     def fit(self, data: pd.DataFrame):
@@ -152,7 +167,15 @@ class IdxTransformer(Transformer):
         self.types = {}
 
         for col in data:
-            vals = list(data[col].unique())
+            vals = data[col].unique()
+
+            # Try to sort vals
+            try:
+                vals = sorted(vals)
+            except:
+                pass
+
+            vals = list(vals)
             self.mapping[col] = {val: i for i, val in enumerate(vals)}
             self.vals[col] = {
                 i: val for i, val in enumerate(vals + [self.unknown_value])
@@ -196,7 +219,7 @@ class OneHotTransformer(Transformer):
     lossless = True
     stateful = True
 
-    def __init__(self, unknown_value):
+    def __init__(self, unknown_value=-1, **_):
         self.unknown_value = unknown_value
 
     def fit(self, data: pd.DataFrame):
@@ -302,7 +325,7 @@ class BaseNTransformer(Transformer):
     lossless = True
     stateful = True
 
-    def __init__(self, base: int = 2) -> None:
+    def __init__(self, base: int = 2, **_) -> None:
         self.base = base
         self.out_type = f"b{base}" if base != 2 else "bin"
 
@@ -350,7 +373,7 @@ class NormalizeTransformer(Transformer):
     during transform it is clipped to (0, 1)."""
 
     name = "normalize"
-    in_type = "numerical"
+    in_type = ("numerical", "basen")
     out_type = "numerical"
 
     deterministic = True
