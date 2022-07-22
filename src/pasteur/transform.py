@@ -61,8 +61,20 @@ class ChainTransformer(Transformer):
         self, transformers: List[Transformer], nullable=None, na_val=0, **_
     ) -> None:
         self.transformers = transformers
-        self.in_type = transformers[0].in_type
-        self.out_type = transformers[-1].out_type
+        if len(transformers):
+            self.in_type = transformers[0].in_type
+            self.out_type = transformers[-1].out_type
+
+            # Check transformer chain has valid types
+            out_type = transformers[0].out_type
+            for t in self.transformers[1:]:
+                assert (
+                    out_type == t.in_type
+                    if isinstance(t.in_type, str)
+                    else (out_type in t.in_type)
+                )
+                out_type = t.out_type
+
         self.nullable = nullable
         self.na_val = na_val
 
