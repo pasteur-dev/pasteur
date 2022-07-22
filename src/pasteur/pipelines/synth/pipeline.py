@@ -2,33 +2,37 @@ from typing import Collection, List
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from .nodes import (
-    fit_table,
+from .synth import (
     synth_alg_get_fit,
     synth_alg_get_sample,
-    transform_table,
-    reverse_transform_table,
 )
 
+from .transform import fit_table_closure, transform_table, reverse_table
 
-def create_transform_pipeline(tables):
+
+def create_transform_pipeline(tables, type):
     table_nodes = []
-    for t in tables:
+    for i, t in enumerate(tables):
         table_nodes += [
             node(
-                func=fit_table,
-                inputs=[t, f"params:metadata.tables.{t}"],
-                outputs=f"transformer_{t}",
+                func=fit_table_closure(t, type),
+                inputs={"metadata": "params:metadata", **{t: t for t in tables}},
+                outputs=f"trn_{t}",
             ),
             node(
                 func=transform_table,
-                inputs=[t, f"transformer_{t}"],
-                outputs=f"encoded_{t}",
+                inputs={"transformer": f"trn_{t}", **{t: t for t in tables}},
+                outputs=[f"ids_{t}", f"enc_{t}"],
             ),
             node(
-                func=reverse_transform_table,
-                inputs=[f"encoded_{t}", f"transformer_{t}"],
-                outputs=f"decoded_{t}",
+                func=reverse_table,
+                inputs={
+                    "transformer": f"trn_{t}",
+                    "ids": f"ids_{t}",
+                    "table": f"enc_{t}",
+                    **{f"dec_{t}": t for t in tables[i + 1 :]},
+                },
+                outputs=f"dec_{t}",
             ),
         ]
 
@@ -43,14 +47,18 @@ def create_synth_pipeline(alg: str, tables: List[str]):
                 func=synth_alg_get_fit(alg),
                 inputs={
                     "metadata": "params:metadata",
-                    **{t: f"in_{t}" for t in tables},
+                    **{f"ids_{t}": f"in_ids_{t}" for t in tables},
+                    **{f"enc_{t}": f"in_enc_{t}" for t in tables},
                 },
                 outputs="model",
             ),
             node(
                 func=synth_alg_get_sample(alg),
                 inputs="model",
-                outputs={t: f"encoded_{t}" for t in tables},
+                outputs={
+                    **{f"ids_{t}": f"ids_{t}" for t in tables},
+                    **{f"enc_{t}": f"enc_{t}" for t in tables},
+                },
             ),
         ]
     )
@@ -58,11 +66,16 @@ def create_synth_pipeline(alg: str, tables: List[str]):
     decode_pipe = pipeline(
         [
             node(
-                func=reverse_transform_table,
-                inputs=[f"encoded_{t}", f"transformer_{t}"],
+                func=reverse_table,
+                inputs={
+                    "transformer": f"trn_{t}",
+                    "ids": f"ids_{t}",
+                    "table": f"enc_{t}",
+                    **{t: t for t in tables[i + 1 :]},
+                },
                 outputs=t,
             )
-            for t in tables
+            for i, t in enumerate(tables)
         ]
     )
 
@@ -74,11 +87,12 @@ def create_pipeline(
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
 
+    type = "ids"
     transform_mpipe = modular_pipeline(
-        pipe=create_transform_pipeline(tables),
+        pipe=create_transform_pipeline(tables, type),
         namespace=f"{view}.{split}",
         parameters={
-            **{f"metadata.tables.{t}": f"{view}.metadata.tables.{t}" for t in tables},
+            "metadata": f"{view}.metadata",
         },
     )
 
@@ -87,8 +101,9 @@ def create_pipeline(
         pipe=synth_pipe,
         namespace=f"{view}.{alg}",
         inputs={
-            **{f"in_{t}": f"{view}.{split}.encoded_{t}" for t in tables},
-            **{f"transformer_{t}": f"{view}.{split}.transformer_{t}" for t in tables},
+            **{f"in_enc_{t}": f"{view}.{split}.enc_{t}" for t in tables},
+            **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
+            **{f"trn_{t}": f"{view}.{split}.trn_{t}" for t in tables},
         },
         parameters={"metadata": f"{view}.metadata"},
     )

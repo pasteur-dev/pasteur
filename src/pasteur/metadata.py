@@ -41,6 +41,27 @@ class ColumnMeta:
         self.type = kwargs["type"]
         self.dtype = kwargs.get("dtype", None)
 
+        # Add reference column, used for dates and IDs
+        # Format: <table>.<col>
+        if "ref" in kwargs:
+            d = kwargs["ref"].split(".")
+            if len(d) == 2:
+                table = d[0]
+                col = d[1]
+            # For ids, if . is omitted, the format is assumed:
+            # <table>
+            elif self.type == "id":
+                table = d[0]
+                col = None
+            # For other types of columns (such as dates) the format is:
+            # <col> (the column might be in the same table).
+            else:
+                table = None
+                col = d[0]
+            self.ref = SimpleNamespace(table=table, col=col)
+        else:
+            self.ref = None
+
         # Create metrics structure by merging the default dict with the
         # user overrides. Bins can be set universally for both transformers and
         # metrics or just metrics
@@ -55,15 +76,17 @@ class ColumnMeta:
 
         # Add transformer chains from data, with fallback to table chains
         # specific to type.
-        self.t_num = kwargs.get(
-            "transformers_num", kwargs["td"]["num"].get(self.type, ())
-        )
-        self.t_idx = kwargs.get(
-            "transformers_idx", kwargs["td"]["idx"].get(self.type, ())
-        )
-        self.t_bin = kwargs.get(
-            "transformers_bin", kwargs["td"]["bin"].get(self.type, ())
-        )
+        self.chains = {
+            "num": kwargs.get(
+                "transformers_num", kwargs["td"]["num"].get(self.type, ())
+            ),
+            "idx": kwargs.get(
+                "transformers_idx", kwargs["td"]["idx"].get(self.type, ())
+            ),
+            "bin": kwargs.get(
+                "transformers_bin", kwargs["td"]["bin"].get(self.type, ())
+            ),
+        }
 
         # Add untyped version of args to use with transformers
         self.args = kwargs

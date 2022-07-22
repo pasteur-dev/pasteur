@@ -79,7 +79,7 @@ class AddDatasetsForViewsHook:
                     catalog.layers["split"].add(name)
 
                     # For each materialized view table, add datasets for encoded, decoded forms
-                    for type in ["encoded", "decoded"]:
+                    for type in ["enc", "dec", "ids"]:
                         name = "%s.%s.%s_%s" % (dataset, split, type, table)
                         catalog.add(
                             name,
@@ -94,10 +94,13 @@ class AddDatasetsForViewsHook:
                                 save_args=save_args,
                             ),
                         )
-                        catalog.layers["split_%s" % type].add(name)
+                        if type in ["enc", "ids"]:
+                            catalog.layers["split_encoded"].add(name)
+                        else:
+                            catalog.layers["split_decoded"].add(name)
 
                     # Add pickle dataset for transformers
-                    name = "%s.%s.%s_%s" % (dataset, split, "transformer", table)
+                    name = "%s.%s.%s_%s" % (dataset, split, "trn", table)
                     catalog.add(
                         name,
                         PickleDataSet(
@@ -129,14 +132,30 @@ class AddDatasetsForViewsHook:
                 catalog.layers["synth_models"].add(name)
 
                 for table in tables:
-                    name = "%s.%s.%s_%s" % (dataset, alg, "encoded", table)
+                    name = "%s.%s.%s_%s" % (dataset, alg, "enc", table)
                     catalog.add(
                         name,
                         ParquetDataSet(
                             path.join(
                                 self.base_location,
                                 "synth",
-                                "encoded",
+                                "enc",
+                                "%s.%s" % (dataset, alg),
+                                table + ".pq",
+                            ),
+                            save_args=save_args,
+                        ),
+                    )
+                    catalog.layers["synth_encoded"].add(name)
+
+                    name = "%s.%s.%s_%s" % (dataset, alg, "ids", table)
+                    catalog.add(
+                        name,
+                        ParquetDataSet(
+                            path.join(
+                                self.base_location,
+                                "synth",
+                                "ids",
                                 "%s.%s" % (dataset, alg),
                                 table + ".pq",
                             ),
@@ -152,7 +171,7 @@ class AddDatasetsForViewsHook:
                             path.join(
                                 self.base_location,
                                 "synth",
-                                "decoded",
+                                "dec",
                                 "%s.%s" % (dataset, alg),
                                 table + ".pq",
                             ),
