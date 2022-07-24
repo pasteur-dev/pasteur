@@ -71,28 +71,54 @@ def strip_output(nb):
                 # Handle Nonsensitive outputs
                 new_outs = []
                 for out in cell["outputs"]:
+                    new_out = deepcopy(out)
                     if "text" in out:
                         # Remove timestamps in logs to allow versioning
-                        new_out = deepcopy(out)
-                        new_text = new_out["text"]
+                        text = out["text"]
 
                         # Replace logging date with sample one
-                        new_text = re.sub(
+                        text = re.sub(
                             "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{3}",
                             "2000-01-01 00:00:00,000",
-                            new_text,
+                            text,
                         )
 
                         # Replace tqdm times with reference one
-                        new_text = re.sub(
+                        text = re.sub(
                             "\d\d:\d\d<\d\d:\d\d,  \d+\.\d\d(?:s\/it|it\/s)",
                             "00:00<00:00,  1.00it/s",
-                            new_text,
+                            text,
                         )
 
-                        new_out["text"] = new_text
-                    else:
-                        new_out = out
+                        new_out["text"] = text
+
+                    if "data" in out:
+                        data = out["data"]
+                        new_data = new_out["data"]
+                        if "text/plain" in data:
+                            plain = data["text/plain"]
+
+                            # Remove pandas styler id
+                            plain = re.sub(
+                                "<pandas\.io\.formats\.style\.Styler at 0x.{12}>",
+                                "<pandas.io.formats.style.Styler at 0x000000000000>",
+                                plain,
+                            )
+
+                            new_data["text/plain"] = plain
+
+                        if "text/html" in data:
+                            html = data["text/html"]
+
+                            # Remove pandas table ids
+                            html = re.sub(
+                                'T_.{5}(?=_|")',
+                                "T_00000",
+                                html,
+                            )
+
+                            new_data["text/html"] = html
+
                     new_outs.append(new_out)
                 cell["outputs"] = new_outs
 
