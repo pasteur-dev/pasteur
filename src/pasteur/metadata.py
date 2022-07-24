@@ -138,10 +138,8 @@ class TableMeta:
             table_keys = set(data.keys())
             meta_keys = set(meta["fields"].keys())
 
-            diff_keys = table_keys.difference(meta_keys)
-            assert not diff_keys, "Columns missing from table/metadata: " + str(
-                diff_keys
-            )
+            diff_keys = meta_keys.difference(table_keys, {data.index.name})
+            assert not diff_keys, "Columns missing from table: " + str(diff_keys)
 
         fields = meta["fields"]
         for name, field in fields.items():

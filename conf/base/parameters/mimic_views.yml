@@ -38,7 +38,6 @@ mimic_mm_core.metadata:
       primary_key: transfer_id
       fields:
         transfer_id: id
-        subject_id: id
         hadm_id:
           type: id
           ref: admissions.hadm_id
