@@ -119,6 +119,10 @@ def strip_output(nb):
 
                             new_data["text/html"] = html
 
+                    # Hide execution number
+                    if "execution_count" in out:
+                        new_out["execution_count"] = None
+
                     new_outs.append(new_out)
                 cell["outputs"] = new_outs
 
