@@ -74,11 +74,23 @@ def strip_output(nb):
                     if "text" in out:
                         # Remove timestamps in logs to allow versioning
                         new_out = deepcopy(out)
-                        new_out["text"] = re.sub(
+                        new_text = new_out["text"]
+
+                        # Replace logging date with sample one
+                        new_text = re.sub(
                             "\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{3}",
                             "2000-01-01 00:00:00,000",
-                            out["text"],
+                            new_text,
                         )
+
+                        # Replace tqdm times with reference one
+                        new_text = re.sub(
+                            "\d\d:\d\d<\d\d:\d\d,  \d+\.\d\d(?:s\/it|it\/s)",
+                            "00:00<00:00,  1.00it/s",
+                            new_text,
+                        )
+
+                        new_out["text"] = new_text
                     else:
                         new_out = out
                     new_outs.append(new_out)
