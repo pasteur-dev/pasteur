@@ -5,13 +5,18 @@ from functools import reduce
 
 from kedro.pipeline import Pipeline, pipeline
 
-from .pipelines.mimic import create_pipeline as create_pipeline_mimic
-from .pipelines.mimic_views import create_pipeline as create_pipeline_mimic_views
+from .pipelines.mimic import (
+    create_ingest_pipeline as mimic_create_ingest_pipeline,
+    create_views_pipelines as mimic_create_views_pipelines,
+)
 from .pipelines.synth import create_pipeline as create_pipeline_synth
 from .pipelines.synth import get_algs
 from .pipelines.general import create_split_pipeline
 from .pipelines.measure import create_pipeline as create_measure_pipeline
-from .pipelines.tab import create_ingest_pipelines, create_views_pipeline
+from .pipelines.tabular import (
+    create_ingest_pipelines as tab_create_ingest_pipelines,
+    create_views_pipelines as tab_create_views_pipelines,
+)
 
 
 def register_pipelines() -> Dict[str, Pipeline]:
@@ -23,23 +28,23 @@ def register_pipelines() -> Dict[str, Pipeline]:
 
     pipelines = {}
 
-    mimic_ingest_pipeline = create_pipeline_mimic()
-    tab_ingest_pipelines = create_ingest_pipelines()
-    tab_views_pipelines = create_views_pipeline()
+    mimic_ingest_pipeline = mimic_create_ingest_pipeline()
+    tab_ingest_pipelines = tab_create_ingest_pipelines()
+    tab_views_pipelines = tab_create_views_pipelines()
 
     pipe_ingest_datasets = mimic_ingest_pipeline + reduce(
         lambda a, b: a + b, tab_ingest_pipelines.values()
     )
-    pipe_ingest_views = create_pipeline_mimic(set())  # add key generation
+    pipe_ingest_views = mimic_create_ingest_pipeline(set())  # add key generation
+    mimic_views_pipelines = mimic_create_views_pipelines()
 
-    mimic_views_pipelines = create_pipeline_mimic_views()
     for name, pipe in chain(mimic_views_pipelines.items(), tab_views_pipelines.items()):
         if isinstance(pipe, tuple):
             ingest, pipe = pipe
             pipe_input = tab_ingest_pipelines[ingest]
         else:
             ingest = "mimic"
-            pipe_input = create_pipeline_mimic(pipe.inputs())
+            pipe_input = mimic_create_ingest_pipeline(pipe.inputs())
 
         tables = [t.split(".")[-1] for t in pipe.outputs()]
 

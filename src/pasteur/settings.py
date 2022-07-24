@@ -14,8 +14,8 @@ logging.captureWarnings(True)
 # from iris_example.hooks import ProjectHooks
 from .pipelines.measure import CustomMlflowTrackingHook
 from .pipelines.synth import AddDatasetsForViewsHook, get_algs
-from .pipelines.mimic_views import get_datasets as get_mimic_datasets
-from .pipelines.tab import get_datasets as get_tab_datasets
+from .pipelines.mimic import get_datasets as get_mimic_datasets
+from .pipelines.tabular import get_datasets as get_tab_datasets
 
 datasets = {**get_mimic_datasets(), **get_tab_datasets()}
 algs = get_algs()

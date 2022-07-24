@@ -4,3 +4,50 @@ mimic:
     ref: 0.4
     val: 0.1
     dev: 0.1
+
+mimic_mm_core.metadata:
+  tables:
+    patients:
+      target: anchor_age
+      primary_key: subject_id
+      fields:
+        subject_id: id
+        gender: categorical
+        year_group: categorical
+        dod: datetime
+        birth_year: datetime
+
+    admissions:
+      target: admission_type
+      primary_key: hadm_id
+      fields:
+        hadm_id: id
+        subject_id:
+          type: id
+          ref: patients.subject_id
+        admittime: datetime
+        dischtime: datetime
+        deathtime: datetime
+        admission_type: categorical
+        admission_location: categorical
+        discharge_location: categorical
+        insurance: categorical
+        language: categorical
+        marital_status: categorical
+        ethnicity: categorical
+        edregtime: datetime
+        edouttime: datetime
+        hospital_expire_flag: categorical
+
+    transfers:
+      target: eventtype
+      primary_key: transfer_id
+      fields:
+        transfer_id: id
+        hadm_id:
+          type: id
+          ref: admissions.hadm_id
+        eventtype: categorical
+        careunit: categorical
+        intime: datetime
+        outtime: datetime

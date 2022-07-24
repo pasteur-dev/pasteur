@@ -30,7 +30,7 @@ def create_ingest_pipelines(**kwargs) -> Pipeline:
     return {"adult": adult_pipeline + adult_keys}
 
 
-def create_views_pipeline(**kwargs) -> Dict[str, Tuple[str, Pipeline]]:
+def create_views_pipelines(**kwargs) -> Dict[str, Tuple[str, Pipeline]]:
 
     tab_adult_pipeline = pipeline(
         [
@@ -47,5 +47,5 @@ def create_views_pipeline(**kwargs) -> Dict[str, Tuple[str, Pipeline]]:
 
 
 def get_datasets() -> Dict[str, Collection[str]]:
-    pipelines = create_views_pipeline()
+    pipelines = create_views_pipelines()
     return {n: {o.split(".")[-1] for o in p[1].outputs()} for n, p in pipelines.items()}
