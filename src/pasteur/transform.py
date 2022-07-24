@@ -205,7 +205,7 @@ class IdxTransformer(Transformer):
         self.types = {}
 
         for col in data:
-            vals = data[col].unique()
+            vals = [v for v in data[col].unique() if not pd.isna(v)]
 
             # Try to sort vals
             try:
@@ -224,21 +224,39 @@ class IdxTransformer(Transformer):
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
 
-        for col in data:
-            out[col] = (
-                data[col]
-                .map(self.mapping[col])
-                .fillna(len(self.mapping[col]))
-                .astype("int16")
-            )
+        for col, vals in data.items():
+            mapping = self.mapping[col]
+            out_col = vals.replace(mapping)
+            ukn_val = len(mapping)
+            na_val = len(mapping) + 1
+
+            # Handle categorical columns without blowing them up to full blown columns
+            if vals.dtype.name == "category":
+                out_col = out_col.cat.add_categories(ukn_val)
+
+            # Handle NAs correctly
+            if np.any(vals.isna()):
+                if vals.dtype.name == "category":
+                    out_col = out_col.cat.add_categories(na_val)
+                out_col = out_col.fillna(na_val)
+
+            out_col = out_col.where(
+                vals.isin(mapping.keys()) | vals.isna(), ukn_val
+            ).astype("int16")
+            out[col] = out_col
 
         return out
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
 
-        for col, vals in self.vals.items():
-            out[col] = data[col].map(vals).astype(self.types[col])
+        for col, vals in data.items():
+            na_val = len(self.mapping[col]) + 1
+            out[col] = (
+                vals.map(self.vals[col])
+                .where(vals != na_val, pd.NA)
+                .astype(self.types[col])
+            )
 
         return out
 

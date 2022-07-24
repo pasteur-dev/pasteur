@@ -2,17 +2,12 @@ from typing import Collection, List
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from .synth import (
-    synth_alg_get_fit,
-    synth_alg_get_sample,
-)
+from .synth import get_algs as synth_get_algs
 
 from .transform import (
     fit_table_closure,
     transform_table,
     reverse_table,
-    transform_table_tab,
-    reverse_table_tab,
 )
 
 
@@ -46,11 +41,12 @@ def create_transform_pipeline(tables, type):
 
 
 def create_synth_pipeline(alg: str, tables: List[str]):
+    model = synth_get_algs()[alg]
 
     synth_pipe = pipeline(
         [
             node(
-                func=synth_alg_get_fit(alg),
+                func=model.fit,
                 inputs={
                     "metadata": "params:metadata",
                     **{f"ids_{t}": f"in_ids_{t}" for t in tables},
@@ -59,7 +55,7 @@ def create_synth_pipeline(alg: str, tables: List[str]):
                 outputs="model",
             ),
             node(
-                func=synth_alg_get_sample(alg),
+                func=model.sample,
                 inputs="model",
                 outputs={
                     **{f"ids_{t}": f"ids_{t}" for t in tables},
@@ -118,4 +114,4 @@ def create_pipeline(
 
 
 def get_algs():
-    return ["hma1"]
+    return list(synth_get_algs().keys())

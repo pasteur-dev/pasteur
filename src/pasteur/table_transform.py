@@ -68,7 +68,7 @@ class TableTransformer:
 
             ids = ids.rename(columns={col: table})
             foreign_ids = self.find_foreign_ids(table, tables)
-            ids = ids.join(foreign_ids, on=table)
+            ids = ids[~pd.isna(ids[table])].join(foreign_ids, on=table)
 
         return ids
 

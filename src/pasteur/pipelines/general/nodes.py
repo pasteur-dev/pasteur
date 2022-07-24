@@ -84,7 +84,7 @@ def filter_by_keys(*args):
         idx = table.index.name
         new_table = table.reset_index(drop=not idx).merge(keys, on=col)
         if idx:
-            new_table.set_index(idx)
+            new_table = new_table.set_index(idx)
         outputs.append(new_table)
 
     return outputs if len(outputs) > 1 else outputs[0]

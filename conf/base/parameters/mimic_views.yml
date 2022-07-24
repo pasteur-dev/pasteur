@@ -2,93 +2,47 @@
 mimic_mm_core.metadata:
   tables:
     patients:
-      primary_key: subject_id
       target: anchor_age
+      primary_key: subject_id
       fields:
-        subject_id:
-          type: id
-          subtype: integer
-        gender:
-          type: categorical
-        year_group:
-          type: categorical
-        death_date:
-          type: timespan
-        death_age:
-          type: numerical
-          subtype: integer
+        subject_id: id
+        gender: categorical
+        year_group: categorical
+        dod: datetime
+        birth_year: datetime
 
     admissions:
-      primary_key: hadm_id
       target: admission_type
-      key_fields:
-        - admission_location
-        - discharge_location
-        - insurance
-        - language
-        - marital_status
-        - ethnicity
-      sensitive_fields:
-        - admission_type
-
+      primary_key: hadm_id
       fields:
-        hadm_id:
-          type: id
-          subtype: integer
+        hadm_id: id
         subject_id:
-          ref:
-            table: patients
-            field: subject_id
           type: id
-          subtype: integer
-        admittime:
-          type: timespan
-        dischtime:
-          type: timespan
-        deathtime:
-          type: timespan
-        admission_type:
-          type: categorical
-        admission_location:
-          type: categorical
-        discharge_location:
-          type: categorical
-        insurance:
-          type: categorical
-        language:
-          type: categorical
-        marital_status:
-          type: categorical
-        ethnicity:
-          type: categorical
-        edregtime:
-          type: timespan
-        edouttime:
-          type: timespan
-        hospital_expire_flag:
-          type: categorical
+          ref: patients.subject_id
+        admittime: datetime
+        dischtime: datetime
+        deathtime: datetime
+        admission_type: categorical
+        admission_location: categorical
+        discharge_location: categorical
+        insurance: categorical
+        language: categorical
+        marital_status: categorical
+        ethnicity: categorical
+        edregtime: datetime
+        edouttime: datetime
+        hospital_expire_flag: categorical
 
     transfers:
-      primary_key: transfer_id
       target: eventtype
+      primary_key: transfer_id
       fields:
-        subject_id:
-          type: id
-          subtype: integer
+        transfer_id: id
+        subject_id: id
         hadm_id:
-          ref:
-            table: admissions
-            field: hadm_id
           type: id
-          subtype: integer
-        transfer_id:
-          type: id
-          subtype: integer
-        eventtype:
-          type: categorical
-        careunit:
-          type: categorical
-        intime:
-          type: timespan
-        outtime:
-          type: timespan
+          ref: admissions.hadm_id
+        eventtype: categorical
+        careunit: categorical
+        intime: datetime
+        outtime: datetime
