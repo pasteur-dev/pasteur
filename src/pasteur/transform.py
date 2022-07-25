@@ -32,14 +32,36 @@ class Transformer:
 
 
 class RefTransformer(Transformer):
-    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        self.fit(data)
-        return self.transform(data)
+    """Reference Transformers use a reference column as an input to create their embeddings.
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    They can be used to integrate constraints (and domain knowledge) into embeddings,
+    in such a way that all embeddings produce valid solutions and learning is
+    easier.
+
+    For example, consider an end date embedding that references a start date.
+    The embedding will form a stable histogram with much less entropy, based
+    on the period length.
+    In addition, provided that the embedding is forced to be positive, any value
+    it takes will produce a valid solution."""
+
+    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+        pass
+
+    def fit_transform(
+        self, data: pd.DataFrame, ref: pd.Series | None = None
+    ) -> pd.DataFrame:
+        self.fit(data, ref)
+        return self.transform(data, ref)
+
+    def transform(
+        self, data: pd.DataFrame, ref: pd.Series | None = None
+    ) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
-    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+        """When reversing, the data column contains encoded data, whereas the ref
+        column contains decoded/original data. Therefore, the referred columns have
+        to be decoded first."""
         assert 0, "Unimplemented"
 
 
@@ -94,7 +116,7 @@ class ChainTransformer(RefTransformer):
         self.deterministic = all(t.deterministic for t in transformers)
         self.lossless = all(t.lossless for t in transformers)
 
-    def fit(self, data: pd.DataFrame, ref: pd.DataFrame | None = None):
+    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
         if self.nullable:
             assert (
                 len(data.columns) == 1
@@ -110,7 +132,7 @@ class ChainTransformer(RefTransformer):
                 data = t.fit_transform(data)
 
     def transform(
-        self, data: pd.DataFrame, ref: pd.DataFrame | None = None
+        self, data: pd.DataFrame, ref: pd.Series | None = None
     ) -> pd.DataFrame:
         if self.nullable:
             na_col = np.any(data.isna(), axis=1)
@@ -126,9 +148,7 @@ class ChainTransformer(RefTransformer):
             data[self.na_col] = na_col
         return data
 
-    def reverse(
-        self, data: pd.DataFrame, ref: pd.DataFrame | None = None
-    ) -> pd.DataFrame:
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
         if self.nullable:
             na_col = data[self.na_col]
             data = data.drop(columns=[self.na_col])
@@ -518,3 +538,104 @@ class NormalDistTransformer(Transformer):
 
 
 TRANSFORMERS = lambda: {t.name: t for t in Transformer.__subclasses__()}
+
+
+class DateTransformer(RefTransformer):
+
+    name = "date"
+    in_type = "date"
+    out_type = "ordinal"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def __init__(self, span: str = "year", **_):
+        self.span = span
+
+    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+        self.types = {}
+        self.ref = {}
+        for col, vals in data.items():
+            self.types[col] = vals.dtype
+            if ref is None:
+                self.ref[col] = vals.min()
+
+    @staticmethod
+    def iso_year_start(iso_year):
+        "The gregorian calendar date of the first day of the given ISO year"
+        # Based on https://stackoverflow.com/questions/304256/whats-the-best-way-to-find-the-inverse-of-datetime-isocalendar
+        fourth_jan = pd.to_datetime(
+            pd.DataFrame({"year": iso_year, "month": 1, "day": 4})
+        )
+
+        delta = pd.to_timedelta(fourth_jan.dt.day_of_week, unit="day")
+        return fourth_jan - delta
+
+    @staticmethod
+    def iso_to_gregorian(iso_year, iso_week, iso_day):
+        "Gregorian calendar date for the given ISO year, week and day"
+        year_start = DateTransformer.iso_year_start(iso_year)
+        return year_start + pd.to_timedelta((iso_week - 1) * 7 + iso_day, unit="day")
+
+    def transform(
+        self, data: pd.DataFrame, ref: pd.Series | None = None
+    ) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col, vals in data.items():
+            rf = self.ref.get(col, ref)
+            assert rf is not None
+            # When using a ref column accessing the date parameters is done by the dt member.
+            # When self referencing to the minimum value, its type is a Timestamp
+            # which doesn't have the dt member and requires direct access.
+            rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
+
+            match self.span:
+                case "year":
+                    out[f"{col}_year"] = vals.dt.year - rf_dt.year
+                    out[f"{col}_week"] = vals.dt.week
+                    out[f"{col}_day"] = vals.dt.day_of_week
+                case "week":
+                    out[f"{col}_week"] = ((
+                        vals.dt.normalize() - rf_dt.normalize()
+                    ).dt.days + rf_dt.day_of_week) // 7
+                    out[f"{col}_day"] = vals.dt.day_of_week
+                case "day":
+                    out[f"{col}_day"] = (
+                        vals.dt.normalize() - rf_dt.normalize()
+                    ).dt.days + rf_dt.day_of_week
+
+        return out
+
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in self.types:
+            rf = self.ref.get(col, ref)
+            assert rf is not None
+            # When using a ref column accessing the date parameters is done by the dt member.
+            # When self referencing to the minimum value, its type is a Timestamp
+            # which doesn't have the dt member and requires direct access.
+            rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
+
+            match self.span:
+                case "year":
+                    out[col] = self.iso_to_gregorian(
+                        rf_dt.year + data[f"{col}_year"],
+                        data[f"{col}_week"],
+                        data[f"{col}_day"],
+                    )
+                case "week":
+                    out[col] = rf + pd.to_timedelta(
+                        data[f"{col}_week"] * 7
+                        + data[f"{col}_day"]
+                        - rf_dt.day_of_week,
+                        unit="days",
+                    )
+                case "day":
+                    out[col] = rf_dt.normalize() + pd.to_timedelta(
+                        data[f"{col}_day"] - rf_dt.day_of_week, unit="days"
+                    )
+
+        return out

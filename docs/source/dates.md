@@ -14,7 +14,6 @@ params:
 
   - **date**: 
       - year: years: 0-N, weeks 0-51, day-of-week 0-6
-      - month: months: 0-N, weeks 0-4, day-of-week 0-6
       - week: weeks: 0-N, day-of-week 0-6
       - day: days 0-N (0 is a monday)
       - default: year

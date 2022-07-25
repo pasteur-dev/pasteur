@@ -187,3 +187,35 @@ def test_chain_transformer_na():
     assert np.all(
         (dec["tst1"] == [1, 1, np.NAN, 1, 2, 3, np.NAN, 6, 10]) | pd.isna(dec["tst1"])
     )
+
+
+def test_date_transform():
+    from pasteur.transform import DateTransformer
+
+    test_data = pd.DataFrame()
+
+    def add_date(col, times):
+        test_data[col] = pd.to_datetime(times, unit="s")
+
+    # https://catonmat.net/tools/generate-random-unix-timestamps
+    add_date("year_start", [1040950472, 1061321383, 982846203, 1158533834, 1153720128])
+    add_date("year_end", [1570024572, 1337927206, 1432776607, 1563197834, 1518650917])
+    add_date("month_start", [966805568, 971024885, 960237288, 976287141, 970894107])
+    add_date("month_end", [987563531, 1008241424, 989683269, 984544020, 978397836])
+    add_date("week_start", [951123803, 947832472, 952228661, 949995448, 948836756])
+    add_date("week_end", [959113173, 955559677, 956566230, 956010344, 962402695])
+    add_date("day_start", [946819605, 947119107, 948216451, 947159886, 948980663])
+    add_date("day_end", [951132021, 950053040, 950753161, 950714127, 949812216])
+
+    for span in ["year", "week", "day"]:
+        for use_ref in [False, True]:
+            ref = test_data[f"{span}_start"] if use_ref else None
+            vals = test_data[[f"{span}_end"]]
+            t = DateTransformer(span)
+            t.fit(vals, ref)
+            enc = t.transform(vals, ref)
+            dec = t.reverse(enc, ref)
+
+            assert np.all(dec[f"{span}_end"].dt.year == vals[f"{span}_end"].dt.year)
+            assert np.all(dec[f"{span}_end"].dt.month == vals[f"{span}_end"].dt.month)
+            assert np.all(dec[f"{span}_end"].dt.day == vals[f"{span}_end"].dt.day)
