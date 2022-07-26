@@ -37,14 +37,29 @@ class ColumnMeta:
     DEFAULT_COLUMN_META = DEFAULT_COLUMN_META
 
     def __init__(self, **kwargs):
+        type_val = kwargs["type"]
+
+        # Check for type extended syntax
+        # <type>|<main-param>:<ref>
+        # main-param is passed to the first transformer as a positional value
+        type_ref = type_val.split(":")
+        type_param = type_ref[0].split("|")
+
+        type = type_param[0]
+        main_param = type_param[1] if len(type_param) > 1 else None
+
+        # Ref can be set both by the ref keyword or by extended syntax
+        ref = type_ref[1] if len(type_ref) > 1 else None
+        ref = kwargs.get("ref", ref)
+
         # Basic type and dtype data
-        self.type = kwargs["type"]
+        self.type = type
         self.dtype = kwargs.get("dtype", None)
 
         # Add reference column, used for dates and IDs
         # Format: <table>.<col>
-        if "ref" in kwargs:
-            d = kwargs["ref"].split(".")
+        if ref is not None:
+            d = ref.split(".")
             if len(d) == 2:
                 table = d[0]
                 col = d[1]
@@ -89,7 +104,9 @@ class ColumnMeta:
         }
 
         # Add untyped version of args to use with transformers
-        self.args = kwargs
+        self.args = kwargs.copy()
+        if main_param is not None:
+            self.args.update({"main_param": main_param})
 
     def is_categorical(self) -> bool:
         return self.type == "categorical"

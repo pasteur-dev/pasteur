@@ -88,7 +88,14 @@ class ChainTransformer(RefTransformer):
             transformer_names = [transformer_names]
 
         tdict = TRANSFORMERS()
-        transformers = [tdict[name](**args) for name in transformer_names]
+        if "main_param" in args and len(transformer_names) > 0:
+            # Pass main_param from extended syntax to first transformer if it exists
+            first = tdict[transformer_names[0]](args["main_param"], **args)
+            other = [tdict[name](**args) for name in transformer_names[1:]]
+            transformers = [first, *other]
+        else:
+            # Otherwise just create transformers normally
+            transformers = [tdict[name](**args) for name in transformer_names]
 
         return ChainTransformer(transformers=transformers, **args)
 
@@ -718,8 +725,8 @@ class DatetimeTransformer(RefTransformer):
     lossless = True
     stateful = True
 
-    def __init__(self, span="year:halfhour", **_):
-        date_span, time_span = span.split(":")
+    def __init__(self, span="year.halfhour", **_):
+        date_span, time_span = span.split(".")
         self.dt = DateTransformer(date_span)
         self.tt = TimeTransformer(time_span)
 
