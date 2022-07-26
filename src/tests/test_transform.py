@@ -219,3 +219,62 @@ def test_date_transform():
             assert np.all(dec[f"{span}_end"].dt.year == vals[f"{span}_end"].dt.year)
             assert np.all(dec[f"{span}_end"].dt.month == vals[f"{span}_end"].dt.month)
             assert np.all(dec[f"{span}_end"].dt.day == vals[f"{span}_end"].dt.day)
+
+
+def test_time_transform():
+    from pasteur.transform import TimeTransformer
+
+    test_data = pd.DataFrame()
+
+    def add_date(col, times):
+        test_data[col] = pd.to_datetime(times, unit="s")
+
+    # https://catonmat.net/tools/generate-random-unix-timestamps
+    add_date(
+        "times",
+        [
+            1040950472,
+            1061321383,
+            982846203,
+            1158533834,
+            1153720128,
+            1570024572,
+            1337927206,
+            1432776607,
+            1563197834,
+            1518650917,
+            966805568,
+            971024885,
+            960237288,
+            976287141,
+            970894107,
+            987563531,
+            1008241424,
+            989683269,
+            984544020,
+            978397836,
+            951123803,
+            947832472,
+            952228661,
+        ],
+    )
+
+    for span in ("hour", "halfhour", "minute", "halfminute", "second"):
+        t = TimeTransformer(span)
+        t.fit(test_data)
+        enc = t.transform(test_data)
+        dec = t.reverse(enc)
+
+        assert np.all(dec["times"].dt.hour == test_data["times"].dt.hour)
+        if span == "halfhour":
+            assert np.all(
+                dec["times"].dt.minute == 30 * (test_data["times"].dt.minute > 29)
+            )
+        if span in ("minute", "halfminute", "second"):
+            assert np.all(dec["times"].dt.minute == test_data["times"].dt.minute)
+        if span == "halfminute":
+            assert np.all(
+                dec["times"].dt.second == 30 * (test_data["times"].dt.second > 29)
+            )
+        if span == "second":
+            assert np.all(dec["times"].dt.second == test_data["times"].dt.second)

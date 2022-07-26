@@ -543,7 +543,7 @@ TRANSFORMERS = lambda: {t.name: t for t in Transformer.__subclasses__()}
 class DateTransformer(RefTransformer):
 
     name = "date"
-    in_type = "date"
+    in_type = ("date", "datetime")
     out_type = "ordinal"
 
     deterministic = True
@@ -597,9 +597,10 @@ class DateTransformer(RefTransformer):
                     out[f"{col}_week"] = vals.dt.week
                     out[f"{col}_day"] = vals.dt.day_of_week
                 case "week":
-                    out[f"{col}_week"] = ((
-                        vals.dt.normalize() - rf_dt.normalize()
-                    ).dt.days + rf_dt.day_of_week) // 7
+                    out[f"{col}_week"] = (
+                        (vals.dt.normalize() - rf_dt.normalize()).dt.days
+                        + rf_dt.day_of_week
+                    ) // 7
                     out[f"{col}_day"] = vals.dt.day_of_week
                 case "day":
                     out[f"{col}_day"] = (
@@ -637,5 +638,72 @@ class DateTransformer(RefTransformer):
                     out[col] = rf_dt.normalize() + pd.to_timedelta(
                         data[f"{col}_day"] - rf_dt.day_of_week, unit="days"
                     )
+
+        return out
+
+
+class TimeTransformer(Transformer):
+
+    name = "time"
+    in_type = ("time", "datetime")
+    out_type = "ordinal"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def __init__(self, span: str = "minute", **_):
+        self.span = span
+
+    def fit(self, data: pd.DataFrame):
+        self.types = {}
+        for col, vals in data.items():
+            self.types[col] = vals.dtype
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+        span = self.span
+
+        for col in self.types:
+            date = data[col]
+            out[f"{col}_hour"] = date.dt.hour
+            if span == "halfhour":
+                out[f"{col}_halfhour"] = date.dt.minute > 29
+            if span in ("minute", "halfminute", "second"):
+                out[f"{col}_min"] = date.dt.minute
+            if span == "halfminute":
+                out[f"{col}_halfmin"] = date.dt.second > 29
+            if span == "second":
+                out[f"{col}_sec"] = date.dt.second
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+        span = self.span
+
+        for col in self.types:
+            hour = data[f"{col}_hour"]
+            min = 0
+            sec = 0
+            if span == "halfhour":
+                min = 30 * data[f"{col}_halfhour"]
+            if span in ("minute", "halfminute", "second"):
+                min = data[f"{col}_min"]
+            if span == "halfminute":
+                sec = 30 * data[f"{col}_halfmin"]
+            if span == "second":
+                sec = data[f"{col}_sec"]
+
+            out[col] = pd.to_datetime(
+                {
+                    "year": 2000,
+                    "month": 1,
+                    "day": 1,
+                    "hour": hour,
+                    "minute": min,
+                    "second": sec,
+                }
+            )
 
         return out
