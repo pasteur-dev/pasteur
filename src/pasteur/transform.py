@@ -707,3 +707,52 @@ class TimeTransformer(Transformer):
             )
 
         return out
+
+
+class DatetimeTransformer(RefTransformer):
+    name = "time"
+    in_type = ("time", "datetime")
+    out_type = "ordinal"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def __init__(self, span="year:halfhour", **_):
+        date_span, time_span = span.split(":")
+        self.dt = DateTransformer(date_span)
+        self.tt = TimeTransformer(time_span)
+
+    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+        self.types = {}
+        for col, vals in data.items():
+            self.types[col] = vals.dtype
+
+        self.dt.fit(data, ref)
+        self.tt.fit(data)
+
+    def transform(
+        self, data: pd.DataFrame, ref: pd.Series | None = None
+    ) -> pd.DataFrame:
+        date_enc = self.dt.transform(data, ref)
+        time_enc = self.tt.transform(data)
+        return pd.concat([date_enc, time_enc], axis=1)
+
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+        date_dec = self.dt.reverse(data, ref)
+        time_dec = self.tt.reverse(data)
+
+        out = pd.DataFrame()
+        for col in self.types:
+            out[col] = pd.to_datetime(
+                {
+                    "year": date_dec[col].dt.year,
+                    "month": date_dec[col].dt.month,
+                    "day": date_dec[col].dt.day,
+                    "hour": time_dec[col].dt.hour,
+                    "minute": time_dec[col].dt.minute,
+                    "second": time_dec[col].dt.second,
+                }
+            )
+
+        return out
