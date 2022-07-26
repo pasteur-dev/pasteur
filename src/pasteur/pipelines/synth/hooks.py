@@ -29,6 +29,33 @@ class AddDatasetsForViewsHook:
     def _logger(self):
         return logging.getLogger(self.__class__.__name__)
 
+    def add_set(self, layer, name, path_seg):
+        self.catalog.add(
+            name,
+            ParquetDataSet(
+                path.join(
+                    self.base_location,
+                    *path_seg[:-1],
+                    path_seg[-1] + ".pq",
+                ),
+                save_args=self.pq_save_args,
+            ),
+        )
+        self.catalog.layers[layer].add(name)
+
+    def add_pkl(self, layer, name, path_seg):
+        self.catalog.add(
+            name,
+            PickleDataSet(
+                path.join(
+                    self.base_location,
+                    *path_seg[:-1],
+                    path_seg[-1] + ".pkl",
+                )
+            ),
+        )
+        self.catalog.layers[layer].add(name)
+
     @hook_impl
     def after_catalog_created(
         self,
@@ -39,143 +66,61 @@ class AddDatasetsForViewsHook:
         # Parquet converts timestamps, but synthetic data can contain ns variations
         # which result in a loss of quality. This causes an exception.
         # By defining save args explicitly that exception is ignored.
-        save_args = {"coerce_timestamps": "us", "allow_truncated_timestamps": True}
+        self.pq_save_args = {
+            "coerce_timestamps": "us",
+            "allow_truncated_timestamps": True,
+        }
+        self.catalog = catalog
 
         for dataset, tables in self.datasets.items():
             for table in tables:
-                # Add primary dataset tables
-                name = "%s.view.%s" % (dataset, table)
-                catalog.add(
-                    name,
-                    ParquetDataSet(
-                        path.join(
-                            self.base_location,
-                            "views",
-                            "primary",
-                            dataset,
-                            table + ".pq",
-                        ),
-                        save_args=save_args,
-                    ),
+                self.add_set(
+                    "primary",
+                    f"{dataset}.view.{table}",
+                    ["views", "primary", dataset, table],
                 )
-                catalog.layers["primary"].add(name)
 
                 # Add datasets for splits
                 for split in ["wrk", "ref", "val", "dev"]:
-                    name = "%s.%s.%s" % (dataset, split, table)
-                    catalog.add(
-                        name,
-                        ParquetDataSet(
-                            path.join(
-                                self.base_location,
-                                "views",
-                                "primary",
-                                "%s.%s" % (dataset, split),
-                                table + ".pq",
-                            ),
-                            save_args=save_args,
-                        ),
+                    self.add_set(
+                        "split",
+                        f"{dataset}.{split}.{table}",
+                        ["views", "primary", f"{dataset}.{split}", table],
                     )
-                    catalog.layers["split"].add(name)
 
                     # For each materialized view table, add datasets for encoded, decoded forms
-                    for type in ["enc", "dec", "ids"]:
-                        name = "%s.%s.%s_%s" % (dataset, split, type, table)
-                        catalog.add(
-                            name,
-                            ParquetDataSet(
-                                path.join(
-                                    self.base_location,
-                                    "views",
-                                    type,
-                                    "%s.%s" % (dataset, split),
-                                    table + ".pq",
-                                ),
-                                save_args=save_args,
-                            ),
+                    for type in ["ids", "idx", "num", "bin"]:
+                        self.add_set(
+                            "split_encoded",
+                            f"{dataset}.{split}.{type}_{table}",
+                            ["views", type, f"{dataset}.{split}", table],
                         )
-                        if type in ["enc", "ids"]:
-                            catalog.layers["split_encoded"].add(name)
-                        else:
-                            catalog.layers["split_decoded"].add(name)
 
                     # Add pickle dataset for transformers
-                    name = "%s.%s.%s_%s" % (dataset, split, "trn", table)
-                    catalog.add(
-                        name,
-                        PickleDataSet(
-                            path.join(
-                                self.base_location,
-                                "views",
-                                "transformer",
-                                "%s.%s" % (dataset, split),
-                                table + ".pkl",
-                            )
-                        ),
+                    self.add_pkl(
+                        "transformers",
+                        f"{dataset}.{split}.trn_{table}",
+                        ["views", "transformer", f"{dataset}.{split}", table],
                     )
-                    catalog.layers["transformers"].add(name)
 
         for dataset, tables in self.datasets.items():
             for alg in self.algs:
-                name = "%s.%s.%s" % (dataset, alg, "model")
-                catalog.add(
-                    name,
-                    PickleDataSet(
-                        path.join(
-                            self.base_location,
-                            "synth",
-                            "models",
-                            "%s.%s.pkl" % (dataset, alg),
-                        )
-                    ),
+                self.add_pkl(
+                    "synth_models",
+                    f"{dataset}.{alg}.model",
+                    ["synth", "models", f"{dataset}.{alg}"],
                 )
-                catalog.layers["synth_models"].add(name)
 
                 for table in tables:
-                    name = "%s.%s.%s_%s" % (dataset, alg, "enc", table)
-                    catalog.add(
-                        name,
-                        ParquetDataSet(
-                            path.join(
-                                self.base_location,
-                                "synth",
-                                "enc",
-                                "%s.%s" % (dataset, alg),
-                                table + ".pq",
-                            ),
-                            save_args=save_args,
-                        ),
-                    )
-                    catalog.layers["synth_encoded"].add(name)
+                    for type in ("enc", "ids"):
+                        self.add_set(
+                            "synth_encoded",
+                            f"{dataset}.{alg}.{type}_{table}",
+                            ["synth", type, f"{dataset}.{alg}", table],
+                        )
 
-                    name = "%s.%s.%s_%s" % (dataset, alg, "ids", table)
-                    catalog.add(
-                        name,
-                        ParquetDataSet(
-                            path.join(
-                                self.base_location,
-                                "synth",
-                                "ids",
-                                "%s.%s" % (dataset, alg),
-                                table + ".pq",
-                            ),
-                            save_args=save_args,
-                        ),
+                    self.add_set(
+                        "synth_decoded",
+                        f"{dataset}.{alg}.{table}",
+                        ["synth", "dec", f"{dataset}.{alg}", table],
                     )
-                    catalog.layers["synth_encoded"].add(name)
-
-                    name = "%s.%s.%s" % (dataset, alg, table)
-                    catalog.add(
-                        name,
-                        ParquetDataSet(
-                            path.join(
-                                self.base_location,
-                                "synth",
-                                "dec",
-                                "%s.%s" % (dataset, alg),
-                                table + ".pq",
-                            ),
-                            save_args=save_args,
-                        ),
-                    )
-                    catalog.layers["synth_decoded"].add(name)

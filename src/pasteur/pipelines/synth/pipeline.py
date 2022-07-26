@@ -23,7 +23,7 @@ def create_transform_pipeline(
     for t in tables:
         table_nodes += [
             node(
-                func=fit_table_closure(t, type),
+                func=fit_table_closure(t, types),
                 inputs={"metadata": "params:metadata", **{t: t for t in tables}},
                 outputs=f"trn_{t}",
             ),
