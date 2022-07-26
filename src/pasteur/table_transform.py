@@ -2,9 +2,12 @@ from typing import Collection, Dict, List, Optional
 import pandas as pd
 import numpy as np
 import math
+import logging
 
 from .metadata import Metadata
 from .transform import ChainTransformer, Transformer
+
+logger = logging.getLogger(__name__)
 
 
 class TableTransformer:
@@ -146,13 +149,21 @@ class TableTransformer:
     ):
         assert type in self.types and self.fitted
 
-        # Only load foreign keys if required by column
-        ids = None
-        if self.table_has_reference() and ids is None:
-            ids = self.find_foreign_ids(self.name, tables)
-
         meta = self.meta[self.name]
         table = tables[self.name]
+
+        # Only load foreign keys if required by column
+        ids = None
+        if self.table_has_reference():
+            if ids is None:
+                ids = self.find_foreign_ids(self.name, tables)
+            # If we do have foreign relationships drop all rows that don't have
+            # parents and warn
+            if len(ids) < len(table):
+                logger.warning(
+                    f"Found {len(table) - len(ids)} rows without ids on table {self.name}. Dropping before fitting..."
+                )
+                table = table.loc[ids.index]
 
         tts = []
         for name, col in meta.cols.items():

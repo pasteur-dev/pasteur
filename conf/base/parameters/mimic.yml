@@ -14,7 +14,7 @@ mimic_mm_core.metadata:
         subject_id: id
         gender: categorical
         year_group: categorical
-        dod: date:birth_year
+        dod: date?:birth_year
         birth_year: date
 
     admissions:
@@ -25,16 +25,16 @@ mimic_mm_core.metadata:
         subject_id: id:patients.subject_id
         admittime: datetime|year.halfhour:patients.birth_year
         dischtime: datetime|day.halfhour:admittime
-        deathtime: datetime|day.halfhour:admittime
+        deathtime: datetime?|day.halfhour:admittime
         admission_type: categorical
-        admission_location: categorical
-        discharge_location: categorical
+        admission_location: categorical?
+        discharge_location: categorical?
         insurance: categorical
         language: categorical
-        marital_status: categorical
+        marital_status: categorical?
         ethnicity: categorical
-        edregtime: datetime|day.halfhour:admittime
-        edouttime: datetime|day.halfhour:admittime
+        edregtime: datetime?|day.halfhour:admittime
+        edouttime: datetime?|day.halfhour:admittime
         hospital_expire_flag: categorical
 
     transfers:
@@ -44,6 +44,6 @@ mimic_mm_core.metadata:
         transfer_id: id
         hadm_id: id:admissions.hadm_id
         eventtype: categorical
-        careunit: categorical
+        careunit: categorical?
         intime: datetime|day.halfhour:admissions.admittime
-        outtime: datetime|day.halfhour:intime
+        outtime: datetime?|day.halfhour:intime

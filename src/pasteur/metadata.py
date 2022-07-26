@@ -15,27 +15,27 @@ DEFAULT_NUM_TRANSFORMERS = {
     "numerical": "normdist",
     "ordinal": ("idx", "normalize"),
     "categorical": ("idx", "normalize"),
-    "time": ("time", "normalize"),
-    "date": ("date", "normalize"),
-    "datetime": ("datetime", "normalize"),
+    "time": ("time", "idx", "normalize"),
+    "date": ("date", "idx", "normalize"),
+    "datetime": ("datetime", "idx", "normalize"),
 }
 
 DEFAULT_BIN_TRANSFORMERS = {
     "numerical": ("discrete", "gray"),
     "ordinal": ("idx", "gray"),
     "categorical": "onehot",
-    "time": ("time", "gray"),
-    "date": ("date", "gray"),
-    "datetime": ("datetime", "gray"),
+    "time": ("time", "idx", "gray"),
+    "date": ("date", "idx", "gray"),
+    "datetime": ("datetime", "idx", "gray"),
 }
 
 DEFAULT_IDX_TRANSFORMERS = {
     "numerical": "discrete",
     "ordinal": "idx",
     "categorical": "idx",
-    "time": "time",
-    "date": "date",
-    "datetime": "datetime",
+    "time": ("time", "idx"),
+    "date": ("date", "idx"),
+    "datetime": ("datetime", "idx"),
 }
 
 DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
@@ -46,12 +46,13 @@ class ColumnMeta:
     DEFAULT_COLUMN_META = DEFAULT_COLUMN_META
 
     def __init__(self, **kwargs):
-        type_val = kwargs["type"]
+        type_val: str = kwargs["type"]
 
         # Check for type extended syntax
-        # <type>|<main-param>:<ref>
+        # <type><?>|<main-param>:<ref>
         # main-param is passed to the first transformer as a positional value
-        type_ref = type_val.split(":")
+        is_nullable = "?" in type_val
+        type_ref = type_val.replace("?", "").split(":")
         type_param = type_ref[0].split("|")
 
         type = type_param[0]
@@ -116,6 +117,8 @@ class ColumnMeta:
         self.args = kwargs.copy()
         if main_param is not None:
             self.args.update({"main_param": main_param})
+        if is_nullable:
+            self.args.update({"nullable": True})
 
     def is_categorical(self) -> bool:
         return self.type == "categorical"

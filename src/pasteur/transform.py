@@ -3,6 +3,9 @@ from typing import Dict, List
 import pandas as pd
 import numpy as np
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Transformer:
@@ -13,6 +16,7 @@ class Transformer:
     deterministic = True
     lossless = True
     stateful = False
+    handles_na = False
 
     def __init__(self, **_):
         pass
@@ -81,6 +85,7 @@ class ChainTransformer(RefTransformer):
     deterministic = True
     lossless = True
     stateful = False
+    handles_na = True
 
     @staticmethod
     def from_dict(transformer_names: List[str] | str, args: Dict):
@@ -117,6 +122,12 @@ class ChainTransformer(RefTransformer):
                 )
                 out_type = t.out_type
 
+        na_handled = any(t.handles_na for t in transformers)
+        self.handle_na = not na_handled and nullable
+        if self.handle_na:
+            logger.warning(
+                f"Nullable column doesn't have transformers for na vals, using <name>_NA col."
+            )
         self.nullable = nullable
         self.na_val = na_val
 
@@ -124,13 +135,18 @@ class ChainTransformer(RefTransformer):
         self.lossless = all(t.lossless for t in transformers)
 
     def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
-        if self.nullable:
+        if self.handle_na:
             assert (
                 len(data.columns) == 1
             ), "Can only handle one column when checking for NA"
             self.na_col = f"{data.columns[0]}_na"
             na_col = np.any(data.isna(), axis=1)
             data = data[~na_col].infer_objects()
+        else:
+            # If not nullable and null value was passed halt.
+            assert self.nullable or not np.any(
+                data.isna()
+            ), f"NA value in non nullable column {data.columns[0]}."
 
         for t in self.transformers:
             if isinstance(t, RefTransformer) and ref is not None:
@@ -141,9 +157,14 @@ class ChainTransformer(RefTransformer):
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None
     ) -> pd.DataFrame:
-        if self.nullable:
+        if self.handle_na:
             na_col = np.any(data.isna(), axis=1)
             data = data.where(~na_col, other=self.na_val)
+        else:
+            # If not nullable and null value was passed halt.
+            assert self.nullable or not np.any(
+                data.isna()
+            ), f"NA value in non nullable column {data.columns[0]}."
 
         for t in self.transformers:
             if isinstance(t, RefTransformer) and ref is not None:
@@ -151,12 +172,12 @@ class ChainTransformer(RefTransformer):
             else:
                 data = t.transform(data)
 
-        if self.nullable:
+        if self.handle_na:
             data[self.na_col] = na_col
         return data
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
-        if self.nullable:
+        if self.handle_na:
             na_col = data[self.na_col]
             data = data.drop(columns=[self.na_col])
 
@@ -166,7 +187,7 @@ class ChainTransformer(RefTransformer):
             else:
                 data = t.reverse(data)
 
-        if self.nullable:
+        if self.handle_na:
             data[na_col] = pd.NA
         return data
 
@@ -183,6 +204,7 @@ class BinTransformer(Transformer):
     deterministic = True
     lossless = False
     stateful = True
+    handles_na = False
 
     def __init__(self, bins=32, **_):
         self.n_bins = bins
@@ -217,11 +239,12 @@ class IdxTransformer(Transformer):
 
     name = "idx"
     in_type = ("categorical", "ordinal")
-    out_type = "basen"
+    out_type = "ordinal"
 
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = True
 
     def __init__(self, unknown_value=-1, **_):
         self.unknown_value = unknown_value
@@ -302,6 +325,7 @@ class OneHotTransformer(Transformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = True
 
     def __init__(self, unknown_value=-1, **_):
         self.unknown_value = unknown_value
@@ -335,13 +359,22 @@ class OneHotTransformer(Transformer):
         out = pd.DataFrame()
 
         for col, vals in self.vals.items():
+            type = self.types[col]
             l = len(data[f"{col}_0"])
-            out_col = np.empty((l), dtype=self.types[col])
+
+            out_col = pd.Series(
+                np.empty((l), dtype=type if type.name != "category" else "object"),
+                index=data.index,
+            )
 
             for i in range(len(vals)):
                 out_col[data[f"{col}_{i}"]] = vals[i]
 
             out_col[data[f"{col}_{len(vals)}"]] = self.unknown_value
+
+            if type.name == "category":
+                out_col = out_col.astype("category")
+
             out[col] = out_col
 
         return out
@@ -357,6 +390,7 @@ class GrayTransformer(Transformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def fit(self, data: pd.DataFrame):
         self.digits = {}
@@ -372,7 +406,8 @@ class GrayTransformer(Transformer):
             gray = n ^ (n >> 1)
 
             for i in range(self.digits[col]):
-                out[f"{col}_{i}"] = (gray & (1 << i)) != 0
+                bin_col = (gray & (1 << i)) != 0
+                out[f"{col}_{i}"] = pd.Series(bin_col, index=data.index)
 
         return out
 
@@ -408,6 +443,7 @@ class BaseNTransformer(Transformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def __init__(self, base: int = 2, **_) -> None:
         self.base = base
@@ -457,12 +493,13 @@ class NormalizeTransformer(Transformer):
     during transform it is clipped to (0, 1)."""
 
     name = "normalize"
-    in_type = ("numerical", "basen")
+    in_type = ("numerical", "ordinal")
     out_type = "numerical"
 
     deterministic = True
     lossless = False
     stateful = True
+    handles_na = False
 
     def fit(self, data: pd.DataFrame):
         self.min = {}
@@ -509,6 +546,7 @@ class NormalDistTransformer(Transformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def fit(self, data: pd.DataFrame):
         self.std = {}
@@ -554,6 +592,7 @@ class DateTransformer(RefTransformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def __init__(self, span: str = "year", **_):
         self.span = span
@@ -656,6 +695,7 @@ class TimeTransformer(Transformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def __init__(self, span: str = "minute", **_):
         self.span = span
@@ -722,6 +762,7 @@ class DatetimeTransformer(RefTransformer):
     deterministic = True
     lossless = True
     stateful = True
+    handles_na = False
 
     def __init__(self, span="year.halfhour", **_):
         date_span, time_span = span.split(".")
