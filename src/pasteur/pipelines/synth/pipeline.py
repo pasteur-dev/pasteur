@@ -1,4 +1,4 @@
-from typing import Collection, List
+from typing import Collection, Dict, List
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
@@ -11,9 +11,14 @@ from .transform import (
 )
 
 
-def create_transform_pipeline(tables, type):
+def create_transform_pipeline(
+    tables, type, requirements: Dict[str, Collection[str]] | None = None
+):
     table_nodes = []
-    for i, t in enumerate(tables):
+    if requirements is None:
+        requirements = {}
+
+    for t in tables:
         table_nodes += [
             node(
                 func=fit_table_closure(t, type),
@@ -31,7 +36,7 @@ def create_transform_pipeline(tables, type):
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",
                     "table": f"enc_{t}",
-                    **{f"dec_{t}": t for t in tables[i + 1 :]},
+                    **{req: f"dec_{req}" for req in requirements.get(t, [])},
                 },
                 outputs=f"dec_{t}",
             ),
@@ -40,8 +45,12 @@ def create_transform_pipeline(tables, type):
     return pipeline(table_nodes)
 
 
-def create_synth_pipeline(alg: str, tables: List[str]):
+def create_synth_pipeline(
+    alg: str, tables: List[str], requirements: Dict[str, Collection[str]] | None = None
+):
     model = synth_get_algs()[alg]
+    if requirements is None:
+        requirements = {}
 
     synth_pipe = pipeline(
         [
@@ -73,11 +82,11 @@ def create_synth_pipeline(alg: str, tables: List[str]):
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",
                     "table": f"enc_{t}",
-                    **{t: t for t in tables[i + 1 :]},
+                    **{req: req for req in requirements.get(t, [])},
                 },
                 outputs=t,
             )
-            for i, t in enumerate(tables)
+            for t in tables
         ]
     )
 
@@ -85,20 +94,24 @@ def create_synth_pipeline(alg: str, tables: List[str]):
 
 
 def create_pipeline(
-    view: str, split: str, alg: str, tables: Collection[str]
+    view: str,
+    split: str,
+    alg: str,
+    tables: Collection[str],
+    requirements: Dict[str, Collection[str]] | None = None,
 ) -> Pipeline:
     tables = [t.split(".")[-1] for t in tables]
 
     type = "idx"
     transform_mpipe = modular_pipeline(
-        pipe=create_transform_pipeline(tables, type),
+        pipe=create_transform_pipeline(tables, type, requirements),
         namespace=f"{view}.{split}",
         parameters={
             "metadata": f"{view}.metadata",
         },
     )
 
-    synth_pipe = create_synth_pipeline(alg, tables)
+    synth_pipe = create_synth_pipeline(alg, tables, requirements)
     synth_mpipe = modular_pipeline(
         pipe=synth_pipe,
         namespace=f"{view}.{alg}",

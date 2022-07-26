@@ -2,7 +2,7 @@
 This file contains pipelines specific to processing the dataset MIMIC-IV.
 """
 
-from typing import Collection, Dict, Optional, Set
+from typing import Collection, Dict, Optional, Set, Tuple
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
@@ -124,6 +124,17 @@ def create_views_pipelines() -> Dict[str, Pipeline]:
             namespace=f"mimic_{name}.view",
         )
         for name, pipe in pipelines.items()
+    }
+
+
+def get_view_requirements() -> Dict[str, Dict[str, Tuple[str]]]:
+    """Some table encodings depend on others. Returns the table dependencies for
+    pipelines for which they exist."""
+    return {
+        "mimic_mm_core": {
+            "admissions": ("patients",),
+            "transfers": ("admissions",),
+        }
     }
 
 

@@ -159,34 +159,38 @@ class TableTransformer:
 
         meta = self.meta[self.name]
 
-        # Process columns with no dependencies first
+        # Process columns with no intra-table dependencies first
         tts = []
         for name, col in meta.cols.items():
-            if col.is_id() or col.ref is not None:
+            if col.is_id():
                 continue
-
-            tt = self.transformers[name].reverse(table[[name]])
-            tts.append(tt)
-
-        # Process columns with dependencies afterwards.
-        # fix-me: assumes no nested dependencies within the same table
-        parent_cols = pd.concat(tts, axis=1)
-        for name, col in meta.cols.items():
-            if col.is_id() or col.ref is None:
+            if col.ref is not None and col.ref.table is None:
+                # Intra-table dependencies
                 continue
 
             ref_col = None
-            f_table, f_col = col.ref.table, col.ref.col
-            if f_table:
-                # Foreign column from another table
+            if col.ref is not None:
+                f_table, f_col = col.ref.table, col.ref.col
                 assert (
                     f_table in parent_tables
                 ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
                 ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
-            else:
-                # Local column, duplicate and rename
-                ref_col = parent_cols[f_col]
 
+            tt = self.transformers[name].reverse(table[[name]], ref_col)
+            tts.append(tt)
+
+        # Process columns with intra-table dependencies afterwards.
+        # fix-me: assumes no nested dependencies within the same table
+        parent_cols = pd.concat(tts, axis=1)
+        for name, col in meta.cols.items():
+            if col.is_id() or col.ref is None:
+                # Columns with no dependencies have been processed
+                continue
+            if col.ref is not None and col.ref.table is not None:
+                # Columns with inter-table dependencies have been processed
+                continue
+
+            ref_col = parent_cols[col.ref.col]
             tt = self.transformers[name].reverse(table[[name]], ref_col)
             tts.append(tt)
 

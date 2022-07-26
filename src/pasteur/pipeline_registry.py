@@ -8,6 +8,7 @@ from kedro.pipeline import Pipeline, pipeline
 from .pipelines.mimic import (
     create_ingest_pipeline as mimic_create_ingest_pipeline,
     create_views_pipelines as mimic_create_views_pipelines,
+    get_view_requirements as mimic_get_view_requirements,
 )
 from .pipelines.synth import create_pipeline as create_pipeline_synth
 from .pipelines.synth import get_algs
@@ -37,14 +38,17 @@ def register_pipelines() -> Dict[str, Pipeline]:
     )
     pipe_ingest_views = mimic_create_ingest_pipeline(set())  # add key generation
     mimic_views_pipelines = mimic_create_views_pipelines()
+    mimic_views_requirements = mimic_get_view_requirements()
 
     for name, pipe in chain(mimic_views_pipelines.items(), tab_views_pipelines.items()):
         if isinstance(pipe, tuple):
             ingest, pipe = pipe
             pipe_input = tab_ingest_pipelines[ingest]
+            requirements = {}
         else:
             ingest = "mimic"
             pipe_input = mimic_create_ingest_pipeline(pipe.inputs())
+            requirements = mimic_views_requirements.get(name, {})
 
         tables = [t.split(".")[-1] for t in pipe.outputs()]
 
@@ -59,7 +63,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
 
         # Algorithm pipeline
         for alg in get_algs():
-            pipe_synth = create_pipeline_synth(name, "wrk", alg, tables)
+            pipe_synth = create_pipeline_synth(name, "wrk", alg, tables, requirements)
             pipe_measure = create_measure_pipeline(name, "wrk", alg, tables)
             pipelines[f"{name}.{alg}"] = pipe_ingest + pipe_synth + pipe_measure
             pipelines[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
