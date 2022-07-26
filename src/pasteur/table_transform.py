@@ -68,7 +68,7 @@ class TableTransformer:
 
             ids = ids.rename(columns={col: table})
             foreign_ids = self.find_foreign_ids(table, tables)
-            ids = ids[~pd.isna(ids[table])].join(foreign_ids, on=table)
+            ids = ids[~pd.isna(ids[table])].join(foreign_ids, on=table, how="inner")
 
         return ids
 
@@ -176,7 +176,7 @@ class TableTransformer:
                 ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
                 ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
 
-            tt = self.transformers[name].reverse(table[[name]], ref_col)
+            tt = self.transformers[name].reverse(table, ref_col)
             tts.append(tt)
 
         # Process columns with intra-table dependencies afterwards.
@@ -191,7 +191,7 @@ class TableTransformer:
                 continue
 
             ref_col = parent_cols[col.ref.col]
-            tt = self.transformers[name].reverse(table[[name]], ref_col)
+            tt = self.transformers[name].reverse(table, ref_col)
             tts.append(tt)
 
         # Re-add ids

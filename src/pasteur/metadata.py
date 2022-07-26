@@ -15,18 +15,27 @@ DEFAULT_NUM_TRANSFORMERS = {
     "numerical": "normdist",
     "ordinal": ("idx", "normalize"),
     "categorical": ("idx", "normalize"),
+    "time": ("time", "normalize"),
+    "date": ("date", "normalize"),
+    "datetime": ("datetime", "normalize"),
 }
 
 DEFAULT_BIN_TRANSFORMERS = {
     "numerical": ("discrete", "gray"),
     "ordinal": ("idx", "gray"),
     "categorical": "onehot",
+    "time": ("time", "gray"),
+    "date": ("date", "gray"),
+    "datetime": ("datetime", "gray"),
 }
 
 DEFAULT_IDX_TRANSFORMERS = {
     "numerical": "discrete",
     "ordinal": "idx",
     "categorical": "idx",
+    "time": "time",
+    "date": "date",
+    "datetime": "datetime",
 }
 
 DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}

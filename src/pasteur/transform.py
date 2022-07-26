@@ -1,4 +1,4 @@
-from glob import escape
+from itertools import chain
 from typing import Dict, List
 import pandas as pd
 import numpy as np
@@ -277,7 +277,8 @@ class IdxTransformer(Transformer):
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
 
-        for col, vals in data.items():
+        for col in self.types:
+            vals = data[col]
             na_val = len(self.mapping[col]) + 1
             out[col] = (
                 vals.map(self.vals[col])
@@ -544,9 +545,6 @@ class NormalDistTransformer(Transformer):
         return out
 
 
-TRANSFORMERS = lambda: {t.name: t for t in Transformer.__subclasses__()}
-
-
 class DateTransformer(RefTransformer):
 
     name = "date"
@@ -717,7 +715,7 @@ class TimeTransformer(Transformer):
 
 
 class DatetimeTransformer(RefTransformer):
-    name = "time"
+    name = "datetime"
     in_type = ("time", "datetime")
     out_type = "ordinal"
 
@@ -763,3 +761,9 @@ class DatetimeTransformer(RefTransformer):
             )
 
         return out
+
+
+TRANSFORMERS = lambda: {
+    t.name: t
+    for t in chain(Transformer.__subclasses__(), RefTransformer.__subclasses__())
+}
