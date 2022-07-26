@@ -91,9 +91,10 @@ def test_table_transform():
     t_enc = []
     t_ids = []
     for name in data:
-        t = TableTransformer(meta, name, "idx")
-        t.fit(data)
-        enc, ids = t.transform(data)
+        t = TableTransformer(meta, name, ("idx", "bin"))
+        ids = t.find_ids(data)
+        t.fit(data, ids)
+        enc = t.transform("idx", data)
 
         t_t.append(t)
         t_enc.append(enc)
@@ -101,7 +102,7 @@ def test_table_transform():
 
     t_dec = {}
     for name, enc, ids, t in zip(data.keys(), t_enc, t_ids, t_t):
-        dec = t.reverse(enc, ids, t_dec)
+        dec = t.reverse("idx", enc, ids, t_dec)
         t_dec[name] = dec
 
     assert np.all(dec["tst_id"] == 0)

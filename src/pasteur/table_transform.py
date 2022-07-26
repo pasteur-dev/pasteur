@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Collection, Dict, List, Optional
 import pandas as pd
 import numpy as np
 import math
@@ -10,13 +10,22 @@ from .transform import ChainTransformer, Transformer
 class TableTransformer:
     """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""
 
-    def __init__(self, meta: Metadata, name: str, type: str) -> None:
+    def __init__(
+        self,
+        meta: Metadata,
+        name: str,
+        types: str | Collection[str] = ("idx", "num", "bin"),
+    ) -> None:
         self.name = name
         self.meta = meta
-        self.transformers: Dict[str, Transformer] = {}
+        self.transformers: Dict[str, Dict[str, Transformer]] = {}
+        self.fitted = False
 
-        assert type in ("idx", "num", "bin")
-        self.type = type
+        if isinstance(types, str):
+            types = [types]
+        for type in types:
+            assert type in ("idx", "num", "bin")
+        self.types = types
 
     def find_parents(self, table: str):
         """Finds the reference cols that link a table to its parents and
@@ -83,10 +92,13 @@ class TableTransformer:
                 return True
         return False
 
-    def fit(self, tables: Dict[str, pd.DataFrame]):
+    def find_ids(self, tables: Dict[str, pd.DataFrame]):
+        return self.find_foreign_ids(self.name, tables)
+
+    def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
         # Only load foreign keys if required by column
         ids = None
-        if self.table_has_reference():
+        if self.table_has_reference() and ids is None:
             ids = self.find_foreign_ids(self.name, tables)
 
         meta = self.meta[self.name]
@@ -98,31 +110,46 @@ class TableTransformer:
             ), "Properly formatted datasets should have their primary key as their index column"
             # table.reindex(meta.primary_key)
 
-        for name, col in meta.cols.items():
-            if col.is_id():
-                continue
+        transformers = {}
+        for type in self.types:
+            for name, col in meta.cols.items():
+                if col.is_id():
+                    continue
 
-            # Add foreign column if required
-            ref_col = None
-            if col.ref:
-                f_table, f_col = col.ref.table, col.ref.col
-                if f_table:
-                    # Foreign column from another table
-                    ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
-                else:
-                    # Local column, duplicate and rename
-                    ref_col = table[f_col]
+                # Add foreign column if required
+                ref_col = None
+                if col.ref:
+                    f_table, f_col = col.ref.table, col.ref.col
+                    if f_table:
+                        # Foreign column from another table
+                        ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
+                    else:
+                        # Local column, duplicate and rename
+                        ref_col = table[f_col]
 
-            # Fit transformer with proper chain
-            chain = col.chains[self.type]
-            args = col.args.copy()
-            t = ChainTransformer.from_dict(chain, args)
-            t.fit(table[[name]], ref_col)
+                # Fit transformer with proper chain
+                chain = col.chains[type]
+                args = col.args.copy()
+                t = ChainTransformer.from_dict(chain, args)
+                t.fit(table[[name]], ref_col)
 
-            self.transformers[name] = t
+                transformers[name] = t
 
-    def transform(self, tables: Dict[str, pd.DataFrame]):
-        ids = self.find_foreign_ids(self.name, tables)
+            self.transformers[type] = transformers
+        self.fitted = True
+
+    def transform(
+        self,
+        type: str,
+        tables: Dict[str, pd.DataFrame],
+        ids: pd.DataFrame | None = None,
+    ):
+        assert type in self.types and self.fitted
+
+        # Only load foreign keys if required by column
+        ids = None
+        if self.table_has_reference() and ids is None:
+            ids = self.find_foreign_ids(self.name, tables)
 
         meta = self.meta[self.name]
         table = tables[self.name]
@@ -143,19 +170,22 @@ class TableTransformer:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
 
-            tt = self.transformers[name].transform(table[[name]], ref_col)
+            tt = self.transformers[type][name].transform(table[[name]], ref_col)
             tts.append(tt)
 
-        return pd.concat(tts, axis=1), ids
+        return pd.concat(tts, axis=1)
 
     def reverse(
         self,
+        type: str,
         table: pd.DataFrame,
-        ids: Optional[pd.DataFrame],
-        parent_tables: Dict[str, pd.DataFrame],
+        ids: Optional[pd.DataFrame] = None,
+        parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
     ):
-        # If there are no ids that reference a foreign table, the ids parameter
-        # can be set to None (ex. tabular data).
+        # If there are no ids that reference a foreign table, the ids and
+        # parent_table parameters can be set to None (ex. tabular data).
+        assert type in self.types and self.fitted
+        transformers = self.transformers[type]
 
         meta = self.meta[self.name]
 
@@ -176,7 +206,7 @@ class TableTransformer:
                 ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
                 ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
 
-            tt = self.transformers[name].reverse(table, ref_col)
+            tt = transformers[name].reverse(table, ref_col)
             tts.append(tt)
 
         # Process columns with intra-table dependencies afterwards.
@@ -191,7 +221,7 @@ class TableTransformer:
                 continue
 
             ref_col = parent_cols[col.ref.col]
-            tt = self.transformers[name].reverse(table, ref_col)
+            tt = transformers[name].reverse(table, ref_col)
             tts.append(tt)
 
         # Re-add ids

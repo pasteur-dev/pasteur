@@ -10,8 +10,7 @@ from .pipelines.mimic import (
     create_views_pipelines as mimic_create_views_pipelines,
     get_view_requirements as mimic_get_view_requirements,
 )
-from .pipelines.synth import create_pipeline as create_pipeline_synth
-from .pipelines.synth import get_algs
+from .pipelines.synth import create_synth_pipeline, create_transform_pipeline, get_algs
 from .pipelines.general import create_split_pipeline
 from .pipelines.measure import create_pipeline as create_measure_pipeline
 from .pipelines.tabular import (
@@ -28,6 +27,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
     """
 
     pipelines = {}
+    types = ["num", "idx", "bin"]
 
     mimic_ingest_pipeline = mimic_create_ingest_pipeline()
     tab_ingest_pipelines = tab_create_ingest_pipelines()
@@ -56,16 +56,20 @@ def register_pipelines() -> Dict[str, Pipeline]:
             "wrk", ingest, name, tables
         ) + create_split_pipeline("dev", ingest, name, tables)
         pipe_split_ref = create_split_pipeline("ref", ingest, name, tables)
+        pipe_transform = create_transform_pipeline(name, "wrk", tables, types)
 
         pipe_ingest = pipe_input + pipe + pipe_split
-        pipe_ingest_views += pipe + pipe_split + pipe_split_ref
+        pipe_ingest_views += pipe + pipe_split + pipe_transform + pipe_split_ref
         pipelines[f"{name}.ingest"] = pipe_ingest + pipe_split_ref
 
         # Algorithm pipeline
-        for alg in get_algs():
-            pipe_synth = create_pipeline_synth(name, "wrk", alg, tables, requirements)
+        for alg, model in get_algs().items():
+            pipe_transform = create_transform_pipeline(name, "wrk", tables, model.type)
+            pipe_synth = create_synth_pipeline(name, "wrk", alg, tables, requirements)
             pipe_measure = create_measure_pipeline(name, "wrk", alg, tables)
-            pipelines[f"{name}.{alg}"] = pipe_ingest + pipe_synth + pipe_measure
+            pipelines[f"{name}.{alg}"] = (
+                pipe_ingest + pipe_transform + pipe_synth + pipe_measure
+            )
             pipelines[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
             pipelines[f"{name}.{alg}.measure"] = pipe_measure
 

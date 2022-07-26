@@ -1,4 +1,4 @@
-from typing import Collection, Dict, List
+from typing import Collection, Dict
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
@@ -6,17 +6,19 @@ from .synth import get_algs as synth_get_algs
 
 from .transform import (
     fit_table_closure,
-    transform_table,
-    reverse_table,
+    find_ids,
+    transform_table_closure,
+    reverse_table_closure,
 )
 
 
 def create_transform_pipeline(
-    tables, type, requirements: Dict[str, Collection[str]] | None = None
+    view: str, split: str, tables: Collection[str], types: Collection[str] | str = []
 ):
+    if isinstance(types, str):
+        types = [types]
+    tables = [t.split(".")[-1] for t in tables]
     table_nodes = []
-    if requirements is None:
-        requirements = {}
 
     for t in tables:
         table_nodes += [
@@ -26,29 +28,43 @@ def create_transform_pipeline(
                 outputs=f"trn_{t}",
             ),
             node(
-                func=transform_table,
+                func=find_ids,
                 inputs={"transformer": f"trn_{t}", **{t: t for t in tables}},
-                outputs=[f"enc_{t}", f"ids_{t}"],
-            ),
-            node(
-                func=reverse_table,
-                inputs={
-                    "transformer": f"trn_{t}",
-                    "ids": f"ids_{t}",
-                    "table": f"enc_{t}",
-                    **{req: f"dec_{req}" for req in requirements.get(t, [])},
-                },
-                outputs=f"dec_{t}",
+                outputs=f"ids_{t}",
             ),
         ]
 
-    return pipeline(table_nodes)
+        table_nodes += [
+            node(
+                func=transform_table_closure(type),
+                inputs={
+                    "transformer": f"trn_{t}",
+                    "ids": f"ids_{t}",
+                    **{t: t for t in tables},
+                },
+                outputs=f"{type}_{t}",
+            )
+            for type in types
+        ]
+
+    return modular_pipeline(
+        pipe=pipeline(table_nodes),
+        namespace=f"{view}.{split}",
+        parameters={
+            "metadata": f"{view}.metadata",
+        },
+    )
 
 
 def create_synth_pipeline(
-    alg: str, tables: List[str], requirements: Dict[str, Collection[str]] | None = None
+    view: str,
+    split: str,
+    alg: str,
+    tables: Collection[str],
+    requirements: Dict[str, Collection[str]] | None = None,
 ):
     model = synth_get_algs()[alg]
+    type = model.type
     if requirements is None:
         requirements = {}
 
@@ -77,7 +93,7 @@ def create_synth_pipeline(
     decode_pipe = pipeline(
         [
             node(
-                func=reverse_table,
+                func=reverse_table_closure(type),
                 inputs={
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",
@@ -90,41 +106,17 @@ def create_synth_pipeline(
         ]
     )
 
-    return synth_pipe + decode_pipe
-
-
-def create_pipeline(
-    view: str,
-    split: str,
-    alg: str,
-    tables: Collection[str],
-    requirements: Dict[str, Collection[str]] | None = None,
-) -> Pipeline:
-    tables = [t.split(".")[-1] for t in tables]
-
-    type = "idx"
-    transform_mpipe = modular_pipeline(
-        pipe=create_transform_pipeline(tables, type, requirements),
-        namespace=f"{view}.{split}",
-        parameters={
-            "metadata": f"{view}.metadata",
-        },
-    )
-
-    synth_pipe = create_synth_pipeline(alg, tables, requirements)
-    synth_mpipe = modular_pipeline(
-        pipe=synth_pipe,
+    return modular_pipeline(
+        pipe=synth_pipe + decode_pipe,
         namespace=f"{view}.{alg}",
         inputs={
-            **{f"in_enc_{t}": f"{view}.{split}.enc_{t}" for t in tables},
+            **{f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
             **{f"trn_{t}": f"{view}.{split}.trn_{t}" for t in tables},
         },
         parameters={"metadata": f"{view}.metadata"},
     )
 
-    return transform_mpipe + synth_mpipe
-
 
 def get_algs():
-    return list(synth_get_algs().keys())
+    return synth_get_algs()

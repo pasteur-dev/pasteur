@@ -1,12 +1,13 @@
 from copy import deepcopy
 from typing import Dict
 
+from itertools import chain
 import pandas as pd
-from ...metadata import Metadata
 
 
 class Synth:
     name = None
+    type = "idx"
     tabular = True
     multimodal = False
     timeseries = False
@@ -23,7 +24,8 @@ class Synth:
 class IdentSynth(Synth):
     """Returns the data it was provided."""
 
-    name = "ident"
+    name = "ident_idx"
+    type = "idx"
     tabular = True
     multimodal = True
     timeseries = True
@@ -37,8 +39,19 @@ class IdentSynth(Synth):
         return model
 
 
+class NumIdentSynth(IdentSynth):
+    name = "ident_num"
+    type = "num"
+
+
+class BinIdentSynth(IdentSynth):
+    name = "ident_bin"
+    type = "bin"
+
+
 class Hma1Synth(Synth):
     name = "hma1"
+    type = "num"
     tabular = True
 
     @staticmethod
@@ -99,10 +112,7 @@ class Hma1Synth(Synth):
         return model.sample()
 
 
-def get_algs(tabular: bool | None = None):
-    algs = {t.name: t for t in Synth.__subclasses__()}
-
-    if tabular is not None:
-        algs = {n: t for n, t in algs if t.tabular == tabular}
-
-    return algs
+def get_algs():
+    return {
+        t.name: t for t in chain(Synth.__subclasses__(), IdentSynth.__subclasses__())
+    }
