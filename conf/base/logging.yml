@@ -60,6 +60,11 @@ loggers:
         handlers: [console, info_file_handler, error_file_handler]
         propagate: no
 
+    kedro.io.data_catalog:
+        level: WARNING
+        handlers: [console, info_file_handler, error_file_handler]
+        propagate: no
+
     py.warnings:
         level: ERROR
         handlers: [console, info_file_handler, error_file_handler]
