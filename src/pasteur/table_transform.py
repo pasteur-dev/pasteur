@@ -248,4 +248,8 @@ class TableTransformer:
             else:
                 dec_table[name] = 0
 
+        # Re-order columns to metadata based order
+        cols = [key for key in meta.cols.keys() if key != meta.primary_key]
+        dec_table = dec_table[cols]
+
         return dec_table

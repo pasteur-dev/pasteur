@@ -428,7 +428,7 @@ class GrayTransformer(Transformer):
             n = n ^ (n >> 8)
             n = n ^ (n >> 16)
 
-            out[col] = n
+            out[col] = pd.Series(n, index=data.index)
 
         return out
 
@@ -540,7 +540,7 @@ class NormalDistTransformer(Transformer):
     """Normalizes column to std 1, mean 0 on a normal distribution."""
 
     name = "normdist"
-    in_type = "numerical"
+    in_type = ("numerical", "ordinal")
     out_type = "numerical"
 
     deterministic = True
