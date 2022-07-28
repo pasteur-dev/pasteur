@@ -8,6 +8,9 @@ formatters:
         class: pythonjsonlogger.jsonlogger.JsonFormatter
 
 handlers:
+    rich:
+        class: rich.logging.RichHandler
+
     console:
         class: logging.StreamHandler
         level: INFO
@@ -37,39 +40,39 @@ handlers:
 loggers:
     anyconfig:
         level: WARNING
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     kedro.io:
         level: INFO
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     kedro.pipeline:
         level: INFO
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     numexpr.utils:
         level: WARNING
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     blib2to3.pgen2.driver:
         level: WARNING
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     kedro.io.data_catalog:
         level: WARNING
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
     py.warnings:
         level: ERROR
-        handlers: [console, info_file_handler, error_file_handler]
+        handlers: [rich, info_file_handler, error_file_handler]
         propagate: no
 
 root:
     level: INFO
-    handlers: [console, info_file_handler, error_file_handler]
+    handlers: [rich, info_file_handler, error_file_handler]

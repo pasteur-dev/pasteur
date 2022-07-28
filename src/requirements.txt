@@ -9,7 +9,7 @@ pytest-cov~=3.0
 pytest-mock>=1.7.1, <2.0
 pytest~=6.2
 
-kedro==0.18.1
+kedro==0.18.2
 kedro-viz
 kedro-mlflow
 
@@ -20,7 +20,7 @@ parquet-tools
 pyarrow
 
 # sdv
-rdt
+# rdt
 
 pandas
 numpy
