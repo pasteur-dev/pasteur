@@ -1,52 +1,9 @@
 from copy import deepcopy
 from typing import Dict
 
-from itertools import chain
 import pandas as pd
 
-
-class Synth:
-    name = None
-    type = "idx"
-    tabular = True
-    multimodal = False
-    timeseries = False
-
-    @staticmethod
-    def fit(metadata: Dict, **kwargs: pd.DataFrame):
-        assert False, "Not implemented"
-
-    @staticmethod
-    def sample(model):
-        assert False, "Not implemented"
-
-
-class IdentSynth(Synth):
-    """Returns the data it was provided."""
-
-    name = "ident_idx"
-    type = "idx"
-    tabular = True
-    multimodal = True
-    timeseries = True
-
-    @staticmethod
-    def fit(metadata: Dict, **kwargs: pd.DataFrame):
-        return kwargs
-
-    @staticmethod
-    def sample(model):
-        return model
-
-
-class NumIdentSynth(IdentSynth):
-    name = "ident_num"
-    type = "num"
-
-
-class BinIdentSynth(IdentSynth):
-    name = "ident_bin"
-    type = "bin"
+from .base import Synth
 
 
 class Hma1Synth(Synth):
@@ -56,8 +13,8 @@ class Hma1Synth(Synth):
 
     @staticmethod
     def fit(metadata: Dict, **kwargs: pd.DataFrame):
-        from sdv.relational import HMA1
         from sdv.metadata import Metadata as SdvMeta
+        from sdv.relational import HMA1
 
         # Reset primary key index since sdv doesn't support indexes
         tables = kwargs
@@ -110,9 +67,3 @@ class Hma1Synth(Synth):
         model._finalize = new_finalize
 
         return model.sample()
-
-
-def get_algs():
-    return {
-        t.name: t for t in chain(Synth.__subclasses__(), IdentSynth.__subclasses__())
-    }

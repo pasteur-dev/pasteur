@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import math
 import logging
+from .utils import find_subclasses
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ class OneHotTransformer(Transformer):
     """Transforms a categorical array of any type (fixed num of values) into a set of one hot encoded arrays (suffixed with _i)
 
     The array with idx len(vals.unique()) becomes True when the transform encounters a value that's not in the fit data.
-    This value becomes None/NAN after the reverse transform."""
+    This value becomes `unknown_value` after the reverse transform."""
 
     name = "onehot"
     in_type = "categorical"
@@ -804,7 +805,4 @@ class DatetimeTransformer(RefTransformer):
         return out
 
 
-TRANSFORMERS = lambda: {
-    t.name: t
-    for t in chain(Transformer.__subclasses__(), RefTransformer.__subclasses__())
-}
+TRANSFORMERS = lambda: find_subclasses(Transformer)

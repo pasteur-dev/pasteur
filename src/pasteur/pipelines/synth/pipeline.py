@@ -2,7 +2,7 @@ from typing import Collection, Dict
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from .synth import get_algs as synth_get_algs
+from ...synth import get_algs as synth_get_algs
 
 from .transform import (
     fit_table_closure,
