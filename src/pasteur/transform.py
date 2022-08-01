@@ -220,7 +220,8 @@ class BinTransformer(Transformer):
         out = pd.DataFrame()
 
         for col in data:
-            out[col] = np.digitize(data[col], bins=self.bins[col]) - 1
+            digits = np.digitize(data[col], bins=self.bins[col]) - 1
+            out[col] = pd.Series(digits, index=data.index)
 
         return out
 
