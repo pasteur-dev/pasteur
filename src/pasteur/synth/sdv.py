@@ -11,13 +11,12 @@ class Hma1Synth(Synth):
     type = "num"
     tabular = True
 
-    @staticmethod
-    def fit(metadata: Dict, **kwargs: pd.DataFrame):
+    def fit(self, metadata: Dict, data: dict[str, pd.DataFrame]):
         from sdv.metadata import Metadata as SdvMeta
         from sdv.relational import HMA1
 
         # Reset primary key index since sdv doesn't support indexes
-        tables = kwargs
+        tables = data
         tables = {n: t.reset_index(drop=not t.index.name) for n, t in tables.items()}
 
         # Create new metadata for transformed data
@@ -45,10 +44,11 @@ class Hma1Synth(Synth):
         model = HMA1(metadata)
         model.fit(tables)
 
-        return model
+        self._model = model
 
-    @staticmethod
-    def sample(model):
+    def sample(self):
+        model = self._model
+
         # Patch finalize to add stray keys not included by default
         # FIXME: remove me when SDV is fixed
         old_finalize = model._finalize

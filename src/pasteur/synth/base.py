@@ -1,6 +1,3 @@
-from copy import deepcopy
-from typing import Dict
-
 import pandas as pd
 
 
@@ -11,13 +8,24 @@ class Synth:
     multimodal = False
     timeseries = False
 
-    @staticmethod
-    def fit(metadata: Dict, **kwargs: pd.DataFrame):
+    def fit(self, metadata: dict, data: dict[str, pd.DataFrame]):
         assert False, "Not implemented"
 
-    @staticmethod
-    def sample(model):
+    def sample(self) -> dict[str, pd.DataFrame]:
         assert False, "Not implemented"
+
+
+def synth_fit_closure(cls):
+    def fit(metadata: dict, **kwargs: pd.DataFrame):
+        model = cls()
+        model.fit(metadata, kwargs)
+        return model
+
+    return fit
+
+
+def synth_sample(model: Synth):
+    return model.sample()
 
 
 class IdentSynth(Synth):
@@ -29,13 +37,11 @@ class IdentSynth(Synth):
     multimodal = True
     timeseries = True
 
-    @staticmethod
-    def fit(metadata: Dict, **kwargs: pd.DataFrame):
-        return kwargs
+    def fit(self, metadata: dict, data: dict[str, pd.DataFrame]):
+        self._data = data
 
-    @staticmethod
-    def sample(model):
-        return model
+    def sample(self):
+        return self._data
 
 
 class NumIdentSynth(IdentSynth):

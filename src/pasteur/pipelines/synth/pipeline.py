@@ -1,14 +1,15 @@
 from typing import Collection, Dict
+
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import get_algs as synth_get_algs
-
+from ...synth import synth_fit_closure, synth_sample
 from .transform import (
-    fit_table_closure,
     find_ids,
-    transform_table_closure,
+    fit_table_closure,
     reverse_table_closure,
+    transform_table_closure,
 )
 
 
@@ -63,15 +64,15 @@ def create_synth_pipeline(
     tables: Collection[str],
     requirements: Dict[str, Collection[str]] | None = None,
 ):
-    model = synth_get_algs()[alg]
-    type = model.type
+    cls = synth_get_algs()[alg]
+    type = cls.type
     if requirements is None:
         requirements = {}
 
     synth_pipe = pipeline(
         [
             node(
-                func=model.fit,
+                func=synth_fit_closure(cls),
                 inputs={
                     "metadata": "params:metadata",
                     **{f"ids_{t}": f"in_ids_{t}" for t in tables},
@@ -80,7 +81,7 @@ def create_synth_pipeline(
                 outputs="model",
             ),
             node(
-                func=model.sample,
+                func=synth_sample,
                 inputs="model",
                 outputs={
                     **{f"ids_{t}": f"ids_{t}" for t in tables},
