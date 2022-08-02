@@ -7,14 +7,13 @@ using namespace std;
 class printer
 {
 public:
-	printer(engine&, const string&);
+	printer(engine &, const string &);
 	~printer();
 
-	void printo_libsvm(const string&, double, int, const set<int>&);
+	void printo_libsvm(const string &, double, int, const set<int> &);
 
 	int dim;
 	vector<vector<string>> data;
 	vector<shared_ptr<translator>> translators;
-	engine& eng;
+	engine &eng;
 };
-

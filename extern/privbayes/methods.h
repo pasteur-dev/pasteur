@@ -13,35 +13,34 @@ using namespace std;
 class base
 {
 public:
-	base(engine&, table&);
+	base(engine &, table &);
 	~base();
-	virtual vector<double> getCounts(const vector<int>&) = 0;
+	virtual vector<double> getCounts(const vector<int> &) = 0;
 
-	engine& eng;
-	table& tbl;
+	engine &eng;
+	table &tbl;
 };
-
 
 class bayesian : public base
 {
 public:
-	bayesian(engine&, table&, double, double, double);			//eng, tbl, eps, beta, theta
+	bayesian(engine &, table &, double, double, double); // eng, tbl, eps, beta, theta
 	~bayesian();
 
 	vector<dependence> greedy(double);
-	vector<dependence> S2V(const set<int>&, const set<int>&);
+	vector<dependence> S2V(const set<int> &, const set<int> &);
 	vector<vector<attribute>> maximal(set<int>, double);
 	void addnoise(double);
 	void sampling(int);
 
 	// tools
-	void printo_libsvm(const string&, const int&, const set<int>&);
-	string to_string(const dependence&); 
-	string to_string(const attribute&);
+	void printo_libsvm(const string &, const int &, const set<int> &);
+	string to_string(const dependence &);
+	string to_string(const attribute &);
 	double evaluate();
 
 	// interface
-	vector<double> getCounts(const vector<int>&);
+	vector<double> getCounts(const vector<int> &);
 
 	int dim;
 	double bound;
@@ -49,10 +48,9 @@ public:
 	table syn;
 };
 
-
-//class laplace : public base
+// class laplace : public base
 //{
-//public:
+// public:
 //	laplace(engine&, table&, double, const vector<vector<int>>&);		//eng, tbl, eps, mrgs
 //	~laplace();
 //
@@ -60,12 +58,12 @@ public:
 //	vector<double> getCounts(const vector<int>&);
 //
 //	map<vector<int>, vector<double>> noisy;
-//};
+// };
 //
 //
-//class contingency : public base
+// class contingency : public base
 //{
-//public:
+// public:
 //	contingency(engine&, table&, double);
 //	~contingency();
 //
@@ -73,4 +71,4 @@ public:
 //	vector<double> getCounts(const vector<int>&);
 //
 //	table syn;
-//};
+// };
