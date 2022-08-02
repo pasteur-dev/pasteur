@@ -10,6 +10,8 @@ formatters:
 handlers:
     rich:
         class: rich.logging.RichHandler
+        tracebacks_show_locals: False
+        locals_max_length: 1
 
     console:
         class: logging.StreamHandler
