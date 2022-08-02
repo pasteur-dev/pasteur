@@ -3,7 +3,7 @@
 #include <random>
 using namespace std;
 
-#include "tools.h";
+#include "tools.h"
 
 typedef default_random_engine engine;
 
