@@ -25,7 +25,7 @@ public:
 class bayesian : public base
 {
 public:
-	bayesian(engine&, table&, double, double);			//eng, tbl, eps, theta
+	bayesian(engine&, table&, double, double, double);			//eng, tbl, eps, beta, theta
 	~bayesian();
 
 	vector<dependence> greedy(double);

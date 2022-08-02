@@ -9,7 +9,7 @@ base::~base() {
 
 
 ////////////////////////////// bayesian //////////////////////////////
-bayesian::bayesian(engine& eng1, table& tbl1, double ep, double theta) : base(eng1, tbl1) {
+bayesian::bayesian(engine& eng1, table& tbl1, double ep, double beta, double theta) : base(eng1, tbl1) {
 	dim = tbl.dim;
 	bound = ep * tbl.size() / (4.0 * dim * theta);		// bound to nr. of cells
 
@@ -24,8 +24,8 @@ bayesian::bayesian(engine& eng1, table& tbl1, double ep, double theta) : base(en
 	if (count) cout << "Bound reduced for efficiency: " << count << "." << endl;
 	// for efficiency
 
-	model = greedy(0.5 * ep);
-	addnoise(0.5 * ep);
+	model = greedy(beta * ep);
+	addnoise((1 - beta) * ep);
 	sampling(tbl.size());
 }
 
