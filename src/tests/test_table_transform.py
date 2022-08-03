@@ -78,7 +78,7 @@ meta_dict = {
 
 def test_table_transform():
     from pasteur.metadata import Metadata
-    from pasteur.table_transform import TableTransformer
+    from pasteur.transform import TableTransformer
 
     data = {n: pd.DataFrame(t, columns=columns_dict[n]) for n, t in data_dict.items()}
     data["users"].index.name = "user_id"

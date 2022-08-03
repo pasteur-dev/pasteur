@@ -1,5 +1,5 @@
-from . import base
-from . import misc
+from .base import *
+from .misc import *
 from .table import TableTransformer
 
 __all__ = [
