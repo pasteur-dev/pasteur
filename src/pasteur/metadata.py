@@ -32,6 +32,14 @@ DEFAULT_TRANSFORMERS = {
         "date": ("date", "idx", "gray"),
         "datetime": ("datetime", "idx", "gray"),
     },
+    "bhr": {  # Binary hierarchical
+        "numerical": ("discrete", "bin"),
+        "ordinal": ("idx", "bin"),
+        "categorical": "idx",
+        "time": ("time", "idx", "bin"),
+        "date": ("date", "idx", "bin"),
+        "datetime": ("datetime", "idx", "bin"),
+    },
     "idx": {
         "numerical": "discrete",
         "ordinal": "idx",

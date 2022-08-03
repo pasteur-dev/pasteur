@@ -14,9 +14,11 @@ class AddDatasetsForViewsHook:
         self,
         datasets: Dict[str, Collection[str]],
         algs: Collection[str],
+        types: Collection[str],
     ) -> None:
         self.datasets = datasets
         self.algs = algs
+        self.types = types
 
     @hook_impl
     def after_context_created(
@@ -89,7 +91,7 @@ class AddDatasetsForViewsHook:
                     )
 
                     # For each materialized view table, add datasets for encoded, decoded forms
-                    for type in ["ids", "idx", "num", "bin"]:
+                    for type in ["ids", *self.types]:
                         self.add_set(
                             "split_encoded",
                             f"{dataset}.{split}.{type}_{table}",

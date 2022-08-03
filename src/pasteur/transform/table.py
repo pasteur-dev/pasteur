@@ -2,10 +2,12 @@ from typing import Collection, Dict, Optional
 import pandas as pd
 import logging
 
-from ..metadata import Metadata
+from ..metadata import Metadata, DEFAULT_TRANSFORMERS
 from .base import ChainTransformer, Transformer
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TYPES = list(DEFAULT_TRANSFORMERS.keys())
 
 
 class TableTransformer:
@@ -15,7 +17,7 @@ class TableTransformer:
         self,
         meta: Metadata,
         name: str,
-        types: str | Collection[str] = ("idx", "num", "bin"),
+        types: str | Collection[str] = DEFAULT_TYPES,
     ) -> None:
         self.name = name
         self.meta = meta
@@ -24,8 +26,6 @@ class TableTransformer:
 
         if isinstance(types, str):
             types = [types]
-        for type in types:
-            assert type in ("idx", "num", "bin")
         self.types = types
 
     def find_parents(self, table: str):
@@ -251,3 +251,43 @@ class TableTransformer:
         dec_table = dec_table[cols]
 
         return dec_table
+
+    def get_attributes(
+        self, type: str, table: pd.DataFrame | None = None
+    ) -> dict[str, list[str]]:
+        """Collates the table columns into ordered sets named attributes (sourced from transformer hierarchy).
+
+        If there's an attribute a0 with columns c0, c1, c2,
+        we only take c1 into consideration for a parent relationship with c0,
+        and c2 with both c1, c0.
+
+        Lowers computational complexity for bayesian networks from
+        `O(nChooseK(c_t, k*c_n))` to `O(nChooseK(a_n, k)*c_n)`, where the latter is
+        orders of magnitude smaller (combinations of marginals).
+        c_t: total columns, c_n: columns per attribute, k: columns selected for parents,
+        a_n: number of attributes
+
+        Example (binary encoding; 50 bits in total):
+        a_n=10, c_t=50, c_n=5
+        From O(...) = 2118760 for k=1
+        To O(...) = 1000 for k=4
+        """
+        assert type in self.types and self.fitted
+        transformers = self.transformers[type].values()
+
+        # Add actual attributes
+        attrs = {}
+        for t in transformers:
+            attrs.update(t.get_hierarchy())
+
+        if table is None:
+            return attrs
+
+        # Add fake attributes for cols with no hierarchical relationship
+        cols_in_attr = set()
+        for a in attrs.values():
+            cols_in_attr.update(a)
+
+        cols = set(table.columns)
+        attrs.update({c: c for c in cols - cols_in_attr})
+        return attrs

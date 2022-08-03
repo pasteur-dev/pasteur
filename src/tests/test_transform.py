@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 
 
-def test_bin_transformer():
-    from pasteur.transform import BinTransformer
+def test_discrete_transformer():
+    from pasteur.transform import DiscretizationTransformer
 
     test_data = [1, 2, 5, 23, 643, 122, 324, 542, 543]
     test_data = pd.DataFrame(
@@ -12,7 +12,7 @@ def test_bin_transformer():
 
     bins = 20
 
-    t = BinTransformer(bins)
+    t = DiscretizationTransformer(bins)
 
     t.fit(test_data)
 
@@ -91,6 +91,23 @@ def test_gray_transformer():
     assert np.all(dec == test_data)
 
 
+def test_bin_transformer():
+    from pasteur.transform import BinTransformer
+
+    test_data = pd.DataFrame()
+    test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
+    test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
+
+    t = BinTransformer()
+
+    t.fit(test_data)
+
+    enc = t.transform(test_data)
+
+    dec = t.reverse(enc)
+    assert np.all(dec == test_data)
+
+
 def test_basen_transformer():
     from pasteur.transform import BaseNTransformer
 
@@ -146,7 +163,7 @@ def test_chain_transformer():
     from pasteur.transform import (
         ChainTransformer,
         NormalDistTransformer,
-        BinTransformer,
+        DiscretizationTransformer,
         GrayTransformer,
     )
 
@@ -154,7 +171,11 @@ def test_chain_transformer():
     test_data["tst1"] = [1, 2, 5, 2, 3, 4, 9, 10]
     test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
 
-    transformers = [NormalDistTransformer(), BinTransformer(8), GrayTransformer()]
+    transformers = [
+        NormalDistTransformer(),
+        DiscretizationTransformer(8),
+        GrayTransformer(),
+    ]
 
     t = ChainTransformer(transformers)
 
@@ -169,14 +190,18 @@ def test_chain_transformer_na():
     from pasteur.transform import (
         ChainTransformer,
         NormalDistTransformer,
-        BinTransformer,
+        DiscretizationTransformer,
         GrayTransformer,
     )
 
     test_data = pd.DataFrame()
     test_data["tst1"] = [1, 2, pd.NA, 2, 3, 4, pd.NA, 7, 10]
 
-    transformers = [NormalDistTransformer(), BinTransformer(8), GrayTransformer()]
+    transformers = [
+        NormalDistTransformer(),
+        DiscretizationTransformer(8),
+        GrayTransformer(),
+    ]
 
     t = ChainTransformer(transformers, nullable=True, na_val=0)
 

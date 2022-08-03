@@ -9,7 +9,7 @@ from .base import Transformer
 logger = logging.getLogger(__name__)
 
 
-class BinTransformer(Transformer):
+class DiscretizationTransformer(Transformer):
     """Splits a DataFrame of numerical data (float/int) into bins and outputs idx integers.
 
     Reversed output has a step effect due to discretization, but is deterministic."""
@@ -46,6 +46,60 @@ class BinTransformer(Transformer):
 
         for col, bin in self.bins.items():
             out[col] = bin[data[col]]
+
+        return out
+
+
+class BinTransformer(Transformer):
+    """Converts an ordinal variable into a hierarchical binary encoding
+    (standard integer to bin conversion)."""
+
+    name = "bin"
+    in_type = "ordinal"
+    out_type = "bin"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+    handles_na = False
+
+    def fit(self, data: pd.DataFrame):
+        self.digits = {}
+
+        for col in data:
+            self.digits[col] = math.ceil(math.log2(np.max(data[col]) + 1))
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in data:
+            n = data[col].to_numpy()
+
+            for i in range(self.digits[col]):
+                bin_col = (n & (1 << i)) != 0
+                out[f"{col}_{i}"] = pd.Series(bin_col, index=data.index)
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col, digits in self.digits.items():
+            l = len(data[f"{col}_0"])
+            n = np.zeros((l), dtype=np.int32)
+
+            for i in range(digits):
+                n |= data[f"{col}_{i}"].to_numpy() << i
+
+            out[col] = pd.Series(n, index=data.index)
+
+        return out
+
+    def get_hierarchy(self, **_) -> dict[str, list[str]]:
+        out = {}
+
+        for col, digits in self.digits.items():
+            out[col] = [f"{col}_{i}" for i in reversed(range(digits))]
 
         return out
 

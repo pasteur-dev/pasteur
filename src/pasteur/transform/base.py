@@ -215,7 +215,29 @@ class ChainTransformer(RefTransformer):
     def get_hierarchy(self, **_) -> dict[str, list[str]]:
         out = {}
         for t in self.transformers:
-            out.update(t.get_hierarchy())
+            hier = t.get_hierarchy()
+            new_hier = hier.copy()
+
+            # Slice in the columns from the new transformer into the old one
+            # If the new transformer creates new colums.
+            # Example:
+            # Old: a0: {c0, c1, c2}
+            # New: c0: {b0, b1}
+            # Combined: a0: {b0, b1, c1, c2}
+            for attr in out:
+                for new_attr, new_cols in hier.items():
+                    if new_attr in out[attr]:
+                        idx = out[attr].index(new_attr)
+                        out[attr] = (
+                            out[attr][:idx]
+                            + new_cols
+                            + (out[attr][idx + 1 :] if len(out[attr]) > idx else [])
+                        )
+                        
+                        # Delete attribute that was merged
+                        del new_hier[new_attr]
+
+            out.update(new_hier)
         return out
 
 

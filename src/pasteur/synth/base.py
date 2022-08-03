@@ -31,7 +31,7 @@ def synth_sample(model: Synth):
 class IdentSynth(Synth):
     """Returns the data it was provided."""
 
-    name = "ident_idx"
+    name = None
     type = "idx"
     tabular = True
     multimodal = True
@@ -52,3 +52,8 @@ class NumIdentSynth(IdentSynth):
 class BinIdentSynth(IdentSynth):
     name = "ident_bin"
     type = "bin"
+
+
+class BhrIdentSynth(IdentSynth):
+    name = "ident_bhr"
+    type = "bhr"

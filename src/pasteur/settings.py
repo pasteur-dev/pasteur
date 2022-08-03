@@ -17,10 +17,14 @@ from .pipelines.synth import AddDatasetsForViewsHook, get_algs
 from .pipelines.mimic import get_datasets as get_mimic_datasets
 from .pipelines.tabular import get_datasets as get_tab_datasets
 
+from .metadata import DEFAULT_TRANSFORMERS
+
+types = list(DEFAULT_TRANSFORMERS.keys())
+
 datasets = {**get_mimic_datasets(), **get_tab_datasets()}
 algs = get_algs()
 HOOKS = (
-    AddDatasetsForViewsHook(datasets, algs),
+    AddDatasetsForViewsHook(datasets, algs, types),
     CustomMlflowTrackingHook(datasets, algs),
 )
 
