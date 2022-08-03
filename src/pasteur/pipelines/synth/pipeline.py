@@ -74,7 +74,7 @@ def create_synth_pipeline(
             node(
                 func=synth_fit_closure(cls),
                 inputs={
-                    "metadata": "params:metadata",
+                    **{f"trn_{t}": f"trn_{t}" for t in tables},
                     **{f"ids_{t}": f"in_ids_{t}" for t in tables},
                     **{f"enc_{t}": f"in_enc_{t}" for t in tables},
                 },
@@ -115,7 +115,6 @@ def create_synth_pipeline(
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
             **{f"trn_{t}": f"{view}.{split}.trn_{t}" for t in tables},
         },
-        parameters={"metadata": f"{view}.metadata"},
     )
 
 

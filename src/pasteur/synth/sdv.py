@@ -5,6 +5,8 @@ import pandas as pd
 
 from .base import Synth
 
+# FIXME: Dead code
+
 
 class Hma1Synth(Synth):
     name = "hma1"

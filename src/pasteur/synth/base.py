@@ -1,4 +1,5 @@
 import pandas as pd
+from ..transform import Transformer
 
 
 class Synth:
@@ -8,24 +9,45 @@ class Synth:
     multimodal = False
     timeseries = False
 
-    def fit(self, metadata: dict, data: dict[str, pd.DataFrame]):
+    def fit(
+        self,
+        transformers: dict[str, pd.DataFrame],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        """Bakes and fits the model based on the provided data.
+
+        Transformers provide the Synthetic algorithm with access to the
+        Metadata of the dataset and the hierarchical attributes.
+
+        Data and Ids are dictionaries containing the dataframes with the data."""
         assert False, "Not implemented"
 
-    def sample(self) -> dict[str, pd.DataFrame]:
+    def sample(self) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        """Returns data, ids dict dataframes in the same format they were provided."""
         assert False, "Not implemented"
 
 
 def synth_fit_closure(cls):
-    def fit(metadata: dict, **kwargs: pd.DataFrame):
+    def fit(**kwargs: pd.DataFrame):
+        transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
+        ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
+        data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
+
         model = cls()
-        model.fit(metadata, kwargs)
+        model.fit(transformers, data, ids)
         return model
 
     return fit
 
 
 def synth_sample(model: Synth):
-    return model.sample()
+    data, ids = model.sample()
+
+    return {
+        **{f"enc_{n}": d for n, d in data.items()},
+        **{f"ids_{n}": d for n, d in ids.items()},
+    }
 
 
 class IdentSynth(Synth):
@@ -37,11 +59,17 @@ class IdentSynth(Synth):
     multimodal = True
     timeseries = True
 
-    def fit(self, metadata: dict, data: dict[str, pd.DataFrame]):
+    def fit(
+        self,
+        transformers: dict[str, pd.DataFrame],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
         self._data = data
+        self._ids = ids
 
     def sample(self):
-        return self._data
+        return self._data, self._ids
 
 
 class NumIdentSynth(IdentSynth):
