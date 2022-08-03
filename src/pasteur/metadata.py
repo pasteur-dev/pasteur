@@ -1,6 +1,10 @@
-from typing import Dict, Optional, Union
+import logging
 from types import SimpleNamespace
+from typing import Dict, Optional, Union
+
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_METRICS = {
     "x_log": False,
@@ -11,31 +15,31 @@ DEFAULT_METRICS = {
     "y_max": None,
 }
 
-DEFAULT_NUM_TRANSFORMERS = {
-    "numerical": "normdist",
-    "ordinal": ("idx", "normalize"),
-    "categorical": ("idx", "normalize"),
-    "time": ("time", "idx", "normalize"),
-    "date": ("date", "idx", "normalize"),
-    "datetime": ("datetime", "idx", "normalize"),
-}
-
-DEFAULT_BIN_TRANSFORMERS = {
-    "numerical": ("discrete", "gray"),
-    "ordinal": ("idx", "gray"),
-    "categorical": "onehot",
-    "time": ("time", "idx", "gray"),
-    "date": ("date", "idx", "gray"),
-    "datetime": ("datetime", "idx", "gray"),
-}
-
-DEFAULT_IDX_TRANSFORMERS = {
-    "numerical": "discrete",
-    "ordinal": "idx",
-    "categorical": "idx",
-    "time": ("time", "idx"),
-    "date": ("date", "idx"),
-    "datetime": ("datetime", "idx"),
+DEFAULT_TRANSFORMERS = {
+    "num": {
+        "numerical": "normdist",
+        "ordinal": ("idx", "normalize"),
+        "categorical": ("idx", "normalize"),
+        "time": ("time", "idx", "normalize"),
+        "date": ("date", "idx", "normalize"),
+        "datetime": ("datetime", "idx", "normalize"),
+    },
+    "bin": {
+        "numerical": ("discrete", "gray"),
+        "ordinal": ("idx", "gray"),
+        "categorical": "onehot",
+        "time": ("time", "idx", "gray"),
+        "date": ("date", "idx", "gray"),
+        "datetime": ("datetime", "idx", "gray"),
+    },
+    "idx": {
+        "numerical": "discrete",
+        "ordinal": "idx",
+        "categorical": "idx",
+        "time": ("time", "idx"),
+        "date": ("date", "idx"),
+        "datetime": ("datetime", "idx"),
+    },
 }
 
 DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
@@ -101,17 +105,17 @@ class ColumnMeta:
 
         # Add transformer chains from data, with fallback to table chains
         # specific to type.
-        self.chains = {
-            "num": kwargs.get(
-                "transformers_num", kwargs["td"]["num"].get(self.type, ())
-            ),
-            "idx": kwargs.get(
-                "transformers_idx", kwargs["td"]["idx"].get(self.type, ())
-            ),
-            "bin": kwargs.get(
-                "transformers_bin", kwargs["td"]["bin"].get(self.type, ())
-            ),
-        }
+        self.chains = {}
+        table_td = kwargs["td"]
+        own_td = kwargs.get("transformers", {})
+        for key in set(table_td).union(own_td):
+            table_chain = table_td.get(key, {}).get(type, [])
+            own_chain = own_td.get(key, [])
+
+            self.chains[key] = own_chain or table_chain
+
+            if not self.chains[key] and type != "id":
+                logger.warning("Column chain empty")
 
         # Add untyped version of args to use with transformers
         self.args = kwargs.copy()
@@ -132,9 +136,6 @@ class ColumnMeta:
 
 class TableMeta:
     COLUMN_CLS = ColumnMeta
-    DEFAULT_NUM_TRANSFORMERS = DEFAULT_NUM_TRANSFORMERS
-    DEFAULT_BIN_TRANSFORMERS = DEFAULT_BIN_TRANSFORMERS
-    DEFAULT_IDX_TRANSFORMERS = DEFAULT_IDX_TRANSFORMERS
 
     def __init__(self, meta: Dict, data: Optional[pd.DataFrame] = None):
         self.primary_key = meta["primary_key"]
@@ -145,20 +146,11 @@ class TableMeta:
         self.sensitive = meta.get("sensitive", [])
 
         # Update transformer chain dict from table entries
-        self.td = {
-            "num": {
-                **self.DEFAULT_NUM_TRANSFORMERS,
-                **meta.get("transformers_num", {}),
-            },
-            "idx": {
-                **self.DEFAULT_IDX_TRANSFORMERS,
-                **meta.get("transformers_idx", {}),
-            },
-            "bin": {
-                **self.DEFAULT_BIN_TRANSFORMERS,
-                **meta.get("transformers_bin", {}),
-            },
-        }
+        self.td = {}
+        td = meta.get("transformers", {})
+
+        for key in set(td).union(DEFAULT_TRANSFORMERS):
+            self.td[key] = {**DEFAULT_TRANSFORMERS.get(key, {}), **td.get(key, {})}
 
         self._columns = {}
 

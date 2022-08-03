@@ -7,6 +7,24 @@ from ..utils import find_subclasses
 
 logger = logging.getLogger(__name__)
 
+"""Package with base transformers. 
+
+Contains transformers that convert raw data into 4 types (with name suffix):
+    - categorical: integer values from 0-N with columns with no relations
+    - ordinal: integer values from 0-N where `k` val is closer to `k + 1` than other vals.
+    - numerical: floating point values, assumed mean 0 and std 1.
+    - hierarchical: Transformer returns a set of columns, some of which contain information
+                    only in the context of other ones.
+
+Assume columns c0 and c1 with a hierarchical relationship (ex. Hour, minute).
+When sampling for parent relationships, c0 will be initially checked and
+the pair c0, c1 will only be checked if c0 conveys enough mutual information on its own
+(c1 only has meaning in the context of c0).
+
+However, all cN will be sampled, since it is assumed that if they were included
+the user expects them in the output data.
+"""
+
 
 class Transformer:
     name = "base"
@@ -33,6 +51,9 @@ class Transformer:
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
+
+    def get_hierarchy(self, **_) -> dict[str, list[str]]:
+        return {}
 
 
 class RefTransformer(Transformer):
@@ -191,6 +212,12 @@ class ChainTransformer(RefTransformer):
             data[na_col] = pd.NA
         return data
 
+    def get_hierarchy(self, **_) -> dict[str, list[str]]:
+        out = {}
+        for t in self.transformers:
+            out.update(t.get_hierarchy())
+        return out
+
 
 class IdxTransformer(Transformer):
     """Transforms categorical values of any type into integer based values.
@@ -206,8 +233,13 @@ class IdxTransformer(Transformer):
     stateful = True
     handles_na = True
 
-    def __init__(self, unknown_value=-1, **_):
+    def __init__(self, unknown_value=-1, is_sortable=True, **_):
         self.unknown_value = unknown_value
+
+        # If a categorical attribute is sortable it can become ordinal
+        # otherwise switch output type to categorical.
+        if not is_sortable:
+            self.out_type = "categorical"
 
     def fit(self, data: pd.DataFrame):
         self.vals = {}
@@ -539,6 +571,25 @@ class TimeTransformer(Transformer):
 
         return out
 
+    def get_hierarchy(self, **_) -> dict[str, list[str]]:
+        out = {}
+        span = self.span
+
+        for col in self.types:
+            hier = [f"{col}_hour"]
+            if span == "halfhour":
+                hier += [f"{col}_halfhour"]
+            if span in ("minute", "halfminute", "second"):
+                hier += [f"{col}_min"]
+            if span == "halfminute":
+                hier += [f"{col}_halfmin"]
+            if span == "second":
+                hier += [f"{col}_sec"]
+
+            out[col] = hier
+
+        return out
+
 
 class DatetimeTransformer(RefTransformer):
     name = "datetime"
@@ -588,3 +639,6 @@ class DatetimeTransformer(RefTransformer):
             )
 
         return out
+
+    def get_hierarchy(self, **kwargs) -> dict[str, list[str]]:
+        return self.tt.get_hierarchy(**kwargs)
