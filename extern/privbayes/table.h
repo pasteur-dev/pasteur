@@ -52,11 +52,13 @@ class table
 {
 public:
 	table(const string &, bool);
+	table(const int *, const string &, bool, int, int);
 	table();
 	~table();
 
 	int size();
 	int getDepth(int);
+	int getSize(int);
 	vector<int> getDepth(const vector<int> &);
 	int getWidth(int, int = 0);
 	vector<int> getWidth(const vector<int> &);

@@ -24,17 +24,23 @@ public:
 class bayesian : public base
 {
 public:
-	bayesian(engine &, table &, double, double, double); // eng, tbl, eps, beta, theta
+	bayesian(engine &, table &, double, double, int); // eng, tbl, eps, theta
 	~bayesian();
 
 	vector<dependence> greedy(double);
+	vector<dependence> greedy_exact(double);
+	vector<dependence> naive(int);
+
 	vector<dependence> S2V(const set<int> &, const set<int> &);
 	vector<vector<attribute>> maximal(set<int>, double);
 	void addnoise(double);
+	void noNoise(void);
+
 	void sampling(int);
 
 	// tools
 	void printo_libsvm(const string &, const int &, const set<int> &);
+	string print_model();
 	string to_string(const dependence &);
 	string to_string(const attribute &);
 	double evaluate();

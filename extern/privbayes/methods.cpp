@@ -9,12 +9,19 @@ base::~base()
 }
 
 ////////////////////////////// bayesian //////////////////////////////
-bayesian::bayesian(engine &eng1, table &tbl1, double ep, double beta, double theta) : base(eng1, tbl1)
+// 3 modes: 1 for normal, 2 for no privacy, 3 for inf at laplace
+bayesian::bayesian(engine &eng1, table &tbl1, double ep, double theta, int mode) : base(eng1, tbl1)
 {
-	dim = tbl.dim;
+	dim = tbl.dim; // number of attributes in the dataset
+	// Bound for domain size of chosen attributes
+	// The first one is the original bound
+	// bound =  ep * tbl.size() / (4.0 * dim * theta);		// bound to nr. of cells
 	bound = ep * tbl.size() / (4.0 * dim * theta); // bound to nr. of cells
+	// if (mode == 2)
+	//  	bound = bound * 100;
 
-	// for efficiency
+	// cout << bound << " bound " << endl;
+	//  for efficiency
 	int sub = log2(bound);
 	int count = 0;
 	while (tbl.size() * tools::nCk(dim, sub) > 2e12)
@@ -27,15 +34,54 @@ bayesian::bayesian(engine &eng1, table &tbl1, double ep, double beta, double the
 		cout << "Bound reduced for efficiency: " << count << "." << endl;
 	// for efficiency
 
-	model = greedy(beta * ep);
-	addnoise((1 - beta) * ep);
+	// Normal PrivBayes
+	if (mode == 1)
+	{
+		model = greedy(0.5 * ep);
+		addnoise(0.5 * ep);
+	}
+
+	// InfBudget
+	if (mode == 2)
+	{
+		model = greedy_exact(ep);
+		noNoise();
+	}
+
+	// InfLaplace
+	if (mode == 3)
+	{
+		model = greedy(0.5 * ep);
+		noNoise();
+		// syn.initialize(tbl);
+	}
+
+	// Build a naive bayes network conditioned on the argument of 'naive()'
+	if (mode == 4)
+	{
+		model = naive(2);
+		addnoise(ep);
+	}
+
 	sampling(tbl.size());
+
+	// print_model();
 }
 
 bayesian::~bayesian()
 {
 }
 
+// Greedy estimation of the bayesNet with budget ep
+
+/* deps is the bayesNet N
+ * V is all the attributes minus the ones we already picked.
+ * S is the set of already picked attributes (named "V" in the paper)
+ *
+ *
+ *
+ *
+ */
 vector<dependence> bayesian::greedy(double ep)
 {
 	vector<dependence> model;
@@ -46,8 +92,9 @@ vector<dependence> bayesian::greedy(double ep)
 
 	for (int t = 0; t < dim; t++)
 	{
+		// Pick candidate sets
 		vector<dependence> deps = S2V(S, V);
-		cout << deps.size() << "\t";
+		// cout << deps.size() << " (ios) \t";
 
 		vector<double> quality;
 		for (const auto &dep : deps)
@@ -59,11 +106,95 @@ vector<dependence> bayesian::greedy(double ep)
 		S.insert(picked.x.first);
 		V.erase(picked.x.first);
 		model.push_back(picked);
-		cout << to_string(picked) << endl; // debug
+		// cout << to_string(picked) << endl;				// debug
 	}
+	// cout << endl;
 	return model;
 }
 
+// Learn a naive bayesian network (for free)
+vector<dependence> bayesian::naive(int root_id)
+{
+	vector<dependence> model;
+
+	// Add the root to the naive bayes model. Root should be conditioned on Null
+	dependence root = dependence(vector<attribute>(), attribute(root_id, 0));
+	model.push_back(root);
+
+	vector<attribute> root_attribute;
+	root_attribute.push_back(attribute(root_id, 0));
+	for (int t = 0; t < dim; t++)
+	{
+		if (t == root_id)
+			continue;
+		dependence dep = dependence(root_attribute, attribute(t, 0));
+		model.push_back(dep);
+		// cout << to_string(picked) << endl;				// debug
+	}
+	// cout << endl;
+	return model;
+}
+
+// Greedy estimation of the BayesNet without any differential privacy
+vector<dependence> bayesian::greedy_exact(double ep)
+{
+	vector<dependence> model;
+	double sens = tbl.sens;
+
+	set<int> S;
+	set<int> V = tools::setize(dim);
+
+	for (int t = 0; t < dim; t++)
+	{
+		vector<dependence> deps = S2V(S, V);
+		vector<double> quality;
+		for (const auto &dep : deps)
+			quality.push_back(tbl.getScore(dep));
+
+		dependence picked = deps[max_element(quality.begin(), quality.end()) - quality.begin()];
+
+		// cout << to_string(picked) << " exact " << endl;
+
+		S.insert(picked.x.first);
+		V.erase(picked.x.first);
+		model.push_back(picked);
+		// cout << to_string(picked) << endl;				// debug
+	}
+	return model;
+}
+// // Construct a naive bayes model.
+// vector<dependence> bayesian::naive(double ep) {
+// 	vector<dependence> model;
+// 	double sens = tbl.sens;
+
+// 	set<int> S;
+// 	set<int> V = tools::setize(dim);
+
+// 	for (int t = 0; t < dim; t++) {
+// 		// Pick candidate sets
+// 		vector<dependence> deps = S2V(S, V);
+// 		cout << deps.size() << " (ios) \t";
+
+// 		vector<double> quality;
+// 		for (const auto& dep : deps)
+// 			quality.push_back(tbl.getScore(dep));
+
+// 		dependence picked = t ? deps[noise::EM(eng, quality, ep / (dim - 1), sens)] : deps[noise::EM(eng, quality, 1000.0, sens)];
+// 		// first selection is free: all scores are zero.
+
+// 		S.insert(picked.x.first);
+// 		V.erase(picked.x.first);
+// 		model.push_back(picked);
+// 		//cout << to_string(picked) << endl;				// debug
+// 	}
+// 	cout << endl;
+// 	return model;
+
+// }
+
+/*
+	In the first call S is empty and V is all the attributes
+*/
 vector<dependence> bayesian::S2V(const set<int> &S, const set<int> &V)
 {
 	vector<dependence> ans;
@@ -135,7 +266,17 @@ void bayesian::addnoise(double ep)
 		for (double count : tbl.getCounts(dep.cols, dep.lvls))
 			counts_syn.push_back(count + noise::nextLaplace(eng, 2.0 * dim / ep));
 	}
-	// add consistency
+}
+
+void bayesian::noNoise()
+{
+	syn.initialize(tbl);
+	for (const dependence &dep : model)
+	{
+		vector<double> &counts_syn = syn.margins[dep.cols].counts[dep.lvls];
+		for (double count : tbl.getCounts(dep.cols, dep.lvls))
+			counts_syn.push_back(count);
+	}
 }
 
 void bayesian::sampling(int num)
@@ -158,17 +299,28 @@ void bayesian::sampling(int num)
 	syn.margins.clear();
 }
 
+string bayesian::print_model()
+{
+	string ans;
+	for (const dependence &dep : model)
+	{
+		ans += to_string(dep) + "\n";
+	}
+	return ans;
+}
+
 string bayesian::to_string(const dependence &dep)
 {
-	string ans = to_string(dep.x) + " <-";
+	string ans = to_string(dep.x);
 	for (const auto &p : dep.p)
-		ans += " " + to_string(p);
+		ans += "," + to_string(p);
 	return ans;
 }
 
 string bayesian::to_string(const attribute &att)
 {
-	return std::to_string(att.first) + "(" + std::to_string(att.second) + ")";
+	// return std::to_string(att.first) + "(" + std::to_string(att.second) + ")";
+	return std::to_string(att.first) + "," + std::to_string(tbl.getWidth(att.first, att.second));
 }
 
 void bayesian::printo_libsvm(const string &filename, const int &col, const set<int> &positives)
