@@ -1,8 +1,3 @@
-"""
-This is a boilerplate pipeline 'sdv'
-generated using Kedro 0.18.0
-"""
-
 from .pipeline import create_transform_pipeline, create_synth_pipeline, get_algs
 from .hooks import AddDatasetsForViewsHook
 

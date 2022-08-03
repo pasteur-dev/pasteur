@@ -1,11 +1,9 @@
-from typing import Collection, Dict, List, Optional
+from typing import Collection, Dict, Optional
 import pandas as pd
-import numpy as np
-import math
 import logging
 
-from .metadata import Metadata
-from .transform import ChainTransformer, Transformer
+from ..metadata import Metadata
+from .base import ChainTransformer, Transformer
 
 logger = logging.getLogger(__name__)
 

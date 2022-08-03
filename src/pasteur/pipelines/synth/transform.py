@@ -3,7 +3,7 @@ from typing import Collection, Dict
 
 import pandas as pd
 
-from ...table_transform import TableTransformer
+from ...transform import TableTransformer
 from ...metadata import Metadata
 
 
