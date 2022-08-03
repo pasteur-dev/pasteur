@@ -1,7 +1,7 @@
 all: privbayes.bin
 
 %.bin: *.cpp *.h
-	g++ -O3 --std=c++14 $^ -o $@
+	g++ -O3 --std=c++14 $(filter %.cpp,$^) -o $@
 	chmod +x $@
 
 clean:

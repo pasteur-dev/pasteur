@@ -1,3 +1,5 @@
 #include <vector>
+#include <iostream>
+using namespace std;
 
-std::string c_get_model(const int *data, const std::string &config, double eps, double theta, int seed, int m, int n);
+string c_get_model(const int *data, int m, int n, const string &config, double e1, double e2, double theta, int seed);

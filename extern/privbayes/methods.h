@@ -24,11 +24,11 @@ public:
 class bayesian : public base
 {
 public:
-	bayesian(engine &, table &, double, double, int); // eng, tbl, eps, theta
+	bayesian(engine &, table &, double, double, double); // eng, tbl, e1, e2, theta
 	~bayesian();
 
 	vector<dependence> greedy(double);
-	vector<dependence> greedy_exact(double);
+	vector<dependence> greedy();
 	vector<dependence> naive(int);
 
 	vector<dependence> S2V(const set<int> &, const set<int> &);

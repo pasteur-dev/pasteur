@@ -9,14 +9,14 @@ base::~base()
 }
 
 ////////////////////////////// bayesian //////////////////////////////
-// 3 modes: 1 for normal, 2 for no privacy, 3 for inf at laplace
-bayesian::bayesian(engine &eng1, table &tbl1, double ep, double theta, int mode) : base(eng1, tbl1)
+// e1 and e2 are the privacy budgets used in each step. If negative, don't use a budget for said step
+bayesian::bayesian(engine &eng1, table &tbl1, double e1, double e2, double theta) : base(eng1, tbl1)
 {
 	dim = tbl.dim; // number of attributes in the dataset
 	// Bound for domain size of chosen attributes
 	// The first one is the original bound
 	// bound =  ep * tbl.size() / (4.0 * dim * theta);		// bound to nr. of cells
-	bound = ep * tbl.size() / (4.0 * dim * theta); // bound to nr. of cells
+	bound = (e2 < 0 ? 1000 : e2) * tbl.size() / (4.0 * dim * theta); // bound to nr. of cells
 	// if (mode == 2)
 	//  	bound = bound * 100;
 
@@ -32,36 +32,16 @@ bayesian::bayesian(engine &eng1, table &tbl1, double ep, double theta, int mode)
 	}
 	if (count)
 		cout << "Bound reduced for efficiency: " << count << "." << endl;
-	// for efficiency
 
-	// Normal PrivBayes
-	if (mode == 1)
-	{
-		model = greedy(0.5 * ep);
-		addnoise(0.5 * ep);
-	}
-
-	// InfBudget
-	if (mode == 2)
-	{
-		model = greedy_exact(ep);
-		noNoise();
-	}
-
-	// InfLaplace
-	if (mode == 3)
-	{
-		model = greedy(0.5 * ep);
-		noNoise();
-		// syn.initialize(tbl);
-	}
+	greedy(e1);
+	addnoise(e2);
 
 	// Build a naive bayes network conditioned on the argument of 'naive()'
-	if (mode == 4)
-	{
-		model = naive(2);
-		addnoise(ep);
-	}
+	// if (mode == 4)
+	// {
+	// 	model = naive(2);
+	// 	addnoise(ep);
+	// }
 
 	sampling(tbl.size());
 
@@ -84,6 +64,9 @@ bayesian::~bayesian()
  */
 vector<dependence> bayesian::greedy(double ep)
 {
+	if (ep < 0)
+		return greedy();
+
 	vector<dependence> model;
 	double sens = tbl.sens;
 
@@ -136,7 +119,7 @@ vector<dependence> bayesian::naive(int root_id)
 }
 
 // Greedy estimation of the BayesNet without any differential privacy
-vector<dependence> bayesian::greedy_exact(double ep)
+vector<dependence> bayesian::greedy()
 {
 	vector<dependence> model;
 	double sens = tbl.sens;
@@ -259,6 +242,12 @@ vector<vector<attribute>> bayesian::maximal(set<int> S, double tau)
 
 void bayesian::addnoise(double ep)
 {
+	if (ep < 0)
+	{
+		noNoise();
+		return;
+	}
+
 	syn.initialize(tbl);
 	for (const dependence &dep : model)
 	{
