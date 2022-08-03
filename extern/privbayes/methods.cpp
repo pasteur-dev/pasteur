@@ -31,7 +31,7 @@ bayesian::bayesian(engine &eng1, table &tbl1, double e1, double e2, double theta
 		count++;
 	}
 	if (count)
-		cout << "Bound reduced for efficiency: " << count << "." << endl;
+		cerr << "Bound reduced for efficiency: " << count << "." << endl;
 
 	greedy(e1);
 	addnoise(e2);
