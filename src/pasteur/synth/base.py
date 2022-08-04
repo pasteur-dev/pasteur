@@ -1,5 +1,5 @@
 import pandas as pd
-from ..transform import Transformer
+from ..transform import TableTransformer
 
 
 class Synth:
@@ -8,6 +8,20 @@ class Synth:
     tabular = True
     multimodal = False
     timeseries = False
+
+    def __init__(self, **_) -> None:
+        pass
+
+    def bake(
+        self,
+        transformers: dict[str, pd.DataFrame],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        """Bakes the transformer based on the data provided (such as creating a
+        modeling a bayesian network on the data). Does not fit the transformer
+        to the data. Optional"""
+        pass
 
     def fit(
         self,
@@ -29,12 +43,13 @@ class Synth:
 
 
 def synth_fit_closure(cls):
-    def fit(**kwargs: pd.DataFrame):
+    def fit(**kwargs: pd.DataFrame | TableTransformer):
         transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
         ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
         data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
 
         model = cls()
+        model.bake(transformers, data, ids)
         model.fit(transformers, data, ids)
         return model
 

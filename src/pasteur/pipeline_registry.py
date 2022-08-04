@@ -79,7 +79,7 @@ def register_pipelines() -> Dict[str, Pipeline]:
         pipelines[f"{name}.ref"] = pipe_ingest + pipe_measure
         pipelines[f"{name}.ref.measure"] = pipe_measure
 
-    pipelines["__default__"] = pipelines["mimic_mm_core.hma1"]
+    pipelines["__default__"] = pipelines["tab_adult.ident_bhr"]
     pipelines["ingest"] = pipe_ingest_views + pipe_ingest_datasets
     pipelines["ingest.datasets"] = pipe_ingest_datasets
     pipelines["ingest.views"] = pipe_ingest_views
