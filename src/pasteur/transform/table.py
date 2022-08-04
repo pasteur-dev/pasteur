@@ -289,5 +289,5 @@ class TableTransformer:
             cols_in_attr.update(a)
 
         cols = set(table.columns)
-        attrs.update({c: c for c in cols - cols_in_attr})
+        attrs.update({c: [c] for c in cols - cols_in_attr})
         return attrs
