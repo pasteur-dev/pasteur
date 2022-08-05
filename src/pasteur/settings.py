@@ -4,11 +4,13 @@ https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
 # FIXME: disable logging until customized logger loads
 # context: currently kedro/config/logging.yml is too agressive and causes info
-# messages to get printed to console
+# messages to get printed to console. Same with rich as well
 import logging
+from rich.traceback import install
 
 logging.getLogger().setLevel(logging.ERROR)
 logging.captureWarnings(True)
+install(show_locals=False)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
