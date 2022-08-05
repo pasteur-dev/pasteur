@@ -176,7 +176,7 @@ def greedy_bayes(
         vals = np.array(calc_candidate_scores(candidates))
         delta = (d - 1) * sens_fun(n) / e1
 
-        p = np.exp(vals / delta)
+        p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
         choice = np.random.choice(len(candidates), size=1, p=p)[0]
@@ -209,8 +209,14 @@ def greedy_bayes(
     return N
 
 
-def print_tree(tree: list[tuple[int, tuple[int]]], attr_names: list[str]):
-    s = f"{'_Bayesian Network_':>20s}"
+def print_tree(
+    tree: list[tuple[int, tuple[int]]],
+    attr_names: list[str],
+    e1: float,
+    e2: float,
+    theta: float,
+):
+    s = f"Bayesian Network (PrivBayes e1={e1:.2f}, e2={e2:.2f},theta={theta:.2f}):"
 
     for a, pset in list(tree):
         a_name = attr_names[a]
@@ -383,4 +389,4 @@ class PrivBayesSynth(Synth):
         return data, ids
 
     def __str__(self) -> str:
-        return print_tree(self.nodes_raw, self.attr_names)
+        return print_tree(self.nodes_raw, self.attr_names, self.e1, self.e2, self.theta)

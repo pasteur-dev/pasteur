@@ -212,6 +212,8 @@ class DatasetMeta:
             for name, tmeta in meta["tables"].items()
         }
 
+        self.algs = meta.get("algs", {})
+
     def get_table(self, name):
         return self._tables[name]
 

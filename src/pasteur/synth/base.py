@@ -54,7 +54,8 @@ def synth_fit_closure(cls):
         ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
         data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
 
-        model = cls()
+        meta = next(iter(transformers.values())).meta
+        model = cls(**meta.algs[cls.name]) if cls.name in meta.algs else cls()
         model.bake(transformers, data, ids)
         model.fit(transformers, data, ids)
         return model

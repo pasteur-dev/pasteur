@@ -45,7 +45,7 @@ class DiscretizationTransformer(Transformer):
         out = pd.DataFrame()
 
         for col, bin in self.bins.items():
-            out[col] = bin[data[col]]
+            out[col] = bin[data[col].clip(0, len(bin) - 1)]
 
         return out
 

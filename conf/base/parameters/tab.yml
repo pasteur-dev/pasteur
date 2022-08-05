@@ -40,3 +40,9 @@ tab_adult.metadata:
           type: categorical
           metrics:
             y_log: True
+
+  algs:
+    privbayes:
+      e1: 1
+      e2: 5
+      theta: 2
