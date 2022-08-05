@@ -4,9 +4,7 @@ from functools import reduce
 import numpy as np
 import pandas as pd
 import tqdm
-from scipy.stats import laplace
 
-from ..metadata import Metadata
 from ..transform import TableTransformer
 from .base import Synth
 
@@ -197,8 +195,8 @@ def greedy_bayes(
     #
     # Implement greedy bayes (as shown in the paper)
     #
-    A = [a for a in range(1, len(attr))]
-    x1 = 0
+    x1 = np.random.randint(len(attr))
+    A = [a for a in range(0, len(attr)) if a != x1]
     t = (n * e2) / (2 * d * theta)
 
     V = [x1]
@@ -269,9 +267,8 @@ def calc_noisy_marginals(
         sub_domain = sub_data.max(axis=0) + 1
 
         margin, _ = np.histogramdd(sub_data, sub_domain)
-        noise = laplace.rvs(
-            scale=noise_scale, size=margin.shape, random_state=np.random
-        )
+        noise = np.random.laplace(scale=noise_scale, size=margin.shape)
+
         marginal = (margin + noise).clip(0)
         marginal /= marginal.sum()
         marginals.append(marginal)

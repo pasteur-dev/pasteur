@@ -284,10 +284,10 @@ class TableTransformer:
             return attrs
 
         # Add fake attributes for cols with no hierarchical relationship
-        cols_in_attr = set()
+        cols_in_attr = list()
         for a in attrs.values():
-            cols_in_attr.update(a)
+            cols_in_attr.extend(a)
 
-        cols = set(table.columns)
-        attrs.update({c: [c] for c in cols - cols_in_attr})
+        cols = [c for c in table.columns if c not in cols_in_attr]
+        attrs.update({c: [c] for c in cols})
         return attrs

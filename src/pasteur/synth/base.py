@@ -11,7 +11,10 @@ logger = logging.getLogger(__name__)
 
 def make_deterministic(obj_func):
     """Takes an object function (with self), and if the object has a seed attribute
-    it fixes the np.random.seed attribute to it and prints a random number at the end."""
+    it fixes the np.random.seed attribute to it and prints a random number at the end.
+
+    If the algorithm sampled the same amount of numbers at the same order, then the
+    numbers should be the same."""
 
     def wrapped(self, *args, **kwargs):
         if self.seed is not None:
@@ -22,7 +25,9 @@ def make_deterministic(obj_func):
 
         if self.seed is not None:
             logger.info(
-                f"Deterministic check: random number after {obj_func.__name__:>8s}(): np.{np.random.random():7.5f} random.{random.random():7.5f}."
+                f"Deterministic check: random number after "
+                + f"{f'{type(self).__name__}.{obj_func.__name__}':>22s}(): "
+                + f"<np.random> {np.random.random():7.5f} <random> {random.random():7.5f}"
             )
         return a
 
