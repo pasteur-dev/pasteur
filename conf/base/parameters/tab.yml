@@ -5,7 +5,7 @@ adult:
     val: 0.1
     dev: 0.1
 
-tab_adult.metadata:
+tab_adult:
   tables:
     table:
       primary_key: id
@@ -44,5 +44,5 @@ tab_adult.metadata:
   algs:
     privbayes:
       e1: 1
-      e2: 5
+      e2: 3
       theta: 2

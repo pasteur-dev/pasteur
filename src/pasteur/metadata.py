@@ -1,6 +1,5 @@
 import logging
 from types import SimpleNamespace
-from typing import Dict, Optional, Union
 
 import pandas as pd
 
@@ -53,6 +52,35 @@ DEFAULT_TRANSFORMERS = {
 DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
 
 
+def merge_two_dicts(a: dict, b: dict):
+    """Recursively merges dictionaries a, b by prioritizing b."""
+
+    ak = set(a.keys())
+    bk = set(b.keys())
+    out = {}
+
+    for k in ak - bk:
+        out[k] = a[k]
+    for k in bk - ak:
+        out[k] = b[k]
+
+    for k in ak.intersection(bk):
+        if isinstance(a[k], dict) and isinstance(b[k], dict):
+            out[k] = merge_two_dicts(a[k], b[k])
+        else:
+            out[k] = b[k]
+
+    return out
+
+
+def merge_dicts(*ds):
+    out = {}
+    for d in ds:
+        out = merge_two_dicts(out, d)
+
+    return out
+
+
 class ColumnMeta:
 
     DEFAULT_COLUMN_META = DEFAULT_COLUMN_META
@@ -102,13 +130,13 @@ class ColumnMeta:
         # Create metrics structure by merging the default dict with the
         # user overrides. Bins can be set universally for both transformers and
         # metrics or just metrics
-        metrics = {}
-        metrics.update(self.DEFAULT_COLUMN_META["metrics"])
+        metrics = merge_dicts(
+            self.DEFAULT_COLUMN_META["metrics"], kwargs.get("metrics", {})
+        )
         if "bins" in self.DEFAULT_COLUMN_META:
             metrics.update({"bins": self.DEFAULT_COLUMN_META["bins"]})
         if "bins" in kwargs:
             metrics.update({"bins": kwargs["bins"]})
-        metrics.update(kwargs.get("metrics", {}))
         self.metrics = SimpleNamespace(**metrics)
 
         # Add transformer chains from data, with fallback to table chains
@@ -145,7 +173,12 @@ class ColumnMeta:
 class TableMeta:
     COLUMN_CLS = ColumnMeta
 
-    def __init__(self, meta: Dict, data: Optional[pd.DataFrame] = None):
+    def __init__(
+        self,
+        meta: dict,
+        data: pd.DataFrame | None = None,
+        transformers: dict | None = None,
+    ):
         self.primary_key = meta["primary_key"]
 
         self.targets = meta.get("targets", meta.get("target", []))
@@ -154,11 +187,7 @@ class TableMeta:
         self.sensitive = meta.get("sensitive", [])
 
         # Update transformer chain dict from table entries
-        self.td = {}
-        td = meta.get("transformers", {})
-
-        for key in set(td).union(DEFAULT_TRANSFORMERS):
-            self.td[key] = {**DEFAULT_TRANSFORMERS.get(key, {}), **td.get(key, {})}
+        self.td = merge_dicts(transformers or {}, meta.get("transformers", {}))
 
         self._columns = {}
 
@@ -190,11 +219,11 @@ class TableMeta:
             self._columns[name] = self.COLUMN_CLS(**args)
 
     @property
-    def columns(self) -> Dict[str, ColumnMeta]:
+    def columns(self) -> dict[str, ColumnMeta]:
         return self._columns
 
     @property
-    def cols(self) -> Dict[str, ColumnMeta]:
+    def cols(self) -> dict[str, ColumnMeta]:
         return self.columns
 
     def __getitem__(self, col) -> ColumnMeta:
@@ -204,15 +233,30 @@ class TableMeta:
 class DatasetMeta:
     TABLE_CLS = TableMeta
 
-    def __init__(self, meta: Dict, data: Optional[Dict[str, pd.DataFrame]] = None):
+    def __init__(
+        self,
+        meta: dict,
+        data: dict[str, pd.DataFrame] | None = None,
+        params: dict = None,
+    ):
+        # `default` nanespace contains vals that can be overriden by the view namespace
+        # all can be overriden by the global namespace (ex by `-p a.b.c:3`) for
+        # hyperparameter tuning
+        merged_params = merge_dicts(params.get("default", {}), meta, params)
+
+        transformers = merge_dicts(
+            DEFAULT_TRANSFORMERS,
+            merged_params.get("transformers", {}),
+        )
+
         self._tables = {
             name: self.TABLE_CLS(
-                tmeta, data.get(name, None) if data is not None else None
+                tmeta, data.get(name, None) if data is not None else None, transformers
             )
-            for name, tmeta in meta["tables"].items()
+            for name, tmeta in merged_params["tables"].items()
         }
 
-        self.algs = meta.get("algs", {})
+        self.algs = merged_params.get("algs", {})
 
     def get_table(self, name):
         return self._tables[name]
@@ -221,7 +265,7 @@ class DatasetMeta:
     def tables(self):
         return list(self._tables.keys())
 
-    def __getitem__(self, name) -> Union[TableMeta, ColumnMeta]:
+    def __getitem__(self, name) -> TableMeta | ColumnMeta:
         if isinstance(name, tuple):
             return self._tables[name[0]][name[1]]
         return self._tables[name]

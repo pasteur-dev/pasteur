@@ -1,0 +1,6 @@
+default:
+  algs:
+    privbayes:
+      e1: 0.3
+      e2: 1
+      theta: 4

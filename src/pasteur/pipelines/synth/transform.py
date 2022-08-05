@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Collection, Dict
+from typing import Collection
 
 import pandas as pd
 
@@ -8,8 +8,8 @@ from ...metadata import Metadata
 
 
 def fit_table_closure(name: str, types: Collection[str]):
-    def fit_table(metadata: Dict, **tables: Dict[str, pd.DataFrame]):
-        meta = Metadata(metadata, tables)
+    def fit_table(metadata: dict, params: dict, **tables: dict[str, pd.DataFrame]):
+        meta = Metadata(metadata, tables, params)
         t = TableTransformer(meta, name, types)
         t.fit(tables)
         return t
@@ -17,7 +17,7 @@ def fit_table_closure(name: str, types: Collection[str]):
     return fit_table
 
 
-def find_ids(transformer: TableTransformer, **tables: Dict[str, pd.DataFrame]):
+def find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
     return transformer.find_ids(tables)
 
 
@@ -25,7 +25,7 @@ def transform_table_closure(type: str):
     def transform_table(
         transformer: TableTransformer,
         ids: pd.DataFrame,
-        **tables: Dict[str, pd.DataFrame]
+        **tables: dict[str, pd.DataFrame]
     ):
         return transformer.transform(type, tables, ids)
 
@@ -37,7 +37,7 @@ def reverse_table_closure(type: str):
         transformer: TableTransformer,
         ids: pd.DataFrame,
         table: pd.DataFrame,
-        **parents: Dict[str, pd.DataFrame]
+        **parents: dict[str, pd.DataFrame]
     ):
         return transformer.reverse(type, table, ids, parents)
 
@@ -45,7 +45,7 @@ def reverse_table_closure(type: str):
 
 
 def transform_table_tab(
-    transformer: TableTransformer, **tables: Dict[str, pd.DataFrame]
+    transformer: TableTransformer, **tables: dict[str, pd.DataFrame]
 ):
     table = transformer.transform(tables)
     return table
@@ -54,6 +54,6 @@ def transform_table_tab(
 def reverse_table_tab(
     transformer: TableTransformer,
     table: pd.DataFrame,
-    **parents: Dict[str, pd.DataFrame]
+    **parents: dict[str, pd.DataFrame]
 ):
     return transformer.reverse(table, None, parents)

@@ -25,7 +25,11 @@ def create_transform_pipeline(
         table_nodes += [
             node(
                 func=fit_table_closure(t, types),
-                inputs={"metadata": "params:metadata", **{t: t for t in tables}},
+                inputs={
+                    "metadata": "params:metadata",
+                    "params": "parameters",
+                    **{t: t for t in tables},
+                },
                 outputs=f"trn_{t}",
             ),
             node(
@@ -52,7 +56,8 @@ def create_transform_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
         parameters={
-            "metadata": f"{view}.metadata",
+            "metadata": f"{view}",
+            "parameters": f"parameters",
         },
     )
 
