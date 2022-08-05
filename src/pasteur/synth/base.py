@@ -37,8 +37,14 @@ class Synth:
         Data and Ids are dictionaries containing the dataframes with the data."""
         assert False, "Not implemented"
 
-    def sample(self) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        """Returns data, ids dict dataframes in the same format they were provided."""
+    def sample(
+        self, n: int = None
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        """Returns data, ids dict dataframes in the same format they were provided.
+
+        Optional `n` parameter sets how many rows should be sampled. Otherwise,
+        the initial size of the dataset is sampled.
+        Warning: not setting `n` technically violates DP for DP-aware algorithms."""
         assert False, "Not implemented"
 
 

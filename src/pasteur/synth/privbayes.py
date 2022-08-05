@@ -111,8 +111,6 @@ def greedy_bayes(
     dom = lambda a, h: reduce(
         lambda k, l: k * l, [domain[c] for c in attr[a][: height(a) - h]], 1
     )
-    # Picks an item from a set, sets are ordered by default now so it's deterministic
-    pick_from = lambda V: next(iter(V))
 
     # Sets are tuples that contain the height of each attribute in them, or -1
     # if the attribute is not in them
@@ -120,31 +118,31 @@ def greedy_bayes(
     add_to_pset = lambda z, a, h: tuple(h if i == a else c for i, c in enumerate(z))
     empty_pset = tuple(-1 for _ in range(len(attr)))
 
-    def maximal_parent_sets(V: set[int], t: float) -> list[tuple[int, int]]:
+    def maximal_parent_sets(V: list[int], t: float) -> list[tuple[int, int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
         attribute that can be indexed in a higher level"""
 
         if t < 1:
-            return set()
+            return []
         if not V:
-            return set([empty_pset])
+            return [empty_pset]
 
-        S = set()
+        S = []
         U = set()
-        x = pick_from(V)
+        x = V[0]
         for h in range(height(x)):
-            for z in maximal_parent_sets(V - {x}, t / dom(x, h)):
+            for z in maximal_parent_sets(V[1:], t / dom(x, h)):
                 if z in U:
                     continue
 
                 U.add(z)
-                S.add(add_to_pset(z, x, h))
+                S.append(add_to_pset(z, x, h))
 
-        for z in maximal_parent_sets(V - {x}, t):
+        for z in maximal_parent_sets(V[1:], t):
             if z not in U:
-                S.add(z)
+                S.append(z)
 
         return S
 
@@ -171,7 +169,7 @@ def greedy_bayes(
 
         return candidate_scores
 
-    def pick_candidate(candidates: set[tuple[int, tuple[int]]]):
+    def pick_candidate(candidates: list[tuple[int, tuple[int]]]):
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
         candidates = list(candidates)
@@ -187,33 +185,34 @@ def greedy_bayes(
     #
     # Implement greedy bayes (as shown in the paper)
     #
-    A = {a for a in range(len(attr))}
-    x1 = pick_from(A)
+    A = [a for a in range(1, len(attr))]
+    x1 = 0
     t = (n * e2) / (2 * d * theta)
 
-    V = {x1}
-    N = {(x1, empty_pset)}
+    V = [x1]
+    N = [(x1, empty_pset)]
 
     for _ in range(1, d):
-        O = set()
-        for x in A - V:
+        O = list()
+        for x in A:
             psets = maximal_parent_sets(V, t / dom(x, 0))
             for pset in psets:
-                O.add((x, pset))
+                O.append((x, pset))
             if not psets:
-                O.add((x, empty_pset))
+                O.append((x, empty_pset))
 
-        node = pick_candidate(O)  # FIXME
-        V.add(node[0])
-        N.add(node)
+        node = pick_candidate(O)
+        V.append(node[0])
+        A.remove(node[0])
+        N.append(node)
 
     return N
 
 
-def print_tree(tree: set[tuple[int, tuple[int]]], attr_names: list[str]):
+def print_tree(tree: list[tuple[int, tuple[int]]], attr_names: list[str]):
     s = f"{'_Bayesian Network_':>20s}"
 
-    for a, pset in reversed(list(tree)):
+    for a, pset in list(tree):
         a_name = attr_names[a]
         s += f"\n{a_name:>20s}: "
 
@@ -225,6 +224,31 @@ def print_tree(tree: set[tuple[int, tuple[int]]], attr_names: list[str]):
             s += f"{p_name:>15s}.{h}"
 
     return s
+
+
+def calc_noisy_marginals(
+    data: pd.DataFrame, nodes: tuple[list[str], list[str]], noise_scale: float
+):
+    """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
+
+    marginals = []
+    for x, p in nodes:
+        sub_data = data[x + p].to_numpy(dtype="int16")
+        sub_domain = sub_data.max(axis=0) + 1
+
+        margin, _ = np.histogramdd(sub_data, sub_domain)
+        noise = laplace.rvs(scale=noise_scale, size=margin.shape)
+        marginals.append(margin + noise)
+
+    return marginals
+
+
+def sample_rows(
+    nodes: tuple[list[str], list[str]], marginals: np.array
+) -> pd.DataFrame:
+
+    for (x, p), marginal in zip(nodes, marginals):
+        pass
 
 
 class PrivBayesSynth(Synth):
@@ -258,15 +282,38 @@ class PrivBayesSynth(Synth):
     ):
         assert len(data) == 1, "Only tabular data supported for now"
 
-        self.table_name = next(iter(data.keys()))
-        table = data[self.table_name]
-        transformer = transformers[self.table_name]
-        self.attr = transformer.get_attributes("bhr", table)
+        table_name = next(iter(data.keys()))
+        table = data[table_name]
+        transformer = transformers[table_name]
+        attr = transformer.get_attributes("bhr", table)
+        attr_names = list(attr.keys())
 
-        self.nodes = greedy_bayes(
-            table, self.attr, self.e1, self.e2, self.theta, self.use_r
-        )
+        # Fit network
+        nodes_raw = greedy_bayes(table, attr, self.e1, self.e2, self.theta, self.use_r)
 
+        # Convert network to string names
+        nodes = []
+        for a, pset in nodes_raw:
+            a_name = attr_names[a]
+            x_cols = attr[a_name]
+            p_cols = []
+
+            for p, h in enumerate(pset):
+                p_name = attr_names[p]
+                if h != -1:
+                    p_cols.extend(attr[p_name][: len(attr[p_name]) - h])
+
+            nodes.append((x_cols, p_cols))
+
+        # Nodes are (x_cols, p_cols) x: child p: parent
+        # x_cols + p_cols together form the marginal of that node
+
+        self.table_name = table_name
+        self.d = len(table.keys())
+        self.attr = attr
+        self.attr_names = attr_names
+        self.nodes_raw = nodes_raw
+        self.nodes = nodes
         logger.info(self)
 
     def fit(
@@ -275,7 +322,18 @@ class PrivBayesSynth(Synth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        pass
+        table = data[self.table_name]
+        n = len(table)
+        noise = 2 * self.d / (n * self.e2)
+        self.marginals = calc_noisy_marginals(table, self.nodes, noise)
+
+    def sample(
+        self, n: int = None
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        data = {self.table_name: sample_rows(self.nodes, self.marginals)}
+        ids = {self.table_name: pd.DataFrame()}
+
+        return data, ids
 
     def __str__(self) -> str:
-        return print_tree(self.nodes, list(self.attr.keys()))
+        return print_tree(self.nodes_raw, self.attr_names)
