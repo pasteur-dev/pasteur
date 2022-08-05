@@ -174,12 +174,22 @@ def greedy_bayes(
         all of their scores first."""
         candidates = list(candidates)
         vals = np.array(calc_candidate_scores(candidates))
-        delta = (d - 1) * sens_fun(n) / e1
 
+        # If e1 is bigger than 1e3, assume it's infinite.
+        if np.isinf(e1) or e1 > 1e3:
+            return candidates[np.argmax(vals)]
+
+        # np.exp is unstable for large vals
+        # subtract max (taken from original source)
+        # doesn't affect probabilities
+        vals -= vals.max()
+
+        delta = (d - 1) * sens_fun(n) / e1
         p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
         choice = np.random.choice(len(candidates), size=1, p=p)[0]
+
         return candidates[choice]
 
     #

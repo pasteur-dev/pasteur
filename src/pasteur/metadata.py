@@ -242,21 +242,22 @@ class DatasetMeta:
         # `default` nanespace contains vals that can be overriden by the view namespace
         # all can be overriden by the global namespace (ex by `-p a.b.c:3`) for
         # hyperparameter tuning
-        merged_params = merge_dicts(params.get("default", {}), meta, params)
+        if params is not None:
+            meta = merge_dicts(params.get("default", {}), meta, params)
 
         transformers = merge_dicts(
             DEFAULT_TRANSFORMERS,
-            merged_params.get("transformers", {}),
+            meta.get("transformers", {}),
         )
 
         self._tables = {
             name: self.TABLE_CLS(
                 tmeta, data.get(name, None) if data is not None else None, transformers
             )
-            for name, tmeta in merged_params["tables"].items()
+            for name, tmeta in meta["tables"].items()
         }
 
-        self.algs = merged_params.get("algs", {})
+        self.algs = meta.get("algs", {})
 
     def get_table(self, name):
         return self._tables[name]
