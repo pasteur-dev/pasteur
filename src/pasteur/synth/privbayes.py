@@ -10,6 +10,8 @@ from ..metadata import Metadata
 from ..transform import TableTransformer
 from .base import Synth
 
+from .base import make_deterministic
+
 logger = logging.getLogger(__name__)
 
 
@@ -216,29 +218,43 @@ def greedy_bayes(
         A.remove(node[0])
         N.append(node)
 
-    return N
+    domain = [dom(x, 0) for x in range(len(attr))]
+
+    return N, domain, t
 
 
 def print_tree(
     tree: list[tuple[int, tuple[int]]],
+    domain: list[int],
     attr_names: list[str],
     e1: float,
     e2: float,
     theta: float,
+    t: float,
 ):
-    s = f"Bayesian Network (PrivBayes e1={e1:.2f}, e2={e2:.2f},theta={theta:.2f}):"
+    s = f"Bayesian Network Tree:\n"
+    s += f"(PrivBayes e1={e1:.2f}, e2={e2:.2f}, theta={theta:.2f}, available t={t:.2f})"
 
+    pset_len = 70
+
+    s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
+    s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │{' '*pset_len}│"
+    s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
     for a, pset in list(tree):
         a_name = attr_names[a]
-        s += f"\n{a_name:>20s}: "
+        s += f"\n│{a_name:>20s} │ {domain[a]:>3d} │ {t/domain[a]:>8.2f} │"
 
+        p_str = ""
         for p, h in enumerate(pset):
             if h == -1:
                 continue
 
             p_name = attr_names[p]
-            s += f"{p_name:>15s}.{h}"
+            p_str += f"{p_name:>15s}.{h}"
 
+        s += f"{p_str:70s}│"
+
+    s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
     return s
 
 
@@ -253,7 +269,9 @@ def calc_noisy_marginals(
         sub_domain = sub_data.max(axis=0) + 1
 
         margin, _ = np.histogramdd(sub_data, sub_domain)
-        noise = laplace.rvs(scale=noise_scale, size=margin.shape)
+        noise = laplace.rvs(
+            scale=noise_scale, size=margin.shape, random_state=np.random
+        )
         marginal = (margin + noise).clip(0)
         marginal /= marginal.sum()
         marginals.append(marginal)
@@ -333,6 +351,7 @@ class PrivBayesSynth(Synth):
         self.use_r = use_r
         self.seed = seed
 
+    @make_deterministic
     def bake(
         self,
         transformers: dict[str, TableTransformer],
@@ -341,9 +360,6 @@ class PrivBayesSynth(Synth):
     ):
         assert len(data) == 1, "Only tabular data supported for now"
 
-        if self.seed is not None:
-            np.random.seed(self.seed)
-
         table_name = next(iter(data.keys()))
         table = data[table_name]
         transformer = transformers[table_name]
@@ -351,7 +367,9 @@ class PrivBayesSynth(Synth):
         attr_names = list(attr.keys())
 
         # Fit network
-        nodes_raw = greedy_bayes(table, attr, self.e1, self.e2, self.theta, self.use_r)
+        nodes_raw, domain_raw, t = greedy_bayes(
+            table, attr, self.e1, self.e2, self.theta, self.use_r
+        )
 
         # Convert network to string names
         nodes = []
@@ -372,32 +390,30 @@ class PrivBayesSynth(Synth):
 
         self.table_name = table_name
         self.d = len(table.keys())
+        self.t = t
         self.attr = attr
         self.attr_names = attr_names
         self.nodes_raw = nodes_raw
+        self.domain_raw = domain_raw
         self.nodes = nodes
         logger.info(self)
 
+    @make_deterministic
     def fit(
         self,
         transformers: dict[str, pd.DataFrame],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        if self.seed is not None:
-            np.random.seed(self.seed)
-
         table = data[self.table_name]
         self.n = len(table)
         noise = 2 * self.d / (self.n * self.e2)
         self.marginals = calc_noisy_marginals(table, self.nodes, noise)
 
+    @make_deterministic
     def sample(
         self, n: int = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        if self.seed is not None:
-            np.random.seed(self.seed)
-
         data = {
             self.table_name: sample_rows(
                 self.nodes, self.marginals, self.n if n is None else n
@@ -408,4 +424,12 @@ class PrivBayesSynth(Synth):
         return data, ids
 
     def __str__(self) -> str:
-        return print_tree(self.nodes_raw, self.attr_names, self.e1, self.e2, self.theta)
+        return print_tree(
+            self.nodes_raw,
+            self.domain_raw,
+            self.attr_names,
+            self.e1,
+            self.e2,
+            self.theta,
+            self.t,
+        )

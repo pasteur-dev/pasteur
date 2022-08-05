@@ -1,5 +1,32 @@
+import logging
+
+import numpy as np
 import pandas as pd
+import random
+
 from ..transform import TableTransformer
+
+logger = logging.getLogger(__name__)
+
+
+def make_deterministic(obj_func):
+    """Takes an object function (with self), and if the object has a seed attribute
+    it fixes the np.random.seed attribute to it and prints a random number at the end."""
+
+    def wrapped(self, *args, **kwargs):
+        if self.seed is not None:
+            np.random.seed(self.seed)
+            random.seed(self.seed)
+
+        a = obj_func(self, *args, **kwargs)
+
+        if self.seed is not None:
+            logger.info(
+                f"Deterministic check: random number after {obj_func.__name__:>8s}(): np.{np.random.random():7.5f} random.{random.random():7.5f}."
+            )
+        return a
+
+    return wrapped
 
 
 class Synth:

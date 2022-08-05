@@ -21,7 +21,7 @@ tab_adult:
             y_log: True
         fnlwgt: numerical
         education: categorical
-        education-num: numerical
+        education-num: ordinal
         marital-status: categorical
         occupation: categorical
         relationship: categorical
