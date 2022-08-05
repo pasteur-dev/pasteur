@@ -341,6 +341,9 @@ class PrivBayesSynth(Synth):
     ):
         assert len(data) == 1, "Only tabular data supported for now"
 
+        if self.seed is not None:
+            np.random.seed(self.seed)
+
         table_name = next(iter(data.keys()))
         table = data[table_name]
         transformer = transformers[table_name]
@@ -381,6 +384,9 @@ class PrivBayesSynth(Synth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
+        if self.seed is not None:
+            np.random.seed(self.seed)
+
         table = data[self.table_name]
         self.n = len(table)
         noise = 2 * self.d / (self.n * self.e2)
@@ -389,6 +395,9 @@ class PrivBayesSynth(Synth):
     def sample(
         self, n: int = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        if self.seed is not None:
+            np.random.seed(self.seed)
+
         data = {
             self.table_name: sample_rows(
                 self.nodes, self.marginals, self.n if n is None else n

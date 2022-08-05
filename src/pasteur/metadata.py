@@ -258,6 +258,8 @@ class DatasetMeta:
         }
 
         self.algs = meta.get("algs", {})
+        self.seed = meta.get("random_state", None)
+        self.random_state = self.seed
 
     def get_table(self, name):
         return self._tables[name]
