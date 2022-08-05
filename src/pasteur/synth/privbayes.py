@@ -3,12 +3,10 @@ from functools import reduce
 
 import numpy as np
 import pandas as pd
-import tqdm
+from tqdm import tqdm, trange
 
 from ..transform import TableTransformer
-from .base import Synth
-
-from .base import make_deterministic
+from .base import Synth, make_deterministic
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +66,7 @@ def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[
 
 def greedy_bayes(
     data: pd.DataFrame,
-    attr_str: list[list[str]],
+    attr_str: dict[str, list[str]],
     e1: float,
     e2: float,
     theta: float,
@@ -87,6 +85,7 @@ def greedy_bayes(
     attr = []
     for a_cols in attr_str.values():
         attr.append([cols.index(col) for col in a_cols])
+    attr_names = list(attr_str.keys())
 
     # 30k is a sweet spot for categorical variables
     # Dropping pandas for a 5x in speed when calculating marginals
@@ -153,7 +152,7 @@ def greedy_bayes(
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
         candidate_scores = []
-        for candidate in candidates:
+        for candidate in tqdm(candidates, leave=False, desc="Calculating marginals: "):
             x, pset = candidate
 
             x_cols = attr[x]
@@ -202,8 +201,9 @@ def greedy_bayes(
     V = [x1]
     N = [(x1, empty_pset)]
 
-    for _ in range(1, d):
+    for _ in trange(1, d, desc="Finding Nodes: "):
         O = list()
+
         for x in A:
             psets = maximal_parent_sets(V, t / dom(x, 0))
             for pset in psets:
