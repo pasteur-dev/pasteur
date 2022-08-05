@@ -37,7 +37,15 @@ def mk_dates_relative(
 
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:
-    return admissions.join(patients, on="subject_id")
+    # # Calculate rel patient date
+    birth_year = patients["anchor_year"] - patients["anchor_age"]
+    birth_year_date = pd.to_datetime(birth_year, format="%Y")
+
+    patients_new = patients.drop(labels=["anchor_year", "anchor_age"], axis=1)
+    patients_new.rename(columns={"anchor_year_group": "year_group"}, inplace=True)
+    patients_new["birth_year"] = birth_year_date
+
+    return admissions.join(patients_new, on="subject_id")
 
 
 def mm_core_transform_tables(

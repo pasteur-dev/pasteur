@@ -231,6 +231,8 @@ class TableTransformer:
 
             ref_col = parent_cols[col.ref.col]
             tt = transformers[name].reverse(table, ref_col)
+            # todo: make sure this solves inter-table dependencies
+            parent_cols[name] = tt
             tts.append(tt)
 
         # Re-add ids

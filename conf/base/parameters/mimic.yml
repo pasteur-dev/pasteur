@@ -47,3 +47,30 @@ mimic_mm_core:
         careunit: categorical?
         intime: datetime|day.halfhour:admissions.admittime
         outtime: datetime?|day.halfhour:intime
+
+mimic_tab_admissions:
+  tables:
+    table:
+      primary_key: hadm_id
+      fields:
+        hadm_id: id
+
+        birth_year: date
+        dod: date?:birth_year
+
+        admittime: datetime|year.halfhour:birth_year
+        dischtime: datetime|day.halfhour:admittime
+        deathtime: datetime?|day.halfhour:admittime
+
+        edregtime: datetime?|day.halfhour:admittime
+        edouttime: datetime?|day.halfhour:admittime
+
+        admission_type: categorical
+        admission_location: categorical?
+        discharge_location: categorical?
+        insurance: categorical
+        language: categorical
+        marital_status: categorical?
+        ethnicity: categorical
+        hospital_expire_flag: categorical
+        gender: categorical

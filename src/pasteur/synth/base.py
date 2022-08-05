@@ -4,9 +4,51 @@ import numpy as np
 import pandas as pd
 import random
 
+from tqdm.contrib.concurrent import thread_map, process_map
+from os import cpu_count
+
 from ..transform import TableTransformer
 
 logger = logging.getLogger(__name__)
+
+
+def calc_worker(args):
+    fun, base_args, chunk = args
+    out = []
+    for op in chunk:
+        args = {**base_args, **op} if base_args else op
+        out.append(fun(**args))
+
+    return out
+
+
+def process_in_parallel(
+    fun: callable,
+    per_call_args: list[dict],
+    base_args: dict[str, any] | None = None,
+    desc: str | None = None,
+):
+    """Processes arguments in parallel using python's multiprocessing and prints progress bar.
+
+    Task is split into chunks based on CPU cores and each process handles a chunk of
+    calls before exiting."""
+    chunk_n = cpu_count() * 5
+    per_call_n = len(per_call_args) // chunk_n
+
+    chunks = np.array_split(per_call_args, chunk_n)
+
+    args = []
+    for chunk in chunks:
+        args.append((fun, base_args, chunk))
+
+    res = process_map(
+        calc_worker, args, desc=f"{desc}, {per_call_n} per it", leave=False
+    )
+    out = []
+    for sub_arr in res:
+        out.extend(sub_arr)
+
+    return out
 
 
 def make_deterministic(obj_func):

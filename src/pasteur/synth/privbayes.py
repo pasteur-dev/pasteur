@@ -3,10 +3,10 @@ from functools import reduce
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm, trange
+from tqdm import trange
 
 from ..transform import TableTransformer
-from .base import Synth, make_deterministic
+from .base import Synth, make_deterministic, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,6 @@ def greedy_bayes(
     attr = []
     for a_cols in attr_str.values():
         attr.append([cols.index(col) for col in a_cols])
-    attr_names = list(attr_str.keys())
 
     # 30k is a sweet spot for categorical variables
     # Dropping pandas for a 5x in speed when calculating marginals
@@ -151,8 +150,9 @@ def greedy_bayes(
     def calc_candidate_scores(candidates: list[tuple[int, tuple[int]]]):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
-        candidate_scores = []
-        for candidate in tqdm(candidates, leave=False, desc="Calculating marginals: "):
+
+        marginals = []
+        for candidate in candidates:
             x, pset = candidate
 
             x_cols = attr[x]
@@ -163,8 +163,13 @@ def greedy_bayes(
 
                 p_cols.extend(attr[p][: height(p) - h])
 
-            score = calc_fun(data, domain, x_cols, p_cols)
-            candidate_scores.append(score)
+            marginals.append({"x": x_cols, "p": p_cols})
+
+        base_args = {"domain": domain, "data": data}
+
+        candidate_scores = process_in_parallel(
+            calc_fun, marginals, base_args, "Processing marginals"
+        )
 
         return candidate_scores
 
