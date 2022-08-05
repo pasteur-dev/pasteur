@@ -233,22 +233,65 @@ def calc_noisy_marginals(
 
     marginals = []
     for x, p in nodes:
-        sub_data = data[x + p].to_numpy(dtype="int16")
+        sub_data = data[p + x].to_numpy(dtype="int16")
         sub_domain = sub_data.max(axis=0) + 1
 
         margin, _ = np.histogramdd(sub_data, sub_domain)
         noise = laplace.rvs(scale=noise_scale, size=margin.shape)
-        marginals.append(margin + noise)
+        marginal = (margin + noise).clip(0)
+        marginal /= marginal.sum()
+        marginals.append(marginal)
 
     return marginals
 
 
 def sample_rows(
-    nodes: tuple[list[str], list[str]], marginals: np.array
+    nodes: tuple[list[str], list[str]], marginals: np.array, n: int
 ) -> pd.DataFrame:
+    out = pd.DataFrame(dtype="int16")
 
     for (x, p), marginal in zip(nodes, marginals):
-        pass
+        domain = {name: marginal.shape[i] for i, name in enumerate([*p, *x])}
+        domain_p = np.product(marginal.shape[: len(p)])
+        domain_x = np.product(marginal.shape[-len(x) :])
+
+        # Create lookup tables where for each column there's
+        # idx -> val, where idx in (0, domain_x)
+        nums = np.arange(domain_x)
+        luts = {}
+        for name in reversed(x):
+            luts[name] = nums % domain[name]
+            nums //= domain[name]
+
+        if len(p) == 0:
+            # No parents = use 1-way marginal
+            # Concatenate m to avoid N dimensions and use lookup table to recover
+            m = marginal.reshape(-1)
+            idx = np.random.choice(domain_x, size=n, p=m)
+        else:
+            # Use conditional probability
+            m = marginal.reshape((domain_p, domain_x))
+            m /= m.sum(axis=1, keepdims=True)
+
+            p_idx = np.zeros(n, dtype="int16")
+            for name in p:
+                p_idx *= domain[name]
+                p_idx += out[name].to_numpy()
+
+            # Apply conditional probability by group
+            # groups are proportional to dom(P) = vectorized
+            idx = np.empty(len(p_idx), dtype="int16")
+            for group in np.unique(p_idx):
+                size = np.sum(p_idx == group)
+                idx[p_idx == group] = np.random.choice(
+                    domain_x, size=size, p=m[group, :]
+                )
+
+        # Place columns in Dataframe using luts
+        for name in x:
+            out[name] = luts[name][idx]
+
+    return out
 
 
 class PrivBayesSynth(Synth):
@@ -323,14 +366,18 @@ class PrivBayesSynth(Synth):
         ids: dict[str, pd.DataFrame],
     ):
         table = data[self.table_name]
-        n = len(table)
-        noise = 2 * self.d / (n * self.e2)
+        self.n = len(table)
+        noise = 2 * self.d / (self.n * self.e2)
         self.marginals = calc_noisy_marginals(table, self.nodes, noise)
 
     def sample(
         self, n: int = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        data = {self.table_name: sample_rows(self.nodes, self.marginals)}
+        data = {
+            self.table_name: sample_rows(
+                self.nodes, self.marginals, self.n if n is None else n
+            )
+        }
         ids = {self.table_name: pd.DataFrame()}
 
         return data, ids
