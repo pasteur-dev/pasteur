@@ -61,7 +61,8 @@ def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[
     """Calculates the R(X,P) function for the provided data."""
 
     j_mar, x_mar, p_mar = calc_marginal(data, domain, x, p)
-    return np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
+    r = np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
+    return r
 
 
 def greedy_bayes(
@@ -147,12 +148,23 @@ def greedy_bayes(
     #
     # Implement misc functions for summating the scores
     #
+    score_cache = {}
+
     def calc_candidate_scores(candidates: list[tuple[int, tuple[int]]]):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
 
-        marginals = []
-        for candidate in candidates:
+        # Split marginals into already processed and to be processed
+        scores = np.empty((len(candidates)), dtype="float")
+        cached = np.zeros((len(candidates)), dtype="bool")
+
+        to_be_processed = []
+        for i, candidate in enumerate(candidates):
+            if candidate in score_cache:
+                scores[i] = score_cache[candidate]
+                cached[i] = True
+                continue
+
             x, pset = candidate
 
             x_cols = attr[x]
@@ -163,15 +175,26 @@ def greedy_bayes(
 
                 p_cols.extend(attr[p][: height(p) - h])
 
-            marginals.append({"x": x_cols, "p": p_cols})
+            to_be_processed.append({"x": x_cols, "p": p_cols})
 
+        # Process new ones
         base_args = {"domain": domain, "data": data}
-
-        candidate_scores = process_in_parallel(
-            calc_fun, marginals, base_args, "Processing marginals"
+        new_mar = np.sum(~cached)
+        all_mar = len(candidates)
+        new_scores = process_in_parallel(
+            calc_fun,
+            to_be_processed,
+            base_args,
+            f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals",
         )
 
-        return candidate_scores
+        # Update cache
+        scores[~cached] = new_scores
+        for i, candidate in enumerate(candidates):
+            if not cached[i]:
+                score_cache[candidate] = scores[i]
+
+        return scores
 
     def pick_candidate(candidates: list[tuple[int, tuple[int]]]):
         """Selects a candidate based on the exponential mechanism by calculating

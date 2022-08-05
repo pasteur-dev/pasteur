@@ -42,7 +42,10 @@ def process_in_parallel(
         args.append((fun, base_args, chunk))
 
     res = process_map(
-        calc_worker, args, desc=f"{desc}, {per_call_n} per it", leave=False
+        calc_worker,
+        args,
+        desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
+        leave=False,
     )
     out = []
     for sub_arr in res:
