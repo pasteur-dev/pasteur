@@ -183,7 +183,7 @@ def test_chain_transformer():
     enc = t.transform(test_data)
     dec = t.reverse(enc)
 
-    assert np.all(dec == np.expand_dims(np.array([1, 2, 5, 2, 3, 4, 9, 9]), axis=1))
+    assert np.all(dec == np.expand_dims(np.array([1, 2, 5, 2, 3, 4, 8, 8]), axis=1))
 
 
 def test_chain_transformer_na():
@@ -210,7 +210,7 @@ def test_chain_transformer_na():
     dec = t.reverse(enc)
 
     assert np.all(
-        (dec["tst1"] == [1, 1, np.NAN, 1, 2, 3, np.NAN, 6, 10]) | pd.isna(dec["tst1"])
+        (dec["tst1"] == [1, 1, np.NAN, 1, 2, 3, np.NAN, 6, 8]) | pd.isna(dec["tst1"])
     )
 
 

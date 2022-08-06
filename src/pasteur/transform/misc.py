@@ -79,6 +79,7 @@ class BinTransformer(Transformer):
     def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         constraints = constraints or {}
         self.digits = {}
+        self.domain = {}
 
         for col in data:
             if col in constraints:
@@ -88,6 +89,7 @@ class BinTransformer(Transformer):
                 domain = np.max(data[col]) + 1
 
             self.digits[col] = math.ceil(math.log2(domain))
+            self.domain[col] = domain
 
         constraints = {}
         for col, digits in self.digits.items():
@@ -117,6 +119,7 @@ class BinTransformer(Transformer):
             for i in range(digits):
                 n |= data[f"{col}_{i}"].to_numpy() << i
 
+            n = n.clip(0, self.domain[col] - 1)
             out[col] = pd.Series(n, index=data.index)
 
         return out
@@ -217,10 +220,19 @@ class GrayTransformer(Transformer):
     handles_na = False
 
     def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        constraints = constraints or {}
         self.digits = {}
+        self.domain = {}
 
         for col in data:
-            self.digits[col] = math.ceil(math.log2(np.max(data[col]) + 1))
+            if col in constraints:
+                assert constraints[col]["type"] in ("ordinal", "categorical")
+                domain = constraints[col]["dom"]
+            else:
+                domain = np.max(data[col]) + 1
+
+            self.digits[col] = math.ceil(math.log2(domain))
+            self.domain[col] = domain
 
         constraints = {}
         for col, digits in self.digits.items():
@@ -258,6 +270,8 @@ class GrayTransformer(Transformer):
             n = n ^ (n >> 8)
             n = n ^ (n >> 16)
 
+            n = n.clip(0, self.domain[col] - 1)
+
             out[col] = pd.Series(n, index=data.index)
 
         return out
@@ -281,12 +295,19 @@ class BaseNTransformer(Transformer):
 
     def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         self.digits = {}
+        self.domain = {}
         self.types = {}
+        constraints = constraints or {}
 
         for col in data:
-            self.digits[col] = math.ceil(
-                math.log(np.max(data[col]) + 1) / math.log(self.base)
-            )
+            if col in constraints:
+                assert constraints[col]["type"] in ("ordinal", "categorical")
+                domain = constraints[col]["dom"]
+            else:
+                domain = np.max(data[col]) + 1
+
+            self.domain[col] = domain
+            self.digits[col] = math.ceil(math.log(domain) / math.log(self.base))
             self.types[col] = data[col].dtype
 
         constraints = {}
@@ -317,6 +338,6 @@ class BaseNTransformer(Transformer):
             for i in range(digits):
                 out_col += data[f"{col}_{i}"].to_numpy() * (self.base**i)
 
-            out[col] = out_col
+            out[col] = out_col.clip(0, self.domain[col])
 
         return out
