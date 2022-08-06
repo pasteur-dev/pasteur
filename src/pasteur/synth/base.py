@@ -32,7 +32,7 @@ def process_in_parallel(
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
     calls before exiting."""
-    chunk_n = cpu_count() * 5
+    chunk_n = min(cpu_count() * 5, len(per_call_args) // 5)
     per_call_n = len(per_call_args) // chunk_n
 
     chunks = np.array_split(per_call_args, chunk_n)

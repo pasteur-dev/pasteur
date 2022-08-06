@@ -3,7 +3,7 @@ from functools import reduce
 
 import numpy as np
 import pandas as pd
-from tqdm import trange
+from tqdm import tqdm, trange
 
 from ..transform import TableTransformer
 from .base import Synth, make_deterministic, process_in_parallel
@@ -232,7 +232,7 @@ def greedy_bayes(
     for _ in trange(1, d, desc="Finding Nodes: "):
         O = list()
 
-        for x in A:
+        for x in tqdm(A, leave=False, desc="Finding Maximal Parent sets: "):
             psets = maximal_parent_sets(V, t / dom(x, 0))
             for pset in psets:
                 O.append((x, pset))
@@ -330,7 +330,12 @@ def sample_rows(
         else:
             # Use conditional probability
             m = marginal.reshape((domain_p, domain_x))
-            m /= m.sum(axis=1, keepdims=True)
+            m = m / m.sum(axis=1, keepdims=True)
+
+            # Some marginal groups were never sampled in the original data
+            # However, noise from DP might lead to some of them being sampled
+            # Store those groups and sample them uniformly when that happens.
+            blacklist = np.any(np.isnan(m), axis=1)
 
             p_idx = np.zeros(n, dtype="int16")
             for name in p:
@@ -343,7 +348,7 @@ def sample_rows(
             for group in np.unique(p_idx):
                 size = np.sum(p_idx == group)
                 idx[p_idx == group] = np.random.choice(
-                    domain_x, size=size, p=m[group, :]
+                    domain_x, size=size, p=m[group, :] if not blacklist[group] else None
                 )
 
         # Place columns in Dataframe using luts
