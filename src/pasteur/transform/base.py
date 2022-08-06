@@ -39,7 +39,15 @@ class Transformer:
     def __init__(self, **_):
         pass
 
-    def fit(self, data: pd.DataFrame):
+    def fit(
+        self, data: pd.DataFrame, constraints: dict[str, dict] | None = None
+    ) -> dict[str, dict] | None:
+        """Fits to the provided data and returns a set of constraints for that data.
+
+        The constraints map column names to a dict that contains the type and specific
+        data to that type, such as min, max, or dom(ain).
+
+        The constraints can be passed on to the next transformer to avoid inferring them."""
         pass
 
     def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -69,7 +77,12 @@ class RefTransformer(Transformer):
     In addition, provided that the embedding is forced to be positive, any value
     it takes will produce a valid solution."""
 
-    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+        ref: pd.Series | None = None,
+    ) -> dict[str, dict] | None:
         pass
 
     def fit_transform(
@@ -155,7 +168,12 @@ class ChainTransformer(RefTransformer):
         self.deterministic = all(t.deterministic for t in transformers)
         self.lossless = all(t.lossless for t in transformers)
 
-    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+        ref: pd.Series | None = None,
+    ):
         if self.handle_na:
             assert (
                 len(data.columns) == 1
@@ -169,11 +187,14 @@ class ChainTransformer(RefTransformer):
                 data.isna()
             ), f"NA value in non nullable column {data.columns[0]}."
 
+        constraints = None
         for t in self.transformers:
             if isinstance(t, RefTransformer) and ref is not None:
-                data = t.fit_transform(data, ref)
+                constraints = t.fit(data, constraints, ref)
+                data = t.transform(data, ref)
             else:
-                data = t.fit_transform(data)
+                constraints = t.fit(data, constraints)
+                data = t.transform(data)
 
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None
@@ -233,7 +254,7 @@ class ChainTransformer(RefTransformer):
                             + new_cols
                             + (out[attr][idx + 1 :] if len(out[attr]) > idx else [])
                         )
-                        
+
                         # Delete attribute that was merged
                         del new_hier[new_attr]
 
@@ -263,7 +284,11 @@ class IdxTransformer(Transformer):
         if not is_sortable:
             self.out_type = "categorical"
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        assert (
+            constraints is None
+        ), "This formatter should only be used for raw data, data from transformers will be already in idx format."
+
         self.vals = {}
         self.mapping = {}
         self.types = {}
@@ -284,6 +309,11 @@ class IdxTransformer(Transformer):
             }
 
             self.types[col] = data[col].dtype
+
+        return {
+            name: {"type": self.out_type, "dom": len(vals) + 2}
+            for name, vals in self.vals.items()
+        }
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -341,15 +371,36 @@ class NormalizeTransformer(Transformer):
     stateful = True
     handles_na = False
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        constraints = constraints or {}
         self.min = {}
         self.max = {}
         self.types = {}
 
         for col in data:
-            self.min[col] = data[col].min(axis=0)
-            self.max[col] = data[col].max(axis=0)
+            if col in constraints:
+                c = constraints[col]
+                match c["type"]:
+                    case "ordinal":
+                        self.min[col] = 0
+                        self.max[col] = c["dom"] - 1
+                    case "numerical":
+                        self.min[col] = c["min"]
+                        self.max[col] = c["max"]
+                    case other:
+                        assert (
+                            False
+                        ), f"Type {other} of {col} not supported in normalize transformer."
+            else:
+                self.min[col] = data[col].min(axis=0)
+                self.max[col] = data[col].max(axis=0)
+
             self.types[col] = data[col].dtype
+
+        return {
+            name: {"type": "numerical", "min": 0, "max": 1}
+            for name in self.types.keys()
+        }
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -388,7 +439,14 @@ class NormalDistTransformer(Transformer):
     stateful = True
     handles_na = False
 
-    def fit(self, data: pd.DataFrame):
+    def __init__(self, max_std=5, **_):
+        self.max_std = max_std
+
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+    ) -> dict[str, dict] | None:
         self.std = {}
         self.mean = {}
         self.types = {}
@@ -397,6 +455,11 @@ class NormalDistTransformer(Transformer):
             self.std[col] = data[col].mean()
             self.mean[col] = data[col].std()
             self.types[col] = data[col].dtype
+
+        return {
+            name: {"type": "numerical", "min": -self.max_std, "max": self.max_std}
+            for name in self.types.keys()
+        }
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -414,7 +477,7 @@ class NormalDistTransformer(Transformer):
         out = pd.DataFrame()
 
         for col in self.std:
-            n = data[col].to_numpy()
+            n = data[col].to_numpy().clip(-self.max_std, self.max_std)
             std = self.std[col]
             mean = self.mean[col]
 
@@ -434,23 +497,53 @@ class DateTransformer(RefTransformer):
     stateful = True
     handles_na = False
 
-    def __init__(self, span: str = "year", **_):
+    def __init__(self, span: str = "year", max_len=128, **_):
         self.span = span
+        self.max_len = max_len
 
-    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+        ref: pd.Series | None = None,
+    ) -> dict[str, dict] | None:
+        assert constraints is None
         self.types = {}
         self.ref = {}
+
+        constraints = {}
         for col, vals in data.items():
+            # Add reference
             self.types[col] = vals.dtype
             if ref is None:
                 self.ref[col] = vals.min()
+
+            # Generate constraints for columns
+            match self.span:
+                case "year":
+                    constraints[f"{col}_year"] = {
+                        "type": "ordinal",
+                        "dom": self.max_len,
+                    }
+                    constraints[f"{col}_week"] = {"type": "ordinal", "dom": 52}
+                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
+                case "week":
+                    constraints[f"{col}_week"] = {
+                        "type": "ordinal",
+                        "dom": self.max_len,
+                    }
+                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
+                case "day":
+                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": self.max_len}
+
+        return constraints
 
     @staticmethod
     def iso_year_start(iso_year):
         "The gregorian calendar date of the first day of the given ISO year"
         # Based on https://stackoverflow.com/questions/304256/whats-the-best-way-to-find-the-inverse-of-datetime-isocalendar
         fourth_jan = pd.to_datetime(
-            pd.DataFrame({"year": iso_year, "month": 1, "day": 4})
+            pd.DataFrame({"year": iso_year, "month": 1, "day": 4}), errors="coerce"
         )
 
         delta = pd.to_timedelta(fourth_jan.dt.day_of_week, unit="day")
@@ -508,19 +601,19 @@ class DateTransformer(RefTransformer):
                 case "year":
                     out[col] = self.iso_to_gregorian(
                         rf_dt.year + data[f"{col}_year"],
-                        data[f"{col}_week"],
-                        data[f"{col}_day"],
+                        data[f"{col}_week"].clip(0, 52),
+                        data[f"{col}_day"].clip(0, 6),
                     )
                 case "week":
                     out[col] = rf + pd.to_timedelta(
                         data[f"{col}_week"] * 7
-                        + data[f"{col}_day"]
+                        + data[f"{col}_day"].clip(0, 6)
                         - rf_dt.day_of_week,
                         unit="days",
                     )
                 case "day":
                     out[col] = rf_dt.normalize() + pd.to_timedelta(
-                        data[f"{col}_day"] - rf_dt.day_of_week, unit="days"
+                        data[f"{col}_day"].clip(0, 6) - rf_dt.day_of_week, unit="days"
                     )
 
         return out
@@ -540,10 +633,28 @@ class TimeTransformer(Transformer):
     def __init__(self, span: str = "minute", **_):
         self.span = span
 
-    def fit(self, data: pd.DataFrame):
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+    ) -> dict[str, dict] | None:
+        assert constraints is None
+
+        span = self.span
+        constraints = None
         self.types = {}
         for col, vals in data.items():
             self.types[col] = vals.dtype
+
+            constraints[f"{col}_hour"] = {"type": "ordinal", "dom": 24}
+            if span == "halfhour":
+                constraints[f"{col}_halfhour"] = {"type": "ordinal", "dom": 2}
+            if span in ("minute", "halfminute", "second"):
+                constraints[f"{col}_min"] = {"type": "ordinal", "dom": 60}
+            if span == "halfminute":
+                constraints[f"{col}_halfmin"] = {"type": "ordinal", "dom": 2}
+            if span == "second":
+                constraints[f"{col}_sec"] = {"type": "ordinal", "dom": 59}
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -568,17 +679,17 @@ class TimeTransformer(Transformer):
         span = self.span
 
         for col in self.types:
-            hour = data[f"{col}_hour"]
+            hour = data[f"{col}_hour"].clip(0, 23)
             min = 0
             sec = 0
             if span == "halfhour":
-                min = 30 * data[f"{col}_halfhour"]
+                min = 30 * data[f"{col}_halfhour"].clip(0, 1)
             if span in ("minute", "halfminute", "second"):
-                min = data[f"{col}_min"]
+                min = data[f"{col}_min"].clip(0, 59)
             if span == "halfminute":
-                sec = 30 * data[f"{col}_halfmin"]
+                sec = 30 * data[f"{col}_halfmin"].clip(0, 1)
             if span == "second":
-                sec = data[f"{col}_sec"]
+                sec = data[f"{col}_sec"].clip(0, 59)
 
             out[col] = pd.to_datetime(
                 {
@@ -628,13 +739,19 @@ class DatetimeTransformer(RefTransformer):
         self.dt = DateTransformer(date_span)
         self.tt = TimeTransformer(time_span)
 
-    def fit(self, data: pd.DataFrame, ref: pd.Series | None = None):
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+        ref: pd.Series | None = None,
+    ) -> dict[str, dict] | None:
         self.types = {}
         for col, vals in data.items():
             self.types[col] = vals.dtype
 
-        self.dt.fit(data, ref)
-        self.tt.fit(data)
+        cdt = self.dt.fit(data, constraints, ref)
+        ctt = self.tt.fit(data, constraints)
+        return {**cdt, **ctt}
 
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None

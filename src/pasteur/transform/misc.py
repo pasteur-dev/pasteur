@@ -63,11 +63,24 @@ class BinTransformer(Transformer):
     stateful = True
     handles_na = False
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        constraints = constraints or {}
         self.digits = {}
 
         for col in data:
-            self.digits[col] = math.ceil(math.log2(np.max(data[col]) + 1))
+            if col in constraints:
+                assert constraints[col]["type"] in ("ordinal", "categorical")
+                domain = constraints[col]["dom"]
+            else:
+                domain = np.max(data[col]) + 1
+
+            self.digits[col] = math.ceil(math.log2(domain))
+
+        constraints = {}
+        for col, digits in self.digits.items():
+            for i in range(digits):
+                constraints[f"{col}_{i}"] = {"type": "ordinal", "dom": 2}
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -122,13 +135,17 @@ class OneHotTransformer(Transformer):
     def __init__(self, unknown_value=-1, **_):
         self.unknown_value = unknown_value
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         self.vals = {}
         self.types = {}
 
         for col in data:
             self.vals[col] = data[col].unique()
             self.types[col] = data[col].dtype
+
+        for col, vals in self.vals.items():
+            for i in range(len(vals) + 1):
+                constraints[f"{col}_{i}"] = {"type": "ordinal", "dom": 2}
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -184,11 +201,17 @@ class GrayTransformer(Transformer):
     stateful = True
     handles_na = False
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         self.digits = {}
 
         for col in data:
             self.digits[col] = math.ceil(math.log2(np.max(data[col]) + 1))
+
+        constraints = {}
+        for col, digits in self.digits.items():
+            for i in range(digits):
+                constraints[f"{col}_{i}"] = {"type": "ordinal", "dom": 2}
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -241,7 +264,7 @@ class BaseNTransformer(Transformer):
         self.base = base
         self.out_type = f"b{base}" if base != 2 else "bin"
 
-    def fit(self, data: pd.DataFrame):
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         self.digits = {}
         self.types = {}
 
@@ -250,6 +273,12 @@ class BaseNTransformer(Transformer):
                 math.log(np.max(data[col]) + 1) / math.log(self.base)
             )
             self.types[col] = data[col].dtype
+
+        constraints = {}
+        for col, digits in self.digits.items():
+            for i in range(digits):
+                constraints[f"{col}_{i}"] = {"type": "ordinal", "dom": self.base}
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
