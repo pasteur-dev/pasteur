@@ -162,7 +162,7 @@ def test_norm_dist_transformer():
 def test_chain_transformer():
     from pasteur.transform import (
         ChainTransformer,
-        NormalDistTransformer,
+        NormalizeTransformer,
         DiscretizationTransformer,
         GrayTransformer,
     )
@@ -172,7 +172,7 @@ def test_chain_transformer():
     test_data["tst2"] = [1, 2, 5, 2, 3, 4, 9, 10]
 
     transformers = [
-        NormalDistTransformer(),
+        NormalizeTransformer(),
         DiscretizationTransformer(8),
         GrayTransformer(),
     ]
@@ -183,13 +183,13 @@ def test_chain_transformer():
     enc = t.transform(test_data)
     dec = t.reverse(enc)
 
-    assert np.all(dec == np.expand_dims(np.array([1, 2, 5, 2, 3, 3, 9, 9]), axis=1))
+    assert np.all(dec == np.expand_dims(np.array([1, 2, 5, 2, 3, 4, 9, 9]), axis=1))
 
 
 def test_chain_transformer_na():
     from pasteur.transform import (
         ChainTransformer,
-        NormalDistTransformer,
+        NormalizeTransformer,
         DiscretizationTransformer,
         GrayTransformer,
     )
@@ -198,7 +198,7 @@ def test_chain_transformer_na():
     test_data["tst1"] = [1, 2, pd.NA, 2, 3, 4, pd.NA, 7, 10]
 
     transformers = [
-        NormalDistTransformer(),
+        NormalizeTransformer(),
         DiscretizationTransformer(8),
         GrayTransformer(),
     ]

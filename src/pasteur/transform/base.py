@@ -80,7 +80,6 @@ class RefTransformer(Transformer):
     def fit(
         self,
         data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
         ref: pd.Series | None = None,
     ) -> dict[str, dict] | None:
         pass
@@ -171,7 +170,6 @@ class ChainTransformer(RefTransformer):
     def fit(
         self,
         data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
         ref: pd.Series | None = None,
     ):
         if self.handle_na:
@@ -487,7 +485,6 @@ class NormalDistTransformer(Transformer):
 
 
 class DateTransformer(RefTransformer):
-
     name = "date"
     in_type = ("date", "datetime")
     out_type = "ordinal"
@@ -504,10 +501,8 @@ class DateTransformer(RefTransformer):
     def fit(
         self,
         data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
         ref: pd.Series | None = None,
     ) -> dict[str, dict] | None:
-        assert constraints is None
         self.types = {}
         self.ref = {}
 
@@ -613,7 +608,7 @@ class DateTransformer(RefTransformer):
                     )
                 case "day":
                     out[col] = rf_dt.normalize() + pd.to_timedelta(
-                        data[f"{col}_day"].clip(0, 6) - rf_dt.day_of_week, unit="days"
+                        data[f"{col}_day"] - rf_dt.day_of_week, unit="days"
                     )
 
         return out
@@ -641,7 +636,7 @@ class TimeTransformer(Transformer):
         assert constraints is None
 
         span = self.span
-        constraints = None
+        constraints = {}
         self.types = {}
         for col, vals in data.items():
             self.types[col] = vals.dtype
@@ -654,7 +649,9 @@ class TimeTransformer(Transformer):
             if span == "halfminute":
                 constraints[f"{col}_halfmin"] = {"type": "ordinal", "dom": 2}
             if span == "second":
-                constraints[f"{col}_sec"] = {"type": "ordinal", "dom": 59}
+                constraints[f"{col}_sec"] = {"type": "ordinal", "dom": 60}
+                
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -742,15 +739,14 @@ class DatetimeTransformer(RefTransformer):
     def fit(
         self,
         data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
         ref: pd.Series | None = None,
     ) -> dict[str, dict] | None:
         self.types = {}
         for col, vals in data.items():
             self.types[col] = vals.dtype
 
-        cdt = self.dt.fit(data, constraints, ref)
-        ctt = self.tt.fit(data, constraints)
+        cdt = self.dt.fit(data, ref)
+        ctt = self.tt.fit(data)
         return {**cdt, **ctt}
 
     def transform(

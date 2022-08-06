@@ -26,11 +26,24 @@ class DiscretizationTransformer(Transformer):
     def __init__(self, bins=32, **_):
         self.n_bins = bins
 
-    def fit(self, data: pd.DataFrame):
-        self.bins = {}
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        constraints = constraints or {}
 
+        self.bins = {}
         for col in data:
-            self.bins[col] = np.histogram_bin_edges(data[col], bins=self.n_bins)
+            if col in constraints:
+                c = constraints[col]
+                assert c["type"] == "numerical"
+                self.bins[col] = np.histogram_bin_edges(
+                    data[col], bins=self.n_bins, range=(c["min"], c["max"])
+                )
+            else:
+                self.bins[col] = np.histogram_bin_edges(data[col], bins=self.n_bins)
+
+        constraints = {}
+        for col in data:
+            constraints[col] = {"type": "ordinal", "dom": self.n_bins}
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
@@ -143,9 +156,11 @@ class OneHotTransformer(Transformer):
             self.vals[col] = data[col].unique()
             self.types[col] = data[col].dtype
 
+        constraints = {}
         for col, vals in self.vals.items():
             for i in range(len(vals) + 1):
                 constraints[f"{col}_{i}"] = {"type": "ordinal", "dom": 2}
+        return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame()
