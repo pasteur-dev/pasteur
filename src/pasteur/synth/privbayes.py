@@ -315,12 +315,52 @@ def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: flo
     for x, p in nodes:
         x_cols = x.cols[: len(x.cols) - x.h]
         p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
+        cols = p_cols + x_cols
 
-        sub_data = data[p_cols + x_cols].to_numpy(dtype="int16")
+        sub_data = data[cols].to_numpy(dtype="int16")
         sub_domain = sub_data.max(axis=0) + 1
 
         margin, _ = np.histogramdd(sub_data, sub_domain)
         noise = np.random.laplace(scale=noise_scale, size=margin.shape)
+
+        # Consider a0.col0 being a NA indicatior. When a0.col0=1 then a0 is NA.
+        # This counts as 1 value in the domain, however it doubles the size of
+        # the marginal. If we apply noise uniformely to the marginal then half of
+        # it will go to the NA value, skewing its probability.
+
+        # The following loop removes all noise from the marginals a0.col0=1,
+        # except for the marginal a0.col0=1, a0.colN=0, such as that the NA is
+        # also DP protected.
+        for a in [x] + p:
+            if not a.has_na:
+                continue
+
+            na_col = a.cols[0]
+
+            # Find noise of NA
+            na_idx = []
+            for col in cols:
+                if col == na_col:
+                    na_idx.append(1)
+                elif col in a.cols:
+                    na_idx.append(0)
+                else:
+                    na_idx.append(slice(None))
+            na_idx = tuple(na_idx)
+            na_noise = noise[na_idx]
+
+            # Zero out all other noise for na
+            idx = []
+            for col in cols:
+                if col == na_col:
+                    idx.append(1)
+                else:
+                    idx.append(slice(None))
+            idx = tuple(idx)
+            noise[idx] = 0
+
+            # Replace noise again
+            noise[na_idx] = na_noise
 
         marginal = (margin + noise).clip(0)
         marginal /= marginal.sum()

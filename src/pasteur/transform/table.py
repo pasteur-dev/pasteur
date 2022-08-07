@@ -307,7 +307,7 @@ class TableTransformer:
             hier = t.get_hierarchy()
             attrs.update(hier)
             for attr, cols in hier.items():
-                attrs[attr] = Attribute(cols, t.handles_na)
+                attrs[attr] = Attribute(cols, t.has_na)
 
         if table is None:
             return attrs

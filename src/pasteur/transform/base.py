@@ -159,6 +159,7 @@ class ChainTransformer(RefTransformer):
             logger.warning(
                 f"Nullable column doesn't have transformers for na vals, using <name>_NA col."
             )
+        self.has_na = self.handle_na
         self.nullable = nullable
 
         self.deterministic = all(t.deterministic for t in transformers)
