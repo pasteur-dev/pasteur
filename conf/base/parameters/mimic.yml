@@ -58,12 +58,12 @@ mimic_tab_admissions:
         birth_year: date
         dod: date?:birth_year
 
-        admittime: datetime|year.halfhour:birth_year
-        dischtime: datetime|day.halfhour:admittime
-        deathtime: datetime?|day.halfhour:admittime
+        admittime: datetime|year.:birth_year
+        dischtime: datetime|day.:admittime
+        deathtime: datetime?|day.:admittime
 
-        edregtime: datetime?|day.halfhour:admittime
-        edouttime: datetime?|day.halfhour:admittime
+        # edregtime: datetime?|day.:admittime
+        # edouttime: datetime?|day.:admittime
 
         admission_type: categorical
         admission_location: categorical?

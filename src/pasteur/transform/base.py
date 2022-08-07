@@ -238,7 +238,7 @@ class ChainTransformer(RefTransformer):
                 data = t.reverse(data)
 
         if self.handle_na:
-            data[na_col] = pd.NA
+            data = data.where(na_col == 0, pd.NA)
         return data
 
     def get_hierarchy(self, **_) -> dict[str, list[str]]:
