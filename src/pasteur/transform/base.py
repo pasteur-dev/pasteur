@@ -267,6 +267,12 @@ class ChainTransformer(RefTransformer):
                         del new_hier[new_attr]
 
             out.update(new_hier)
+
+        # FIXME: check this works. Add na column to each attribute.
+        if self.handle_na:
+            for cols in out.values():
+                cols.insert(0, self.na_col)
+
         return out
 
 
