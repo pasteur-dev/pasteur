@@ -353,3 +353,18 @@ def test_datetime_transform():
     assert np.all(dec["times"].dt.day == test_data["times"].dt.day)
     assert np.all(dec["times"].dt.hour == test_data["times"].dt.hour)
     assert np.all(dec["times"].dt.minute == 30 * (test_data["times"].dt.minute > 29))
+
+
+def test_fixed_value_transform():
+    from pasteur.transform import FixedValueTransformer
+
+    arr = list(range(20))
+    test_data = pd.DataFrame(np.array([arr, arr]).T, columns=["tst1", "tst2"])
+
+    t = FixedValueTransformer("date")
+    t.fit(test_data)
+    enc = t.transform(test_data)
+    dec = t.reverse(enc)
+
+    assert dec.shape == (20, 2)
+    assert dec.loc[0, "tst1"].year == 2000

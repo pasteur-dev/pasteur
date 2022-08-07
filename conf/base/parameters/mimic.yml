@@ -55,12 +55,12 @@ mimic_tab_admissions:
       fields:
         hadm_id: id
 
-        birth_year: date
+        birth_year: fixed|date
         dod: date?:birth_year
 
-        admittime: datetime|year.:birth_year
-        dischtime: datetime|day.:admittime
-        deathtime: datetime?|day.:admittime
+        admittime: datetime|year.hour:birth_year
+        dischtime: datetime|day.hour:admittime
+        deathtime: datetime?|day.hour:admittime
 
         # edregtime: datetime?|day.:admittime
         # edouttime: datetime?|day.:admittime

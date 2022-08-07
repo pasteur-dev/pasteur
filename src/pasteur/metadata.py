@@ -22,6 +22,7 @@ DEFAULT_TRANSFORMERS = {
         "time": ("time", "normalize"),
         "date": ("date", "normalize"),
         "datetime": ("datetime", "normalize"),
+        "fixed": "fix",
     },
     "bin": {
         "numerical": ("discrete", "gray"),
@@ -30,6 +31,7 @@ DEFAULT_TRANSFORMERS = {
         "time": ("time", "gray"),
         "date": ("date", "gray"),
         "datetime": ("datetime", "gray"),
+        "fixed": "fix",
     },
     "bhr": {  # Binary hierarchical
         "numerical": ("discrete", "bin"),
@@ -38,6 +40,7 @@ DEFAULT_TRANSFORMERS = {
         "time": ("time", "bin"),
         "date": ("date", "bin"),
         "datetime": ("datetime", "bin"),
+        "fixed": "fix",
     },
     "idx": {
         "numerical": "discrete",
@@ -46,6 +49,7 @@ DEFAULT_TRANSFORMERS = {
         "time": "time",
         "date": "date",
         "datetime": "datetime",
+        "fixed": "fix",
     },
 }
 

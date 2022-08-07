@@ -1,5 +1,6 @@
 import logging
 import math
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -339,5 +340,50 @@ class BaseNTransformer(Transformer):
                 out_col += data[f"{col}_{i}"].to_numpy() * (self.base**i)
 
             out[col] = out_col.clip(0, self.domain[col])
+
+        return out
+
+
+class FixedValueTransformer(Transformer):
+    """The transform function of this transformer returns an empty dataframe and
+    when reversing it returns the columns with a fixed value.
+
+    Used for the anchoring date of a table."""
+
+    name = "fix"
+    in_type = ("ordinal", "categorical", "numerical")
+    out_type = "ordinal"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+    handles_na = False
+
+    def __init__(
+        self, dtype: Literal["date", "int", "float"] = "date", value: any = None, **_
+    ) -> None:
+        match dtype:
+            case "date":
+                val = value or "1/1/2000"
+                self.value = pd.to_datetime(val)
+            case "int":
+                self.value = int(value) or 0
+            case "float":
+                self.value = float(value) or 0.0
+
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        assert constraints is None
+        self.cols = list(data.keys())
+
+        return {}
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        return data[[]]
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame(index=data.index)
+
+        for col in self.cols:
+            out = out.assign(**{col: self.value})
 
         return out
