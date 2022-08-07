@@ -99,11 +99,20 @@ class TableTransformer:
     def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
         # Only load foreign keys if required by column
         ids = None
-        if self.table_has_reference() and ids is None:
-            ids = self.find_foreign_ids(self.name, tables)
 
         meta = self.meta[self.name]
         table = tables[self.name]
+
+        if self.table_has_reference() and ids is None:
+            ids = self.find_foreign_ids(self.name, tables)
+
+            # If we do have foreign relationships drop all rows that don't have
+            # parents and warn
+            if len(ids) < len(table):
+                logger.warning(
+                    f"Found {len(table) - len(ids)} rows without ids on table {self.name}. Dropping before fitting..."
+                )
+                table = table.loc[ids.index]
 
         if not meta.primary_key == table.index.name:
             assert (
@@ -159,7 +168,7 @@ class TableTransformer:
             # parents and warn
             if len(ids) < len(table):
                 logger.warning(
-                    f"Found {len(table) - len(ids)} rows without ids on table {self.name}. Dropping before fitting..."
+                    f"Found {len(table) - len(ids)} rows without ids on table {self.name}. Dropping before transforming..."
                 )
                 table = table.loc[ids.index]
 

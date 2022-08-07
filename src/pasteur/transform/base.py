@@ -137,9 +137,7 @@ class ChainTransformer(RefTransformer):
 
         return ChainTransformer(transformers=transformers, **args)
 
-    def __init__(
-        self, transformers: list[Transformer], nullable=None, na_val=0, **_
-    ) -> None:
+    def __init__(self, transformers: list[Transformer], nullable=False, **_) -> None:
         self.transformers = transformers
         if len(transformers):
             self.in_type = transformers[0].in_type
@@ -162,7 +160,6 @@ class ChainTransformer(RefTransformer):
                 f"Nullable column doesn't have transformers for na vals, using <name>_NA col."
             )
         self.nullable = nullable
-        self.na_val = na_val
 
         self.deterministic = all(t.deterministic for t in transformers)
         self.lossless = all(t.lossless for t in transformers)
@@ -179,6 +176,11 @@ class ChainTransformer(RefTransformer):
             self.na_col = f"{data.columns[0]}_na"
             na_col = np.any(data.isna(), axis=1)
             data = data[~na_col].infer_objects()
+            if ref is not None:
+                ref = ref[~na_col]
+                assert not np.any(
+                    pd.isna(ref)
+                ), "Ref column should have any null values."
         else:
             # If not nullable and null value was passed halt.
             assert self.nullable or not np.any(
@@ -188,7 +190,7 @@ class ChainTransformer(RefTransformer):
         constraints = None
         for t in self.transformers:
             if isinstance(t, RefTransformer) and ref is not None:
-                constraints = t.fit(data, constraints, ref)
+                constraints = t.fit(data, ref)
                 data = t.transform(data, ref)
             else:
                 constraints = t.fit(data, constraints)
@@ -199,7 +201,12 @@ class ChainTransformer(RefTransformer):
     ) -> pd.DataFrame:
         if self.handle_na:
             na_col = np.any(data.isna(), axis=1)
-            data = data.where(~na_col, other=self.na_val)
+            data = data[~na_col].infer_objects()
+            if ref is not None:
+                ref = ref[~na_col]
+                assert not np.any(
+                    pd.isna(ref)
+                ), "Ref column should have any null values."
         else:
             # If not nullable and null value was passed halt.
             assert self.nullable or not np.any(
@@ -213,7 +220,10 @@ class ChainTransformer(RefTransformer):
                 data = t.transform(data)
 
         if self.handle_na:
-            data[self.na_col] = na_col
+            fill_val = False if pd.api.types.is_bool_dtype(data.dtypes[0]) else 0
+            data = pd.concat([data, na_col.rename(self.na_col)], axis=1).fillna(
+                fill_val
+            )
         return data
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
@@ -404,7 +414,7 @@ class NormalizeTransformer(Transformer):
         out = pd.DataFrame()
 
         for col in data:
-            n = data[col].to_numpy().copy()
+            n = data[col]
             n_min = self.min[col]
             n_max = self.max[col]
 
@@ -463,7 +473,7 @@ class NormalDistTransformer(Transformer):
         out = pd.DataFrame()
 
         for col in data:
-            n = data[col].to_numpy()
+            n = data[col]
             std = self.std[col]
             mean = self.mean[col]
 
@@ -650,7 +660,7 @@ class TimeTransformer(Transformer):
                 constraints[f"{col}_halfmin"] = {"type": "ordinal", "dom": 2}
             if span == "second":
                 constraints[f"{col}_sec"] = {"type": "ordinal", "dom": 60}
-                
+
         return constraints
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
