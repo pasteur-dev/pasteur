@@ -47,7 +47,23 @@ def calc_marginal(
     return j_mar, x_mar, p_mar
 
 
-def sens_mutual_info(n: float):
+def calc_marginal_1way(
+    data: np.ndarray, domain: np.ndarray, x: list[int], rm_zeros: bool = False
+):
+    """Calculates the 1 way marginal of x, returned as a 1D array."""
+
+    sub_data = data[:, x]
+    sub_domain = domain[x]
+    margin, _ = np.histogramdd(sub_data, sub_domain)
+    margin /= margin.sum()
+    if rm_zeros:
+        # Mutual info turns into NaN without this
+        margin += 1e-24
+
+    return margin.reshape(-1)
+
+
+def sens_mutual_info(n: int):
     """Provides the the log2 sensitivity of the mutual information function for a given
     dataset size (n)."""
     return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
@@ -60,7 +76,7 @@ def calc_mutual_info(data: np.ndarray, domain: np.ndarray, x: list[int], p: list
     return np.sum(j_mar * np.log2(j_mar / np.outer(x_mar, p_mar)))
 
 
-def sens_r_function(n: float):
+def sens_r_function(n: int):
     """Provides the the R function sensitivity for a given dataset size (n)."""
     return 3 / n + 2 / (n**2)
 
@@ -73,6 +89,20 @@ def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[
     return r
 
 
+def calc_entropy(data: np.ndarray, domain: np.ndarray, x: list[int]):
+    """Calculates the entropy for the provided data."""
+    # TODO: check this is correct using scipy
+    mar = calc_marginal_1way(data, domain, x, True)
+    ent = -np.sum(mar * np.log2(mar))
+    return ent
+
+
+def sens_entropy(n: int):
+    """Provides the sensitivity for the entropy function for a given dataset size (n)."""
+    # TODO: Mathematically prove this is correct.
+    return np.log2(n) / n - (n - 1) / n * np.log2((n - 1) / n)
+
+
 def greedy_bayes(
     data: pd.DataFrame,
     attr_str: dict[str, Attribute],
@@ -80,6 +110,7 @@ def greedy_bayes(
     e2: float,
     theta: float,
     use_r: bool,
+    random_init: bool,
 ):
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -104,6 +135,7 @@ def greedy_bayes(
 
     n = len(data)
     d = len(attr)
+    n_chosen = 1 if random_init else 0
 
     calc_fun = calc_r_function if use_r else calc_mutual_info
     sens_fun = sens_r_function if use_r else sens_mutual_info
@@ -235,7 +267,7 @@ def greedy_bayes(
         # doesn't affect probabilities
         vals -= vals.max()
 
-        delta = (d - 1) * sens_fun(n) / e1
+        delta = (d - n_chosen) * sens_fun(n) / e1
         p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
@@ -243,10 +275,32 @@ def greedy_bayes(
 
         return candidates[choice]
 
+    def pick_candidate_init():
+        p = []
+        for i, a in enumerate(attr):
+            mar = calc_marginal_1way(data, domain, a)
+            ent = -np.sum(mar * np.log2(mar))
+
+            p.append(ent)
+
     #
     # Implement greedy bayes (as shown in the paper)
     #
-    x1 = np.random.randint(len(attr))
+    if random_init:
+        x1 = np.random.randint(len(attr))
+    else:
+        # Pick x1 based on entropy
+        # consumes some privacy budget, but starting with a bad choice can lead
+        # to a bad network.
+        vals = [calc_entropy(data, domain, x) for x in attr]
+        vals = np.array(vals)
+
+        delta = d * sens_entropy(n) / e1
+        p = np.exp(vals / 2 / delta)
+        p /= p.sum()
+
+        x1 = np.random.choice(len(attr), size=1, p=p)[0]
+
     A = [a for a in range(0, len(attr)) if a != x1]
     t = (n * e2) / (2 * d * theta)
 
@@ -438,6 +492,7 @@ class PrivBayesSynth(Synth):
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
+        random_init: bool = False,
         **_,
     ) -> None:
         super().__init__()
@@ -446,6 +501,7 @@ class PrivBayesSynth(Synth):
         self.theta = theta
         self.use_r = use_r
         self.seed = seed
+        self.random_init = random_init
 
     @make_deterministic
     def bake(
@@ -463,7 +519,7 @@ class PrivBayesSynth(Synth):
 
         # Fit network
         nodes_raw, domain_raw, t = greedy_bayes(
-            table, attr, self.e1, self.e2, self.theta, self.use_r
+            table, attr, self.e1, self.e2, self.theta, self.use_r, self.random_init
         )
 
         # Create tuples based on attributes
