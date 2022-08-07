@@ -13,6 +13,8 @@ from .base import Synth, make_deterministic, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
+MAX_EPSILON = 1e5 - 10
+
 
 class Node(NamedTuple):
     x: Attribute = None
@@ -258,8 +260,8 @@ def greedy_bayes(
         candidates = list(candidates)
         vals = np.array(calc_candidate_scores(candidates))
 
-        # If e1 is bigger than 1e3, assume it's infinite.
-        if np.isinf(e1) or e1 > 1e3:
+        # If e1 is bigger than max_epsilon, assume it's infinite.
+        if np.isinf(e1) or e1 > MAX_EPSILON:
             return candidates[np.argmax(vals)]
 
         # np.exp is unstable for large vals
@@ -274,14 +276,6 @@ def greedy_bayes(
         choice = np.random.choice(len(candidates), size=1, p=p)[0]
 
         return candidates[choice]
-
-    def pick_candidate_init():
-        p = []
-        for i, a in enumerate(attr):
-            mar = calc_marginal_1way(data, domain, a)
-            ent = -np.sum(mar * np.log2(mar))
-
-            p.append(ent)
 
     #
     # Implement greedy bayes (as shown in the paper)
@@ -299,10 +293,22 @@ def greedy_bayes(
         p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
-        x1 = np.random.choice(len(attr), size=1, p=p)[0]
+        if e1 > MAX_EPSILON:
+            x1 = np.argmax(p)
+        else:
+            x1 = np.random.choice(len(attr), size=1, p=p)[0]
 
     A = [a for a in range(0, len(attr)) if a != x1]
     t = (n * e2) / (2 * d * theta)
+
+    # Allow for "unbounded" privacy budget without destroying the computer.
+    if e1 > MAX_EPSILON:
+        logger.warn("Baking without DP (e1=inf).")
+    if t > n / 10 or e2 > MAX_EPSILON:
+        t = min(n / 10, 1e4)
+        logger.warn(
+            f"Considering e2={e2} unbounded, t will be bound to min(n/10, 1e4)={t:.2f} for computational reasons."
+        )
 
     V = [x1]
     N = [(x1, empty_pset)]
@@ -555,6 +561,8 @@ class PrivBayesSynth(Synth):
         table = data[self.table_name]
         self.n = len(table)
         noise = 2 * self.d / (self.n * self.e2)
+        if self.e2 > MAX_EPSILON:
+            logger.info(f"Considering e2={self.e2} unbounded, sampling without DP.")
         self.marginals = calc_noisy_marginals(table, self.nodes, noise)
 
     @make_deterministic
