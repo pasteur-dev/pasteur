@@ -1,13 +1,17 @@
-from typing import Collection, Dict, Optional
-import pandas as pd
 import logging
+from collections import namedtuple
+from typing import Collection, Dict, Optional
 
-from ..metadata import Metadata, DEFAULT_TRANSFORMERS
+import pandas as pd
+
+from ..metadata import DEFAULT_TRANSFORMERS, Metadata
 from .base import ChainTransformer, Transformer
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TYPES = list(DEFAULT_TRANSFORMERS.keys())
+
+Attribute = namedtuple("Attribute", ["cols", "has_na"])
 
 
 class TableTransformer:
@@ -265,7 +269,7 @@ class TableTransformer:
 
     def get_attributes(
         self, type: str, table: pd.DataFrame | None = None
-    ) -> dict[str, list[str]]:
+    ) -> dict[str, Attribute]:
         """Collates the table columns into ordered sets named attributes (sourced from transformer hierarchy).
 
         If there's an attribute a0 with columns c0, c1, c2,
@@ -278,6 +282,14 @@ class TableTransformer:
         c_t: total columns, c_n: columns per attribute, k: columns selected for parents,
         a_n: number of attributes
 
+        In addition, c0 may indicate an NA column (with domain 2).
+        In this case, the domain of the attribute should be increased by 1, which
+        notes the NA value, not doubled. So we whether the attribute contains
+        a na column.
+
+        Purely categorical variables don't need special handling of None/NA, it
+        just gets encoded as another value. Hierarchical and numerical values do.
+
         Example (binary encoding; 50 bits in total):
         a_n=10, c_t=50, c_n=5
         From O(...) = 2118760 for k=1
@@ -289,7 +301,10 @@ class TableTransformer:
         # Add actual attributes
         attrs = {}
         for t in transformers:
-            attrs.update(t.get_hierarchy())
+            hier = t.get_hierarchy()
+            attrs.update(hier)
+            for attr, cols in hier.items():
+                attrs[attr] = Attribute(cols, t.handles_na)
 
         if table is None:
             return attrs
@@ -297,8 +312,8 @@ class TableTransformer:
         # Add fake attributes for cols with no hierarchical relationship
         cols_in_attr = list()
         for a in attrs.values():
-            cols_in_attr.extend(a)
+            cols_in_attr.extend(a.cols)
 
         cols = [c for c in table.columns if c not in cols_in_attr]
-        attrs.update({c: [c] for c in cols})
+        attrs.update({c: Attribute([c], False) for c in cols})
         return attrs

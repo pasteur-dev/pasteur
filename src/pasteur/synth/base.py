@@ -1,11 +1,12 @@
 import logging
+import random
+from os import cpu_count
 
 import numpy as np
 import pandas as pd
-import random
+from tqdm.contrib.concurrent import process_map, thread_map
 
-from tqdm.contrib.concurrent import thread_map, process_map
-from os import cpu_count
+from pasteur.transform.table import Attribute
 
 from ..transform import TableTransformer
 
@@ -94,7 +95,7 @@ class Synth:
 
     def bake(
         self,
-        transformers: dict[str, pd.DataFrame],
+        attrs: dict[str, dict[str, Attribute]],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
@@ -105,7 +106,6 @@ class Synth:
 
     def fit(
         self,
-        transformers: dict[str, pd.DataFrame],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
@@ -118,7 +118,7 @@ class Synth:
         assert False, "Not implemented"
 
     def sample(
-        self, n: int = None
+        self, n: int | None = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         """Returns data, ids dict dataframes in the same format they were provided.
 
@@ -130,9 +130,13 @@ class Synth:
 
 def synth_fit_closure(cls):
     def fit(**kwargs: pd.DataFrame | TableTransformer):
-        transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
         ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
         data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
+
+        transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
+        attrs = {
+            n: t.get_attributes(cls.type, data[n]) for n, t in transformers.items()
+        }
 
         meta = next(iter(transformers.values())).meta
         model = (
@@ -140,8 +144,8 @@ def synth_fit_closure(cls):
             if cls.name in meta.algs
             else cls(seed=meta.seed)
         )
-        model.bake(transformers, data, ids)
-        model.fit(transformers, data, ids)
+        model.bake(attrs, data, ids)
+        model.fit(data, ids)
         return model
 
     return fit
@@ -167,7 +171,7 @@ class IdentSynth(Synth):
 
     def fit(
         self,
-        transformers: dict[str, pd.DataFrame],
+        attrs,
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):

@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm, trange
 
+from pasteur.transform.table import Attribute
+
 from ..transform import TableTransformer
 from .base import Synth, make_deterministic, process_in_parallel
 
@@ -67,7 +69,7 @@ def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[
 
 def greedy_bayes(
     data: pd.DataFrame,
-    attr_str: dict[str, list[str]],
+    attr_str: dict[str, Attribute],
     e1: float,
     e2: float,
     theta: float,
@@ -84,8 +86,8 @@ def greedy_bayes(
     # Keep string names based on their index on a list.
     cols = list(data.columns)
     attr = []
-    for a_cols in attr_str.values():
-        attr.append([cols.index(col) for col in a_cols])
+    for a in attr_str.values():
+        attr.append([cols.index(col) for col in a.cols])
 
     # 30k is a sweet spot for categorical variables
     # Dropping pandas for a 5x in speed when calculating marginals
@@ -384,7 +386,7 @@ class PrivBayesSynth(Synth):
     @make_deterministic
     def bake(
         self,
-        transformers: dict[str, TableTransformer],
+        attrs: dict[str, dict[str, Attribute]],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
@@ -392,8 +394,7 @@ class PrivBayesSynth(Synth):
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
-        transformer = transformers[table_name]
-        attr = transformer.get_attributes("bhr", table)
+        attr = attrs[table_name]
         attr_names = list(attr.keys())
 
         # Fit network
@@ -405,13 +406,13 @@ class PrivBayesSynth(Synth):
         nodes = []
         for a, pset in nodes_raw:
             a_name = attr_names[a]
-            x_cols = attr[a_name]
+            x_cols = attr[a_name].cols
             p_cols = []
 
             for p, h in enumerate(pset):
-                p_name = attr_names[p]
+                new_p_cols = attr[attr_names[p]].cols
                 if h != -1:
-                    p_cols.extend(attr[p_name][: len(attr[p_name]) - h])
+                    p_cols.extend(new_p_cols[: len(new_p_cols) - h])
 
             nodes.append((x_cols, p_cols))
 
@@ -431,7 +432,6 @@ class PrivBayesSynth(Synth):
     @make_deterministic
     def fit(
         self,
-        transformers: dict[str, pd.DataFrame],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
