@@ -1,5 +1,7 @@
+from itertools import chain
 import logging
 from functools import reduce
+from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -7,10 +9,14 @@ from tqdm import tqdm, trange
 
 from pasteur.transform.table import Attribute
 
-from ..transform import TableTransformer
 from .base import Synth, make_deterministic, process_in_parallel
 
 logger = logging.getLogger(__name__)
+
+
+class Node(NamedTuple):
+    x: Attribute = None
+    p: list[Attribute] = []
 
 
 def calc_marginal(
@@ -86,7 +92,9 @@ def greedy_bayes(
     # Keep string names based on their index on a list.
     cols = list(data.columns)
     attr = []
+    has_na = []
     for a in attr_str.values():
+        has_na.append(a.has_na)
         attr.append([cols.index(col) for col in a.cols])
 
     # 30k is a sweet spot for categorical variables
@@ -108,10 +116,24 @@ def greedy_bayes(
 
     # Returns the height of a hierarchical attribute
     height = lambda a: len(attr[a])
+
     # Returns the domain of a hierarchical attribute at height h (h=0 is max)
-    dom = lambda a, h: reduce(
+    # TODO: check NA check is correct
+    # Dom of a value is the product of its columns
+    dom_no_na = lambda a, h: reduce(
         lambda k, l: k * l, [domain[c] for c in attr[a][: height(a) - h]], 1
     )
+    # If theres an NA column it will be the first one, so it's skipped and 1 is added.
+    dom_has_na = (
+        lambda a, h: reduce(
+            lambda k, l: k * l, [domain[c] for c in attr[a][1 : height(a) - h]], 1
+        )
+        + 1
+    )
+    # The only place to correct for an NA hierarchical value in the value function is here
+    # Mutual information function should stay the same, the invalid values that have 0
+    # don't affect entropy. Other than that, not adding noise to invalid marginals
+    dom = lambda a, h: dom_has_na(a, h) if has_na[a] else dom_no_na(a, h)
 
     # Sets are tuples that contain the height of each attribute in them, or -1
     # if the attribute is not in them
@@ -286,14 +308,15 @@ def print_tree(
     return s
 
 
-def calc_noisy_marginals(
-    data: pd.DataFrame, nodes: tuple[list[str], list[str]], noise_scale: float
-):
+def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: float):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
 
     marginals = []
     for x, p in nodes:
-        sub_data = data[p + x].to_numpy(dtype="int16")
+        x_cols = x.cols[: len(x.cols) - x.h]
+        p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
+
+        sub_data = data[p_cols + x_cols].to_numpy(dtype="int16")
         sub_domain = sub_data.max(axis=0) + 1
 
         margin, _ = np.histogramdd(sub_data, sub_domain)
@@ -306,21 +329,22 @@ def calc_noisy_marginals(
     return marginals
 
 
-def sample_rows(
-    nodes: tuple[list[str], list[str]], marginals: np.array, n: int
-) -> pd.DataFrame:
+def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
     out = pd.DataFrame(dtype="int16")
 
     for (x, p), marginal in zip(nodes, marginals):
-        domain = {name: marginal.shape[i] for i, name in enumerate([*p, *x])}
-        domain_p = np.product(marginal.shape[: len(p)])
-        domain_x = np.product(marginal.shape[-len(x) :])
+        x_cols = x.cols[: len(x.cols) - x.h]
+        p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
+
+        domain = {name: marginal.shape[i] for i, name in enumerate(p_cols + x_cols)}
+        domain_p = np.product(marginal.shape[: len(p_cols)])
+        domain_x = np.product(marginal.shape[-len(x_cols) :])
 
         # Create lookup tables where for each column there's
         # idx -> val, where idx in (0, domain_x)
         nums = np.arange(domain_x)
         luts = {}
-        for name in reversed(x):
+        for name in reversed(x_cols):
             luts[name] = nums % domain[name]
             nums //= domain[name]
 
@@ -340,7 +364,7 @@ def sample_rows(
             blacklist = np.any(np.isnan(m), axis=1)
 
             p_idx = np.zeros(n, dtype="int16")
-            for name in p:
+            for name in p_cols:
                 p_idx *= domain[name]
                 p_idx += out[name].to_numpy()
 
@@ -354,7 +378,7 @@ def sample_rows(
                 )
 
         # Place columns in Dataframe using luts
-        for name in x:
+        for name in x_cols:
             out[name] = luts[name][idx]
 
     return out
@@ -402,23 +426,20 @@ class PrivBayesSynth(Synth):
             table, attr, self.e1, self.e2, self.theta, self.use_r
         )
 
-        # Convert network to string names
-        nodes = []
+        # Create tuples based on attributes
+        # A node is composed of an x atribute and a set of
+        nodes: list[Node] = []
         for a, pset in nodes_raw:
-            a_name = attr_names[a]
-            x_cols = attr[a_name].cols
-            p_cols = []
+            x_attr = attr[attr_names[a]]
+            p_attrs = []
 
             for p, h in enumerate(pset):
-                new_p_cols = attr[attr_names[p]].cols
                 if h != -1:
-                    p_cols.extend(new_p_cols[: len(new_p_cols) - h])
+                    p_attrs.append(attr[attr_names[p]]._replace(h=h))
 
-            nodes.append((x_cols, p_cols))
+            nodes.append(Node(x_attr, p_attrs))
 
-        # Nodes are (x_cols, p_cols) x: child p: parent
-        # x_cols + p_cols together form the marginal of that node
-
+        # Nodes are a tuple of a x attribute
         self.table_name = table_name
         self.d = len(table.keys())
         self.t = t

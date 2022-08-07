@@ -1,6 +1,5 @@
 import logging
-from collections import namedtuple
-from typing import Collection, Dict, Optional
+from typing import Collection, Dict, NamedTuple, Optional
 
 import pandas as pd
 
@@ -11,7 +10,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TYPES = list(DEFAULT_TRANSFORMERS.keys())
 
-Attribute = namedtuple("Attribute", ["cols", "has_na"])
+
+class Attribute(NamedTuple):
+    cols: list[str] = []
+    has_na: bool = False
+    h: int = 0
 
 
 class TableTransformer:
