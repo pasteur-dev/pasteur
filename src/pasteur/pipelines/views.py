@@ -12,7 +12,7 @@ def create_view_pipeline(view: View):
             node(
                 func=view.ingest_closure(t),
                 inputs={dep: f"in_{dep}" for dep in view.deps[t]},
-                outputs=t,
+                outputs=f"view.{t}",
             )
             for t in tables
         ]
@@ -21,9 +21,7 @@ def create_view_pipeline(view: View):
     return modular_pipeline(
         pipe=pipe,
         namespace=view.name,
-        inputs={
-            f"in_{dep}": f"{view.dataset}.view.{dep}" for dep in view.dataset_tables
-        },
+        inputs={f"in_{dep}": f"{view.dataset}.{dep}" for dep in view.dataset_tables},
     )
 
 
