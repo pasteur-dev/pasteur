@@ -36,11 +36,12 @@ def calc_marginal(
     x_dom = reduce(lambda a, b: a * b, domain[x], 1)
     p_dom = reduce(lambda a, b: a * b, domain[p], 1)
 
-    idx = np.zeros((len(data)), dtype="int64")
+    idx = np.zeros((len(data)), dtype="uint16")
+    tmp = np.empty((len(data)), dtype="uint16")
     mul = 1
     for col in reversed(xp):
         # idx += mul*data[:, col]
-        np.add(idx, mul * data[:, col], out=idx)
+        np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
         mul *= domain[col]
 
     counts = np.bincount(idx, minlength=x_dom * p_dom)
@@ -63,9 +64,18 @@ def calc_marginal_1way(
 ):
     """Calculates the 1 way marginal of x, returned as a 1D array."""
 
-    sub_data = data[:, x]
-    sub_domain = domain[x]
-    margin, _ = np.histogramdd(sub_data, sub_domain)
+    x_dom = reduce(lambda a, b: a * b, domain[x], 1)
+
+    idx = np.zeros((len(data)), dtype="uint16")
+    tmp = np.empty((len(data)), dtype="uint16")
+    mul = 1
+    for col in reversed(x):
+        # idx += mul*data[:, col]
+        np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
+        mul *= domain[col]
+
+    counts = np.bincount(idx, minlength=x_dom)
+    margin = counts.astype("float")
     margin /= margin.sum()
     if rm_zeros:
         # Mutual info turns into NaN without this
@@ -252,6 +262,7 @@ def greedy_bayes(
             calc_fun,
             to_be_processed,
             base_args,
+            500,
             f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals",
         )
 
@@ -386,10 +397,22 @@ def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: flo
         p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
         cols = p_cols + x_cols
 
-        sub_data = data[cols].to_numpy(dtype="int16")
+        sub_data = data[cols].to_numpy(dtype="int64")
         sub_domain = sub_data.max(axis=0) + 1
 
-        margin, _ = np.histogramdd(sub_data, sub_domain)
+        idx = np.zeros((len(data)), dtype="uint16")
+        tmp = np.empty((len(data)), dtype="uint16")
+        mul = 1
+        for i in reversed(range(len(cols))):
+            # idx += mul*data[:, col]
+            np.add(idx, np.multiply(mul, sub_data[:, i], out=tmp), out=idx)
+            mul *= sub_domain[i]
+
+        x_dom = reduce(lambda a, b: a * b, sub_domain, 1)
+
+        counts = np.bincount(idx, minlength=x_dom)
+        margin = counts.astype("float").reshape(sub_domain)
+
         noise = np.random.laplace(scale=noise_scale, size=margin.shape)
 
         # Consider a0.col0 being a NA indicatior. When a0.col0=1 then a0 is NA.
@@ -472,14 +495,14 @@ def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
             # Store those groups and sample them uniformly when that happens.
             blacklist = np.any(np.isnan(m), axis=1)
 
-            p_idx = np.zeros(n, dtype="int16")
+            p_idx = np.zeros(n, dtype="uint16")
             for name in p_cols:
                 p_idx *= domain[name]
                 p_idx += out[name].to_numpy()
 
             # Apply conditional probability by group
             # groups are proportional to dom(P) = vectorized
-            idx = np.empty(len(p_idx), dtype="int16")
+            idx = np.empty(len(p_idx), dtype="uint16")
             for group in np.unique(p_idx):
                 size = np.sum(p_idx == group)
                 idx[p_idx == group] = np.random.choice(

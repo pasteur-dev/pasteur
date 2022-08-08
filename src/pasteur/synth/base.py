@@ -27,14 +27,15 @@ def process_in_parallel(
     fun: callable,
     per_call_args: list[dict],
     base_args: dict[str, any] | None = None,
+    min_chunk_size: int = 100,
     desc: str | None = None,
 ):
     """Processes arguments in parallel using python's multiprocessing and prints progress bar.
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
     calls before exiting."""
-    if len(per_call_args) > 20:
-        chunk_n = min(cpu_count() * 5, len(per_call_args) // 5)
+    if len(per_call_args) > min_chunk_size:
+        chunk_n = min(cpu_count() * 5, len(per_call_args) // min_chunk_size)
     else:
         chunk_n = 1
     per_call_n = len(per_call_args) // chunk_n
