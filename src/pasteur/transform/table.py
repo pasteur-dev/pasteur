@@ -321,3 +321,26 @@ class TableTransformer:
         cols = [c for c in table.columns if c not in cols_in_attr]
         attrs.update({c: Attribute([c], False, False) for c in cols})
         return attrs
+
+    class TypeView:
+        def __init__(self, trn, type: str) -> None:
+            self.trn = trn
+            self.type = type
+
+        def transform(
+            self,
+            tables: Dict[str, pd.DataFrame],
+            ids: pd.DataFrame | None = None,
+        ) -> pd.DataFrame:
+            return self.trn.transform(self.type, tables, ids)
+
+        def reverse(
+            self,
+            table: pd.DataFrame,
+            ids: Optional[pd.DataFrame] = None,
+            parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
+        ) -> pd.DataFrame:
+            return self.trn.reverse(self.type, table, ids, parent_tables)
+
+    def __getitem__(self, type):
+        return self.TypeView(self, type)

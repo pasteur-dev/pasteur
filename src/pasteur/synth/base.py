@@ -34,7 +34,7 @@ def process_in_parallel(
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
     calls before exiting."""
-    if len(per_call_args) < min_chunk_size:
+    if len(per_call_args) < 2 * min_chunk_size:
         return calc_worker((fun, base_args, per_call_args))
 
     chunk_n = min(cpu_count() * 5, len(per_call_args) // min_chunk_size)

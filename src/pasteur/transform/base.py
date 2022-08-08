@@ -301,7 +301,7 @@ class IdxTransformer(Transformer):
     stateful = True
     handles_na = True
 
-    def __init__(self, unknown_value=-1, is_sortable=True, **_):
+    def __init__(self, unknown_value=None, is_sortable=True, **_):
         self.unknown_value = unknown_value
 
         # If a categorical attribute is sortable it can become ordinal
