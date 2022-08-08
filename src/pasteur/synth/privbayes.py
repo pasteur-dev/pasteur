@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm, trange
+from tqdm.auto import tqdm, trange
 
 from pasteur.transform.table import Attribute
 
@@ -14,6 +14,7 @@ from .base import Synth, make_deterministic, process_in_parallel
 logger = logging.getLogger(__name__)
 
 MAX_EPSILON = 1e5 - 10
+MAX_T = 1e4
 
 
 class Node(NamedTuple):
@@ -31,20 +32,28 @@ def calc_marginal(
     """Calculates the 1 way and 2 way marginals between the set of columns in x
     and the set of columns in p."""
 
-    sub_data = data[:, x + p]
-    sub_domain = domain[x + p]
-    margin, _ = np.histogramdd(sub_data, sub_domain)
+    xp = x + p
+    x_dom = reduce(lambda a, b: a * b, domain[x], 1)
+    p_dom = reduce(lambda a, b: a * b, domain[p], 1)
+
+    idx = np.zeros((len(data)), dtype="int64")
+    mul = 1
+    for col in reversed(xp):
+        # idx += mul*data[:, col]
+        np.add(idx, mul * data[:, col], out=idx)
+        mul *= domain[col]
+
+    counts = np.bincount(idx, minlength=x_dom * p_dom)
+    margin = counts.reshape(x_dom, p_dom).astype("float")
+
     margin /= margin.sum()
     if rm_zeros:
         # Mutual info turns into NaN without this
         margin += 1e-24
 
-    x_idx = tuple(range(len(x)))
-    p_idx = tuple(range(-len(p), 0))
-
-    x_mar = np.sum(margin, axis=p_idx).reshape(-1)
-    p_mar = np.sum(margin, axis=x_idx).reshape(-1)
-    j_mar = margin.reshape((len(x_mar), len(p_mar)))
+    j_mar = margin
+    x_mar = np.sum(margin, axis=1)
+    p_mar = np.sum(margin, axis=0)
 
     return j_mar, x_mar, p_mar
 
@@ -304,10 +313,10 @@ def greedy_bayes(
     # Allow for "unbounded" privacy budget without destroying the computer.
     if e1 > MAX_EPSILON:
         logger.warn("Baking without DP (e1=inf).")
-    if t > n / 10 or e2 > MAX_EPSILON:
-        t = min(n / 10, 1e4)
+    if t > n / 10 or e2 > MAX_EPSILON or t > MAX_T:
+        t = min(n / 10, MAX_T)
         logger.warn(
-            f"Considering e2={e2} unbounded, t will be bound to min(n/10, 1e4)={t:.2f} for computational reasons."
+            f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
 
     V = [x1]
