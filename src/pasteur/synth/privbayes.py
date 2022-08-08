@@ -318,6 +318,7 @@ def greedy_bayes(
         # to a bad network.
         vals = [calc_entropy(data, domain, x) for x in attr]
         vals = np.array(vals)
+        vals -= vals.max()
 
         delta = d * sens_entropy(n) / e1
         p = np.exp(vals / 2 / delta)
