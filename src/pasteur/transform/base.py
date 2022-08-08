@@ -28,13 +28,22 @@ the user expects them in the output data.
 
 class Transformer:
     name = "base"
-    in_type = None
+    "The name of the transformer, with which it's looked up in the dictionary."
+    in_type: str | list[str] = None
+    "Valid input types. The input is checked to be this or one of these types."
     out_type = None
+    "The output type of the transformer, may change depending on the input."
 
     deterministic = True
+    "For a given output, the input is the same."
     lossless = True
+    "The decoded output equals the input."
     stateful = False
+    "Transformer fits variables."
     handles_na = False
+    "Transformer can handle NA values."
+    variable_domain = False
+    "Transformer domain is variable (idx only). Example: if c0=0, c1={0,m} but if c0=1, c1={0,n}."
 
     def __init__(self, **_):
         pass
@@ -164,6 +173,7 @@ class ChainTransformer(RefTransformer):
 
         self.deterministic = all(t.deterministic for t in transformers)
         self.lossless = all(t.lossless for t in transformers)
+        self.variable_domain = any(t.variable_domain for t in transformers)
 
     def fit(
         self,
@@ -407,6 +417,9 @@ class NormalizeTransformer(Transformer):
                             False
                         ), f"Type {other} of {col} not supported in normalize transformer."
             else:
+                logger.warning(
+                    f"Infering min, max values for column {col}. This violates DP."
+                )
                 self.min[col] = data[col].min(axis=0)
                 self.max[col] = data[col].max(axis=0)
 

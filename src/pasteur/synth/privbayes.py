@@ -466,6 +466,17 @@ def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: flo
             # Replace noise again
             noise[na_idx] = na_noise
 
+        # Handle noise for attributes with variable domains
+        # variable domain means that if c0=0, c1={0,n}, but if c0=1. c1={0,m}
+        # where m != n. A proper solution to this would be using a mask for the
+        # valid attributes.
+        #
+        # However, for now we will just assume that if a count in the marginal
+        # is 0 then it's invalid. This violates DP for marginals with low counts.
+        # But performs similarly. TODO: Use proper implementation.
+        if any(a.var_dom for a in [x] + p):
+            noise[margin == 0] = 0
+
         marginal = (margin + noise).clip(0)
         marginal /= marginal.sum()
         marginals.append(marginal)
@@ -566,6 +577,13 @@ class PrivBayesSynth(Synth):
         table = data[table_name]
         attr = attrs[table_name]
         attr_names = list(attr.keys())
+
+        var_attr = [name for name, a in attr.items() if a.var_dom]
+        if len(var_attr):
+            logger.warning(
+                f"Current variable domain implementation (required by"
+                + f" {str(var_attr)}) technically violates DP (to be fixed)."
+            )
 
         # Fit network
         nodes_raw, domain_raw, t = greedy_bayes(

@@ -76,6 +76,7 @@ class BinTransformer(Transformer):
     lossless = True
     stateful = True
     handles_na = False
+    variable_domain = True
 
     def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
         constraints = constraints or {}
@@ -289,6 +290,7 @@ class BaseNTransformer(Transformer):
     lossless = True
     stateful = True
     handles_na = False
+    variable_domain = True
 
     def __init__(self, base: int = 2, **_) -> None:
         self.base = base

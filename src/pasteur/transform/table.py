@@ -14,6 +14,7 @@ DEFAULT_TYPES = list(DEFAULT_TRANSFORMERS.keys())
 class Attribute(NamedTuple):
     cols: list[str] = []
     has_na: bool = False
+    var_dom: bool = False
     h: int = 0
 
 
@@ -307,7 +308,7 @@ class TableTransformer:
             hier = t.get_hierarchy()
             attrs.update(hier)
             for attr, cols in hier.items():
-                attrs[attr] = Attribute(cols, t.has_na)
+                attrs[attr] = Attribute(cols, t.has_na, t.variable_domain)
 
         if table is None:
             return attrs
@@ -318,5 +319,5 @@ class TableTransformer:
             cols_in_attr.extend(a.cols)
 
         cols = [c for c in table.columns if c not in cols_in_attr]
-        attrs.update({c: Attribute([c], False) for c in cols})
+        attrs.update({c: Attribute([c], False, False) for c in cols})
         return attrs
