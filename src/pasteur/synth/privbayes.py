@@ -14,7 +14,13 @@ from .base import Synth, make_deterministic, process_in_parallel
 logger = logging.getLogger(__name__)
 
 MAX_EPSILON = 1e5 - 10
+# Marginal domain can not exceed max(uint16) size 65535
+# uint16 is 2x as fast as uint32 (5ms -> 3ms)
+# You'd need a dataset with at least 1 mil rows to use anything bigger anyway
+# Hierarchical values with NA value consume double the domain, so leave a buffer
 MAX_T = 1e4
+MAX_DOMAIN = 65535 + 1
+MAR_DTYPE = "uint16"
 
 
 class Node(NamedTuple):
@@ -36,13 +42,15 @@ def calc_marginal(
     x_dom = reduce(lambda a, b: a * b, domain[x], 1)
     p_dom = reduce(lambda a, b: a * b, domain[p], 1)
 
-    idx = np.zeros((len(data)), dtype="uint16")
-    tmp = np.empty((len(data)), dtype="uint16")
+    idx = np.zeros((len(data)), dtype=MAR_DTYPE)
+    tmp = np.empty((len(data)), dtype=MAR_DTYPE)
     mul = 1
     for col in reversed(xp):
         # idx += mul*data[:, col]
         np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
         mul *= domain[col]
+
+    assert mul <= MAX_DOMAIN, f"Domain overflowed: {mul}>{MAX_DOMAIN}."
 
     counts = np.bincount(idx, minlength=x_dom * p_dom)
     margin = counts.reshape(x_dom, p_dom).astype("float")
@@ -66,13 +74,15 @@ def calc_marginal_1way(
 
     x_dom = reduce(lambda a, b: a * b, domain[x], 1)
 
-    idx = np.zeros((len(data)), dtype="uint16")
-    tmp = np.empty((len(data)), dtype="uint16")
+    idx = np.zeros((len(data)), dtype=MAR_DTYPE)
+    tmp = np.empty((len(data)), dtype=MAR_DTYPE)
     mul = 1
     for col in reversed(x):
         # idx += mul*data[:, col]
         np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
         mul *= domain[col]
+
+    assert mul <= MAX_DOMAIN, f"Domain overflowed: {mul}>{MAX_DOMAIN}."
 
     counts = np.bincount(idx, minlength=x_dom)
     margin = counts.astype("float")
@@ -151,7 +161,7 @@ def greedy_bayes(
 
     # 30k is a sweet spot for categorical variables
     # Dropping pandas for a 5x in speed when calculating marginals
-    data = data.to_numpy(dtype="uint16")
+    data = data.to_numpy(dtype=MAR_DTYPE)
     domain = data.max(axis=0) + 1
 
     n = len(data)
@@ -397,16 +407,18 @@ def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: flo
         p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
         cols = p_cols + x_cols
 
-        sub_data = data[cols].to_numpy(dtype="int64")
+        sub_data = data[cols].to_numpy(dtype=MAR_DTYPE)
         sub_domain = sub_data.max(axis=0) + 1
 
-        idx = np.zeros((len(data)), dtype="uint16")
-        tmp = np.empty((len(data)), dtype="uint16")
+        idx = np.zeros((len(data)), dtype=MAR_DTYPE)
+        tmp = np.empty((len(data)), dtype=MAR_DTYPE)
         mul = 1
         for i in reversed(range(len(cols))):
             # idx += mul*data[:, col]
             np.add(idx, np.multiply(mul, sub_data[:, i], out=tmp), out=idx)
             mul *= sub_domain[i]
+
+        assert mul <= MAX_DOMAIN, f"Domain overflowed: {mul}>{MAX_DOMAIN}."
 
         x_dom = reduce(lambda a, b: a * b, sub_domain, 1)
 
@@ -462,7 +474,7 @@ def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: flo
 
 
 def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
-    out = pd.DataFrame(dtype="int16")
+    out = pd.DataFrame(dtype=MAR_DTYPE)
 
     for (x, p), marginal in zip(nodes, marginals):
         x_cols = x.cols[: len(x.cols) - x.h]
@@ -495,14 +507,14 @@ def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
             # Store those groups and sample them uniformly when that happens.
             blacklist = np.any(np.isnan(m), axis=1)
 
-            p_idx = np.zeros(n, dtype="uint16")
+            p_idx = np.zeros(n, dtype=MAR_DTYPE)
             for name in p_cols:
-                p_idx *= domain[name]
-                p_idx += out[name].to_numpy()
+                p_idx *= np.uint16(domain[name])
+                p_idx += out[name].to_numpy(dtype=MAR_DTYPE)
 
             # Apply conditional probability by group
             # groups are proportional to dom(P) = vectorized
-            idx = np.empty(len(p_idx), dtype="uint16")
+            idx = np.empty(len(p_idx), dtype=MAR_DTYPE)
             for group in np.unique(p_idx):
                 size = np.sum(p_idx == group)
                 idx[p_idx == group] = np.random.choice(
