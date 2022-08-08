@@ -5,5 +5,5 @@ from .privbayes import *
 # from .sdv import *
 
 
-def get_algs():
+def get_synth():
     return find_subclasses(Synth)

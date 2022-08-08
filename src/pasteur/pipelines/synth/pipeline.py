@@ -1,9 +1,8 @@
 from typing import Collection, Dict
 
-from kedro.pipeline import Pipeline, node, pipeline
+from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ...synth import get_algs as synth_get_algs
 from ...synth import synth_fit_closure, synth_sample
 from .transform import (
     find_ids,
@@ -65,11 +64,11 @@ def create_transform_pipeline(
 def create_synth_pipeline(
     view: str,
     split: str,
-    alg: str,
+    cls: str,
     tables: Collection[str],
     requirements: Dict[str, Collection[str]] | None = None,
 ):
-    cls = synth_get_algs()[alg]
+    alg = cls.name
     type = cls.type
     if requirements is None:
         requirements = {}
@@ -121,7 +120,3 @@ def create_synth_pipeline(
             **{f"trn_{t}": f"{view}.{split}.trn_{t}" for t in tables},
         },
     )
-
-
-def get_algs():
-    return synth_get_algs()

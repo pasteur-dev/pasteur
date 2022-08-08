@@ -1,10 +1,3 @@
-mimic:
-  ratios:
-    wrk: 0.4
-    ref: 0.4
-    val: 0.1
-    dev: 0.1
-
 mimic_mm_core:
   tables:
     patients:
@@ -48,6 +41,12 @@ mimic_mm_core:
         intime: datetime|day.halfhour:admissions.admittime
         outtime: datetime?|day.halfhour:intime
 
+  ratios:
+    wrk: 0.4
+    ref: 0.4
+    val: 0.1
+    dev: 0.1
+
 mimic_tab_admissions:
   tables:
     table:
@@ -74,3 +73,9 @@ mimic_tab_admissions:
         ethnicity: categorical
         hospital_expire_flag: categorical
         gender: categorical
+
+  ratios:
+    wrk: 0.4
+    ref: 0.4
+    val: 0.1
+    dev: 0.1

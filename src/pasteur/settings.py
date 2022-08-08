@@ -15,19 +15,17 @@ install(show_locals=False)
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
 from .pipelines.measure import CustomMlflowTrackingHook
-from .pipelines.synth import AddDatasetsForViewsHook, get_algs
-from .pipelines.mimic import get_datasets as get_mimic_datasets
-from .pipelines.tabular import get_datasets as get_tab_datasets
+from .pipelines.synth import AddDatasetsForViewsHook
 
 from .metadata import DEFAULT_TRANSFORMERS
 
 types = list(DEFAULT_TRANSFORMERS.keys())
 
-datasets = {**get_mimic_datasets(), **get_tab_datasets()}
-algs = get_algs()
+from .pipeline_registry import algs, tables
+
 HOOKS = (
-    AddDatasetsForViewsHook(datasets, algs, types),
-    CustomMlflowTrackingHook(datasets, algs),
+    AddDatasetsForViewsHook(tables, algs, types),
+    CustomMlflowTrackingHook(tables, algs),
 )
 
 # Installed plugins for which to disable hook auto-registration.
