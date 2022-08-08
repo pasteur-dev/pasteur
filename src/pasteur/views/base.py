@@ -15,7 +15,7 @@ def filter_by_keys(
         # assert len.keys() == 1, "Keys df should only have one column"
         # col = keys.keys()[0]
 
-    out = []
+    out = {}
     for name, table in tables.items():
         idx = table.index.name
         new_table = table.reset_index(drop=not idx).merge(keys, on=col)

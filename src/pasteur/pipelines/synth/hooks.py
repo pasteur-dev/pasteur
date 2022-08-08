@@ -75,6 +75,13 @@ class AddDatasetsForViewsHook:
         self.catalog = catalog
 
         for dataset, tables in self.datasets.items():
+            for split in ["wrk", "ref", "val", "dev"]:
+                self.add_set(
+                    "keys",
+                    f"{dataset}.keys.{split}",
+                    ["views", "keys", dataset, split],
+                )
+
             for table in tables:
                 self.add_set(
                     "primary",

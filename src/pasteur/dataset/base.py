@@ -88,7 +88,7 @@ class Dataset:
         def keys_fun(
             split: dict[str, float], random_state: int, **tables: pd.DataFrame
         ):
-            splits = self.keys(split, random_state, tables)
+            splits = self.keys(split, random_state, **tables)
             return {name: split for name, split in splits.items() if name in req_splits}
 
         return keys_fun
