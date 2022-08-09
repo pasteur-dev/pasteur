@@ -36,10 +36,12 @@ def generate_pipelines(
 
     splits = ["wrk", "ref", "val", "dev"]
 
-    pipelines = {}
-    merge_pipes = lambda pipes: reduce(lambda a, b: a + b, pipes, pipeline([]))
+    # Store complete pipelines first for kedro viz (main vs extra pipelines)
+    main_pipes = {}
+    extr_pipes = {}
+    # merge_pipes = lambda pipes: reduce(lambda a, b: a + b, pipes, pipeline([]))
 
-    # Ingest Pipelines
+    ## Ingest Pipelines
     # pipe_ingest_datasets = merge_pipes(
     #     create_dataset_pipeline(d) for d in datasets.values()
     # )
@@ -64,7 +66,7 @@ def generate_pipelines(
             + create_filter_pipeline(view, splits)
             + pipe_transform
         )
-        pipelines[f"{name}.ingest"] = pipe_ingest
+        extr_pipes[f"{name}.ingest"] = pipe_ingest
 
         # Algorithm pipeline
         for alg, cls in algs.items():
@@ -73,23 +75,34 @@ def generate_pipelines(
             )
             pipe_measure = create_measure_pipeline(name, "wrk", alg, view.tables)
 
-            pipelines[f"{name}.{alg}"] = (
-                pipe_ingest + pipe_transform + pipe_synth + pipe_measure
-            )
-            pipelines[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
-            pipelines[f"{name}.{alg}.measure"] = pipe_measure
+            complete_pipe = pipe_ingest + pipe_transform + pipe_synth + pipe_measure
+
+            if "ident" in alg:
+                # Hide ident pipelines
+                extr_pipes[f"{name}.{alg}"] = complete_pipe
+            else:
+                main_pipes[f"{name}.{alg}"] = complete_pipe
+            extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
+            extr_pipes[f"{name}.{alg}.measure"] = pipe_measure
 
         # Validation (sister dataset)
         pipe_measure = create_measure_pipeline(name, "wrk", "ref", view.tables)
-        # pipelines[f"{name}.ref"] = pipe_ingest + pipe_measure
-        pipelines[f"{name}.ref.measure"] = pipe_measure
+        main_pipes[f"{name}.ref"] = pipe_ingest + pipe_measure
+        extr_pipes[f"{name}.ref.measure"] = pipe_measure
 
-    pipelines["__default__"] = pipelines[default]
-    # pipelines["ingest"] = pipe_ingest_all
-    # pipelines["ingest.datasets"] = pipe_ingest_datasets
-    # pipelines["ingest.views"] = pipe_ingest_views
+    # extr_pipes["ingest"] = pipe_ingest_all
+    # extr_pipes["ingest.datasets"] = pipe_ingest_datasets
+    # extr_pipes["ingest.views"] = pipe_ingest_views
 
     algs_str = list(algs.keys())
     tables = {n: v.tables for n, v in views.items()}
 
-    return pipelines, algs_str, tables
+    # Hide extra pipes at the bottom of kedro viz
+    # dictionaries are ordered
+    pipes = {}
+    pipes["__default__"] = main_pipes.get(default, extr_pipes.get(default, []))
+    pipes.update(main_pipes)
+    pipes["__misc_pipelines__"] = pipeline([])
+    pipes.update(extr_pipes)
+
+    return pipes, algs_str, tables
