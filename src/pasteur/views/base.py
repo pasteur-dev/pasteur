@@ -22,7 +22,7 @@ def filter_by_keys(
         if idx:
             new_table = new_table.set_index(idx)
 
-        out[name] = table
+        out[name] = new_table
 
     return out
 

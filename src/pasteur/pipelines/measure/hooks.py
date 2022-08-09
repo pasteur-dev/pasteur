@@ -98,8 +98,8 @@ class CustomMlflowTrackingHook(MlflowHook):
         params.pop("tables", {})
         ratios = params.pop("ratios", {})
         algs = params.pop("algs", {})
-        params["alg"] = alg
-        params[alg] = algs.get(alg, {})
+        params["alg.name"] = alg
+        params["alg"] = algs.get(alg, {})
 
         # The rest of the parameters get flattened
         flattened_params = _flatten_dict(
