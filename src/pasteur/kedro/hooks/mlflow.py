@@ -14,7 +14,7 @@ from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
 from kedro_mlflow.framework.hooks import MlflowHook
 
-from ..utils import merge_dicts
+from ...utils import merge_dicts
 
 
 class CustomMlflowTrackingHook(MlflowHook):

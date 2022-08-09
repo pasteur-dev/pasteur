@@ -9,9 +9,9 @@ from .measure import create_pipeline as create_measure_pipeline
 from .synth import create_synth_pipeline, create_transform_pipeline
 from .views import create_filter_pipeline, create_view_pipeline
 
-from ..dataset import get_datasets, Dataset
-from ..views import get_views, View
-from ..synth import get_synth, Synth
+from ...dataset import get_datasets, Dataset
+from ...views import get_views, View
+from ...synth import get_synth, Synth
 
 
 def generate_pipelines(

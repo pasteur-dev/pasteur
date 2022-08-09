@@ -172,7 +172,6 @@ class IdentSynth(Synth):
 
     def fit(
         self,
-        attrs,
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):

@@ -1,7 +1,7 @@
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ..views import View
+from ...views import View
 
 
 def create_view_pipeline(view: View):

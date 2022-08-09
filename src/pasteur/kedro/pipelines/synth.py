@@ -4,10 +4,10 @@ import pandas as pd
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ..metadata import Metadata
-from ..synth import synth_fit_closure, synth_sample
-from ..transform import TableTransformer
-from ..utils import get_params_for_pipe
+from ...metadata import Metadata
+from ...synth import synth_fit_closure, synth_sample
+from ...transform import TableTransformer
+from ...utils import get_params_for_pipe
 
 
 def fit_table_closure(view: str, name: str, types: Collection[str]):

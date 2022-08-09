@@ -1,6 +1,4 @@
-"""Project settings. There is no need to edit this file unless you want to change values
-from the Kedro defaults. For further information, including these default values, see
-https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
+"""https://kedro.readthedocs.io/en/stable/kedro_project_setup/settings.html."""
 
 # FIXME: disable logging until customized logger loads
 # context: currently kedro/config/logging.yml is too agressive and causes info
@@ -14,7 +12,7 @@ install(show_locals=False)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from .hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
+from .kedro.hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
 
 from .metadata import DEFAULT_TRANSFORMERS
 

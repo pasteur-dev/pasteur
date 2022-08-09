@@ -1,6 +1,6 @@
 from kedro.pipeline import Pipeline, pipeline
 
-from .pipelines.main import generate_pipelines
+from .kedro.pipelines.main import generate_pipelines
 
 sel_views = []
 sel_algs = ["privbayes", "ident_bhr"]
