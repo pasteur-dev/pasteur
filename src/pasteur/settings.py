@@ -14,8 +14,7 @@ install(show_locals=False)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from .pipelines.measure import CustomMlflowTrackingHook
-from .pipelines.synth import AddDatasetsForViewsHook
+from .hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
 
 from .metadata import DEFAULT_TRANSFORMERS
 

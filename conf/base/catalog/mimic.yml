@@ -492,27 +492,3 @@ mimic.icu_outputevents:
 mimic.icu_procedureevents:
   <<: *mimic_pq
   filepath: ${base_location}/orig/interim/mimic/icu/procedureevents.pq
-
-#
-# Keys
-#
-_mimic_keys: &mimic_keys
-  type: pandas.ParquetDataSet
-  layer: keys
-  filepath: ""
-
-mimic.keys_wrk:
-  <<: *mimic_keys
-  filepath: ${base_location}/orig/keys/mimic/keys.wrk.pq
-
-mimic.keys_ref:
-  <<: *mimic_keys
-  filepath: ${base_location}/orig/keys/mimic/keys.ref.pq
-
-mimic.keys_dev:
-  <<: *mimic_keys
-  filepath: ${base_location}/orig/keys/mimic/keys.dev.pq
-
-mimic.keys_val:
-  <<: *mimic_keys
-  filepath: ${base_location}/orig/keys/mimic/keys.val.pq

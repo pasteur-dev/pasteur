@@ -14,7 +14,7 @@ from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
 from kedro_mlflow.framework.hooks import MlflowHook
 
-from ...utils import merge_dicts
+from ..utils import merge_dicts
 
 
 class CustomMlflowTrackingHook(MlflowHook):
@@ -70,10 +70,8 @@ class CustomMlflowTrackingHook(MlflowHook):
                 f"Pipeline name {run_params['pipeline_name']} is not compatible with MlFlow hook, skipping logging parameters."
             )
             return
-        (
-            current_view,
-            alg,
-        ) = pipe_seg
+        current_view = pipe_seg[0]
+        alg = pipe_seg[1]
 
         # We use 3 namespaces:
         # the unbounded namespace with highest priority, which is used for overrides

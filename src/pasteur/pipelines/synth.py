@@ -1,15 +1,64 @@
 from typing import Collection, Dict
 
+import pandas as pd
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ...synth import synth_fit_closure, synth_sample
-from .transform import (
-    find_ids,
-    fit_table_closure,
-    reverse_table_closure,
-    transform_table_closure,
-)
+from ..metadata import Metadata
+from ..synth import synth_fit_closure, synth_sample
+from ..transform import TableTransformer
+
+
+def fit_table_closure(name: str, types: Collection[str]):
+    def fit_table(metadata: dict, params: dict, **tables: dict[str, pd.DataFrame]):
+        meta = Metadata(metadata, tables, params)
+        t = TableTransformer(meta, name, types)
+        t.fit(tables)
+        return t
+
+    return fit_table
+
+
+def find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
+    return transformer.find_ids(tables)
+
+
+def transform_table_closure(type: str):
+    def transform_table(
+        transformer: TableTransformer,
+        ids: pd.DataFrame,
+        **tables: dict[str, pd.DataFrame],
+    ):
+        return transformer.transform(type, tables, ids)
+
+    return transform_table
+
+
+def reverse_table_closure(type: str):
+    def reverse_table(
+        transformer: TableTransformer,
+        ids: pd.DataFrame,
+        table: pd.DataFrame,
+        **parents: dict[str, pd.DataFrame],
+    ):
+        return transformer.reverse(type, table, ids, parents)
+
+    return reverse_table
+
+
+def transform_table_tab(
+    transformer: TableTransformer, **tables: dict[str, pd.DataFrame]
+):
+    table = transformer.transform(tables)
+    return table
+
+
+def reverse_table_tab(
+    transformer: TableTransformer,
+    table: pd.DataFrame,
+    **parents: dict[str, pd.DataFrame],
+):
+    return transformer.reverse(table, None, parents)
 
 
 def create_transform_pipeline(
