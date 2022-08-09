@@ -32,8 +32,11 @@ class AddDatasetsForViewsHook:
         return logging.getLogger(self.__class__.__name__)
 
     def get_version(self, name: str, versioned: bool):
+        load_version = (
+            self.load_versions.get(name, None) if self.load_versions else None
+        )
         if versioned:
-            return Version(self.load_versions.get(name, None), self.save_version)
+            return Version(load_version, self.save_version)
         return None
 
     def add_set(self, layer, name, path_seg, versioned=False):
