@@ -1,6 +1,6 @@
 import logging
 from types import SimpleNamespace
-
+from .utils import merge_dicts
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -54,35 +54,6 @@ DEFAULT_TRANSFORMERS = {
 }
 
 DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
-
-
-def merge_two_dicts(a: dict, b: dict):
-    """Recursively merges dictionaries a, b by prioritizing b."""
-
-    ak = set(a.keys())
-    bk = set(b.keys())
-    out = {}
-
-    for k in ak - bk:
-        out[k] = a[k]
-    for k in bk - ak:
-        out[k] = b[k]
-
-    for k in ak.intersection(bk):
-        if isinstance(a[k], dict) and isinstance(b[k], dict):
-            out[k] = merge_two_dicts(a[k], b[k])
-        else:
-            out[k] = b[k]
-
-    return out
-
-
-def merge_dicts(*ds):
-    out = {}
-    for d in ds:
-        out = merge_two_dicts(out, d)
-
-    return out
 
 
 class ColumnMeta:

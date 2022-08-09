@@ -14,6 +14,8 @@ from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
 from kedro_mlflow.framework.hooks import MlflowHook
 
+from ...utils import merge_dicts
+
 
 class CustomMlflowTrackingHook(MlflowHook):
     def __init__(
@@ -61,45 +63,59 @@ class CustomMlflowTrackingHook(MlflowHook):
             self.mlflow_config.tracking.params.long_params_strategy
         )
 
-        # We track all of kedro params
-        mod_params = deepcopy(self.params)
-
-        # Remove unwanted parameters
-        mod_params.pop("base_location", {})
-
-        # First we start with params that should be considered together and as tags
-        # such as metadata
-        meta = {}
-
-        def get_meta(params: Dict, prefix=""):
-            for tag, sub_params in deepcopy(params).items():
-                # Pop Metadata and add it to meta dict
-                new_tag = f"{prefix}.{tag}" if prefix else tag
-                if not isinstance(sub_params, dict):
-                    continue
-                elif "metadata" in tag:
-                    meta[new_tag] = params.pop(tag)
-                else:
-                    get_meta(sub_params, new_tag)
-
-        get_meta(mod_params)
-
-        for name, metadata in meta.items():
-            mlflow.log_dict(
-                metadata, f"params/metadata/{name.replace('.metadata', '')}.yml"
+        # Get current view and alg
+        pipe_seg = run_params["pipeline_name"].split(".")
+        if len(pipe_seg) < 2:
+            self._logger.warn(
+                f"Pipeline name {run_params['pipeline_name']} is not compatible with MlFlow hook, skipping logging parameters."
             )
+            return
+        (
+            current_view,
+            alg,
+        ) = pipe_seg
+
+        # We use 3 namespaces:
+        # the unbounded namespace with highest priority, which is used for overrides
+        # the `<view>` namespace that sets the parameters for the specific view
+        # the `default` namespace that sets a baseline of parameters
+
+        override_params = deepcopy(self.params)
+        # Remove unwanted parameters
+        override_params.pop("base_location", {})
+        # Remove all views
+        for view in self.datasets:
+            override_params.pop(view, {})
+
+        # Get default and view params
+        default_params = deepcopy(self.params.get("default", {}))
+        view_params = deepcopy(self.params.get(current_view, {}))
+
+        # Create params that contain the alg data to log as parameters.
+        run_params = merge_dicts(view_params, default_params, override_params)
+        run_params.pop("default", {})
+        params = deepcopy(run_params)
+        params.pop("tables", {})
+        ratios = params.pop("ratios", {})
+        algs = params.pop("algs", {})
+        params["alg"] = alg
+        params[alg] = algs.get(alg, {})
 
         # The rest of the parameters get flattened
         flattened_params = _flatten_dict(
-            d=mod_params, recursive=self.recursive, sep=self.sep
+            d=params, recursive=self.recursive, sep=self.sep
         )
 
         # logging parameters based on defined strategy
         for k, v in flattened_params.items():
             self._log_param(k, v)
 
+        if ratios:
+            self._log_param("ratios", ratios)
+
         # And for good measure, store all parameters as a yml file
-        mlflow.log_dict(mod_params, f"params/parameters.yml")
+        mlflow.log_dict(self.params, f"params/all.yml")
+        mlflow.log_dict(run_params, f"params/run.yml")
 
     @hook_impl
     def before_node_run(
