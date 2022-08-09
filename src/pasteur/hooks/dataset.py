@@ -4,7 +4,7 @@ from os import path
 
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
-from kedro.io import DataCatalog
+from kedro.io import DataCatalog, Version
 from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
 
@@ -31,7 +31,12 @@ class AddDatasetsForViewsHook:
     def _logger(self):
         return logging.getLogger(self.__class__.__name__)
 
-    def add_set(self, layer, name, path_seg):
+    def get_version(self, name: str, versioned: bool):
+        if versioned:
+            return Version(self.load_versions.get(name, None), self.save_version)
+        return None
+
+    def add_set(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
             name,
             ParquetDataSet(
@@ -41,11 +46,12 @@ class AddDatasetsForViewsHook:
                     path_seg[-1] + ".pq",
                 ),
                 save_args=self.pq_save_args,
+                version=self.get_version(name, versioned),
             ),
         )
         self.catalog.layers[layer].add(name)
 
-    def add_pkl(self, layer, name, path_seg):
+    def add_pkl(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
             name,
             PickleDataSet(
@@ -53,7 +59,8 @@ class AddDatasetsForViewsHook:
                     self.base_location,
                     *path_seg[:-1],
                     path_seg[-1] + ".pkl",
-                )
+                ),
+                version=self.get_version(name, versioned),
             ),
         )
         self.catalog.layers[layer].add(name)
@@ -64,6 +71,8 @@ class AddDatasetsForViewsHook:
         catalog: DataCatalog,
         conf_catalog: Dict[str, Any],
         conf_creds: Dict[str, Any],
+        save_version: str,
+        load_versions: Dict[str, str],
     ) -> None:
         # Parquet converts timestamps, but synthetic data can contain ns variations
         # which result in a loss of quality. This causes an exception.
@@ -73,6 +82,8 @@ class AddDatasetsForViewsHook:
             "allow_truncated_timestamps": True,
         }
         self.catalog = catalog
+        self.save_version = save_version
+        self.load_versions = load_versions
 
         for view, tables in self.tables.items():
             for split in ["wrk", "ref", "val", "dev"]:
@@ -118,6 +129,7 @@ class AddDatasetsForViewsHook:
                     "synth_models",
                     f"{view}.{alg}.model",
                     ["synth", "models", f"{view}.{alg}"],
+                    versioned=True,
                 )
 
                 for table in tables:
@@ -126,10 +138,12 @@ class AddDatasetsForViewsHook:
                             "synth_encoded",
                             f"{view}.{alg}.{type}_{table}",
                             ["synth", type, f"{view}.{alg}", table],
+                            versioned=True,
                         )
 
                     self.add_set(
                         "synth_decoded",
                         f"{view}.{alg}.{table}",
                         ["synth", "dec", f"{view}.{alg}", table],
+                        versioned=True,
                     )
