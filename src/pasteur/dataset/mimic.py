@@ -41,5 +41,5 @@ class MimicDataset(Dataset):
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]
 
-    def keys(self, split: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        return split_keys(tables["core_patients"], split, random_state)
+    def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
+        return split_keys(tables["core_patients"], ratios, random_state)

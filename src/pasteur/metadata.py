@@ -212,14 +212,7 @@ class DatasetMeta:
         self,
         meta: dict,
         data: dict[str, pd.DataFrame] | None = None,
-        params: dict = None,
     ):
-        # `default` nanespace contains vals that can be overriden by the view namespace
-        # all can be overriden by the global namespace (ex by `-p a.b.c:3`) for
-        # hyperparameter tuning
-        if params is not None:
-            meta = merge_dicts(params.get("default", {}), meta, params)
-
         transformers = merge_dicts(
             DEFAULT_TRANSFORMERS,
             meta.get("transformers", {}),

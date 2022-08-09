@@ -1,7 +1,8 @@
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ..dataset import Dataset, get_datasets
+from ..dataset import Dataset
+from ..utils import get_params_closure
 
 
 def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
@@ -25,6 +26,8 @@ def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
 
 def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
     fun = dataset.keys_closure(splits) if splits else dataset.keys
+    fun = get_params_closure(fun, view, "ratios", "random_state")
+
     req_tables = {t: f"in_{t}" for t in dataset.key_deps}
     namespaced_tables = {f"in_{t}": f"{dataset.name}.raw@{t}" for t in dataset.key_deps}
 
@@ -33,8 +36,7 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
             node(
                 func=fun,
                 inputs={
-                    "split": "params:ratios",
-                    "random_state": "params:random_state",
+                    "params": "parameters",
                     **req_tables,
                 },
                 outputs={s: f"keys.{s}" for s in splits},
@@ -46,5 +48,5 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
         pipe=pipe,
         namespace=view,
         inputs=namespaced_tables,
-        parameters={"random_state": "random_state"},
+        parameters={"parameters": "parameters"},
     )

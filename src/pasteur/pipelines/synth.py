@@ -7,11 +7,13 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from ..metadata import Metadata
 from ..synth import synth_fit_closure, synth_sample
 from ..transform import TableTransformer
+from ..utils import get_params_for_pipe
 
 
-def fit_table_closure(name: str, types: Collection[str]):
-    def fit_table(metadata: dict, params: dict, **tables: dict[str, pd.DataFrame]):
-        meta = Metadata(metadata, tables, params)
+def fit_table_closure(view: str, name: str, types: Collection[str]):
+    def fit_table(params: dict, **tables: dict[str, pd.DataFrame]):
+        meta_dict = get_params_for_pipe(view, params)
+        meta = Metadata(meta_dict, tables)
         t = TableTransformer(meta, name, types)
         t.fit(tables)
         return t
@@ -72,9 +74,8 @@ def create_transform_pipeline(
     for t in tables:
         table_nodes += [
             node(
-                func=fit_table_closure(t, types),
+                func=fit_table_closure(view, t, types),
                 inputs={
-                    "metadata": "params:metadata",
                     "params": "parameters",
                     **{t: t for t in tables},
                 },
@@ -104,7 +105,6 @@ def create_transform_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
         parameters={
-            "metadata": f"{view}",
             "parameters": f"parameters",
         },
     )

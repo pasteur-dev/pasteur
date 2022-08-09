@@ -80,15 +80,15 @@ class Dataset:
         return fun
 
     def keys(
-        self, split: dict[str, float], random_state: int, **tables: pd.DataFrame
+        self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
     ) -> dict[str, pd.DataFrame]:
         assert False, "Unimplemented"
 
     def keys_closure(self, req_splits: list[str]):
         def keys_fun(
-            split: dict[str, float], random_state: int, **tables: pd.DataFrame
+            ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
         ):
-            splits = self.keys(split, random_state, **tables)
+            splits = self.keys(ratios, random_state, **tables)
             return {name: split for name, split in splits.items() if name in req_splits}
 
         return keys_fun
@@ -104,5 +104,5 @@ class TabularDataset(Dataset):
         df.index.name = "id"
         return {"table": df}
 
-    def keys(self, split: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        return split_keys(tables["table"], split, random_state)
+    def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
+        return split_keys(tables["table"], ratios, random_state)
