@@ -40,16 +40,16 @@ def generate_pipelines(
     merge_pipes = lambda pipes: reduce(lambda a, b: a + b, pipes, pipeline([]))
 
     # Ingest Pipelines
-    pipe_ingest_datasets = merge_pipes(
-        create_dataset_pipeline(d) for d in datasets.values()
-    )
-    pipe_ingest_views = merge_pipes(
-        create_keys_pipeline(datasets[v.dataset], n, splits)
-        + create_view_pipeline(v)
-        + create_filter_pipeline(v, splits)
-        for n, v in views.items()
-    )
-    pipe_ingest_all = pipe_ingest_datasets + pipe_ingest_views
+    # pipe_ingest_datasets = merge_pipes(
+    #     create_dataset_pipeline(d) for d in datasets.values()
+    # )
+    # pipe_ingest_views = merge_pipes(
+    #     create_keys_pipeline(datasets[v.dataset], n, splits)
+    #     + create_view_pipeline(v)
+    #     + create_filter_pipeline(v, splits)
+    #     for n, v in views.items()
+    # )
+    # pipe_ingest_all = pipe_ingest_datasets + pipe_ingest_views
 
     for name, view in views.items():
         types = [s.type for s in algs.values() if s.tabular == view.tabular]
@@ -81,11 +81,15 @@ def generate_pipelines(
 
         # Validation (sister dataset)
         pipe_measure = create_measure_pipeline(name, "wrk", "ref", view.tables)
-        pipelines[f"{name}.ref"] = pipe_ingest + pipe_measure
+        # pipelines[f"{name}.ref"] = pipe_ingest + pipe_measure
         pipelines[f"{name}.ref.measure"] = pipe_measure
 
     pipelines["__default__"] = pipelines[default]
-    pipelines["ingest"] = pipe_ingest_all
-    pipelines["ingest.datasets"] = pipe_ingest_datasets
-    pipelines["ingest.views"] = pipe_ingest_views
-    return pipelines
+    # pipelines["ingest"] = pipe_ingest_all
+    # pipelines["ingest.datasets"] = pipe_ingest_datasets
+    # pipelines["ingest.views"] = pipe_ingest_views
+
+    algs_str = list(algs.keys())
+    tables = {n: v.tables for n, v in views.items()}
+
+    return pipelines, algs_str, tables

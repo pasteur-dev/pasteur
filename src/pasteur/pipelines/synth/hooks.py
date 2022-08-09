@@ -12,11 +12,11 @@ from kedro.extras.datasets.pickle import PickleDataSet
 class AddDatasetsForViewsHook:
     def __init__(
         self,
-        datasets: Dict[str, Collection[str]],
+        tables: Dict[str, Collection[str]],
         algs: Collection[str],
         types: Collection[str],
     ) -> None:
-        self.datasets = datasets
+        self.tables = tables
         self.algs = algs
         self.types = types
 
@@ -74,62 +74,62 @@ class AddDatasetsForViewsHook:
         }
         self.catalog = catalog
 
-        for dataset, tables in self.datasets.items():
+        for view, tables in self.tables.items():
             for split in ["wrk", "ref", "val", "dev"]:
                 self.add_set(
                     "keys",
-                    f"{dataset}.keys.{split}",
-                    ["views", "keys", dataset, split],
+                    f"{view}.keys.{split}",
+                    ["views", "keys", view, split],
                 )
 
             for table in tables:
                 self.add_set(
                     "primary",
-                    f"{dataset}.view.{table}",
-                    ["views", "primary", dataset, table],
+                    f"{view}.view.{table}",
+                    ["views", "primary", view, table],
                 )
 
                 # Add datasets for splits
                 for split in ["wrk", "ref", "val", "dev"]:
                     self.add_set(
                         "split",
-                        f"{dataset}.{split}.{table}",
-                        ["views", "primary", f"{dataset}.{split}", table],
+                        f"{view}.{split}.{table}",
+                        ["views", "primary", f"{view}.{split}", table],
                     )
 
                     # For each materialized view table, add datasets for encoded, decoded forms
                     for type in ["ids", *self.types]:
                         self.add_set(
                             "split_encoded",
-                            f"{dataset}.{split}.{type}_{table}",
-                            ["views", type, f"{dataset}.{split}", table],
+                            f"{view}.{split}.{type}_{table}",
+                            ["views", type, f"{view}.{split}", table],
                         )
 
                     # Add pickle dataset for transformers
                     self.add_pkl(
                         "transformers",
-                        f"{dataset}.{split}.trn_{table}",
-                        ["views", "transformer", f"{dataset}.{split}", table],
+                        f"{view}.{split}.trn_{table}",
+                        ["views", "transformer", f"{view}.{split}", table],
                     )
 
-        for dataset, tables in self.datasets.items():
+        for view, tables in self.tables.items():
             for alg in self.algs:
                 self.add_pkl(
                     "synth_models",
-                    f"{dataset}.{alg}.model",
-                    ["synth", "models", f"{dataset}.{alg}"],
+                    f"{view}.{alg}.model",
+                    ["synth", "models", f"{view}.{alg}"],
                 )
 
                 for table in tables:
                     for type in ("enc", "ids"):
                         self.add_set(
                             "synth_encoded",
-                            f"{dataset}.{alg}.{type}_{table}",
-                            ["synth", type, f"{dataset}.{alg}", table],
+                            f"{view}.{alg}.{type}_{table}",
+                            ["synth", type, f"{view}.{alg}", table],
                         )
 
                     self.add_set(
                         "synth_decoded",
-                        f"{dataset}.{alg}.{table}",
-                        ["synth", "dec", f"{dataset}.{alg}", table],
+                        f"{view}.{alg}.{table}",
+                        ["synth", "dec", f"{view}.{alg}", table],
                     )
