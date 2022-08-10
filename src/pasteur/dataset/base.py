@@ -102,7 +102,9 @@ class TabularDataset(Dataset):
         assert name == "table"
         df = tables["table"].copy()
         df.index.name = "id"
-        return {"table": df}
+        return df
 
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        return split_keys(tables["table"], ratios, random_state)
+        df = tables["table"].copy()
+        df.index.name = "id"
+        return split_keys(df, ratios, random_state)
