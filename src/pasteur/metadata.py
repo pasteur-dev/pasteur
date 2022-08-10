@@ -225,6 +225,7 @@ class DatasetMeta:
             for name, tmeta in meta["tables"].items()
         }
 
+        self.alg_override = meta.get("alg", {})
         self.algs = meta.get("algs", {})
         self.seed = meta.get("random_state", None)
         self.random_state = self.seed

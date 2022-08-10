@@ -13,7 +13,7 @@ from .base import Synth, make_deterministic, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
-MAX_EPSILON = 1e5 - 10
+MAX_EPSILON = 1e3 - 10
 MAX_T = 1e5
 
 

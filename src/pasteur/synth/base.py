@@ -140,11 +140,9 @@ def synth_fit_closure(cls):
         }
 
         meta = next(iter(transformers.values())).meta
-        model = (
-            cls(**meta.algs[cls.name], seed=meta.seed)
-            if cls.name in meta.algs
-            else cls(seed=meta.seed)
-        )
+        algs = {**meta.algs.get(cls.name, {}), **meta.alg_override}
+
+        model = cls(**algs, seed=meta.seed)
         model.bake(attrs, data, ids)
         model.fit(data, ids)
         return model
