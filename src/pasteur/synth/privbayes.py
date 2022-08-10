@@ -5,11 +5,11 @@ from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
-from tqdm.asyncio import tqdm, trange
 
 from pasteur.transform.table import Attribute
 
-from .base import Synth, make_deterministic, process_in_parallel
+from .base import Synth, make_deterministic
+from ..progress import process_in_parallel, piter, prange
 
 logger = logging.getLogger(__name__)
 
@@ -344,10 +344,10 @@ def greedy_bayes(
     V = [x1]
     N = [(x1, empty_pset)]
 
-    for _ in trange(1, d, desc="Finding Nodes: "):
+    for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
 
-        for x in tqdm(A, leave=False, desc="Finding Maximal Parent sets: "):
+        for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
             psets = maximal_parent_sets(V, t / dom(x, 0))
             for pset in psets:
                 O.append((x, pset))

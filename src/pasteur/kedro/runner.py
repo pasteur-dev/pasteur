@@ -9,9 +9,9 @@ from kedro.io import AbstractDataSet, DataCatalog, MemoryDataSet
 from kedro.pipeline import Pipeline
 from kedro.runner.runner import AbstractRunner, run_node
 from pluggy import PluginManager
-from tqdm.asyncio import tqdm
-from tqdm.contrib.logging import logging_redirect_tqdm
 import logging
+
+from ..progress import piter, logging_redirect_pbar
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +96,14 @@ class JupyterRunner(AbstractRunner):
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
 
-        with logging_redirect_tqdm(loggers=self.loggers):
-            params = f" with overrides `{self.params_str}`" if self.params_str else ""
-            logger.info(f"Executing pipeline {self.pipe_name}" + params)
+        with logging_redirect_pbar(loggers=self.loggers):
+            desc = f"Executing pipeline {self.pipe_name}"
+            desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
-            pbar = tqdm(nodes, desc="Executing tasks.", leave=True, position=0)
+            pbar = piter(nodes, desc=desc, leave=True)
             for exec_index, node in enumerate(pbar):
                 node_name = node.name.split("(")[0]
-                pbar.set_description(f"Executing {node_name}")
+                # pbar.set_description(f"Executing {node_name}")
                 try:
                     run_node(node, catalog, hook_manager, self._is_async, session_id)
                     done_nodes.add(node)
@@ -123,3 +123,7 @@ class JupyterRunner(AbstractRunner):
                 # logger.info(
                 #     f"Completed node {exec_index + 1:2d}/{len(nodes):2d}: {node_name}"
                 # )
+
+            if exec_index == len(nodes) - 1:
+                pbar.set_description(desc.replace("Executing", "Executed"))
+                pbar.update(len(nodes))

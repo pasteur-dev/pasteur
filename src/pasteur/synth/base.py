@@ -1,64 +1,14 @@
 import logging
 import random
-from os import cpu_count
 
 import numpy as np
 import pandas as pd
-from tqdm.contrib.concurrent import process_map, thread_map
-from tqdm.asyncio import tqdm
 
 from pasteur.transform.table import Attribute
 
 from ..transform import TableTransformer
 
 logger = logging.getLogger(__name__)
-
-
-def calc_worker(args):
-    fun, base_args, chunk = args
-    out = []
-    for op in chunk:
-        args = {**base_args, **op} if base_args else op
-        out.append(fun(**args))
-
-    return out
-
-
-def process_in_parallel(
-    fun: callable,
-    per_call_args: list[dict],
-    base_args: dict[str, any] | None = None,
-    min_chunk_size: int = 100,
-    desc: str | None = None,
-):
-    """Processes arguments in parallel using python's multiprocessing and prints progress bar.
-
-    Task is split into chunks based on CPU cores and each process handles a chunk of
-    calls before exiting."""
-    if len(per_call_args) < 2 * min_chunk_size:
-        return calc_worker((fun, base_args, per_call_args))
-
-    chunk_n = min(cpu_count() * 5, len(per_call_args) // min_chunk_size)
-    per_call_n = len(per_call_args) // chunk_n
-
-    chunks = np.array_split(per_call_args, chunk_n)
-
-    args = []
-    for chunk in chunks:
-        args.append((fun, base_args, chunk))
-
-    res = process_map(
-        calc_worker,
-        args,
-        desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
-        leave=False,
-        tqdm_class=tqdm,
-    )
-    out = []
-    for sub_arr in res:
-        out.extend(sub_arr)
-
-    return out
 
 
 def make_deterministic(obj_func):
