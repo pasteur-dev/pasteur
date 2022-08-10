@@ -19,7 +19,7 @@ def cli():
     nargs=-1,
     type=str,
 )
-def r(pipeline, params):
+def p(pipeline, params):
     """Modified version of run with minified logging and shorter syntax"""
 
     param_dict = str_params_to_dict(params)

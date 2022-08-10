@@ -97,7 +97,8 @@ class CustomMlflowTrackingHook(MlflowHook):
         ratios = params.pop("ratios", {})
         algs = params.pop("algs", {})
         params["alg._name"] = alg
-        params["alg"] = algs.get(alg, {})
+        params["alg"] = merge_dicts(algs.get(alg, {}), params.pop("alg", {}))
+        params["view"] = current_view
 
         # The rest of the parameters get flattened
         flattened_params = _flatten_dict(

@@ -625,7 +625,7 @@ class PrivBayesSynth(Synth):
         self.n = len(table)
         noise = 2 * self.d / (self.n * self.e2)
         if self.e2 > MAX_EPSILON:
-            logger.info(f"Considering e2={self.e2} unbounded, sampling without DP.")
+            logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
         self.marginals = calc_noisy_marginals(table, self.nodes, noise)
 
     @make_deterministic
