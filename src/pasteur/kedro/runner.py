@@ -1,5 +1,7 @@
 """``JupyterRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
 loading bar (friendlier for jupyter). It also force enables async save of datasets.
+
+The TQDM loading bar is only activated if the pipeline is large enough.
 """
 
 from collections import Counter
@@ -14,6 +16,8 @@ import logging
 from ..progress import piter, logging_redirect_pbar
 
 logger = logging.getLogger(__name__)
+
+PROGRESS_BAR_MIN_PIPE_LEN = 9
 
 
 def simplify_logging():
@@ -96,14 +100,21 @@ class JupyterRunner(AbstractRunner):
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
 
+        use_pbar = len(nodes) >= PROGRESS_BAR_MIN_PIPE_LEN
+
         with logging_redirect_pbar(loggers=self.loggers):
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
-            pbar = piter(nodes, desc=desc, leave=True)
+            if use_pbar:
+                pbar = piter(nodes, desc=desc, leave=True)
+            else:
+                pbar = nodes
+                logger.info(desc)
             for exec_index, node in enumerate(pbar):
                 node_name = node.name.split("(")[0]
-                # pbar.set_description(f"Executing {node_name}")
+                if use_pbar:
+                    pbar.set_description(f"Executing {node_name}")
                 try:
                     run_node(node, catalog, hook_manager, self._is_async, session_id)
                     done_nodes.add(node)
@@ -120,10 +131,11 @@ class JupyterRunner(AbstractRunner):
                     if load_counts[data_set] < 1 and data_set not in pipeline.outputs():
                         catalog.release(data_set)
 
-                # logger.info(
-                #     f"Completed node {exec_index + 1:2d}/{len(nodes):2d}: {node_name}"
-                # )
+                if not use_pbar:
+                    logger.info(
+                        f"Completed node {exec_index + 1:2d}/{len(nodes):2d}: {node_name}"
+                    )
 
-            if exec_index == len(nodes) - 1:
+            if use_pbar and exec_index == len(nodes) - 1:
                 pbar.set_description(desc.replace("Executing", "Executed"))
                 pbar.update(len(nodes))

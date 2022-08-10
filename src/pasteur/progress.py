@@ -1,4 +1,6 @@
-"""Wraps the tqdm module so the same modules are used across the project"""
+"""Wraps the tqdm module so the same modules are used across the project.
+
+Deals with vs code jupyter not supporting multiple progress bars."""
 
 from os import cpu_count
 
@@ -8,10 +10,9 @@ from tqdm.asyncio import tqdm
 from tqdm.contrib.concurrent import process_map, thread_map
 from tqdm.contrib.logging import logging_redirect_tqdm
 from tqdm.std import tqdm as std_tqdm
-import os
 
-# VS code jupyter extension doesn't support going up lines
-# This means up to 1 loading bar that works
+# VS code jupyter extension doesn't support going up lines (moving cursor)
+# This means up to 1 loading bar works
 # However, if there's another one with leave=True it can also be shown
 # Any more than that and it causes garbage to build up at the output.
 JUPYTER_MAX_NEST = 2
