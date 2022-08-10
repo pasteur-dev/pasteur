@@ -5,7 +5,7 @@ from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
-from tqdm.auto import tqdm, trange
+from tqdm.asyncio import tqdm, trange
 
 from pasteur.transform.table import Attribute
 

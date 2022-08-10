@@ -85,13 +85,13 @@ class Dataset:
         assert False, "Unimplemented"
 
     def keys_closure(self, req_splits: list[str]):
-        def keys_fun(
+        def gen_keys(
             ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
         ):
             splits = self.keys(ratios, random_state, **tables)
             return {name: split for name, split in splits.items() if name in req_splits}
 
-        return keys_fun
+        return gen_keys
 
 
 class TabularDataset(Dataset):

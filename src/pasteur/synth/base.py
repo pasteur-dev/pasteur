@@ -5,6 +5,7 @@ from os import cpu_count
 import numpy as np
 import pandas as pd
 from tqdm.contrib.concurrent import process_map, thread_map
+from tqdm.asyncio import tqdm
 
 from pasteur.transform.table import Attribute
 
@@ -51,6 +52,7 @@ def process_in_parallel(
         args,
         desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
         leave=False,
+        tqdm_class=tqdm,
     )
     out = []
     for sub_arr in res:

@@ -103,4 +103,5 @@ def get_params_closure(fun: callable, view: str, *arguments: str):
         ext_kwargs = {**meta_kwargs, **kwargs}
         return fun(**ext_kwargs)
 
+    closure.__name__ = fun.__name__
     return closure
