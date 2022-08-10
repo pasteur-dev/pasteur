@@ -1,3 +1,46 @@
+def _try_convert_to_numeric(value: any):
+    """Taken from kedro.framework.cli.utils"""
+    try:
+        value = float(value)
+    except ValueError:
+        return value
+    return int(value) if value.is_integer() else value
+
+
+def _update_value_nested_dict(
+    nested_dict: dict[str, any], value: any, walking_path: list[str]
+) -> dict:
+    """Taken from kedro.framework.cli.utils"""
+    key = walking_path.pop(0)
+    if not walking_path:
+        nested_dict[key] = value
+        return nested_dict
+    nested_dict[key] = _update_value_nested_dict(
+        nested_dict.get(key, {}), value, walking_path
+    )
+    return nested_dict
+
+
+def str_params_to_dict(params: list[str]):
+    """Converts a list of format ["a=5", "c=b"] to {a: 5, c: 'b'}.
+
+    Note the number conversion."""
+
+    param_dict = {}
+    for item in params:
+        item = item.split("=", 1)
+        if len(item) != 2:
+            raise
+        key = item[0].strip()
+        if not key:
+            raise
+        value = item[1].strip()
+        param_dict = _update_value_nested_dict(
+            param_dict, _try_convert_to_numeric(value), key.split(".")
+        )
+    return param_dict
+
+
 def find_subclasses(cls):
     """Returns all the subclasses of a given class."""
 
