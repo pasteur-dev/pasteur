@@ -11,11 +11,9 @@ from tqdm.contrib.concurrent import process_map, thread_map
 from tqdm.contrib.logging import logging_redirect_tqdm
 from tqdm.std import tqdm as std_tqdm
 
-# VS code jupyter extension doesn't support going up lines (moving cursor)
+# Jupyter doesn't support going up lines (moving cursor)
 # This means up to 1 loading bar works
-# However, if there's another one with leave=True it can also be shown
-# Any more than that and it causes garbage to build up at the output.
-JUPYTER_MAX_NEST = 2
+JUPYTER_MAX_NEST = 1
 
 
 def _is_jupyter() -> bool:  # pragma: no cover
