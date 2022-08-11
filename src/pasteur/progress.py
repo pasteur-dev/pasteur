@@ -52,6 +52,7 @@ def get_tqdm_args():
         "bar_format": PBAR_FORMAT,
         "ncols": PBAR_JUP_NCOLS if is_jupyter() else None,
         "ascii": True if is_jupyter() else None,
+        "file": sys.stdout if is_jupyter() else sys.stderr,
     }
 
 
