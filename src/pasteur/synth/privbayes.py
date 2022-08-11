@@ -1,6 +1,7 @@
 from itertools import chain
 import logging
 from functools import reduce
+from mailbox import linesep
 from typing import NamedTuple
 
 import numpy as np
@@ -379,21 +380,28 @@ def print_tree(
     pset_len = 48
 
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
-    s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │{' '*pset_len}│"
+    s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
     for a, pset in list(tree):
         a_name = attr_names[a]
         s += f"\n│{a_name:>20s} │ {domain[a]:>3d} │ {t/domain[a]:>8.2f} │"
 
-        p_str = ""
+        line_str = ""
         for p, h in enumerate(pset):
             if h == -1:
                 continue
 
             p_name = attr_names[p]
-            p_str += f"{p_name:>15s}.{h}"
+            p_str = f" {p_name}.{h}"
 
-        s += f"{p_str:48s}│"
+            if len(p_str) + len(line_str) >= pset_len:
+                s += f"{line_str:48s}│"
+                s += f"\n│{' '*21}│     │          │"
+                line_str = f" >{p_str}"
+            else:
+                line_str += p_str
+
+        s += f"{line_str:48s}│"
 
     s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
     return s
