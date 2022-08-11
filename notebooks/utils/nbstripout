@@ -92,7 +92,7 @@ def strip_output(nb):
 
                         # Replace tqdm times with reference one
                         text = re.sub(
-                            "\d\d:\d\d<\d\d:\d\d,  \d+\.\d\d(?:s\/it|it\/s)",
+                            "\d\d:\d\d<\d\d:\d\d, +\d+\.\d\d(?:s\/it|it\/s)",
                             "00:00<00:00,  1.00it/s",
                             text,
                         )
