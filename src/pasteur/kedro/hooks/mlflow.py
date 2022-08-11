@@ -4,11 +4,16 @@ from cProfile import run
 from typing import Any, Collection, Dict, Union
 
 import mlflow
+from kedro.config import MissingConfigException
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
+from kedro_mlflow.config.kedro_mlflow_config import (
+    KedroMlflowConfig,
+    KedroMlflowConfigError,
+)
 from kedro_mlflow.framework.hooks import MlflowHook
 from kedro_mlflow.framework.hooks.utils import (
     _assert_mlflow_enabled,
@@ -46,27 +51,65 @@ class CustomMlflowTrackingHook(MlflowHook):
         self,
         context: KedroContext,
     ) -> None:
-        super().after_context_created(context)
+        try:
+            conf_mlflow_yml = context.config_loader.get("mlflow*", "mlflow*/**")
+        except MissingConfigException:
+            raise KedroMlflowConfigError(
+                "No 'mlflow.yml' config file found in environment. Use ``kedro mlflow init`` command in CLI to create a default config file."
+            )
+        mlflow_config = KedroMlflowConfig.parse_obj(conf_mlflow_yml)
+
+        # store in context for interactive use
+        # we use __setattr__ instead of context.mlflow because
+        # the class will become frozen in kedro>=0.19
+        context.__setattr__("mlflow", mlflow_config)
+
+        self.mlflow_config = mlflow_config  # store for further reuse
         self.params = context.params
         self.base_location = self.params["base_location"]
+        self.context = context
 
     @hook_impl
     def before_pipeline_run(
         self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
-        super().before_pipeline_run(run_params, pipeline, catalog)
 
-        # Disable tracking for all ingest pipelines
+        # Disable tracking for pipelines that don't meet criteria
         pipeline_name = run_params["pipeline_name"]
         disabled_pipelines = self.mlflow_config.tracking.disable_tracking.pipelines
-        self._is_mlflow_enabled = (
-            pipeline_name not in disabled_pipelines and "ingest" not in pipeline_name
-        )
+        self._is_mlflow_enabled = True
 
-        if not self._is_mlflow_enabled:
-            logger.info(f"Disabled mlflow logging for ingest pipeline {pipeline_name}.")
+        if pipeline_name in disabled_pipelines:
+            self._is_mlflow_enabled = False
+            logger.info(
+                f"Disabled mlflow logging for blacklisted pipeline {pipeline_name}."
+            )
             switch_catalog_logging(catalog, False)
             return
+
+        if "ingest" in pipeline_name:
+            self._is_mlflow_enabled = False
+            logger.info(f"Disabled mlflow logging for ingest pipeline {pipeline_name}.")
+
+        pipe_seg = run_params["pipeline_name"].split(".")
+        if len(pipe_seg) < 2:
+            self._is_mlflow_enabled = False
+            self._logger.warn(
+                f"Pipeline name {pipeline_name} is not compatible with mlflow hook (<view>.<alg>.<misc>), disabling logging."
+            )
+        else:
+            current_view = pipe_seg[0]
+            alg = pipe_seg[1]
+
+        # Exit if mlflow bit was set to false
+        if not self._is_mlflow_enabled:
+            switch_catalog_logging(catalog, False)
+            return
+
+        # Setup global mlflow configuration with view as experiment name
+        if self.mlflow_config.tracking.experiment.name == "Default":
+            self.mlflow_config.tracking.experiment.name = current_view
+        self.mlflow_config.setup(self.context)
 
         # params for further for node logging
         self.flatten = self.mlflow_config.tracking.params.dict_params.flatten
@@ -109,16 +152,6 @@ class CustomMlflowTrackingHook(MlflowHook):
         self.long_params_strategy = (
             self.mlflow_config.tracking.params.long_params_strategy
         )
-
-        # Get current view and alg
-        pipe_seg = run_params["pipeline_name"].split(".")
-        if len(pipe_seg) < 2:
-            self._logger.warn(
-                f"Pipeline name {run_params['pipeline_name']} is not compatible with MlFlow hook, skipping logging parameters."
-            )
-            return
-        current_view = pipe_seg[0]
-        alg = pipe_seg[1]
 
         # We use 3 namespaces:
         # the unbounded namespace with highest priority, which is used for overrides
