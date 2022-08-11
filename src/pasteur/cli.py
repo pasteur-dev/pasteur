@@ -5,6 +5,7 @@ from kedro.framework.session import KedroSession
 from kedro.runner.sequential_runner import SequentialRunner
 
 from .utils import str_params_to_dict
+from .kedro.runner import SimpleRunner
 
 
 @click.group(context_settings=CONTEXT_SETTINGS, name=__file__)
@@ -27,7 +28,7 @@ def p(pipeline, params):
     with KedroSession.create(env=None, extra_params=param_dict) as session:
         session.run(
             tags=[],
-            runner=SequentialRunner(True),
+            runner=SimpleRunner(pipeline, " ".join(params)),  # SequentialRunner(True),
             node_names="",
             from_nodes="",
             to_nodes="",

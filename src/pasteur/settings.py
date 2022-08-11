@@ -5,10 +5,10 @@
 # messages to get printed to console. Same with rich as well
 import logging
 
-# from rich import reconfigure
+from rich import reconfigure
 from rich.traceback import install
 
-# reconfigure(force_jupyter=False)
+reconfigure(force_jupyter=False)
 logging.getLogger().setLevel(logging.ERROR)
 logging.captureWarnings(True)
 install(show_locals=False)

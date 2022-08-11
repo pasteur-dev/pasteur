@@ -6,7 +6,7 @@ from kedro.io.data_catalog import DataCatalog
 from kedro.pipeline import Pipeline
 
 from ..utils import str_params_to_dict
-from .runner import JupyterRunner, simplify_logging
+from .runner import SimpleRunner
 
 # Removes lint errors from VS Code
 context: KedroContext = None
@@ -20,7 +20,7 @@ def pipe(pipe: str, params: dict):
     session = get_ipython().ev("session")
     session.run(
         pipe,
-        runner=JupyterRunner(pipe, " ".join([f"{n}={v}" for n, v in params.items()])),
+        runner=SimpleRunner(pipe, " ".join([f"{n}={v}" for n, v in params.items()])),
     )
 
 
@@ -36,7 +36,6 @@ def _pipe_magic(line):
 
 
 def register_kedro():
-    simplify_logging()
     reload_kedro()
     get_ipython().register_magic_function(_pipe_magic, "line", "pipe")
     get_ipython().register_magic_function(_pipe_magic, "line", "p")

@@ -1,4 +1,4 @@
-"""``JupyterRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
+"""``SimpleRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
 loading bar (friendlier for jupyter). It also force enables async save of datasets.
 
 The TQDM loading bar is only activated if the pipeline is large enough.
@@ -13,7 +13,7 @@ from kedro.runner.runner import AbstractRunner, run_node
 from pluggy import PluginManager
 import logging
 
-from ..progress import piter, logging_redirect_pbar
+from ..progress import piter, logging_redirect_pbar, is_jupyter
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +53,9 @@ def simplify_logging():
     return loggers
 
 
-class JupyterRunner(AbstractRunner):
-    """``JupyterRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
-    loading bar and standard console logging (friendlier for jupyter in vs code).
-    It also force enables async save of datasets.
+class SimpleRunner(AbstractRunner):
+    """``SimpleRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
+    loading bar. It also force enables async save of datasets.
     """
 
     def __init__(
@@ -66,7 +65,6 @@ class JupyterRunner(AbstractRunner):
     ):
         self.pipe_name = pipe_name
         self.params_str = params_str
-        self.loggers = simplify_logging()
 
         super().__init__(is_async=True)
 
@@ -100,9 +98,9 @@ class JupyterRunner(AbstractRunner):
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
 
-        use_pbar = len(nodes) >= PROGRESS_BAR_MIN_PIPE_LEN
+        use_pbar = len(nodes) >= PROGRESS_BAR_MIN_PIPE_LEN and not is_jupyter()
 
-        with logging_redirect_pbar(loggers=self.loggers):
+        with logging_redirect_pbar():
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
