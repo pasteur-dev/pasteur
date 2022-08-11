@@ -22,7 +22,10 @@ JUPYTER_MAX_NEST = 1
 PBAR_COLOR = "blue"
 PBAR_OFFSET = 11
 PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
-PBAR_JUP_NCOLS = 135
+# Exact number for notebooks rendered in github to use up the whole width
+# Assumes a stripping github filter is used to remove the empty space (or time)
+# at the start
+PBAR_JUP_NCOLS = 135 + PBAR_OFFSET
 
 
 def is_jupyter() -> bool:  # pragma: no cover

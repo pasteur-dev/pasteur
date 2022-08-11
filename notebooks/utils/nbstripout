@@ -89,6 +89,17 @@ def strip_output(nb):
                             "          ",
                             text,
                         )
+                        # Then remove space in front of status and pbar
+                        text = re.sub(
+                            "\\x1b\[2;36m {10}(?:\\x1b\[0m\\x1b\[2;36m)? (?=\\x1b)",
+                            "",
+                            text,
+                        )
+                        text = re.sub(
+                            "(?<=\\n) {11}(?=>>>>>>>)",
+                            "",
+                            text,
+                        )
 
                         # Replace tqdm times with reference one
                         text = re.sub(
