@@ -22,7 +22,7 @@ JUPYTER_MAX_NEST = 1
 PBAR_COLOR = "blue"
 PBAR_OFFSET = 20
 PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
-PBAR_JUP_NCOLS = 180
+PBAR_JUP_NCOLS = 135
 
 
 def is_jupyter() -> bool:  # pragma: no cover
