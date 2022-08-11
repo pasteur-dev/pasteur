@@ -5,7 +5,7 @@ from kedro.framework.session.session import KedroSession
 from kedro.io.data_catalog import DataCatalog
 from kedro.pipeline import Pipeline
 
-from ..utils import str_params_to_dict
+from ..utils import str_params_to_dict, flat_params_to_dict
 from .runner import SimpleRunner
 from rich import reconfigure
 from ..progress import PBAR_JUP_NCOLS
@@ -26,14 +26,23 @@ _rich_console_args = {
 }
 
 
-def pipe(pipe: str, params: dict):
+def _pipe(pipe: str, params_str: str, params: dict):
     reload_kedro(extra_params=params)
     reconfigure(**_rich_console_args)
     session = get_ipython().ev("session")
     session.run(
         pipe,
-        runner=SimpleRunner(pipe, " ".join([f"{n}={v}" for n, v in params.items()])),
+        runner=SimpleRunner(pipe, params_str),
     )
+
+
+def pipe(name: str, params: dict = None):
+    params = params or {}
+    params_dict = flat_params_to_dict(params)
+    params_str = ""
+    for n, p in params.items():
+        params_str += f"{n}={p}"
+    _pipe(name, params_str, params_dict)
 
 
 def _pipe_magic(line):
@@ -43,8 +52,13 @@ def _pipe_magic(line):
 
     args = line.split(" ")
     pipe_str = args[0]
-    params = str_params_to_dict(args[1:]) if len(args) > 1 else {}
-    pipe(pipe_str, params)
+    if len(args) > 1:
+        params_str = " ".join(args[1:])
+        params = str_params_to_dict(args[1:])
+    else:
+        params_str = ""
+        params = {}
+    _pipe(pipe_str, params_str, params)
 
 
 def register_kedro():

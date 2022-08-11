@@ -22,7 +22,7 @@ def _update_value_nested_dict(
 
 
 def str_params_to_dict(params: list[str]):
-    """Converts a list of format ["a=5", "c=b"] to {a: 5, c: 'b'}.
+    """Converts a list of format ["a.b.c=5", "c=b"] to {a: {b: {c:5}}, c: 'b'}.
 
     Note the number conversion."""
 
@@ -35,6 +35,21 @@ def str_params_to_dict(params: list[str]):
         if not key:
             raise
         value = item[1].strip()
+        param_dict = _update_value_nested_dict(
+            param_dict, _try_convert_to_numeric(value), key.split(".")
+        )
+    return param_dict
+
+
+def flat_params_to_dict(params: dict[str, any]):
+    """Converts a list of format {a.b.c: 5, c: b} to {a: {b: {c:5}}, c: 'b'}.
+
+    Note the number conversion."""
+
+    param_dict = {}
+    for key, value in params.items():
+        if not key:
+            raise
         param_dict = _update_value_nested_dict(
             param_dict, _try_convert_to_numeric(value), key.split(".")
         )
