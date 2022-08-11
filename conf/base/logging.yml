@@ -104,6 +104,11 @@ loggers:
         handlers: [rich]
         propagate: no
 
+    pasteur.kedro.hooks.mlflow:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
     dummy:
         level: INFO
         propagate: no

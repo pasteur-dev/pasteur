@@ -1,6 +1,6 @@
-from cProfile import run
-from copy import deepcopy
 import logging
+from copy import deepcopy
+from cProfile import run
 from typing import Any, Collection, Dict, Union
 
 import mlflow
@@ -9,12 +9,18 @@ from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
+from kedro_mlflow.framework.hooks import MlflowHook
+from kedro_mlflow.framework.hooks.utils import (
+    _assert_mlflow_enabled,
+    _flatten_dict,
+    _generate_kedro_command,
+)
+from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
-from kedro_mlflow.framework.hooks.utils import _assert_mlflow_enabled, _flatten_dict
-from kedro_mlflow.framework.hooks import MlflowHook
-
 from ...utils import merge_dicts
+
+logger = logging.getLogger(__name__)
 
 
 class CustomMlflowTrackingHook(MlflowHook):
@@ -49,12 +55,53 @@ class CustomMlflowTrackingHook(MlflowHook):
         self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
         super().before_pipeline_run(run_params, pipeline, catalog)
-        self._is_mlflow_enabled = _assert_mlflow_enabled(
-            run_params["pipeline_name"], self.mlflow_config
+
+        # Disable tracking for all ingest pipelines
+        pipeline_name = run_params["pipeline_name"]
+        disabled_pipelines = self.mlflow_config.tracking.disable_tracking.pipelines
+        self._is_mlflow_enabled = (
+            pipeline_name not in disabled_pipelines and "ingest" not in pipeline_name
         )
 
         if not self._is_mlflow_enabled:
+            logger.info(f"Disabled mlflow logging for ingest pipeline {pipeline_name}.")
+            switch_catalog_logging(catalog, False)
             return
+
+        # params for further for node logging
+        self.flatten = self.mlflow_config.tracking.params.dict_params.flatten
+        self.recursive = self.mlflow_config.tracking.params.dict_params.recursive
+        self.sep = self.mlflow_config.tracking.params.dict_params.sep
+        self.long_params_strategy = (
+            self.mlflow_config.tracking.params.long_params_strategy
+        )
+
+        run_name = self.mlflow_config.tracking.run.name or run_params["pipeline_name"]
+
+        mlflow.start_run(
+            run_id=self.mlflow_config.tracking.run.id,
+            experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
+            run_name=run_name,
+            nested=self.mlflow_config.tracking.run.nested,
+        )
+        # Set tags only for run parameters that have values.
+        mlflow.set_tags({k: v for k, v in run_params.items() if v})
+        # add manually git sha for consistency with the journal
+        # TODO : this does not take into account not committed files, so it
+        # does not ensure reproducibility. Define what to do.
+
+        mlflow.set_tag(
+            "kedro_command",
+            _generate_kedro_command(
+                tags=run_params["tags"],
+                node_names=run_params["node_names"],
+                from_nodes=run_params["from_nodes"],
+                to_nodes=run_params["to_nodes"],
+                from_inputs=run_params["from_inputs"],
+                load_versions=run_params["load_versions"],
+                pipeline_name=run_params["pipeline_name"],
+            ),
+        )
 
         self.flatten = self.mlflow_config.tracking.params.dict_params.flatten
         self.recursive = self.mlflow_config.tracking.params.dict_params.recursive
