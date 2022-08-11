@@ -22,6 +22,7 @@ JUPYTER_MAX_NEST = 1
 PBAR_COLOR = "blue"
 PBAR_OFFSET = 20
 PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
+PBAR_JUP_NCOLS = 180
 
 
 def is_jupyter() -> bool:  # pragma: no cover
@@ -42,19 +43,25 @@ def is_jupyter() -> bool:  # pragma: no cover
         return False  # Other type (?)
 
 
+def get_tqdm_args():
+    active_pbars = sum(not pbar.disable for pbar in std_tqdm._instances)
+    disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
+    return {
+        "disable": disable,
+        "colour": PBAR_COLOR,
+        "bar_format": PBAR_FORMAT,
+        "ncols": PBAR_JUP_NCOLS if is_jupyter() else None,
+        "ascii": True if is_jupyter() else None,
+    }
+
+
 def limit_pbar_nesting(pbar_gen: callable):
     """Prevent nesting too much on jupyter. This causes ugly gaps to be generated
     on vs code. Up to 2 progress bars work fine."""
 
     def closure(*args, **kwargs):
         active_pbars = sum(not pbar.disable for pbar in std_tqdm._instances)
-        return pbar_gen(
-            *args,
-            **kwargs,
-            disable=is_jupyter() and active_pbars >= JUPYTER_MAX_NEST,
-            colour=PBAR_COLOR,
-            bar_format=PBAR_FORMAT,
-        )
+        return pbar_gen(*args, **kwargs, **get_tqdm_args())
 
     return closure
 
@@ -106,9 +113,7 @@ def process_in_parallel(
         desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
         leave=False,
         tqdm_class=tqdm,
-        disable=disable,
-        colour=PBAR_COLOR,
-        bar_format=PBAR_FORMAT,
+        **get_tqdm_args(),
     )
     out = []
     for sub_arr in res:

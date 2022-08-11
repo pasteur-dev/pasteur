@@ -104,11 +104,12 @@ class SimpleRunner(AbstractRunner):
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
+            if not is_jupyter() or not use_pbar:
+                logger.info(desc)
             if use_pbar:
                 pbar = piter(nodes, desc=desc, leave=True)
             else:
                 pbar = nodes
-                logger.info(desc)
             for exec_index, node in enumerate(pbar):
                 node_name = node.name.split("(")[0]
                 if use_pbar:
@@ -129,11 +130,10 @@ class SimpleRunner(AbstractRunner):
                     if load_counts[data_set] < 1 and data_set not in pipeline.outputs():
                         catalog.release(data_set)
 
-                if not use_pbar:
+                if not use_pbar or not is_jupyter():
                     logger.info(
                         f"Completed node {exec_index + 1:2d}/{len(nodes):2d}: {node_name}"
                     )
 
             if use_pbar and exec_index == len(nodes) - 1:
                 pbar.set_description(desc.replace("Executing", "Executed"))
-                pbar.update(len(nodes))

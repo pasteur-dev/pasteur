@@ -7,6 +7,8 @@ from kedro.pipeline import Pipeline
 
 from ..utils import str_params_to_dict
 from .runner import SimpleRunner
+from rich import reconfigure
+from ..progress import PBAR_JUP_NCOLS
 
 # Removes lint errors from VS Code
 context: KedroContext = None
@@ -14,9 +16,19 @@ catalog: DataCatalog = None
 session: KedroSession = None
 pipelines: dict[str, Pipeline] = None
 
+_rich_console_args = {
+    "color_system": "truecolor",
+    "force_terminal": True,
+    "force_interactive": True,
+    "force_jupyter": False,
+    "width": PBAR_JUP_NCOLS,
+    "height": 100,
+}
+
 
 def pipe(pipe: str, params: dict):
     reload_kedro(extra_params=params)
+    reconfigure(**_rich_console_args)
     session = get_ipython().ev("session")
     session.run(
         pipe,
@@ -36,9 +48,11 @@ def _pipe_magic(line):
 
 
 def register_kedro():
+    ipy = get_ipython()
+    ipy.register_magic_function(_pipe_magic, "line", "pipe")
+    ipy.register_magic_function(_pipe_magic, "line", "p")
     reload_kedro()
-    get_ipython().register_magic_function(_pipe_magic, "line", "pipe")
-    get_ipython().register_magic_function(_pipe_magic, "line", "p")
+    reconfigure(**_rich_console_args)
 
 
 def load_ipython_extension(ipython):

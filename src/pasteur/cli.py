@@ -2,7 +2,6 @@ import click
 from kedro.framework.cli.project import project_group
 from kedro.framework.cli.utils import CONTEXT_SETTINGS
 from kedro.framework.session import KedroSession
-from kedro.runner.sequential_runner import SequentialRunner
 
 from .utils import str_params_to_dict
 from .kedro.runner import SimpleRunner

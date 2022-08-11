@@ -10,8 +10,7 @@ formatters:
 handlers:
     rich:
         class: rich.logging.RichHandler
-        tracebacks_show_locals: False
-        locals_max_length: 1
+        enable_link_path: False
 
     console:
         class: logging.StreamHandler
@@ -41,38 +40,72 @@ handlers:
 
 loggers:
     anyconfig:
-        level: WARNING
-        handlers: [rich, info_file_handler, error_file_handler]
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    numexpr.utils:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    IPKernelApp:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    blib2to3.pgen2.driver:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    py.warnings:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    kedro.io.data_catalog:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
         propagate: no
 
     kedro.io:
         level: INFO
-        handlers: [rich, info_file_handler, error_file_handler]
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    kedro.extras.extensions.ipython:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    kedro.pipeline.node:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    kedro.config.common:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
+        propagate: no
+
+    kedro.framework.session.session:
+        level: INFO
+        handlers: [info_file_handler, error_file_handler]
         propagate: no
 
     kedro.pipeline:
         level: INFO
-        handlers: [rich, info_file_handler, error_file_handler]
+        handlers: [info_file_handler, error_file_handler]
         propagate: no
 
-    numexpr.utils:
-        level: WARNING
-        handlers: [rich, info_file_handler, error_file_handler]
+    pasteur.kedro.runner:
+        level: INFO
+        handlers: [rich]
         propagate: no
 
-    blib2to3.pgen2.driver:
-        level: WARNING
-        handlers: [rich, info_file_handler, error_file_handler]
-        propagate: no
-
-    kedro.io.data_catalog:
-        level: WARNING
-        handlers: [rich, info_file_handler, error_file_handler]
-        propagate: no
-
-    py.warnings:
-        level: ERROR
-        handlers: [rich, info_file_handler, error_file_handler]
+    dummy:
+        level: INFO
         propagate: no
 
 root:
