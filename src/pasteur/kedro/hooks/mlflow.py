@@ -23,6 +23,7 @@ from kedro_mlflow.framework.hooks.utils import (
 from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
+from ...logging import MlflowHandler
 from ...utils import merge_dicts
 
 logger = logging.getLogger(__name__)
@@ -201,3 +202,21 @@ class CustomMlflowTrackingHook(MlflowHook):
         self, node: Node, catalog: DataCatalog, inputs: Dict[str, Any], is_async: bool
     ) -> None:
         pass
+
+    @hook_impl
+    def on_pipeline_error(
+        self,
+        error: Exception,
+        run_params: Dict[str, Any],
+        pipeline: Pipeline,
+        catalog: DataCatalog,
+    ):
+        MlflowHandler.reset_all()
+        return super().on_pipeline_error(error, run_params, pipeline, catalog)
+
+    @hook_impl
+    def after_pipeline_run(
+        self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
+    ) -> None:
+        MlflowHandler.reset_all()
+        return super().after_pipeline_run(run_params, pipeline, catalog)

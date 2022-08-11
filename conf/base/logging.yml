@@ -13,107 +13,114 @@ handlers:
         enable_link_path: False
         log_time_format: "[%X]"
 
-    console:
-        class: logging.StreamHandler
+    # console:
+    #     class: logging.StreamHandler
+    #     level: INFO
+    #     formatter: simple
+    #     stream: ext://sys.stdout
+
+    # Logs the console view as the user would see it
+    # Sans the loading bars
+    user:
+        class: pasteur.logging.MlflowHandler
+        name: user
+        buffer_n: 5
+
         level: INFO
         formatter: simple
-        stream: ext://sys.stdout
 
-    info_file_handler:
-        class: logging.handlers.RotatingFileHandler
-        level: INFO
+    # Debug and error log the exact output of the console
+    debug:
+        class: pasteur.logging.MlflowHandler
+        name: debug
+        buffer_n: 25
+
+        level: DEBUG
         formatter: simple
-        filename: logs/info.log
-        maxBytes: 10485760 # 10MB
-        backupCount: 20
-        encoding: utf8
-        delay: True
 
-    error_file_handler:
-        class: logging.handlers.RotatingFileHandler
+    error:
+        class: pasteur.logging.MlflowHandler
+        name: error
+        buffer_n: 5
+
         level: ERROR
         formatter: simple
-        filename: logs/errors.log
-        maxBytes: 10485760 # 10MB
-        backupCount: 20
-        encoding: utf8
-        delay: True
 
 loggers:
     anyconfig:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     numexpr.utils:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     IPKernelApp:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     blib2to3.pgen2.driver:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     py.warnings:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.io.data_catalog:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.io:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.extras.extensions.ipython:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.pipeline.node:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.config.common:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.framework.session.session:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     kedro.pipeline:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
-        propagate: no
-
-    pasteur.kedro.runner:
-        level: INFO
-        handlers: [rich]
+        handlers: [debug, error]
         propagate: no
 
     pasteur.kedro.hooks.mlflow:
         level: INFO
-        handlers: [info_file_handler, error_file_handler]
+        handlers: [debug, error]
         propagate: no
 
     dummy:
         level: INFO
         propagate: no
 
+    pasteur.kedro.runner:
+        level: INFO
+        handlers: [rich, user, debug, error]
+        propagate: no
+
 root:
     level: INFO
-    handlers: [rich, info_file_handler, error_file_handler]
+    handlers: [rich, user, debug, error]
