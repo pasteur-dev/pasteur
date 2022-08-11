@@ -377,7 +377,7 @@ def print_tree(
     s = f"Bayesian Network Tree:\n"
     s += f"(PrivBayes e1={e1:.2f}, e2={e2:.2f}, theta={theta:.2f}, available t={t:.2f})"
 
-    pset_len = 48
+    pset_len = 57
 
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
@@ -395,13 +395,13 @@ def print_tree(
             p_str = f" {p_name}.{h}"
 
             if len(p_str) + len(line_str) >= pset_len:
-                s += f"{line_str:48s}│"
+                s += f"{line_str:57s}│"
                 s += f"\n│{' '*21}│     │          │"
                 line_str = f" >{p_str}"
             else:
                 line_str += p_str
 
-        s += f"{line_str:48s}│"
+        s += f"{line_str:57s}│"
 
     s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
     return s

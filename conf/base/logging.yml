@@ -11,6 +11,7 @@ handlers:
     rich:
         class: rich.logging.RichHandler
         enable_link_path: False
+        log_time_format: "[%X]"
 
     console:
         class: logging.StreamHandler

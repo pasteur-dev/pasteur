@@ -20,7 +20,7 @@ from tqdm.std import tqdm as std_tqdm
 # This means up to 1 loading bar works
 JUPYTER_MAX_NEST = 1
 PBAR_COLOR = "blue"
-PBAR_OFFSET = 20
+PBAR_OFFSET = 11
 PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
 PBAR_JUP_NCOLS = 135
 
