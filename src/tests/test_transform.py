@@ -210,7 +210,8 @@ def test_chain_transformer_na():
     dec = t.reverse(enc)
 
     assert np.all(
-        (dec["tst1"] == [1, 1, np.NAN, 1, 2, 3, np.NAN, 6, 8]) | pd.isna(dec["tst1"])
+        (dec.sort_index()["tst1"] == [1, 1, np.NAN, 1, 2, 3, np.NAN, 6, 8])
+        | pd.isna(dec["tst1"])
     )
 
 

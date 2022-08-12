@@ -329,6 +329,13 @@ class TableTypeTransformer:
         attrs.update({c: Attribute([c], False, False) for c in cols})
         return attrs
 
+    def get_col_mapping(self) -> dict[str, str]:
+        """Returns a mapping of original columns to transformed columns."""
+        mapping = {}
+        for orig_col, c in self.constraints.items():
+            mapping[orig_col] = list(c.keys())
+        return mapping
+
 
 class TableTransformer:
     """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""

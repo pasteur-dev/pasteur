@@ -56,7 +56,7 @@ class DiscretizationTransformer(Transformer):
         return out
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=data.index)
 
         for col, bin in self.bins.items():
             out[col] = bin[data[col].clip(0, len(bin) - 1)]
