@@ -51,17 +51,17 @@ loggers:
         propagate: no
 
     numexpr.utils:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     IPKernelApp:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     blib2to3.pgen2.driver:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
@@ -71,59 +71,59 @@ loggers:
         propagate: no
 
     kedro.io.data_catalog:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.io:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.extras.extensions.ipython:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.pipeline.node:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.config.common:
-        level: INFO
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.framework.session.session:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     kedro.pipeline:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     pasteur.kedro.hooks.mlflow:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     dummy:
-        level: DEBUG
+        level: NOTSET
         propagate: no
 
     git.cmd:
-        level: DEBUG
+        level: NOTSET
         handlers: [debug, error]
         propagate: no
 
     pasteur.kedro.runner:
-        level: DEBUG
+        level: NOTSET
         handlers: [rich, user, debug, error]
         propagate: no
 
 root:
-    level: DEBUG
+    level: NOTSET
     handlers: [rich, user, debug, error]

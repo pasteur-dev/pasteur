@@ -9,8 +9,11 @@ from rich import reconfigure
 from rich.traceback import install
 
 reconfigure(force_jupyter=False)
-logging.getLogger().setLevel(logging.ERROR)
 logging.captureWarnings(True)
+# TODO: verify this works
+# remove handlers added by the default config
+logging.getLogger("kedro").handlers = []
+logging.root.handlers = []
 install(show_locals=False)
 
 # Instantiated project hooks.
