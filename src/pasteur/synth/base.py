@@ -87,7 +87,7 @@ def synth_fit_closure(cls):
         data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
 
         transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
-        attrs = {n: t.get_attributes(cls.type) for n, t in transformers.items()}
+        attrs = {n: t[cls.type].get_attributes() for n, t in transformers.items()}
 
         meta = next(iter(transformers.values())).meta
         algs = {**meta.algs.get(cls.name, {}), **meta.alg_override}

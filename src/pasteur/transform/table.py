@@ -365,31 +365,6 @@ class TableTransformer:
 
         self.fitted = True
 
-    def transform(
-        self,
-        type: str,
-        tables: Dict[str, pd.DataFrame],
-        ids: pd.DataFrame | None = None,
-    ):
-        assert type in self.types and self.fitted
-        return self.transformers[type].transform(tables, ids)
-
-    def reverse(
-        self,
-        type: str,
-        table: pd.DataFrame,
-        ids: Optional[pd.DataFrame] = None,
-        parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
-    ):
-        # If there are no ids that reference a foreign table, the ids and
-        # parent_table parameters can be set to None (ex. tabular data).
-        assert type in self.types and self.fitted
-
-        return self.transformers[type].reverse(table, ids, parent_tables)
-
-    def get_attributes(self, type: str) -> dict[str, Attribute]:
-        assert type in self.types and self.fitted
-        return self.transformers[type].get_attributes()
-
     def __getitem__(self, type):
+        assert self.fitted
         return self.transformers[type]

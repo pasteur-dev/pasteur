@@ -31,7 +31,7 @@ def transform_table_closure(type: str):
         ids: pd.DataFrame,
         **tables: dict[str, pd.DataFrame],
     ):
-        return transformer.transform(type, tables, ids)
+        return transformer[type].transform(tables, ids)
 
     return transform_table
 
@@ -43,7 +43,7 @@ def reverse_table_closure(type: str):
         table: pd.DataFrame,
         **parents: dict[str, pd.DataFrame],
     ):
-        return transformer.reverse(type, table, ids, parents)
+        return transformer[type].reverse(table, ids, parents)
 
     return reverse_table
 
