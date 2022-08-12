@@ -6,6 +6,7 @@ from os import path
 from weakref import WeakSet
 
 import mlflow
+from time import time
 
 
 class MlflowHandler(Handler):
@@ -42,7 +43,7 @@ class MlflowHandler(Handler):
         self,
         name: str = "user",
         logdir: str = "logs",
-        buffer_n: int | str = 15,
+        interval: int | str = 5,
     ):
         Handler.__init__(self)
         self._handlers.add(self)
@@ -51,8 +52,8 @@ class MlflowHandler(Handler):
         self.name = name
         self.logdir = logdir
 
-        self.buffer_n = buffer_n
-        self.buffer_curr = 0
+        self.interval = interval
+        self.last_sent = time()
 
         self.stream = StringIO()
 
@@ -63,7 +64,7 @@ class MlflowHandler(Handler):
                 mlflow.log_text(
                     self.stream.getvalue(), path.join(self.logdir, f"{self.name}.log")
                 )
-                self.buffer_curr = 0
+                self.last_sent = time()
         finally:
             self.release()
 
@@ -73,8 +74,7 @@ class MlflowHandler(Handler):
             stream = self.stream
             # issue 35046: merged two stream.writes into one.
             stream.write(msg + self.terminator)
-            self.buffer_curr += 1
-            if self.buffer_curr >= self.buffer_n:
+            if time() - self.last_sent > self.interval:
                 self.flush()
         except RecursionError:  # See issue 36272
             raise
