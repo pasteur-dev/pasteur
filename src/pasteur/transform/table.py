@@ -18,23 +18,16 @@ class Attribute(NamedTuple):
     h: int = 0
 
 
-class TableTransformer:
-    """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""
+class ReferenceManager:
+    """Manages the foreign relationships of a table"""
 
     def __init__(
         self,
         meta: Metadata,
         name: str,
-        types: str | Collection[str] = DEFAULT_TYPES,
     ) -> None:
         self.name = name
         self.meta = meta
-        self.transformers: Dict[str, Dict[str, Transformer]] = {}
-        self.fitted = False
-
-        if isinstance(types, str):
-            types = [types]
-        self.types = types
 
     def find_parents(self, table: str):
         """Finds the reference cols that link a table to its parents and
@@ -104,6 +97,24 @@ class TableTransformer:
     def find_ids(self, tables: Dict[str, pd.DataFrame]):
         return self.find_foreign_ids(self.name, tables)
 
+
+class TableTypeTransformer:
+    def __init__(
+        self,
+        ref: ReferenceManager,
+        meta: Metadata,
+        name: str,
+        type: str,
+    ) -> None:
+        self.ref = ref
+        self.name = name
+        self.meta = meta
+        self.type = type
+
+        self.transformers: Dict[str, Transformer] = {}
+        self.constraints: dict[str, dict[str, any]] = {}
+        self.fitted = False
+
     def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
         # Only load foreign keys if required by column
         ids = None
@@ -111,8 +122,9 @@ class TableTransformer:
         meta = self.meta[self.name]
         table = tables[self.name]
 
-        if self.table_has_reference() and ids is None:
-            ids = self.find_foreign_ids(self.name, tables)
+        if self.ref.table_has_reference():
+            if ids is None:
+                ids = self.ref.find_foreign_ids(self.name, tables)
 
             # If we do have foreign relationships drop all rows that don't have
             # parents and warn
@@ -128,50 +140,46 @@ class TableTransformer:
             ), "Properly formatted datasets should have their primary key as their index column"
             # table.reindex(meta.primary_key)
 
-        transformers = {}
-        for type in self.types:
-            for name, col in meta.cols.items():
-                if col.is_id():
-                    continue
+        for name, col in meta.cols.items():
+            if col.is_id():
+                continue
 
-                # Add foreign column if required
-                ref_col = None
-                if col.ref:
-                    f_table, f_col = col.ref.table, col.ref.col
-                    if f_table:
-                        # Foreign column from another table
-                        ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
-                    else:
-                        # Local column, duplicate and rename
-                        ref_col = table[f_col]
+            # Add foreign column if required
+            ref_col = None
+            if col.ref:
+                f_table, f_col = col.ref.table, col.ref.col
+                if f_table:
+                    # Foreign column from another table
+                    ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
+                else:
+                    # Local column, duplicate and rename
+                    ref_col = table[f_col]
 
-                # Fit transformer with proper chain
-                chain = col.chains[type]
-                args = col.args.copy()
-                t = ChainTransformer.from_dict(chain, args)
-                t.fit(table[[name]], ref_col)
+            # Fit transformer with proper chain
+            chain = col.chains[self.type]
+            args = col.args.copy()
+            t = ChainTransformer.from_dict(chain, args)
+            constraints = t.fit(table[[name]], ref_col)
+            self.constraints[name] = constraints
+            self.transformers[name] = t
 
-                transformers[name] = t
-
-            self.transformers[type] = transformers
         self.fitted = True
 
     def transform(
         self,
-        type: str,
         tables: Dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
     ):
-        assert type in self.types and self.fitted
+        assert self.fitted
 
         meta = self.meta[self.name]
         table = tables[self.name]
 
         # Only load foreign keys if required by column
         ids = None
-        if self.table_has_reference():
+        if self.ref.table_has_reference():
             if ids is None:
-                ids = self.find_foreign_ids(self.name, tables)
+                ids = self.ref.find_foreign_ids(self.name, tables)
             # If we do have foreign relationships drop all rows that don't have
             # parents and warn
             if len(ids) < len(table):
@@ -196,22 +204,21 @@ class TableTransformer:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
 
-            tt = self.transformers[type][name].transform(table[[name]], ref_col)
+            tt = self.transformers[name].transform(table[[name]], ref_col)
             tts.append(tt)
 
         return pd.concat(tts, axis=1)
 
     def reverse(
         self,
-        type: str,
         table: pd.DataFrame,
         ids: Optional[pd.DataFrame] = None,
         parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
     ):
         # If there are no ids that reference a foreign table, the ids and
         # parent_table parameters can be set to None (ex. tabular data).
-        assert type in self.types and self.fitted
-        transformers = self.transformers[type]
+        assert self.fitted
+        transformers = self.transformers
 
         meta = self.meta[self.name]
 
@@ -271,9 +278,7 @@ class TableTransformer:
 
         return dec_table
 
-    def get_attributes(
-        self, type: str, table: pd.DataFrame | None = None
-    ) -> dict[str, Attribute]:
+    def get_attributes(self) -> dict[str, Attribute]:
         """Collates the table columns into ordered sets named attributes (sourced from transformer hierarchy).
 
         If there's an attribute a0 with columns c0, c1, c2,
@@ -288,8 +293,7 @@ class TableTransformer:
 
         In addition, c0 may indicate an NA column (with domain 2).
         In this case, the domain of the attribute should be increased by 1, which
-        notes the NA value, not doubled. So we whether the attribute contains
-        a na column.
+        notes the NA value, not doubled.
 
         Purely categorical variables don't need special handling of None/NA, it
         just gets encoded as another value. Hierarchical and numerical values do.
@@ -299,8 +303,8 @@ class TableTransformer:
         From O(...) = 2118760 for k=1
         To O(...) = 1000 for k=4
         """
-        assert type in self.types and self.fitted
-        transformers = self.transformers[type].values()
+        assert self.fitted
+        transformers = self.transformers.values()
 
         # Add actual attributes
         attrs = {}
@@ -310,37 +314,82 @@ class TableTransformer:
             for attr, cols in hier.items():
                 attrs[attr] = Attribute(cols, t.has_na, t.variable_domain)
 
-        if table is None:
-            return attrs
-
         # Add fake attributes for cols with no hierarchical relationship
         cols_in_attr = list()
         for a in attrs.values():
             cols_in_attr.extend(a.cols)
 
-        cols = [c for c in table.columns if c not in cols_in_attr]
+        # Use for loops to be deterministic
+        cols = []
+        for c in self.constraints.values():
+            for col in c.keys():
+                if col not in cols and col not in cols_in_attr:
+                    cols.append(col)
+
         attrs.update({c: Attribute([c], False, False) for c in cols})
         return attrs
 
-    class TypeView:
-        def __init__(self, trn, type: str) -> None:
-            self.trn = trn
-            self.type = type
 
-        def transform(
-            self,
-            tables: Dict[str, pd.DataFrame],
-            ids: pd.DataFrame | None = None,
-        ) -> pd.DataFrame:
-            return self.trn.transform(self.type, tables, ids)
+class TableTransformer:
+    """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""
 
-        def reverse(
-            self,
-            table: pd.DataFrame,
-            ids: Optional[pd.DataFrame] = None,
-            parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
-        ) -> pd.DataFrame:
-            return self.trn.reverse(self.type, table, ids, parent_tables)
+    def __init__(
+        self,
+        meta: Metadata,
+        name: str,
+        types: str | Collection[str] = DEFAULT_TYPES,
+    ) -> None:
+        self.name = name
+        self.meta = meta
+
+        self.transformers: Dict[str, TableTypeTransformer] = {}
+        self.ref = ReferenceManager(meta, name)
+        self.fitted = False
+
+        if isinstance(types, str):
+            types = [types]
+        self.types = types
+
+    def find_ids(self, tables: Dict[str, pd.DataFrame]):
+        return self.ref.find_foreign_ids(self.name, tables)
+
+    def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
+        # Lookup keys one and cache them
+        if self.ref.table_has_reference() and ids is None:
+            ids = self.ref.find_foreign_ids(self.name, tables)
+
+        for type in self.types:
+            transformer = TableTypeTransformer(self.ref, self.meta, self.name, type)
+            transformer.fit(tables, ids)
+            self.transformers[type] = transformer
+
+        self.fitted = True
+
+    def transform(
+        self,
+        type: str,
+        tables: Dict[str, pd.DataFrame],
+        ids: pd.DataFrame | None = None,
+    ):
+        assert type in self.types and self.fitted
+        return self.transformers[type].transform(tables, ids)
+
+    def reverse(
+        self,
+        type: str,
+        table: pd.DataFrame,
+        ids: Optional[pd.DataFrame] = None,
+        parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
+    ):
+        # If there are no ids that reference a foreign table, the ids and
+        # parent_table parameters can be set to None (ex. tabular data).
+        assert type in self.types and self.fitted
+
+        return self.transformers[type].reverse(table, ids, parent_tables)
+
+    def get_attributes(self, type: str) -> dict[str, Attribute]:
+        assert type in self.types and self.fitted
+        return self.transformers[type].get_attributes()
 
     def __getitem__(self, type):
-        return self.TypeView(self, type)
+        return self.transformers[type]

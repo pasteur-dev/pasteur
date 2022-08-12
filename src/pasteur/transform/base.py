@@ -207,6 +207,13 @@ class ChainTransformer(RefTransformer):
                 constraints = t.fit(data, constraints)
                 data = t.transform(data)
 
+        # Checks whether we got constraints for all the output columns
+        # Whether a transformer should return always constraints is a diff. question.
+        assert set(constraints.keys()) == set(
+            data.keys()
+        ), f"Constraint columns different from data columns"
+        return constraints
+
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None
     ) -> pd.DataFrame:
