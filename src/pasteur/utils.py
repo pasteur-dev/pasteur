@@ -1,3 +1,6 @@
+from typing import TypeVar
+
+
 def _try_convert_to_numeric(value: any):
     """Taken from kedro.framework.cli.utils"""
     try:
@@ -56,7 +59,10 @@ def flat_params_to_dict(params: dict[str, any]):
     return param_dict
 
 
-def find_subclasses(cls):
+CLS = TypeVar("CLS")
+
+
+def find_subclasses(cls: type[CLS]) -> dict[str, type[CLS]]:
     """Returns all the subclasses of a given class."""
 
     sub_cls = {}

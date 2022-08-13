@@ -64,7 +64,12 @@ def reverse_table_tab(
 
 
 def create_transform_pipeline(
-    view: str, split: str, tables: Collection[str], types: Collection[str] | str = []
+    view: str,
+    split: str,
+    tables: Collection[str],
+    types: Collection[str] | str = [],
+    trn_split: str | None = None,
+    gen_ids: bool = True,
 ):
     if isinstance(types, str):
         types = [types]
@@ -72,21 +77,26 @@ def create_transform_pipeline(
     table_nodes = []
 
     for t in tables:
-        table_nodes += [
-            node(
-                func=fit_table_closure(view, t, types),
-                inputs={
-                    "params": "parameters",
-                    **{t: t for t in tables},
-                },
-                outputs=f"trn_{t}",
-            ),
-            node(
-                func=find_ids,
-                inputs={"transformer": f"trn_{t}", **{t: t for t in tables}},
-                outputs=f"ids_{t}",
-            ),
-        ]
+        # Allow using an existing transformer with trn_split
+        if trn_split is None:
+            table_nodes += [
+                node(
+                    func=fit_table_closure(view, t, types),
+                    inputs={
+                        "params": "parameters",
+                        **{t: t for t in tables},
+                    },
+                    outputs=f"trn_{t}",
+                ),
+            ]
+        if gen_ids:
+            table_nodes += [
+                node(
+                    func=find_ids,
+                    inputs={"transformer": f"trn_{t}", **{t: t for t in tables}},
+                    outputs=f"ids_{t}",
+                ),
+            ]
 
         table_nodes += [
             node(
@@ -101,12 +111,21 @@ def create_transform_pipeline(
             for type in types
         ]
 
+    inputs = (
+        {}
+        if trn_split is None
+        else {f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in tables}
+    )
+
     return modular_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
+        inputs=inputs,
         parameters={
             "parameters": f"parameters",
-        },
+        }
+        if trn_split is None
+        else {},
     )
 
 

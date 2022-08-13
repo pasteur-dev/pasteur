@@ -329,7 +329,7 @@ class TableTypeTransformer:
         attrs.update({c: Attribute([c], False, False) for c in cols})
         return attrs
 
-    def get_col_mapping(self) -> dict[str, str]:
+    def get_col_mapping(self) -> dict[str, list[str]]:
         """Returns a mapping of original columns to transformed columns."""
         mapping = {}
         for orig_col, c in self.constraints.items():

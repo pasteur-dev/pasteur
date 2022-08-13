@@ -136,7 +136,7 @@ class AddDatasetsForViewsHook:
                 )
 
                 for table in tables:
-                    for type in ("enc", "ids"):
+                    for type in ("enc", "idx"):
                         self.add_set(
                             "synth_encoded",
                             f"{view}.{alg}.{type}_{table}",

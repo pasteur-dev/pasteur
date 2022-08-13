@@ -8,7 +8,7 @@ from rich import get_console
 import sys
 from contextlib import contextmanager
 from os import cpu_count
-from typing import TextIO
+from typing import Callable, TextIO, TypeVar
 
 import numpy as np
 from tqdm import tqdm, trange
@@ -59,7 +59,7 @@ def get_tqdm_args():
     }
 
 
-def limit_pbar_nesting(pbar_gen: callable):
+def limit_pbar_nesting(pbar_gen: Callable):
     """Prevent nesting too much on jupyter. This causes ugly gaps to be generated
     on vs code. Up to 2 progress bars work fine."""
 
@@ -84,13 +84,16 @@ def calc_worker(args):
     return out
 
 
+X = TypeVar("X")
+
+
 def process_in_parallel(
-    fun: callable,
+    fun: Callable[..., X],
     per_call_args: list[dict],
     base_args: dict[str, any] | None = None,
     min_chunk_size: int = 100,
     desc: str | None = None,
-):
+) -> list[X]:
     """Processes arguments in parallel using python's multiprocessing and prints progress bar.
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
@@ -102,10 +105,6 @@ def process_in_parallel(
     per_call_n = len(per_call_args) // chunk_n
 
     chunks = np.array_split(per_call_args, chunk_n)
-
-    # Test for disabling too many nested pbars in jupyter
-    active_pbars = sum(not pbar.disable for pbar in std_tqdm._instances)
-    disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
 
     args = []
     for chunk in chunks:

@@ -4,14 +4,14 @@ from typing import Dict
 
 from kedro.pipeline import Pipeline, pipeline
 
+from ...dataset import Dataset, get_datasets
+from ...metrics.models import get_required_types
+from ...synth import Synth, get_synth
+from ...views import View, get_views
 from .dataset import create_dataset_pipeline, create_keys_pipeline
-from .measure import create_pipeline as create_measure_pipeline
+from .metrics import create_model_calc_pipelines, create_model_transform_pipelines
 from .synth import create_synth_pipeline, create_transform_pipeline
 from .views import create_filter_pipeline, create_view_pipeline
-
-from ...dataset import get_datasets, Dataset
-from ...views import get_views, View
-from ...synth import get_synth, Synth
 
 
 def generate_pipelines(
@@ -54,10 +54,13 @@ def generate_pipelines(
     # pipe_ingest_all = pipe_ingest_datasets + pipe_ingest_views
 
     for name, view in views.items():
-        types = [s.type for s in algs.values() if s.tabular == view.tabular]
-        types = list(dict.fromkeys(types))  # remove duplicates
+        alg_types = [s.type for s in algs.values() if s.tabular == view.tabular]
+        model_types = get_required_types()
+        types = list(dict.fromkeys(alg_types + model_types))  # remove duplicates
 
-        pipe_transform = create_transform_pipeline(name, "wrk", view.tables, types)
+        pipe_transform = create_transform_pipeline(
+            name, "wrk", view.tables, types
+        ) + create_model_transform_pipelines(view)
 
         pipe_ingest = (
             create_dataset_pipeline(datasets[view.dataset], view.dataset_tables)
@@ -73,7 +76,7 @@ def generate_pipelines(
             pipe_synth = create_synth_pipeline(
                 name, "wrk", cls, view.tables, view.trn_deps
             )
-            pipe_measure = create_measure_pipeline(name, "wrk", alg, view.tables)
+            pipe_measure = create_model_calc_pipelines(view, alg)
 
             complete_pipe = pipe_ingest + pipe_transform + pipe_synth + pipe_measure
 
