@@ -81,19 +81,19 @@ class RandomForestClassifierSklearn(SklearnClassifierModel):
     base_args = {"min_samples_leaf": 0.0001}
 
 
-class GradientBoostingClassifierSklearn(SklearnClassifierModel):
-    name = "gradboost_clsr"
-    cls = HistGradientBoostingClassifier
+# class GradientBoostingClassifierSklearn(SklearnClassifierModel):
+#     name = "gradboost_clsr"
+#     cls = HistGradientBoostingClassifier
 
-    def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+#     def fit(self, x: pd.DataFrame, y: pd.DataFrame):
 
-        # Drop rare columns to avoid erroring out on histograms
-        cnts = y[y.columns[0]].value_counts()
-        drop_cats = list(cnts[cnts < 10].index)
-        idx = ~y[y.columns[0]].isin(drop_cats)
-        x, y = x[idx], y[idx]
+#         # Drop rare columns to avoid erroring out on histograms
+#         cnts = y[y.columns[0]].value_counts()
+#         drop_cats = list(cnts[cnts < 10].index)
+#         idx = ~y[y.columns[0]].isin(drop_cats)
+#         x, y = x[idx], y[idx]
 
-        return super().fit(x, y)
+#         return super().fit(x, y)
 
 
 # class LinearRegressionModel(SklearnRegressionModel):

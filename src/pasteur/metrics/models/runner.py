@@ -58,9 +58,9 @@ def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.Data
         if name == table_name:
             sets[type][split if split in ("wrk", "tst") else "alg"] = table
 
-    test_cols = {
-        n: c.type for n, c in meta.get_table(name).cols.items() if not c.is_id()
-    }
+    model_meta = meta[table_name].metrics.model
+    test_cols = list(dict.fromkeys(model_meta.sensitive + model_meta.targets))
+    test_cols = {col: meta[table_name, col].type for col in test_cols}
 
     # TODO: Add varioable ratio to metadata
     return calculate_model_scores(meta.seed, 0.2, test_cols, sets, orig_to_enc_cols)
@@ -151,8 +151,8 @@ def calculate_model_scores(
                     i += 1
 
     scores = process_in_parallel(
-        _calculate_score, jobs, base_args, 5, "Fitting models to data"
+        _calculate_score, jobs, base_args, 1, "Fitting models to data"
     )
     # for job in piter(jobs):
     #     _calculate_score(**base_args, **job)
-    pass
+    return pd.DataFrame()

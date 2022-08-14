@@ -6,6 +6,11 @@ tab_adult:
       targets: [education]
       sensitive: [race, relationship]
 
+      metrics:
+        model:
+          expand_table: True
+          targets: [education, race, relationship]
+
       fields:
         age: numerical
         workclass:

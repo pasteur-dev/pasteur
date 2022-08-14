@@ -2,6 +2,7 @@ import logging
 from types import SimpleNamespace
 from .utils import merge_dicts
 import pandas as pd
+from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,16 @@ class ColumnMeta:
         return self.type == "id"
 
 
+class TableModelMetrics(NamedTuple):
+    expand_table: bool = True
+    targets: list[str] = []
+    sensitive: list[str] = []
+
+
+class TableMetrics(NamedTuple):
+    model: TableModelMetrics = TableModelMetrics()
+
+
 class TableMeta:
     COLUMN_CLS = ColumnMeta
 
@@ -155,6 +166,22 @@ class TableMeta:
         transformers: dict | None = None,
     ):
         self.primary_key = meta["primary_key"]
+
+        if "metrics" in meta:
+            metrics_dict = meta["metrics"]
+            if "model" in metrics_dict:
+                model_dict = metrics_dict["model"]
+                model = TableModelMetrics(
+                    expand_table=model_dict.get("expand_table", True),
+                    targets=model_dict.get("targets", []),
+                    sensitive=model_dict.get("sensitive", []),
+                )
+            else:
+                model = TableModelMetrics()
+
+            self.metrics = TableMetrics(model=model)
+        else:
+            self.metrics = TableMetrics()
 
         self.targets = meta.get("targets", meta.get("target", []))
         if isinstance(self.targets, str):
