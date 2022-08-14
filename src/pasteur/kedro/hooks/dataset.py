@@ -15,10 +15,12 @@ class AddDatasetsForViewsHook:
         tables: Dict[str, Collection[str]],
         algs: Collection[str],
         types: Collection[str],
+        splits: Collection[str],
     ) -> None:
         self.tables = tables
         self.algs = algs
         self.types = types
+        self.splits = splits
 
     @hook_impl
     def after_context_created(
@@ -89,7 +91,7 @@ class AddDatasetsForViewsHook:
         self.load_versions = load_versions
 
         for view, tables in self.tables.items():
-            for split in ["wrk", "ref", "val", "dev"]:
+            for split in self.splits:
                 self.add_set(
                     "keys",
                     f"{view}.keys.{split}",
@@ -104,7 +106,7 @@ class AddDatasetsForViewsHook:
                 )
 
                 # Add datasets for splits
-                for split in ["wrk", "ref", "val", "dev"]:
+                for split in self.splits:
                     self.add_set(
                         "split",
                         f"{view}.{split}.{table}",
@@ -136,7 +138,7 @@ class AddDatasetsForViewsHook:
                 )
 
                 for table in tables:
-                    for type in ("enc", "idx"):
+                    for type in ("enc", "ids"):
                         self.add_set(
                             "synth_encoded",
                             f"{view}.{alg}.{type}_{table}",

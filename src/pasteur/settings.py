@@ -24,10 +24,10 @@ from .metadata import DEFAULT_TRANSFORMERS
 
 types = list(DEFAULT_TRANSFORMERS.keys())
 
-from .pipeline_registry import algs, tables
+from .pipeline_registry import algs, tables, splits
 
 HOOKS = (
-    AddDatasetsForViewsHook(tables, algs, types),
+    AddDatasetsForViewsHook(tables, algs, types, splits),
     CustomMlflowTrackingHook(tables, algs),
 )
 

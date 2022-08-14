@@ -10,7 +10,7 @@ from .synth import create_transform_pipeline
 
 def create_model_transform_pipelines(view: View):
     return create_transform_pipeline(
-        view.name, "dev", view.tables, get_required_types(), "wrk"
+        view.name, "tst", view.tables, get_required_types(), "wrk"
     )
 
 
@@ -23,7 +23,7 @@ def create_model_calc_pipelines(view: View, alg: str):
     for table in view.tables:
         in_tables = {}
         for type in get_required_types():
-            for split in (alg, "wrk", "dev"):
+            for split in (alg, "wrk", "tst"):
                 in_tables[
                     f"{type}.{split}.{table}"
                 ] = f"{view.name}.{split}.{type}_{table}"

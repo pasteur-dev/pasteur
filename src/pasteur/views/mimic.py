@@ -49,7 +49,7 @@ class MimicMmCoreView(View):
             case "admissions":
                 return tables["core_admissions"]
             case "transfers":
-                return tables["transfers"]
+                return tables["core_transfers"]
             case other:
                 assert False, f"Table {other} not part of view {self.name}"
 

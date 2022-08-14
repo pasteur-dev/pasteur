@@ -2,13 +2,14 @@ from abc import ABC, abstractmethod
 import pandas as pd
 from sklearn.base import RegressorMixin, ClassifierMixin
 
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC, SVC
 from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
-from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.linear_model import SGDClassifier, LinearRegression
 from sklearn.naive_bayes import GaussianNB, CategoricalNB
 from sklearn.ensemble import (
     GradientBoostingClassifier,
     GradientBoostingRegressor,
+    HistGradientBoostingClassifier,
     RandomForestRegressor,
     RandomForestClassifier,
 )
@@ -17,9 +18,9 @@ from ...utils import find_subclasses
 
 class BaseModel(ABC):
     name = None
+    size_limit = None
     x_trn_type = None
     y_trn_type = None
-    x_col_types = None
     y_col_types = None
 
     def __init__(self, random_state: int):
@@ -36,9 +37,10 @@ class BaseModel(ABC):
 
 class SklearnModel(BaseModel):
     cls: type[ClassifierMixin | RegressorMixin] = None
+    base_args = {}
 
     def fit(self, x: pd.DataFrame, y: pd.DataFrame):
-        self.model = self.cls(random_state=self.random_state)
+        self.model = self.cls(**self.base_args, random_state=self.random_state)
         self.model.fit(x, y)
 
     def score(self, x: pd.DataFrame, y: pd.DataFrame):
@@ -56,14 +58,16 @@ class SklearnRegressionModel(SklearnModel):
     y_col_types = ["numerical"]
 
 
-class LogisticRegressionSklearn(SklearnClassifierModel):
-    name = "logistic_regr"
-    cls = LogisticRegression
+class SGDClassifierSklearn(SklearnClassifierModel):
+    name = "sgd_clsr"
+    cls = SGDClassifier
+    base_args = {"loss": "log_loss"}
 
 
 class SvmClassifierSklearn(SklearnClassifierModel):
     name = "svm_clsr"
-    cls = SVC
+    cls = LinearSVC
+    size_limit = 10000
 
 
 class DecisionTreeClassifierSklearn(SklearnClassifierModel):
@@ -74,36 +78,47 @@ class DecisionTreeClassifierSklearn(SklearnClassifierModel):
 class RandomForestClassifierSklearn(SklearnClassifierModel):
     name = "forest_clsr"
     cls = RandomForestClassifier
+    base_args = {"min_samples_leaf": 0.0001}
 
 
 class GradientBoostingClassifierSklearn(SklearnClassifierModel):
     name = "gradboost_clsr"
-    cls = GradientBoostingClassifier
+    cls = HistGradientBoostingClassifier
+
+    def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+
+        # Drop rare columns to avoid erroring out on histograms
+        cnts = y[y.columns[0]].value_counts()
+        drop_cats = list(cnts[cnts < 10].index)
+        idx = ~y[y.columns[0]].isin(drop_cats)
+        x, y = x[idx], y[idx]
+
+        return super().fit(x, y)
 
 
-class SklearnRegressionModel(SklearnRegressionModel):
-    name = "linear_regr"
-    cls = LinearRegression
+# class LinearRegressionModel(SklearnRegressionModel):
+#     name = "linear_regr"
+#     cls = LinearRegression
 
 
-class SklearnRegressionModel(SklearnRegressionModel):
-    name = "svm_regr"
-    cls = SVC
+# class SvmRegressionModel(SklearnRegressionModel):
+#     name = "svm_regr"
+#     cls = SVC
 
 
-class SklearnRegressionModel(SklearnRegressionModel):
-    name = "decisiontree_regr"
-    cls = DecisionTreeRegressor
+# class DecisionTreeRegressionModel(SklearnRegressionModel):
+#     name = "decisiontree_regr"
+#     cls = DecisionTreeRegressor
 
 
-class SklearnRegressionModel(SklearnRegressionModel):
-    name = "forest_regr"
-    cls = RandomForestRegressor
+# class RandomForestRegressionModel(SklearnRegressionModel):
+#     name = "forest_regr"
+#     cls = RandomForestRegressor
 
 
-class SklearnRegressionModel(SklearnRegressionModel):
-    name = "gradboost_regr"
-    cls = GradientBoostingRegressor
+# class GradientBoostingRegressionModel(SklearnRegressionModel):
+#     name = "gradboost_regr"
+#     cls = GradientBoostingRegressor
 
 
 def get_models():

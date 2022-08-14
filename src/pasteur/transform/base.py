@@ -238,9 +238,12 @@ class ChainTransformer(RefTransformer):
                 data = t.transform(data)
 
         if self.handle_na:
-            fill_val = False if pd.api.types.is_bool_dtype(data.dtypes[0]) else 0
+            fill_vals = {
+                n: False if pd.api.types.is_bool_dtype(dtype) else 0
+                for n, dtype in data.dtypes.items()
+            }
             data = pd.concat([data, na_col.rename(self.na_col)], axis=1).fillna(
-                fill_val
+                fill_vals
             )
         return data
 

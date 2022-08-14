@@ -1,11 +1,10 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from .models import BaseModel, get_models
-
-from ...progress import process_in_parallel
+from ...progress import process_in_parallel, piter
 from ...transform import TableTransformer
+from .models import BaseModel, get_models, get_required_types
 
 
 def _calculate_score(
@@ -15,11 +14,12 @@ def _calculate_score(
     eval_sets: list[str],
     drop_x_cols: list[str],
     y_col: str,
+    random_state: int,
 ):
     x_sets = {n: s.drop(columns=drop_x_cols) for n, s in sets[cls.x_trn_type].items()}
     y_sets = {n: s[[y_col]] for n, s in sets[cls.y_trn_type].items()}
 
-    model = cls()
+    model = cls(random_state=random_state)
     model.fit(x_sets[train_set], y_sets[train_set])
 
     return {n: model.score(x_sets[n], y_sets[n]) for n in eval_sets}
@@ -42,7 +42,7 @@ def _enc_to_orig_cols(
 
 
 def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.DataFrame):
-    types = transformer.types
+    types = get_required_types()
     meta = transformer.meta
     table_name = transformer.name
 
@@ -56,9 +56,11 @@ def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.Data
     for arg_name, table in tables.items():
         type, split, name = arg_name.split(".")
         if name == table_name:
-            sets[type][split] = table
+            sets[type][split if split in ("wrk", "tst") else "alg"] = table
 
-    test_cols = list(meta.get_table(name).cols.keys())
+    test_cols = {
+        n: c.type for n, c in meta.get_table(name).cols.items() if not c.is_id()
+    }
 
     # TODO: Add varioable ratio to metadata
     return calculate_model_scores(meta.seed, 0.2, test_cols, sets, orig_to_enc_cols)
@@ -67,7 +69,7 @@ def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.Data
 def calculate_model_scores(
     random_state: int,
     ratio: float,
-    test_cols: list[str],
+    test_cols: dict[str, str],
     sets: dict[str, dict[str, pd.DataFrame]],
     orig_to_enc_cols: dict[str, dict[str, list[str]]],
 ):
@@ -75,35 +77,55 @@ def calculate_model_scores(
     types = list(sets.keys())
     new_sets = {t: {} for t in types}
 
+    # Create train, test sets, and remove index from dataframes.
     for i, train_data in enumerate(("wrk", "alg")):
-        orig_sets = [sets[t][train_data] for t in types]
-        split_sets = train_test_split(
-            orig_sets, test_size=ratio, random_state=random_state + i
+        index = sets[types[0]][train_data].index
+
+        train_idx, test_idx = train_test_split(
+            index, test_size=ratio, random_state=random_state + i
         )
-        for i, t in enumerate(types):
-            new_sets[t][f"{train_data}_train"] = split_sets[i]
-            new_sets[t][f"{train_data}_test"] = split_sets[len(types) + i]
+
+        for t in types:
+            new_sets[t][f"{train_data}_train"] = (
+                sets[t][train_data].loc[train_idx].sort_index().reset_index(drop=True)
+            )
+            new_sets[t][f"{train_data}_test"] = (
+                sets[t][train_data].loc[test_idx].sort_index().reset_index(drop=True)
+            )
 
     for t in types:
-        for s in ("wrk", "dev", "val"):
-            new_sets[t][s] = sets[t][s]
+        for s in ("wrk", "tst"):
+            # Sort and nuke the index to avoid issues with sklearn drawing from
+            # dataframes that are sorted differently
+            new_sets[t][s] = sets[t][s].sort_index().reset_index(drop=True)
+
+    # # TODO: Recheck this speeds up the calculations and works
+    # for t in new_sets:
+    #     for s in new_sets[t]:
+    #         if t == "num":
+    #             new_sets[t][s] = new_sets[t][s].astype("float16")
+    #         elif t == "idx":
+    #             new_sets[t][s] = new_sets[t][s].astype("uint16")
 
     base_args = {"sets": new_sets}
     jobs = []
     job_info = []
+    i = 0
     for model, cls in get_models().items():
-        for orig_col in test_cols:
+        if cls.size_limit is not None and cls.size_limit < len(sets[types[0]]["wrk"]):
+            continue
+
+        for orig_col, col_type in test_cols.items():
+            # Filter, say, categorical columns from regression models.
+            if cls.y_col_types is not None and col_type not in cls.y_col_types:
+                continue
+
             drop_x_cols = orig_to_enc_cols[cls.x_trn_type][orig_col]
             for y_col in orig_to_enc_cols[cls.y_trn_type][orig_col]:
                 for train_data in ("wrk", "alg"):
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [
-                        f"{train_data}_train",
-                        f"{train_data}_test",
-                        "dev",
-                        "val",
-                    ]
+                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "tst"]
                     if train_data == "alg":
                         eval_sets.append("wrk")
 
@@ -114,6 +136,7 @@ def calculate_model_scores(
                             "eval_sets": eval_sets,
                             "drop_x_cols": drop_x_cols,
                             "y_col": y_col,
+                            "random_state": random_state + i,
                         }
                     )
                     job_info.append(
@@ -125,7 +148,11 @@ def calculate_model_scores(
                         }
                     )
 
+                    i += 1
+
     scores = process_in_parallel(
         _calculate_score, jobs, base_args, 5, "Fitting models to data"
     )
+    # for job in piter(jobs):
+    #     _calculate_score(**base_args, **job)
     pass

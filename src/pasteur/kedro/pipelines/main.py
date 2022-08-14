@@ -34,7 +34,7 @@ def generate_pipelines(
         n: a for n, a in get_synth().items() if not algs or n in algs
     }
 
-    splits = ["wrk", "ref", "val", "dev"]
+    splits = ["wrk", "tst"]
 
     # Store complete pipelines first for kedro viz (main vs extra pipelines)
     main_pipes = {}
@@ -54,7 +54,7 @@ def generate_pipelines(
     # pipe_ingest_all = pipe_ingest_datasets + pipe_ingest_views
 
     for name, view in views.items():
-        alg_types = [s.type for s in algs.values() if s.tabular == view.tabular]
+        alg_types = [s.type for s in algs.values() if not view.tabular or s.tabular]
         model_types = get_required_types()
         types = list(dict.fromkeys(alg_types + model_types))  # remove duplicates
 
@@ -88,11 +88,6 @@ def generate_pipelines(
             extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
             extr_pipes[f"{name}.{alg}.measure"] = pipe_measure
 
-        # Validation (sister dataset)
-        pipe_measure = create_measure_pipeline(name, "wrk", "ref", view.tables)
-        main_pipes[f"{name}.ref"] = pipe_ingest + pipe_measure
-        extr_pipes[f"{name}.ref.measure"] = pipe_measure
-
     # extr_pipes["ingest"] = pipe_ingest_all
     # extr_pipes["ingest.datasets"] = pipe_ingest_datasets
     # extr_pipes["ingest.views"] = pipe_ingest_views
@@ -108,4 +103,4 @@ def generate_pipelines(
     pipes["__misc_pipelines__"] = pipeline([])
     pipes.update(extr_pipes)
 
-    return pipes, algs_str, tables
+    return pipes, algs_str, tables, splits
