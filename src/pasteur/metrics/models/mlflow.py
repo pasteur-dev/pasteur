@@ -45,7 +45,7 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
     res = res.copy()
 
     res["privacy_leak"] = res["synth_test_orig"] - res["synth_test_real"]
-    res["synth_penalty"] = res["orig_test"] - res["synth_test_real"]
+    res["synth_penalty"] = res["orig_test_real"] - res["synth_test_real"]
     html = (
         res.style.format(lambda x: f"{100*x:.1f}%")
         .background_gradient(axis=0)

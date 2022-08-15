@@ -125,9 +125,9 @@ def calculate_model_scores(
                 for train_data in ("wrk", "alg"):
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [f"{train_data}_train", f"{train_data}_test"]
-                    # if train_data == "alg":
-                    eval_sets.extend(["wrk", "tst"])
+                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "tst"]
+                    if train_data == "alg":
+                        eval_sets.extend(["wrk"])
 
                     jobs.append(
                         {
@@ -156,8 +156,14 @@ def calculate_model_scores(
     all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
     wrk_scores = (
         all_scores[all_scores["train_data"] == "wrk"]
-        .drop(columns=["alg_train", "alg_test", "train_data", "wrk", "tst"])
-        .rename(columns={"wrk_train": "orig_train", "wrk_test": "orig_test"})
+        .drop(columns=["alg_train", "alg_test", "train_data", "wrk"])
+        .rename(
+            columns={
+                "wrk_train": "orig_train",
+                "wrk_test": "orig_test",
+                "tst": "orig_test_real",
+            }
+        )
     )
     alg_scores = (
         all_scores[all_scores["train_data"] == "alg"]
@@ -182,6 +188,7 @@ def calculate_model_scores(
             "synth_train",
             "orig_test",
             "synth_test",
+            "orig_test_real",
             "synth_test_real",
             "synth_test_orig",
         ]
