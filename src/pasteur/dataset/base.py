@@ -118,11 +118,11 @@ class TabularDataset(Dataset):
 
     def ingest(self, name, **tables: pd.DataFrame):
         assert name == "table"
-        df = tables["table"].copy()
+        df = pd.concat([tables[name] for name in self.deps["table"]])
         df.index.name = "id"
         return df
 
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        df = tables["table"].copy()
+        df = pd.concat([tables[name] for name in self.deps["table"]])
         df.index.name = "id"
         return split_keys(df, ratios, random_state)

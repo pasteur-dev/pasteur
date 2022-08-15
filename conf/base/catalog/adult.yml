@@ -1,9 +1,9 @@
-adult.raw@table:
+adult.raw@train: &adult_csv
   type: pandas.CSVDataSet
   layer: raw
   filepath: ${base_location}/raw/adult/adult.data
 
-  load_args:
+  load_args: &adult_load_args
     names:
       - age
       - workclass
@@ -19,6 +19,7 @@ adult.raw@table:
       - capital-loss
       - hours-per-week
       - native-country
+      - income
 
     index_col: false
     dtype:
@@ -36,6 +37,15 @@ adult.raw@table:
       capital-loss: int32
       hours-per-week: int32
       native-country: category
+      income: category
+
+adult.raw@test:
+  <<: *adult_csv
+  filepath: ${base_location}/raw/adult/adult.test
+
+  load_args:
+    <<: *adult_load_args
+    skiprows: 1
 
 adult.table:
   type: pandas.ParquetDataSet

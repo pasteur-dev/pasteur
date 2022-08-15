@@ -36,11 +36,13 @@ def create_model_calc_pipelines(view: View, alg: str):
                 func=node_calculate_model_scores,
                 inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables},
                 outputs=f"{view.name}.{alg}.meas_models_{table}",
+                namespace=f"{view.name}.{alg}",
             ),
             node(
                 func=mlflow_log_model_closure(table),
                 inputs=f"{view.name}.{alg}.meas_models_{table}",
                 outputs=None,
+                namespace=f"{view.name}.{alg}",
             ),
         ]
 

@@ -9,7 +9,7 @@ tab_adult:
       metrics:
         model:
           expand_table: True
-          targets: [education, race, relationship]
+          targets: [income]
 
       fields:
         age: numerical
@@ -38,6 +38,7 @@ tab_adult:
           type: categorical
           metrics:
             y_log: True
+        income: categorical
 
   algs:
     privbayes:
