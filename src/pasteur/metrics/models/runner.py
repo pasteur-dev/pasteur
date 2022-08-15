@@ -16,8 +16,8 @@ def _calculate_score(
     y_col: str,
     random_state: int,
 ):
-    x_sets = {n: s.drop(columns=drop_x_cols) for n, s in sets[cls.x_trn_type].items()}
-    y_sets = {n: s[[y_col]] for n, s in sets[cls.y_trn_type].items()}
+    x_sets = {n: sets[cls.x_trn_type][n].drop(columns=drop_x_cols) for n in eval_sets}
+    y_sets = {n: sets[cls.y_trn_type][n][[y_col]] for n in eval_sets}
 
     model = cls(random_state=random_state)
     model.fit(x_sets[train_set], y_sets[train_set])
@@ -126,8 +126,8 @@ def calculate_model_scores(
                     train_set = f"{train_data}_train"
 
                     eval_sets = [f"{train_data}_train", f"{train_data}_test"]
-                    if train_data == "alg":
-                        eval_sets.extend(["wrk", "tst"])
+                    # if train_data == "alg":
+                    eval_sets.extend(["wrk", "tst"])
 
                     jobs.append(
                         {

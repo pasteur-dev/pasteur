@@ -217,6 +217,8 @@ class ChainTransformer(RefTransformer):
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None
     ) -> pd.DataFrame:
+        orig_idx = data.index
+
         if self.handle_na:
             na_col = np.any(data.isna(), axis=1)
             data = data[~na_col].infer_objects()
@@ -245,9 +247,14 @@ class ChainTransformer(RefTransformer):
             data = pd.concat([data, na_col.rename(self.na_col)], axis=1).fillna(
                 fill_vals
             )
+
+        assert np.all(
+            np.sort(data.index) == np.sort(orig_idx)
+        ), f"Index was invalidated by one of {str([t.name for t in self.transformers])} transformers."
         return data
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+        orig_idx = data.index
         if self.handle_na:
             na_col = data[self.na_col]
             data = data.drop(columns=[self.na_col])
@@ -260,6 +267,10 @@ class ChainTransformer(RefTransformer):
 
         if self.handle_na:
             data = data.where(na_col == 0, pd.NA)
+
+        assert np.all(
+            np.sort(data.index) == np.sort(orig_idx)
+        ), f"Index was invalidated by one of {str([t.name for t in self.transformers])} transformers."
         return data
 
     def get_hierarchy(self, **_) -> dict[str, list[str]]:
@@ -500,7 +511,7 @@ class NormalDistTransformer(Transformer):
         }
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=data.index)
 
         for col in data:
             n = data[col]
@@ -512,7 +523,7 @@ class NormalDistTransformer(Transformer):
         return out
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
+        out = pd.DataFrame(index=data.index)
 
         for col in self.std:
             n = data[col].to_numpy().clip(-self.max_std, self.max_std)
