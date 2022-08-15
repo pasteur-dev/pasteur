@@ -2,6 +2,7 @@ from functools import reduce
 from math import floor
 
 import pandas as pd
+import numpy as np
 
 
 def split_keys(
@@ -12,20 +13,24 @@ def split_keys(
     Example: split = {"dev": 0.3, "wrk": 0.3}
     Returns {"dev": 0 col Dataframe, "wrk" 0 col Dataframe}
     """
+    if random_state is not None:
+        np.random.seed(random_state)
 
     # Sort to ensure consistent split every time
     # Dataframe should consist of one column that is the index
     if keys.keys().empty:
         # If DataFrame is empty assume index is key
         assert keys.index.name, "No index column available"
+        idx_name = None
+        idx = keys.index
     elif keys.index.name:
         # If index has a name, assume it is the key and drop other columns
-        keys = keys[[]]
+        idx_name = keys.index.name
+        idx = keys.index
     else:
         # Otherwise, pick first column as index and drop the others
-        keys.set_index(keys.columns[0])[[]]
-
-    keys = keys.sort_values(by=keys.index.name)
+        idx_name = keys.columns[0]
+        idx = keys[idx_name]
 
     assert sum(split.values()) <= 1, "Dataset ratios exceed 100%"
 
@@ -33,8 +38,21 @@ def split_keys(
     ns = {name: floor(ratio * n_all) for name, ratio in split.items()}
     assert sum(ns.values()) <= n_all, "Sizes exceed dataset size"
 
-    # TODO: check if using the same random state is valid.
-    return {name: keys.sample(n=n, random_state=random_state) for name, n in ns.items()}
+    # Sort and shuffle array for a consistent split every time
+    keys = np.sort(idx)
+    np.random.shuffle(keys)
+
+    # Split array into the required chunks
+    splits = {}
+    i = 0
+    for name, n in ns.items():
+        split_keys = keys[i : i + n]
+        i += n
+        splits[name] = pd.DataFrame(index=split_keys)
+        if idx_name is not None:
+            splits[name].index.name = idx_name
+
+    return splits
 
 
 class Dataset:
