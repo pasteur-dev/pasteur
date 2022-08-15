@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from ...progress import process_in_parallel, piter
+from ...progress import process_in_parallel
 from ...transform import TableTransformer
 from .models import BaseModel, get_models, get_required_types
 
@@ -125,9 +125,9 @@ def calculate_model_scores(
                 for train_data in ("wrk", "alg"):
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "tst"]
+                    eval_sets = [f"{train_data}_train", f"{train_data}_test"]
                     if train_data == "alg":
-                        eval_sets.append("wrk")
+                        eval_sets.extend(["wrk", "tst"])
 
                     jobs.append(
                         {
@@ -143,8 +143,7 @@ def calculate_model_scores(
                         {
                             "model": model,
                             "train_data": train_data,
-                            "orig_col": orig_col,
-                            "enc_col": y_col,
+                            "target": y_col,
                         }
                     )
 
@@ -153,6 +152,38 @@ def calculate_model_scores(
     scores = process_in_parallel(
         _calculate_score, jobs, base_args, 1, "Fitting models to data"
     )
-    # for job in piter(jobs):
-    #     _calculate_score(**base_args, **job)
-    return pd.DataFrame()
+
+    all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
+    wrk_scores = (
+        all_scores[all_scores["train_data"] == "wrk"]
+        .drop(columns=["alg_train", "alg_test", "train_data", "wrk", "tst"])
+        .rename(columns={"wrk_train": "orig_train", "wrk_test": "orig_test"})
+    )
+    alg_scores = (
+        all_scores[all_scores["train_data"] == "alg"]
+        .drop(columns=["wrk_train", "wrk_test", "train_data"])
+        .rename(
+            columns={
+                "alg_train": "synth_train",
+                "alg_test": "synth_test",
+                "wrk": "synth_test_orig",
+                "tst": "synth_test_real",
+            }
+        )
+    )
+
+    final_scores = alg_scores.merge(wrk_scores, on=["model", "target"])
+    # Reorder columns
+    final_scores = final_scores[
+        [
+            "model",
+            "target",
+            "orig_train",
+            "synth_train",
+            "orig_test",
+            "synth_test",
+            "synth_test_real",
+            "synth_test_orig",
+        ]
+    ]
+    return final_scores.set_index(["target", "model"])

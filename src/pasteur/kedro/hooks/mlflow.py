@@ -1,7 +1,6 @@
 import logging
 from copy import deepcopy
-from cProfile import run
-from typing import Any, Collection, Dict, Union
+from typing import Any, Collection
 
 import mlflow
 from kedro.config import MissingConfigException
@@ -16,12 +15,10 @@ from kedro_mlflow.config.kedro_mlflow_config import (
 )
 from kedro_mlflow.framework.hooks import MlflowHook
 from kedro_mlflow.framework.hooks.utils import (
-    _assert_mlflow_enabled,
     _flatten_dict,
     _generate_kedro_command,
 )
 from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
-from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
 from ...logging import MlflowHandler
 from ...utils import merge_dicts
@@ -32,7 +29,7 @@ logger = logging.getLogger(__name__)
 class CustomMlflowTrackingHook(MlflowHook):
     def __init__(
         self,
-        datasets: Dict[str, Collection[str]],
+        datasets: dict[str, Collection[str]],
         algs: Collection[str],
     ):
         self.datasets = datasets
@@ -72,7 +69,7 @@ class CustomMlflowTrackingHook(MlflowHook):
 
     @hook_impl
     def before_pipeline_run(
-        self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
+        self, run_params: dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
 
         # Disable tracking for pipelines that don't meet criteria
@@ -199,7 +196,7 @@ class CustomMlflowTrackingHook(MlflowHook):
 
     @hook_impl
     def before_node_run(
-        self, node: Node, catalog: DataCatalog, inputs: Dict[str, Any], is_async: bool
+        self, node: Node, catalog: DataCatalog, inputs: dict[str, Any], is_async: bool
     ) -> None:
         pass
 
@@ -207,7 +204,7 @@ class CustomMlflowTrackingHook(MlflowHook):
     def on_pipeline_error(
         self,
         error: Exception,
-        run_params: Dict[str, Any],
+        run_params: dict[str, Any],
         pipeline: Pipeline,
         catalog: DataCatalog,
     ):
@@ -216,7 +213,7 @@ class CustomMlflowTrackingHook(MlflowHook):
 
     @hook_impl
     def after_pipeline_run(
-        self, run_params: Dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
+        self, run_params: dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
         MlflowHandler.reset_all()
         return super().after_pipeline_run(run_params, pipeline, catalog)
