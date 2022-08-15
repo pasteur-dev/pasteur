@@ -41,8 +41,3 @@ adult.table:
   type: pandas.ParquetDataSet
   layer: interim
   filepath: ${base_location}/orig/interim/adult/table.pq
-
-_adult_keys: &adult_keys
-  type: pandas.ParquetDataSet
-  layer: keys
-  filepath: ""

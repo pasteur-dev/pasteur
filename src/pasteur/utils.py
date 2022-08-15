@@ -59,6 +59,18 @@ def flat_params_to_dict(params: dict[str, any]):
     return param_dict
 
 
+def dict_to_flat_params(params: dict[str, any]) -> dict[str, str]:
+    out = {}
+    for param, val in params.items():
+        if not isinstance(val, dict):
+            out[param] = val
+        else:
+            exp = dict_to_flat_params(val)
+            for nest_param, nest_val in exp.items():
+                out[f"{param}.{nest_param}"] = nest_val
+    return out
+
+
 CLS = TypeVar("CLS")
 
 

@@ -21,7 +21,7 @@ from kedro_mlflow.framework.hooks.utils import (
 from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
 
 from ...logging import MlflowHandler
-from ...utils import merge_dicts
+from ...utils import dict_to_flat_params, merge_dicts
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,11 @@ class CustomMlflowTrackingHook(MlflowHook):
             self.mlflow_config.tracking.params.long_params_strategy
         )
 
-        run_name = self.mlflow_config.tracking.run.name or run_params["pipeline_name"]
+        run_name = self.mlflow_config.tracking.run.name
+        if not run_name:
+            run_name = run_params["pipeline_name"]
+            for param, val in dict_to_flat_params(run_params["extra_params"]).items():
+                run_name += f" {param}={val}"
 
         mlflow.start_run(
             run_id=self.mlflow_config.tracking.run.id,
