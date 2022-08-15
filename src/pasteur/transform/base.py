@@ -488,7 +488,7 @@ class NormalDistTransformer(Transformer):
     stateful = True
     handles_na = False
 
-    def __init__(self, max_std=5, **_):
+    def __init__(self, max_std=10, **_):
         self.max_std = max_std
 
     def fit(
