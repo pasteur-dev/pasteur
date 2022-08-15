@@ -4,6 +4,7 @@ from kedro.framework.context import KedroContext
 from kedro.framework.session.session import KedroSession
 from kedro.io.data_catalog import DataCatalog
 from kedro.pipeline import Pipeline
+from kedro.framework.startup import bootstrap_project
 
 from ..utils import str_params_to_dict, flat_params_to_dict
 from .runner import SimpleRunner
@@ -27,9 +28,13 @@ _rich_console_args = {
 
 
 def _pipe(pipe: str, params_str: str, params: dict):
-    reload_kedro(extra_params=params)
+    project_path = get_ipython().ev("session")._project_path
+
+    metadata = bootstrap_project(project_path)
+    session = KedroSession.create(
+        metadata.package_name, project_path, env=None, extra_params=params
+    )
     reconfigure(**_rich_console_args)
-    session = get_ipython().ev("session")
     session.run(
         pipe,
         runner=SimpleRunner(pipe, params_str),
