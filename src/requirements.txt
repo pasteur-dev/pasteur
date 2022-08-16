@@ -28,6 +28,7 @@ scipy
 scikit-learn
 
 tqdm
+xgboost
 
 # jax
 # jaxlib

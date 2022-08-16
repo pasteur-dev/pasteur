@@ -22,6 +22,53 @@ class BaseModel(ABC):
         pass
 
 
+class XGBoostlassifierModel(BaseModel):
+    name = "xgb_clsr"
+    x_trn_type = "num"
+    y_trn_type = "idx"
+
+    def __init__(self, random_state: int, num_round: int = 10):
+        super().__init__(random_state)
+        self.num_round = num_round
+
+    def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+        import xgboost as xgb
+        import numpy as np
+
+        dtrain = xgb.DMatrix(x, label=y)
+        self._bst = xgb.train(
+            {"objective": "multi:softmax", "num_class": np.max(y.to_numpy()) + 1},
+            dtrain,
+            self.num_round,
+        )
+
+    def score(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
+        import xgboost as xgb
+        import numpy as np
+
+        deval = xgb.DMatrix(x, label=y)
+        return np.mean(self._bst.predict(deval) == y.to_numpy().T)
+
+
+# class LightGBMClassifierModel(BaseModel):
+#     name = "gbm_clsr"
+#     x_trn_type = "num"
+#     y_trn_type = "idx"
+
+#     def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+#         import lightgbm as lgb
+
+#         lgb.register_logger(logging.root)
+
+#         train = lgb.Dataset(x, y)
+#         self._gbm = lgb.train({}, train)
+
+#     def score(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
+#         import lightgbm as lgb
+
+#         return self._gbm.eval(lgb.Dataset(x, y), "")
+
+
 class SklearnModel(BaseModel):
     cls: type = None
     base_args = {}

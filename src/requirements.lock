@@ -44,9 +44,9 @@ black==22.6.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 bleach==5.0.1
     # via nbconvert
-boto3==1.24.47
+boto3==1.24.52
     # via parquet-tools
-botocore==1.27.47
+botocore==1.27.52
     # via
     #   boto3
     #   s3transfer
@@ -90,9 +90,9 @@ cursor==1.3.5
     # via halo
 cycler==0.11.0
     # via matplotlib
-databricks-cli==0.17.0
+databricks-cli==0.17.1
     # via mlflow
-debugpy==1.6.2
+debugpy==1.6.3
     # via ipykernel
 decorator==5.1.1
     # via ipython
@@ -113,11 +113,11 @@ fastjsonschema==2.16.1
     # via nbformat
 flake8==3.9.2
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
-flask==2.2.1
+flask==2.2.2
     # via
     #   mlflow
     #   prometheus-flask-exporter
-fonttools==4.34.4
+fonttools==4.35.0
     # via matplotlib
 fsspec==2022.1.0
     # via kedro
@@ -241,7 +241,7 @@ jupyter-server==1.18.1
     #   jupyterlab-server
     #   nbclassic
     #   notebook-shim
-jupyterlab==3.4.4
+jupyterlab==3.4.5
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 jupyterlab-pygments==0.2.2
     # via nbconvert
@@ -262,6 +262,8 @@ kiwisolver==1.4.4
     # via matplotlib
 log-symbols==0.0.14
     # via halo
+lxml==4.9.1
+    # via nbconvert
 mako==1.2.1
     # via alembic
 markupsafe==2.1.1
@@ -270,7 +272,7 @@ markupsafe==2.1.1
     #   mako
     #   nbconvert
     #   werkzeug
-matplotlib==3.5.2
+matplotlib==3.5.3
     # via ipympl
 matplotlib-inline==0.1.3
     # via
@@ -280,7 +282,7 @@ mccabe==0.6.1
     # via flake8
 mistune==0.8.4
     # via nbconvert
-mlflow==1.27.0
+mlflow==1.28.0
     # via kedro-mlflow
 mypy-extensions==0.4.3
     # via black
@@ -288,7 +290,7 @@ nbclassic==0.4.3
     # via jupyterlab
 nbclient==0.6.6
     # via nbconvert
-nbconvert==6.5.0
+nbconvert==6.5.3
     # via
     #   jupyter
     #   jupyter-server
@@ -317,7 +319,7 @@ notebook==6.4.12
     #   widgetsnbextension
 notebook-shim==0.1.0
     # via nbclassic
-numpy==1.23.1
+numpy==1.23.2
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   ipympl
@@ -327,6 +329,7 @@ numpy==1.23.1
     #   pyarrow
     #   scikit-learn
     #   scipy
+    #   xgboost
 oauthlib==3.2.0
     # via databricks-cli
 packaging==21.3
@@ -369,7 +372,7 @@ pip-tools==6.8.0
     # via kedro
 platformdirs==2.5.2
     # via black
-plotly==5.9.0
+plotly==5.10.0
     # via kedro-viz
 pluggy==1.0.0
     # via
@@ -387,7 +390,7 @@ prompt-toolkit==3.0.30
     # via
     #   ipython
     #   jupyter-console
-protobuf==4.21.4
+protobuf==4.21.5
     # via mlflow
 psutil==5.9.1
     # via ipykernel
@@ -405,13 +408,13 @@ pycodestyle==2.7.0
     # via flake8
 pycparser==2.21
     # via cffi
-pydantic==1.9.1
+pydantic==1.9.2
     # via
     #   fastapi
     #   kedro-mlflow
 pyflakes==2.3.1
     # via flake8
-pygments==2.12.0
+pygments==2.13.0
     # via
     #   ipython
     #   jupyter-console
@@ -452,7 +455,7 @@ python-multipart==0.0.5
     # via strawberry-graphql
 python-slugify==6.1.2
     # via cookiecutter
-pytz==2022.1
+pytz==2022.2.1
     # via
     #   babel
     #   mlflow
@@ -463,7 +466,7 @@ pyyaml==6.0
     #   kedro
     #   mlflow
     #   uvicorn
-pyzmq==23.2.0
+pyzmq==23.2.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -473,7 +476,7 @@ pyzmq==23.2.0
     #   qtconsole
 qtconsole==5.3.1
     # via jupyter
-qtpy==2.1.0
+qtpy==2.2.0
     # via qtconsole
 querystring-parser==1.2.4
     # via mlflow
@@ -497,6 +500,7 @@ scipy==1.9.0
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   mlflow
     #   scikit-learn
+    #   xgboost
 semver==2.13.0
     # via kedro-viz
 send2trash==1.8.0
@@ -530,7 +534,7 @@ sqlparse==0.4.2
     # via mlflow
 starlette==0.14.2
     # via fastapi
-strawberry-graphql==0.124.0
+strawberry-graphql==0.125.0
     # via kedro-viz
 tabulate==0.8.10
     # via
@@ -620,12 +624,14 @@ websocket-client==1.3.3
     #   jupyter-server
 websockets==10.3
     # via uvicorn
-werkzeug==2.2.1
+werkzeug==2.2.2
     # via flask
 wheel==0.37.1
     # via pip-tools
 widgetsnbextension==3.6.1
     # via ipywidgets
+xgboost==1.6.1
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 zipp==3.8.1
     # via importlib-metadata
 
