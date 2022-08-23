@@ -39,6 +39,8 @@ adult.raw@train: &adult_csv
       native-country: category
       income: category
 
+    skipinitialspace: True
+
 adult.raw@test:
   <<: *adult_csv
   filepath: ${base_location}/raw/adult/adult.test

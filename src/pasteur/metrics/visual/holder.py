@@ -45,7 +45,7 @@ class HistHolder:
                 )
                 continue
 
-            self.hists[name] = hist_cls[col.type](col)
+            self.hists[name] = hist_cls[col.type](name, col)
 
         self._bootstraped = True
 

@@ -15,7 +15,8 @@ A = TypeVar("A")
 class BaseHist(ABC, Generic[A]):
     name = None
 
-    def __init__(self, meta: ColumnMeta) -> None:
+    def __init__(self, col: str, meta: ColumnMeta) -> None:
+        self.col = col
         self.meta = meta
 
     @abstractmethod
@@ -41,7 +42,7 @@ class BaseRefHist(BaseHist):
         pass
 
 
-class NumericalHist(BaseHist[str]):
+class NumericalHist(BaseHist["NumericalHist.NumericalData"]):
     name = "numerical"
 
     class NumericalData(NamedTuple):
@@ -82,7 +83,57 @@ class NumericalHist(BaseHist[str]):
             h = d.bins / d.bins.sum()
             ax.bar(x + w * i, h, width=w, label=name, log=is_log)
         ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
         return fig
+
+
+class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
+    name = "categorical"
+
+    class CategoricalData(NamedTuple):
+        counts: pd.Series = None
+
+    def fit(self, data: pd.Series):
+        self.cols = data.value_counts().sort_values(ascending=False).index
+
+    def process(self, data: pd.Series) -> CategoricalData:
+        return self.CategoricalData(data.value_counts())
+
+    def visualise(self, data: dict[str, CategoricalData]) -> Figure:
+        fig, ax = plt.subplots()
+
+        x = np.array(range(len(self.cols)))
+        w = 1 / len(data)
+
+        is_log = self.meta.metrics.y_log == True
+        for i, (name, d) in enumerate(data.items()):
+            ax.bar(
+                x - 0.5 + w * i,
+                d.counts[self.cols].to_numpy(),
+                width=w,
+                align="edge",
+                label=name,
+                log=is_log,
+            )
+
+        if self.name == "categorical":
+            plt.xticks(x, self.cols.to_numpy())
+            rot = min(3 * len(self.cols), 90)
+            rot = rot if rot > 10 else 0
+            plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
+
+        ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
+        return fig
+
+
+class OrdinalHist(CategoricalHist):
+    name = "ordinal"
+
+    def fit(self, data: pd.Series):
+        self.cols = pd.Index(np.sort(data.unique()))
 
 
 def get_hists():

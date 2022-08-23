@@ -3,9 +3,6 @@ tab_adult:
     table:
       primary_key: id
 
-      targets: [education]
-      sensitive: [race, relationship]
-
       metrics:
         model:
           expand_table: True
