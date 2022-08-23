@@ -63,13 +63,13 @@ def create_visual_fit_pipelines(view: View):
             node(
                 func=create_fitted_hist_holder_closure(table),
                 inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables},
-                outputs=f"{view.name}.wrk.hst_{table}",
+                outputs=f"{view.name}.wrk.meas_hst_{table}",
                 namespace=f"{view.name}.wrk",
             ),
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.hst_{table}", **in_tables},
-                outputs=f"{view.name}.wrk.viz_{table}",
+                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables},
+                outputs=f"{view.name}.wrk.meas_viz_{table}",
                 namespace=f"{view.name}.wrk",
             ),
         ]
@@ -85,16 +85,16 @@ def create_visual_log_pipelines(view: View, alg: str):
         hist_nodes += [
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.hst_{table}", **in_tables},
-                outputs=f"{view.name}.{alg}.viz_{table}",
+                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables},
+                outputs=f"{view.name}.{alg}.meas_viz_{table}",
                 namespace=f"{view.name}.{alg}",
             ),
             node(
                 func=mlflow_log_hists,
                 inputs={
-                    "holder": f"{view.name}.wrk.hst_{table}",
-                    "ref": f"{view.name}.wrk.viz_{table}",
-                    "alg": f"{view.name}.{alg}.viz_{table}",
+                    "holder": f"{view.name}.wrk.meas_hst_{table}",
+                    "ref": f"{view.name}.wrk.meas_viz_{table}",
+                    "alg": f"{view.name}.{alg}.meas_viz_{table}",
                 },
                 outputs=None,
                 namespace=f"{view.name}.{alg}",

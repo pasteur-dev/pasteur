@@ -128,6 +128,28 @@ class AddDatasetsForViewsHook:
                         ["views", "transformer", f"{view}.{split}", table],
                     )
 
+                for alg in self.algs:
+                    self.add_pkl(
+                        "measure",
+                        f"{view}.{alg}.meas_viz_{table}",
+                        ["synth", "measure", "visual", f"{view}.{alg}", table],
+                    )
+                    self.add_pkl(
+                        "measure",
+                        f"{view}.{alg}.meas_mdl_{table}",
+                        ["synth", "measure", "models", f"{view}.{alg}", table],
+                    )
+                self.add_pkl(
+                    "measure",
+                    f"{view}.wrk.meas_hst_{table}",
+                    ["views", "measure", "hist", view, table],
+                )
+                self.add_pkl(
+                    "measure",
+                    f"{view}.wrk.meas_viz_{table}",
+                    ["views", "measure", "visual", view, table],
+                )
+
         for view, tables in self.tables.items():
             for alg in self.algs:
                 self.add_pkl(
