@@ -56,7 +56,7 @@ class NumericalHist(BaseHist[str]):
         if main_param and (isinstance(main_param, int)):
             self.bin_n = main_param
         else:
-            self.bin_n = args.get("bins", 70)
+            self.bin_n = args.get("bins", 20)
 
         self.bins = np.histogram_bin_edges(
             data, bins=self.bin_n, range=(self.min, self.max)
@@ -67,8 +67,12 @@ class NumericalHist(BaseHist[str]):
 
     def visualise(self, data: dict[str, NumericalData]) -> Figure:
         fig, ax = plt.subplots()
-        for name, d in data.items():
-            ax.bar(self.bins[:-1], d.bins, label=name)
+        x = self.bins[:-1]
+        w = (x[1] - x[0]) / len(data)
+
+        for i, (name, d) in enumerate(data.items()):
+            h = d.bins / d.bins.sum()
+            ax.bar(x + w * i, h, width=w, label=name)
         ax.legend()
         return fig
 
