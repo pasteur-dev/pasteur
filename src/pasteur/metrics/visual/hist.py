@@ -49,8 +49,17 @@ class NumericalHist(BaseHist[str]):
 
     def fit(self, data: pd.Series):
         args = self.meta.args
-        self.min = args.get("min", data.min())
-        self.max = args.get("max", data.max())
+        metrics = self.meta.metrics
+
+        # Get maximums
+        if metrics.x_min is not None:
+            x_min = metrics.x_min
+        else:
+            x_min = args.get("min", data.min())
+        if metrics.x_max is not None:
+            x_max = metrics.x_max
+        else:
+            x_max = args.get("max", data.max())
 
         main_param = args.get("main_param", None)
         if main_param and (isinstance(main_param, int)):
@@ -58,9 +67,7 @@ class NumericalHist(BaseHist[str]):
         else:
             self.bin_n = args.get("bins", 20)
 
-        self.bins = np.histogram_bin_edges(
-            data, bins=self.bin_n, range=(self.min, self.max)
-        )
+        self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
     def process(self, data: pd.Series) -> NumericalData:
         return self.NumericalData(np.histogram(data, self.bins)[0])
@@ -70,9 +77,10 @@ class NumericalHist(BaseHist[str]):
         x = self.bins[:-1]
         w = (x[1] - x[0]) / len(data)
 
+        is_log = self.meta.metrics.y_log == True
         for i, (name, d) in enumerate(data.items()):
             h = d.bins / d.bins.sum()
-            ax.bar(x + w * i, h, width=w, label=name)
+            ax.bar(x + w * i, h, width=w, label=name, log=is_log)
         ax.legend()
         return fig
 

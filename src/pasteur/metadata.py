@@ -6,15 +6,6 @@ from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_METRICS = {
-    "x_log": False,
-    "y_log": False,
-    "x_min": None,
-    "x_max": None,
-    "y_min": None,
-    "y_max": None,
-}
-
 DEFAULT_TRANSFORMERS = {
     "num": {
         "numerical": "normdist",
@@ -54,13 +45,18 @@ DEFAULT_TRANSFORMERS = {
     },
 }
 
-DEFAULT_COLUMN_META = {"bins": 20, "metrics": DEFAULT_METRICS}
+
+class MetricsMeta(NamedTuple):
+    x_log: bool = False
+    y_log: bool = False
+    bins: int = 20
+    x_min: float | None = None
+    x_max: float | None = None
+    y_min: float | None = None
+    y_max: float | None = None
 
 
 class ColumnMeta:
-
-    DEFAULT_COLUMN_META = DEFAULT_COLUMN_META
-
     def __init__(self, **kwargs):
         type_val: str = kwargs["type"]
 
@@ -103,17 +99,10 @@ class ColumnMeta:
         else:
             self.ref = None
 
-        # Create metrics structure by merging the default dict with the
-        # user overrides. Bins can be set universally for both transformers and
-        # metrics or just metrics
-        metrics = merge_dicts(
-            self.DEFAULT_COLUMN_META["metrics"], kwargs.get("metrics", {})
-        )
-        if "bins" in self.DEFAULT_COLUMN_META:
-            metrics.update({"bins": self.DEFAULT_COLUMN_META["bins"]})
-        if "bins" in kwargs:
-            metrics.update({"bins": kwargs["bins"]})
-        self.metrics = SimpleNamespace(**metrics)
+        metrics = kwargs.get("metrics", {})
+        if "bins" not in metrics and "bins" in kwargs:
+            metrics["bins"] = kwargs["bins"]
+        self.metrics = MetricsMeta(**metrics)
 
         # Add transformer chains from data, with fallback to table chains
         # specific to type.
