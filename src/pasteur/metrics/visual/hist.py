@@ -28,11 +28,11 @@ class BaseHist(ABC, Generic[A]):
         pass
 
     @abstractmethod
-    def visualise(self, data: dict[str, A]) -> list[Figure] | Figure:
+    def visualise(self, data: dict[str, A]) -> dict[str, Figure] | Figure:
         pass
 
 
-class BaseRefHist(BaseHist):
+class BaseRefHist(BaseHist[A], Generic[A]):
     @abstractmethod
     def fit(self, data: pd.Series, ref: pd.Series):
         pass
@@ -104,12 +104,12 @@ class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
         fig, ax = plt.subplots()
 
         x = np.array(range(len(self.cols)))
-        w = 1 / len(data)
+        w = 0.9 / len(data)
 
         is_log = self.meta.metrics.y_log == True
         for i, (name, d) in enumerate(data.items()):
             ax.bar(
-                x - 0.5 + w * i,
+                x - 0.45 + w * i,
                 d.counts[self.cols].to_numpy(),
                 width=w,
                 align="edge",
@@ -117,10 +117,9 @@ class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
                 log=is_log,
             )
 
-        if self.name == "categorical":
-            plt.xticks(x, self.cols.to_numpy())
-            rot = min(3 * len(self.cols), 90)
-            rot = rot if rot > 10 else 0
+        plt.xticks(x, self.cols.to_numpy())
+        rot = min(3 * len(self.cols), 90)
+        if rot > 10:
             plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
 
         ax.legend()
@@ -134,6 +133,124 @@ class OrdinalHist(CategoricalHist):
 
     def fit(self, data: pd.Series):
         self.cols = pd.Index(np.sort(data.unique()))
+
+
+class FixedHist(BaseHist[None]):
+    name = "fixed"
+
+    def fit(self, data: pd.Series):
+        pass
+
+    def process(self, data: pd.Series) -> None:
+        pass
+
+    def visualise(self, data: dict[str, None]) -> None:
+        pass
+
+
+class DateHist(BaseRefHist["DateHist.DateData"]):
+    name = "date"
+
+    class DateData(NamedTuple):
+        pass
+
+    def fit(self, data: pd.Series, ref: pd.Series):
+        pass
+
+    def process(self, data: pd.Series, ref: pd.Series) -> DateData:
+        return self.DateData()
+
+    def visualise(self, data: dict[str, DateData]) -> dict[str, Figure] | Figure:
+        return {}
+
+
+class TimeHist(BaseHist["TimeHist.TimeData"]):
+    name = "time"
+
+    class TimeData(NamedTuple):
+        counts: pd.Series = None
+
+    def fit(self, data: pd.Series):
+        if "main_param" in self.meta.args:
+            self.span = self.meta.args["main_param"].split(".")[-1]
+        elif "span" in self.meta.args:
+            self.span = self.meta.args["span"].split(".")[-1]
+        else:
+            self.span = "halfhour"
+
+    def process(self, data: pd.Series) -> TimeData:
+        hours = data.dt.hour
+        if self.span == "hour":
+            segments = hours
+        else:
+            half_hours = data.dt.minute > 29
+            segments = 2 * hours + half_hours
+        vc = segments.value_counts()
+        vc /= vc.sum()
+        return self.TimeData(vc)
+
+    def visualise(self, data: dict[str, TimeData]) -> Figure:
+        fig, ax = plt.subplots()
+
+        if self.span == "hour":
+            seg_len = 24
+            mult = 1
+        else:
+            seg_len = 48
+            mult = 2
+
+        x = np.array(range(seg_len))
+        w = 1 / len(data)
+
+        is_log = self.meta.metrics.y_log == True
+        for i, (name, d) in enumerate(data.items()):
+            segments = d.counts.reindex(range(seg_len), fill_value=0).to_numpy()
+            ax.bar(
+                x - 0.5 + w * i,
+                segments,
+                width=w,
+                align="edge",
+                label=name,
+                log=is_log,
+            )
+
+        hours = [0, 3, 6, 9, 12, 15, 18, 21, 24]
+        tick_x = mult * np.array(hours)
+        tick_label = [f"{hour:02d}:00" for hour in hours]
+        plt.xticks(tick_x, tick_label)
+
+        ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
+        return fig
+
+
+class DatetimeHist(BaseRefHist["DatetimeHist.DatetimeData"]):
+    name = "datetime"
+
+    class DatetimeData(NamedTuple):
+        date: DateHist.DateData | None = None
+        time: TimeHist.TimeData | None = None
+
+    def __init__(self, col: str, meta: ColumnMeta) -> None:
+        super().__init__(col, meta)
+        self.date = DateHist(col, meta)
+        self.time = TimeHist(col, meta)
+
+    def fit(self, data: pd.Series, ref: pd.Series):
+        self.date.fit(data, ref)
+        self.time.fit(data)
+
+    def process(self, data: pd.Series, ref: pd.Series) -> A:
+        date = self.date.process(data, ref)
+        time = self.time.process(data)
+        return self.DatetimeData(date, time)
+
+    def visualise(self, data: dict[str, DatetimeData]) -> dict[str, Figure] | Figure:
+        date_fig = self.date.visualise({n: c.date for n, c in data.items()})
+        time_fig = self.time.visualise({n: c.time for n, c in data.items()})
+
+        return {**date_fig, "time": time_fig}
 
 
 def get_hists():

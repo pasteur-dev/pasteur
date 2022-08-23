@@ -1,5 +1,4 @@
 import logging
-from types import SimpleNamespace
 from .utils import merge_dicts
 import pandas as pd
 from typing import NamedTuple
@@ -56,6 +55,11 @@ class MetricsMeta(NamedTuple):
     y_max: float | None = None
 
 
+class ColumnRef(NamedTuple):
+    table: str | None = None
+    col: str | None = None
+
+
 class ColumnMeta:
     def __init__(self, **kwargs):
         type_val: str = kwargs["type"]
@@ -95,7 +99,7 @@ class ColumnMeta:
             else:
                 table = None
                 col = d[0]
-            self.ref = SimpleNamespace(table=table, col=col)
+            self.ref = ColumnRef(table, col)
         else:
             self.ref = None
 
@@ -171,11 +175,6 @@ class TableMeta:
             self.metrics = TableMetrics(model=model)
         else:
             self.metrics = TableMetrics()
-
-        self.targets = meta.get("targets", meta.get("target", []))
-        if isinstance(self.targets, str):
-            self.targets = [self.targets]
-        self.sensitive = meta.get("sensitive", [])
 
         # Update transformer chain dict from table entries
         self.td = merge_dicts(transformers or {}, meta.get("transformers", {}))

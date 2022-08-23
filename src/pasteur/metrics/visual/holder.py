@@ -56,9 +56,13 @@ class HistHolder:
 
         for name, hist in self.hists.items():
             if isinstance(hist, BaseRefHist):
-                assert False, "Ref Hists not supported yet"
-
-            hist.fit(tables[self.table][name])
+                ref = self.meta[self.table, name].ref
+                assert (
+                    ref.table is None
+                ), "Foreign table relationships not supported yet"
+                hist.fit(tables[self.table][name], tables[self.table][ref.col])
+            else:
+                hist.fit(tables[self.table][name])
 
     def process(self, tables: dict[str, pd.DataFrame]) -> VizData:
         """Captures metadata about the provided dataset split, that can be used
@@ -66,9 +70,15 @@ class HistHolder:
         data = {}
         for name, hist in self.hists.items():
             if isinstance(hist, BaseRefHist):
-                assert False, "Ref Hists not supported yet"
-
-            data[name] = hist.process(tables[self.table][name])
+                ref = self.meta[self.table, name].ref
+                assert (
+                    ref.table is None
+                ), "Foreign table relationships not supported yet"
+                data[name] = hist.process(
+                    tables[self.table][name], tables[self.table][ref.col]
+                )
+            else:
+                data[name] = hist.process(tables[self.table][name])
 
         return data
 
@@ -81,7 +91,9 @@ class HistHolder:
             assert name in self.hists
             hist_data = {split: data[split][name] for split in data.keys()}
 
-            viz[name] = self.hists[name].visualise(hist_data)
+            v = self.hists[name].visualise(hist_data)
+            if v is not None:
+                viz[name] = v
 
         return viz
 
