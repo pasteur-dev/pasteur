@@ -152,16 +152,204 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
     name = "date"
 
     class DateData(NamedTuple):
-        pass
+        years: pd.Series | None = None
+        weeks: pd.Series | None = None
+        days: pd.Series | None = None
 
     def fit(self, data: pd.Series, ref: pd.Series):
-        pass
+        if "main_param" in self.meta.args:
+            self.span = self.meta.args["main_param"].split(".")[0]
+        elif "span" in self.meta.args:
+            self.span = self.meta.args["span"].split(".")[0]
+        else:
+            self.span = "year"
+
+        self.max_len = self.meta.args.get("max_len", None)
+        self.bin_n = self.meta.args.get("bins", 20)
+
+        if ref is None:
+            self.ref = data.min()
+        else:
+            self.ref = None
+
+        # Find histogram bin edges
+        mask = ~pd.isna(data) & ~pd.isna(ref)
+        data = data[mask]
+        ref = ref[mask]
+        rf_dt = self.ref if self.ref is not None else ref.dt
+
+        match self.span:
+            case "year":
+                segs = data.dt.year - rf_dt.year
+            case "week":
+                segs = (
+                    (data.dt.normalize() - rf_dt.normalize()).dt.days
+                    + rf_dt.day_of_week
+                ) // 7
+            case "day":
+                segs = (
+                    data.dt.normalize() - rf_dt.normalize()
+                ).dt.days + rf_dt.day_of_week
+            case other:
+                assert False, f"Span {self.span} not supported by DateHist"
+
+        segs = segs.astype("int16")
+        if self.max_len is None:
+            self.max_len = np.percentile(segs, 90)
+        if self.max_len < self.bin_n:
+            self.bin_n = int(self.max_len - 1)
+        self.bins = np.histogram_bin_edges(
+            segs, bins=self.bin_n, range=(0, self.max_len)
+        )
 
     def process(self, data: pd.Series, ref: pd.Series) -> DateData:
-        return self.DateData()
+        assert self.ref is not None or ref is not None
+
+        # Based on date transformer
+        mask = ~pd.isna(data) & ~pd.isna(ref)
+        data = data[mask]
+        ref = ref[mask]
+        rf_dt = self.ref if self.ref is not None else ref.dt
+
+        match self.span:
+            case "year":
+                years = data.dt.year - rf_dt.year
+                years = np.histogram(years, bins=self.bins)[0]
+
+                weeks = data.dt.week.astype("int16")
+                days = data.dt.day_of_week.astype("int16")
+
+                weeks = weeks.value_counts()
+                weeks /= weeks.sum()
+                days = days.value_counts()
+                days /= days.sum()
+            case "week":
+                years = None
+
+                weeks = (
+                    (data.dt.normalize() - rf_dt.normalize()).dt.days
+                    + rf_dt.day_of_week
+                ) // 7
+                weeks = np.histogram(weeks, bins=self.bins)[0]
+
+                days = data.dt.day_of_week.astype("int16")
+                days = days.value_counts()
+                days /= days.sum()
+            case "day":
+                years = None
+                weeks = None
+                days = (
+                    data.dt.normalize() - rf_dt.normalize()
+                ).dt.days + rf_dt.day_of_week
+                days = np.histogram(days, bins=self.bins)[0]
+            case other:
+                assert False, f"Span {self.span} not supported by DateHist"
+
+        return self.DateData(years, weeks, days)
+
+    def _viz_days(self, data: dict[str, DateData]):
+        fig, ax = plt.subplots()
+
+        x = np.array(range(7))
+        w = 0.9 / len(data)
+        ofs = 0.9 / 2
+
+        is_log = self.meta.metrics.y_log == True
+        for i, (name, d) in enumerate(data.items()):
+            segments = d.days.reindex(range(7), fill_value=0).to_numpy()
+            ax.bar(
+                x - ofs + w * i,
+                segments,
+                width=w,
+                align="edge",
+                label=name,
+                log=is_log,
+            )
+
+        days_x = [0, 1, 2, 3, 4, 5, 6]
+        days_label = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        plt.xticks(days_x, days_label)
+
+        ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
+        return fig
+
+    def _viz_weeks(self, data: dict[str, DateData]):
+        fig, ax = plt.subplots()
+
+        x = np.array(range(53))
+        w = 1 / len(data)
+        ofs = 1 / 2
+
+        is_log = self.meta.metrics.y_log == True
+        for i, (name, d) in enumerate(data.items()):
+            segments = d.weeks.reindex(range(53), fill_value=0).to_numpy()
+            ax.bar(
+                x - ofs + w * i,
+                segments,
+                width=w,
+                align="edge",
+                label=name,
+                log=is_log,
+            )
+
+        tick_x = [4, 13, 26, 39, 52]
+        tick_label = ["1 Month", "3 Months", "6 Months", "9 Months", "1 Year"]
+        plt.xticks(tick_x, tick_label)
+
+        ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
+        return fig
+
+    def _viz_binned(self, data: dict[str, DateData], field: str):
+        fig, ax = plt.subplots()
+
+        x = self.bins[:-1]
+        w = (x[1] - x[0]) / len(data)
+
+        is_log = self.meta.metrics.y_log == True
+        for i, (name, d) in enumerate(data.items()):
+            ax.bar(
+                x + w * i,
+                getattr(d, field),
+                width=w,
+                align="edge",
+                label=name,
+                log=is_log,
+            )
+
+        ax.legend()
+        ax.set_title(self.col.capitalize())
+        plt.tight_layout()
+        return fig
 
     def visualise(self, data: dict[str, DateData]) -> dict[str, Figure] | Figure:
-        return {}
+        match self.span:
+            case "year":
+                return {
+                    "years": self._viz_binned(data, "years"),
+                    "weeks": self._viz_weeks(data),
+                    "days": self._viz_days(data),
+                }
+            case "week":
+                return {
+                    "weeks": self._viz_binned(data, "weeks"),
+                    "days": self._viz_days(data),
+                }
+            case "day":
+                return {"days": self._viz_binned(data, "days")}
+            case other:
+                assert False, f"Span {self.span} not supported by DateHist"
 
 
 class TimeHist(BaseHist["TimeHist.TimeData"]):
@@ -179,6 +367,7 @@ class TimeHist(BaseHist["TimeHist.TimeData"]):
             self.span = "halfhour"
 
     def process(self, data: pd.Series) -> TimeData:
+        data = data[~pd.isna(data)]
         hours = data.dt.hour
         if self.span == "hour":
             segments = hours

@@ -571,7 +571,7 @@ class DateTransformer(RefTransformer):
                         "type": "ordinal",
                         "dom": self.max_len,
                     }
-                    constraints[f"{col}_week"] = {"type": "ordinal", "dom": 52}
+                    constraints[f"{col}_week"] = {"type": "ordinal", "dom": 53}
                     constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
                 case "week":
                     constraints[f"{col}_week"] = {
@@ -647,7 +647,7 @@ class DateTransformer(RefTransformer):
                 case "year":
                     out[col] = self.iso_to_gregorian(
                         rf_dt.year + data[f"{col}_year"],
-                        data[f"{col}_week"].clip(0, 52),
+                        data[f"{col}_week"].clip(0, 53),
                         data[f"{col}_day"].clip(0, 6),
                     )
                 case "week":
