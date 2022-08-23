@@ -1,7 +1,6 @@
 from itertools import chain
 import logging
 from functools import reduce
-from mailbox import linesep
 from typing import NamedTuple
 
 import numpy as np

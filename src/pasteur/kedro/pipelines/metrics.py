@@ -7,6 +7,11 @@ from ...metrics.models import (
     mlflow_log_model_closure,
     node_calculate_model_scores,
 )
+from ...metrics.visual import (
+    project_hists_for_view,
+    create_fitted_hist_holder_closure,
+    mlflow_log_hists,
+)
 from ...views.base import View
 from .synth import create_transform_pipeline
 
@@ -47,3 +52,53 @@ def create_model_calc_pipelines(view: View, alg: str):
         ]
 
     return pipe_ingest + pipeline(calc_nodes)
+
+
+def create_visual_fit_pipelines(view: View):
+    in_tables = {table: f"{view.name}.wrk.{table}" for table in view.tables}
+
+    hist_nodes = []
+    for table in view.tables:
+        hist_nodes += [
+            node(
+                func=create_fitted_hist_holder_closure(table),
+                inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables},
+                outputs=f"{view.name}.wrk.hst_{table}",
+                namespace=f"{view.name}.wrk",
+            ),
+            node(
+                func=project_hists_for_view,
+                inputs={"holder": f"{view.name}.wrk.hst_{table}", **in_tables},
+                outputs=f"{view.name}.wrk.viz_{table}",
+                namespace=f"{view.name}.wrk",
+            ),
+        ]
+
+    return pipeline(hist_nodes)
+
+
+def create_visual_log_pipelines(view: View, alg: str):
+    in_tables = {table: f"{view.name}.{alg}.{table}" for table in view.tables}
+
+    hist_nodes = []
+    for table in view.tables:
+        hist_nodes += [
+            node(
+                func=project_hists_for_view,
+                inputs={"holder": f"{view.name}.wrk.hst_{table}", **in_tables},
+                outputs=f"{view.name}.{alg}.viz_{table}",
+                namespace=f"{view.name}.{alg}",
+            ),
+            node(
+                func=mlflow_log_hists,
+                inputs={
+                    "holder": f"{view.name}.wrk.hst_{table}",
+                    "ref": f"{view.name}.wrk.viz_{table}",
+                    "alg": f"{view.name}.{alg}.viz_{table}",
+                },
+                outputs=None,
+                namespace=f"{view.name}.{alg}",
+            ),
+        ]
+
+    return pipeline(hist_nodes)
