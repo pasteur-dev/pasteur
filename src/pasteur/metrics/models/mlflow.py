@@ -57,8 +57,10 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
         .to_html()
     )
 
-    mlflow.log_text(BASE_STYLE + html, f"metrics/models/{name}.html")
-    mlflow.log_text(res.to_csv(), f"metrics/_raw/models/{name}.csv")
+    mlflow.log_text(
+        BASE_STYLE + html, f"models/{name}.html" if name != "table" else "models.html"
+    )
+    # mlflow.log_text(res.to_csv(), f"logs/_raw/models/{name}.csv")
 
 
 def mlflow_log_model_closure(name: str):

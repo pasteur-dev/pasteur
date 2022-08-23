@@ -195,8 +195,8 @@ class CustomMlflowTrackingHook(MlflowHook):
             self._log_param("ratios", ratios)
 
         # And for good measure, store all parameters as a yml file
-        mlflow.log_dict(self.params, f"params/all.yml")
-        mlflow.log_dict(run_params, f"params/run.yml")
+        mlflow.log_dict(self.params, f"_params/all.yml")
+        mlflow.log_dict(run_params, f"_params/run.yml")
 
     @hook_impl
     def before_node_run(

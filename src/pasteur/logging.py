@@ -42,7 +42,7 @@ class MlflowHandler(Handler):
     def __init__(
         self,
         name: str = "user",
-        logdir: str = "logs",
+        logdir: str = "_logs",
         interval: int | str = 5,
     ):
         Handler.__init__(self)
