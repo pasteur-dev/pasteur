@@ -279,7 +279,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         plt.xticks(days_x, days_label)
 
         ax.legend()
-        ax.set_title(self.col.capitalize())
+        ax.set_title(f"{self.col.capitalize()} Weekday")
         plt.tight_layout()
         return fig
 
@@ -302,16 +302,17 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
                 log=is_log,
             )
 
-        tick_x = [4, 13, 26, 39, 52]
-        tick_label = ["1 Month", "3 Months", "6 Months", "9 Months", "1 Year"]
+        tick_x = [2, 15, 28, 41]
+        tick_label = ["Winter", "Spring", "Summer", "Autumn"]
         plt.xticks(tick_x, tick_label)
 
         ax.legend()
         ax.set_title(self.col.capitalize())
+        ax.set_title(f"{self.col.capitalize()} Season")
         plt.tight_layout()
         return fig
 
-    def _viz_binned(self, data: dict[str, DateData], field: str):
+    def _viz_binned(self, data: dict[str, DateData], field: str, title: str):
         fig, ax = plt.subplots()
 
         x = self.bins[:-1]
@@ -329,7 +330,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             )
 
         ax.legend()
-        ax.set_title(self.col.capitalize())
+        ax.set_title(f"{self.col.capitalize()} {title}")
         plt.tight_layout()
         return fig
 
@@ -337,17 +338,17 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         match self.span:
             case "year":
                 return {
-                    "years": self._viz_binned(data, "years"),
+                    "years": self._viz_binned(data, "years", "Years"),
                     "weeks": self._viz_weeks(data),
                     "days": self._viz_days(data),
                 }
             case "week":
                 return {
-                    "weeks": self._viz_binned(data, "weeks"),
+                    "weeks": self._viz_binned(data, "weeks", "Weeks"),
                     "days": self._viz_days(data),
                 }
             case "day":
-                return {"days": self._viz_binned(data, "days")}
+                return {"days": self._viz_binned(data, "days", "Days")}
             case other:
                 assert False, f"Span {self.span} not supported by DateHist"
 
