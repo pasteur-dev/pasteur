@@ -62,6 +62,9 @@ def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.Data
     test_cols = list(dict.fromkeys(model_meta.sensitive + model_meta.targets))
     test_cols = {col: meta[table_name, col].type for col in test_cols}
 
+    if len(test_cols) == 0:
+        return pd.DataFrame()
+
     # TODO: Add varioable ratio to metadata
     return calculate_model_scores(meta.seed, 0.2, test_cols, sets, orig_to_enc_cols)
 

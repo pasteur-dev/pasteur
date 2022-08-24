@@ -63,10 +63,11 @@ def generate_pipelines(
         model_types = get_required_types()
         types = list(dict.fromkeys(alg_types + model_types))  # remove duplicates
 
+        pipe_visual_fit = create_visual_fit_pipelines(view)
         pipe_transform = (
             create_transform_pipeline(name, "wrk", view.tables, types)
             + create_model_transform_pipelines(view)
-            + create_visual_fit_pipelines(view)
+            + pipe_visual_fit
         )
 
         pipe_ingest = (
@@ -95,7 +96,7 @@ def generate_pipelines(
             else:
                 main_pipes[f"{name}.{alg}"] = complete_pipe
             extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
-            extr_pipes[f"{name}.{alg}.measure"] = pipe_measure
+            extr_pipes[f"{name}.{alg}.measure"] = pipe_measure + pipe_visual_fit
 
     # extr_pipes["ingest"] = pipe_ingest_all
     # extr_pipes["ingest.datasets"] = pipe_ingest_datasets

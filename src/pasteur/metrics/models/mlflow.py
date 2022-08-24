@@ -42,6 +42,9 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
     if not mlflow.active_run():
         return
 
+    if len(res) == 0:
+        return
+
     res = res.copy()
 
     res["privacy_leak"] = res["synth_test_orig"] - res["synth_test_real"]

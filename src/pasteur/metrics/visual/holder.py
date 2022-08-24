@@ -82,7 +82,9 @@ class HistHolder:
 
         return data
 
-    def visualise(self, data: dict[str, VizData]) -> dict[str, list[Figure] | Figure]:
+    def visualise(
+        self, data: dict[str, VizData]
+    ) -> dict[str, dict[str, Figure] | Figure]:
         """Takes in a dictionary of (split_name, metadata) and returns visualizations
         that compare the provided runs. `split_name` is used for the legends."""
         viz = {}
