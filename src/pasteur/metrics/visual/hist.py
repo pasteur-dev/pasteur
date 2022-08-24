@@ -71,7 +71,7 @@ class NumericalHist(BaseHist["NumericalHist.NumericalData"]):
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
     def process(self, data: pd.Series) -> NumericalData:
-        return self.NumericalData(np.histogram(data, self.bins)[0])
+        return self.NumericalData(np.histogram(data, self.bins, density=True)[0])
 
     def visualise(self, data: dict[str, NumericalData]) -> Figure:
         fig, ax = plt.subplots()
@@ -98,7 +98,9 @@ class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
         self.cols = data.value_counts().sort_values(ascending=False).index
 
     def process(self, data: pd.Series) -> CategoricalData:
-        return self.CategoricalData(data.value_counts())
+        dt = data.value_counts()
+        dt /= dt.sum()
+        return self.CategoricalData(dt)
 
     def visualise(self, data: dict[str, CategoricalData]) -> Figure:
         fig, ax = plt.subplots()
@@ -214,7 +216,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         match self.span:
             case "year":
                 years = data.dt.year - rf_dt.year
-                years = np.histogram(years, bins=self.bins)[0]
+                years = np.histogram(years, bins=self.bins, density=True)[0]
 
                 weeks = data.dt.week.astype("int16")
                 days = data.dt.day_of_week.astype("int16")
@@ -230,7 +232,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
                     (data.dt.normalize() - rf_dt.normalize()).dt.days
                     + rf_dt.day_of_week
                 ) // 7
-                weeks = np.histogram(weeks, bins=self.bins)[0]
+                weeks = np.histogram(weeks, bins=self.bins, density=True)[0]
 
                 days = data.dt.day_of_week.astype("int16")
                 days = days.value_counts()
@@ -241,7 +243,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
                 days = (
                     data.dt.normalize() - rf_dt.normalize()
                 ).dt.days + rf_dt.day_of_week
-                days = np.histogram(days, bins=self.bins)[0]
+                days = np.histogram(days, bins=self.bins, density=True)[0]
             case other:
                 assert False, f"Span {self.span} not supported by DateHist"
 

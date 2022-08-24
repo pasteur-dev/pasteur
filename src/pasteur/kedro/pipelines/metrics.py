@@ -55,22 +55,29 @@ def create_model_calc_pipelines(view: View, alg: str):
 
 
 def create_visual_fit_pipelines(view: View):
-    in_tables = {table: f"{view.name}.wrk.{table}" for table in view.tables}
+    in_tables_wrk = {table: f"{view.name}.wrk.{table}" for table in view.tables}
+    in_tables_tst = {table: f"{view.name}.tst.{table}" for table in view.tables}
 
     hist_nodes = []
     for table in view.tables:
         hist_nodes += [
             node(
                 func=create_fitted_hist_holder_closure(table),
-                inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables},
+                inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables_wrk},
                 outputs=f"{view.name}.wrk.meas_hst_{table}",
                 namespace=f"{view.name}.wrk",
             ),
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables},
+                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables_wrk},
                 outputs=f"{view.name}.wrk.meas_viz_{table}",
                 namespace=f"{view.name}.wrk",
+            ),
+            node(
+                func=project_hists_for_view,
+                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables_tst},
+                outputs=f"{view.name}.tst.meas_viz_{table}",
+                namespace=f"{view.name}.tst",
             ),
         ]
 
@@ -93,8 +100,9 @@ def create_visual_log_pipelines(view: View, alg: str):
                 func=mlflow_log_hists,
                 inputs={
                     "holder": f"{view.name}.wrk.meas_hst_{table}",
-                    "ref": f"{view.name}.wrk.meas_viz_{table}",
+                    "wrk": f"{view.name}.wrk.meas_viz_{table}",
                     "alg": f"{view.name}.{alg}.meas_viz_{table}",
+                    "ref": f"{view.name}.tst.meas_viz_{table}",
                 },
                 outputs=None,
                 namespace=f"{view.name}.{alg}",
