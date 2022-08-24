@@ -1,15 +1,14 @@
-from itertools import chain
 import logging
 from functools import reduce
+from itertools import chain
 from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 
-from pasteur.transform.table import Attribute
-
+from ..progress import piter, prange, process_in_parallel
+from ..transform import Attribute
 from .base import Synth, make_deterministic
-from ..progress import process_in_parallel, piter, prange
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,11 @@ def calc_marginal(
 
 
 def calc_marginal_1way(
-    data: np.ndarray, domain: np.ndarray, x: list[int], rm_zeros: bool = False
+    data: np.ndarray,
+    domain: np.ndarray,
+    x: list[int],
+    rm_zeros: bool = False,
+    zero_fill: float = 1e-24,
 ):
     """Calculates the 1 way marginal of x, returned as a 1D array."""
 
@@ -89,7 +92,7 @@ def calc_marginal_1way(
     margin /= margin.sum()
     if rm_zeros:
         # Mutual info turns into NaN without this
-        margin += 1e-24
+        margin += zero_fill
 
     return margin.reshape(-1)
 

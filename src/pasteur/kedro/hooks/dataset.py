@@ -98,6 +98,14 @@ class AddDatasetsForViewsHook:
                     ["views", "keys", view, split],
                 )
 
+            for alg in self.algs:
+                self.add_pkl(
+                    "synth_models",
+                    f"{view}.{alg}.model",
+                    ["synth", "models", f"{view}.{alg}"],
+                    versioned=True,
+                )
+
             for table in tables:
                 self.add_set(
                     "primary",
@@ -129,6 +137,28 @@ class AddDatasetsForViewsHook:
                     )
 
                 for alg in self.algs:
+                    for type in ("enc", "ids"):
+                        self.add_set(
+                            "synth_encoded",
+                            f"{view}.{alg}.{type}_{table}",
+                            ["synth", type, f"{view}.{alg}", table],
+                            versioned=True,
+                        )
+
+                    self.add_set(
+                        "synth_decoded",
+                        f"{view}.{alg}.{table}",
+                        ["synth", "dec", f"{view}.{alg}", table],
+                        versioned=True,
+                    )
+                    for type in self.types:
+                        self.add_set(
+                            "synth_reencoded",
+                            f"{view}.{alg}.{type}_{table}",
+                            ["synth", type, f"{view}.{alg}", table],
+                            versioned=True,
+                        )
+
                     self.add_pkl(
                         "measure",
                         f"{view}.{alg}.meas_viz_{table}",
@@ -149,28 +179,3 @@ class AddDatasetsForViewsHook:
                     f"{view}.wrk.meas_viz_{table}",
                     ["views", "measure", "visual", view, table],
                 )
-
-        for view, tables in self.tables.items():
-            for alg in self.algs:
-                self.add_pkl(
-                    "synth_models",
-                    f"{view}.{alg}.model",
-                    ["synth", "models", f"{view}.{alg}"],
-                    versioned=True,
-                )
-
-                for table in tables:
-                    for type in ("enc", "ids"):
-                        self.add_set(
-                            "synth_encoded",
-                            f"{view}.{alg}.{type}_{table}",
-                            ["synth", type, f"{view}.{alg}", table],
-                            versioned=True,
-                        )
-
-                    self.add_set(
-                        "synth_decoded",
-                        f"{view}.{alg}.{table}",
-                        ["synth", "dec", f"{view}.{alg}", table],
-                        versioned=True,
-                    )

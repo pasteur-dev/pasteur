@@ -257,6 +257,15 @@ class DatasetMeta:
             return self._tables[name[0]][name[1]]
         return self._tables[name]
 
+    @staticmethod
+    def from_kedro_params(
+        params: dict, view: str, data: dict[str, pd.DataFrame] | None = None
+    ):
+        from .utils import get_params_for_pipe
+
+        meta_dict = get_params_for_pipe(view, params)
+        return DatasetMeta(meta_dict, data)
+
 
 class Metadata(DatasetMeta):
     pass
