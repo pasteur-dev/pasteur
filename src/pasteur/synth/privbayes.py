@@ -8,93 +8,19 @@ import pandas as pd
 
 from ..progress import piter, prange, process_in_parallel
 from ..transform import Attribute
+from ..math import calc_marginal, calc_marginal_1way
 from .base import Synth, make_deterministic
 
 logger = logging.getLogger(__name__)
 
 MAX_EPSILON = 1e3 - 10
 MAX_T = 1e5
+ZERO_FILL = 1e-24
 
 
 class Node(NamedTuple):
     x: Attribute = None
     p: list[Attribute] = []
-
-
-def get_dtype(domain: int):
-    # uint16 is 2x as fast as uint32 (5ms -> 3ms), use with marginals.
-    # Marginal domain can not exceed max(uint16) size 65535 + 1
-    if domain < 65535 + 1:
-        return "uint16"
-    return "uint32"
-
-
-def calc_marginal(
-    data: np.ndarray,
-    domain: np.ndarray,
-    x: list[int],
-    p: list[int],
-    rm_zeros: bool = False,
-):
-    """Calculates the 1 way and 2 way marginals between the set of columns in x
-    and the set of columns in p."""
-
-    xp = x + p
-    x_dom = reduce(lambda a, b: a * b, domain[x], 1)
-    p_dom = reduce(lambda a, b: a * b, domain[p], 1)
-    dtype = get_dtype(x_dom * p_dom)
-
-    idx = np.zeros((len(data)), dtype=dtype)
-    tmp = np.empty((len(data)), dtype=dtype)
-    mul = 1
-    for col in reversed(xp):
-        # idx += mul*data[:, col]
-        np.add(idx, np.multiply(mul, data[:, col].astype(dtype), out=tmp), out=idx)
-        mul *= domain[col]
-
-    counts = np.bincount(idx, minlength=x_dom * p_dom)
-    margin = counts.reshape(x_dom, p_dom).astype("float")
-
-    margin /= margin.sum()
-    if rm_zeros:
-        # Mutual info turns into NaN without this
-        margin += 1e-24
-
-    j_mar = margin
-    x_mar = np.sum(margin, axis=1)
-    p_mar = np.sum(margin, axis=0)
-
-    return j_mar, x_mar, p_mar
-
-
-def calc_marginal_1way(
-    data: np.ndarray,
-    domain: np.ndarray,
-    x: list[int],
-    rm_zeros: bool = False,
-    zero_fill: float = 1e-24,
-):
-    """Calculates the 1 way marginal of x, returned as a 1D array."""
-
-    x_dom = reduce(lambda a, b: a * b, domain[x], 1)
-    dtype = get_dtype(x_dom)
-
-    idx = np.zeros((len(data)), dtype=dtype)
-    tmp = np.empty((len(data)), dtype=dtype)
-    mul = 1
-    for col in reversed(x):
-        # idx += mul*data[:, col]
-        np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
-        mul *= domain[col]
-
-    counts = np.bincount(idx, minlength=x_dom)
-    margin = counts.astype("float")
-    margin /= margin.sum()
-    if rm_zeros:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
-
-    return margin.reshape(-1)
 
 
 def sens_mutual_info(n: int):
@@ -106,7 +32,7 @@ def sens_mutual_info(n: int):
 def calc_mutual_info(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[int]):
     """Calculates mutual information I(X,P) for the provided data using log2."""
 
-    j_mar, x_mar, p_mar = calc_marginal(data, domain, x, p, rm_zeros=True)
+    j_mar, x_mar, p_mar = calc_marginal(data, domain, x, p, ZERO_FILL)
     return np.sum(j_mar * np.log2(j_mar / np.outer(x_mar, p_mar)))
 
 
@@ -126,7 +52,7 @@ def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[
 def calc_entropy(data: np.ndarray, domain: np.ndarray, x: list[int]):
     """Calculates the entropy for the provided data."""
     # TODO: check this is correct using scipy
-    mar = calc_marginal_1way(data, domain, x, True)
+    mar = calc_marginal_1way(data, domain, x, ZERO_FILL)
     ent = -np.sum(mar * np.log2(mar))
     return ent
 
