@@ -154,7 +154,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
     name = "date"
 
     class DateData(NamedTuple):
-        years: pd.Series | None = None
+        span: pd.Series | None = None
         weeks: pd.Series | None = None
         days: pd.Series | None = None
 
@@ -216,38 +216,30 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         match self.span:
             case "year":
                 years = data.dt.year - rf_dt.year
-                years = np.histogram(years, bins=self.bins, density=True)[0]
-
-                weeks = data.dt.week.astype("int16")
-                days = data.dt.day_of_week.astype("int16")
-
-                weeks = weeks.value_counts()
-                weeks /= weeks.sum()
-                days = days.value_counts()
-                days /= days.sum()
+                span = np.histogram(years, bins=self.bins, density=True)[0]
             case "week":
-                years = None
-
                 weeks = (
                     (data.dt.normalize() - rf_dt.normalize()).dt.days
                     + rf_dt.day_of_week
                 ) // 7
-                weeks = np.histogram(weeks, bins=self.bins, density=True)[0]
-
-                days = data.dt.day_of_week.astype("int16")
-                days = days.value_counts()
-                days /= days.sum()
+                span = np.histogram(weeks, bins=self.bins, density=True)[0]
             case "day":
-                years = None
-                weeks = None
                 days = (
                     data.dt.normalize() - rf_dt.normalize()
                 ).dt.days + rf_dt.day_of_week
-                days = np.histogram(days, bins=self.bins, density=True)[0]
+                span = np.histogram(days, bins=self.bins, density=True)[0]
             case other:
                 assert False, f"Span {self.span} not supported by DateHist"
 
-        return self.DateData(years, weeks, days)
+        weeks = data.dt.week.astype("int16")
+        days = data.dt.day_of_week.astype("int16")
+
+        weeks = weeks.value_counts()
+        weeks /= weeks.sum()
+        days = days.value_counts()
+        days /= days.sum()
+
+        return self.DateData(span, weeks, days)
 
     def _viz_days(self, data: dict[str, DateData]):
         fig, ax = plt.subplots()
@@ -314,7 +306,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         plt.tight_layout()
         return fig
 
-    def _viz_binned(self, data: dict[str, DateData], field: str, title: str):
+    def _viz_binned(self, data: dict[str, DateData]):
         fig, ax = plt.subplots()
 
         x = self.bins[:-1]
@@ -324,7 +316,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         for i, (name, d) in enumerate(data.items()):
             ax.bar(
                 x + w * i,
-                getattr(d, field),
+                d.span,
                 width=w,
                 align="edge",
                 label=name,
@@ -332,27 +324,17 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             )
 
         ax.legend()
-        ax.set_title(f"{self.col.capitalize()} {title}")
+        ax.set_title(f"{self.col.capitalize()} {self.span.capitalize()}s")
         plt.tight_layout()
         return fig
 
     def visualise(self, data: dict[str, DateData]) -> dict[str, Figure] | Figure:
-        match self.span:
-            case "year":
-                return {
-                    "years": self._viz_binned(data, "years", "Years"),
-                    "weeks": self._viz_weeks(data),
-                    "days": self._viz_days(data),
-                }
-            case "week":
-                return {
-                    "weeks": self._viz_binned(data, "weeks", "Weeks"),
-                    "days": self._viz_days(data),
-                }
-            case "day":
-                return {"days": self._viz_binned(data, "days", "Days")}
-            case other:
-                assert False, f"Span {self.span} not supported by DateHist"
+        s = self.span
+        return {
+            f"n{s}s": self._viz_binned(data),
+            "weeks": self._viz_weeks(data),
+            "days": self._viz_days(data),
+        }
 
 
 class TimeHist(BaseHist["TimeHist.TimeData"]):
