@@ -14,9 +14,13 @@ from ...metrics.visual import (
 )
 from ...views.base import View
 from .synth import create_transform_pipeline
+from .utils import gen_closure
+
+from ...metrics.distr import log_kl_mlflow, log_cs_mlflow, calc_kl, calc_chisquare
 
 
 def create_model_transform_pipelines(view: View):
+    # TODO: refactor to include distr support officially
     return create_transform_pipeline(
         view.name, "tst", view.tables, get_required_types(), "wrk"
     )
@@ -110,3 +114,56 @@ def create_visual_log_pipelines(view: View, alg: str):
         ]
 
     return pipeline(hist_nodes)
+
+
+def create_distr_fit_pipelines(view: View):
+    # TODO: add support for expanded tables
+
+    nodes = []
+    for table in view.tables:
+        for method, calc in [("cs", calc_chisquare), ("kl", calc_kl)]:
+            nodes += [
+                node(
+                    func=calc,
+                    inputs={
+                        "ref": f"{view.name}.wrk.idx_{table}",
+                        "syn": f"{view.name}.tst.idx_{table}",
+                    },
+                    outputs=f"{view.name}.tst.meas_{method}_{table}",
+                    namespace=f"{view.name}.tst",
+                ),
+            ]
+
+    return pipeline(nodes)
+
+
+def create_distr_log_pipelines(view: View, alg: str):
+    nodes = []
+    for table in view.tables:
+        for method, calc in [("cs", calc_chisquare), ("kl", calc_kl)]:
+            nodes += [
+                node(
+                    func=calc,
+                    inputs={
+                        "ref": f"{view.name}.wrk.idx_{table}",
+                        "syn": f"{view.name}.{alg}.idx_{table}",
+                    },
+                    outputs=f"{view.name}.{alg}.meas_{method}_{table}",
+                    namespace=f"{view.name}.{alg}",
+                ),
+            ]
+
+        for method, log in [("cs", log_cs_mlflow), ("kl", log_kl_mlflow)]:
+            nodes += [
+                node(
+                    func=gen_closure(log, table, "ref"),
+                    inputs={
+                        "ref": f"{view.name}.tst.meas_{method}_{table}",
+                        "syn": f"{view.name}.{alg}.meas_{method}_{table}",
+                    },
+                    outputs=None,
+                    namespace=f"{view.name}.{alg}",
+                ),
+            ]
+
+    return pipeline(nodes)

@@ -14,6 +14,8 @@ from .metrics import (
     create_model_transform_pipelines,
     create_visual_fit_pipelines,
     create_visual_log_pipelines,
+    create_distr_fit_pipelines,
+    create_distr_log_pipelines,
 )
 from .synth import create_synth_pipeline, create_transform_pipeline
 from .views import create_filter_pipeline, create_view_pipeline
@@ -63,11 +65,13 @@ def generate_pipelines(
         model_types = get_required_types()
         types = list(dict.fromkeys(alg_types + model_types))  # remove duplicates
 
-        pipe_visual_fit = create_visual_fit_pipelines(view)
+        pipe_metrics_fit = create_visual_fit_pipelines(
+            view
+        ) + create_distr_fit_pipelines(view)
         pipe_transform = (
             create_transform_pipeline(name, "wrk", view.tables, types)
             + create_model_transform_pipelines(view)
-            + pipe_visual_fit
+            + pipe_metrics_fit
         )
 
         pipe_ingest = (
@@ -84,9 +88,11 @@ def generate_pipelines(
             pipe_synth = create_synth_pipeline(
                 name, "wrk", cls, view.tables, view.trn_deps
             )
-            pipe_measure = create_model_calc_pipelines(
-                view, alg
-            ) + create_visual_log_pipelines(view, alg)
+            pipe_measure = (
+                create_model_calc_pipelines(view, alg)
+                + create_visual_log_pipelines(view, alg)
+                + create_distr_log_pipelines(view, alg)
+            )
 
             complete_pipe = pipe_ingest + pipe_transform + pipe_synth + pipe_measure
 
@@ -96,7 +102,7 @@ def generate_pipelines(
             else:
                 main_pipes[f"{name}.{alg}"] = complete_pipe
             extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
-            extr_pipes[f"{name}.{alg}.measure"] = pipe_measure + pipe_visual_fit
+            extr_pipes[f"{name}.{alg}.measure"] = pipe_measure + pipe_metrics_fit
 
     # extr_pipes["ingest"] = pipe_ingest_all
     # extr_pipes["ingest.datasets"] = pipe_ingest_datasets
