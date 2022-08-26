@@ -91,25 +91,20 @@ class Dataset:
         """Creates the table <name> using the tables provided based on the dependencies."""
         assert False, "Unimplemented"
 
-    def ingest_closure(self, name):
-        """Wraps ingest function to include the table name."""
-        fun = lambda **tables: self.ingest(name, **tables)
-        fun.__name__ = f"ingest_{name}"
-        return fun
-
     def keys(
         self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
     ) -> dict[str, pd.DataFrame]:
         assert False, "Unimplemented"
 
-    def keys_closure(self, req_splits: list[str]):
-        def gen_keys(
-            ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
-        ):
-            splits = self.keys(ratios, random_state, **tables)
-            return {name: split for name, split in splits.items() if name in req_splits}
-
-        return gen_keys
+    def keys_filtered(
+        self,
+        req_splits: list[str],
+        ratios: dict[str, float],
+        random_state: int,
+        **tables: pd.DataFrame
+    ):
+        splits = self.keys(ratios, random_state, **tables)
+        return {name: split for name, split in splits.items() if name in req_splits}
 
 
 class TabularDataset(Dataset):

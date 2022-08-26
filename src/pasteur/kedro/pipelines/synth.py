@@ -5,62 +5,43 @@ from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
-from ...synth import synth_fit_closure, synth_sample
+from ...synth import synth_fit, synth_sample
 from ...transform import TableTransformer
-from ...utils import get_params_for_pipe
+from .utils import gen_closure
 
 
-def fit_table_closure(view: str, name: str, types: Collection[str]):
-    def fit_table(params: dict, **tables: dict[str, pd.DataFrame]):
-        meta_dict = get_params_for_pipe(view, params)
-        meta = Metadata(meta_dict, tables)
-        t = TableTransformer(meta, name, types)
-        t.fit(tables)
-        return t
-
-    return fit_table
+def fit_table(
+    name: str,
+    types: Collection[str],
+    meta: Metadata,
+    **tables: dict[str, pd.DataFrame],
+):
+    t = TableTransformer(meta, name, types)
+    t.fit(tables)
+    return t
 
 
 def find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
     return transformer.find_ids(tables)
 
 
-def transform_table_closure(type: str):
-    def transform_table(
-        transformer: TableTransformer,
-        ids: pd.DataFrame,
-        **tables: dict[str, pd.DataFrame],
-    ):
-        return transformer[type].transform(tables, ids)
-
-    return transform_table
-
-
-def reverse_table_closure(type: str):
-    def reverse_table(
-        transformer: TableTransformer,
-        ids: pd.DataFrame,
-        table: pd.DataFrame,
-        **parents: dict[str, pd.DataFrame],
-    ):
-        return transformer[type].reverse(table, ids, parents)
-
-    return reverse_table
-
-
-def transform_table_tab(
-    transformer: TableTransformer, **tables: dict[str, pd.DataFrame]
-):
-    table = transformer.transform(tables)
-    return table
-
-
-def reverse_table_tab(
+def transform_table(
+    type: str,
     transformer: TableTransformer,
+    ids: pd.DataFrame,
+    **tables: dict[str, pd.DataFrame],
+):
+    return transformer[type].transform(tables, ids)
+
+
+def reverse_table(
+    type: str,
+    transformer: TableTransformer,
+    ids: pd.DataFrame,
     table: pd.DataFrame,
     **parents: dict[str, pd.DataFrame],
 ):
-    return transformer.reverse(table, None, parents)
+    return transformer[type].reverse(table, ids, parents)
 
 
 def create_transform_pipeline(
@@ -81,9 +62,11 @@ def create_transform_pipeline(
         if trn_split is None:
             table_nodes += [
                 node(
-                    func=fit_table_closure(view, t, types),
+                    func=gen_closure(
+                        fit_table, t, types, _fn=f"fit_transformer_to_{t}"
+                    ),
                     inputs={
-                        "params": "parameters",
+                        "meta": "metadata",
                         **{t: t for t in tables},
                     },
                     outputs=f"trn_{t}",
@@ -100,7 +83,7 @@ def create_transform_pipeline(
 
         table_nodes += [
             node(
-                func=transform_table_closure(type),
+                func=gen_closure(transform_table, type, _fn=f"transform_{type}_{t}"),
                 inputs={
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",
@@ -111,21 +94,15 @@ def create_transform_pipeline(
             for type in types
         ]
 
-    inputs = (
-        {}
-        if trn_split is None
-        else {f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in tables}
-    )
+    if trn_split is None:
+        inputs = {"metadata": f"{view}.metadata"}
+    else:
+        inputs = {f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in tables}
 
     return modular_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
         inputs=inputs,
-        parameters={
-            "parameters": f"parameters",
-        }
-        if trn_split is None
-        else {},
     )
 
 
@@ -144,7 +121,7 @@ def create_synth_pipeline(
     synth_pipe = pipeline(
         [
             node(
-                func=synth_fit_closure(cls),
+                func=gen_closure(synth_fit, cls),
                 inputs={
                     **{f"trn_{t}": f"trn_{t}" for t in tables},
                     **{f"ids_{t}": f"in_ids_{t}" for t in tables},
@@ -166,7 +143,7 @@ def create_synth_pipeline(
     decode_pipe = pipeline(
         [
             node(
-                func=reverse_table_closure(type),
+                func=gen_closure(reverse_table, type, _fn=f"reverse_transform_{t}"),
                 inputs={
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",

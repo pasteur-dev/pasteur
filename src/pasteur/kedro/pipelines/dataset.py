@@ -3,6 +3,7 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...dataset import Dataset
 from ...utils import get_params_closure
+from .utils import gen_closure
 
 
 def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
@@ -13,7 +14,7 @@ def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
     pipe = pipeline(
         [
             node(
-                func=dataset.ingest_closure(t),
+                func=gen_closure(dataset.ingest, t, _fn=f"ingest_{t}"),
                 inputs={dep: f"raw@{dep}" for dep in dataset.deps[t]},
                 outputs=t,
             )
@@ -24,8 +25,8 @@ def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
     return modular_pipeline(pipe=pipe, namespace=dataset.name)
 
 
-def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
-    fun = dataset.keys_closure(splits) if splits else dataset.keys
+def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
+    fun = gen_closure(dataset.keys_filtered, splits) if splits else dataset.keys
     fun = get_params_closure(fun, view, "ratios", "random_state")
 
     req_tables = {t: f"in_{t}" for t in dataset.key_deps}

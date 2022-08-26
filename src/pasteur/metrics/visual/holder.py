@@ -3,8 +3,6 @@ from typing import Any
 
 import pandas as pd
 
-from ...transform.table import TableTransformer
-
 from ...metadata import Metadata
 from matplotlib.figure import Figure
 from .hist import BaseHist, BaseRefHist, get_hists
@@ -100,18 +98,10 @@ class HistHolder:
         return viz
 
 
-def create_fitted_hist_holder(table: str, meta: Metadata, tables: pd.DataFrame):
-    holder = HistHolder(table, meta)
+def create_fitted_hist_holder(name: str, meta: Metadata, **tables: pd.DataFrame):
+    holder = HistHolder(name, meta)
     holder.fit(tables)
     return holder
-
-
-def create_fitted_hist_holder_closure(table: str):
-    def closure(transformer: TableTransformer, **tables):
-        return create_fitted_hist_holder(table, transformer.meta, tables)
-
-    closure.__name__ = f"fit_hists_for_{table}"
-    return closure
 
 
 def project_hists_for_view(holder: HistHolder, **tables: pd.DataFrame):

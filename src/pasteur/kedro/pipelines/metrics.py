@@ -4,12 +4,12 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metrics.models import (
     get_required_types,
-    mlflow_log_model_closure,
+    mlflow_log_model_results,
     node_calculate_model_scores,
 )
 from ...metrics.visual import (
     project_hists_for_view,
-    create_fitted_hist_holder_closure,
+    create_fitted_hist_holder,
     mlflow_log_hists,
 )
 from ...views.base import View
@@ -48,7 +48,7 @@ def create_model_calc_pipelines(view: View, alg: str):
                 namespace=f"{view.name}.{alg}",
             ),
             node(
-                func=mlflow_log_model_closure(table),
+                func=gen_closure(mlflow_log_model_results, table),
                 inputs=f"{view.name}.{alg}.meas_models_{table}",
                 outputs=None,
                 namespace=f"{view.name}.{alg}",
@@ -66,8 +66,8 @@ def create_visual_fit_pipelines(view: View):
     for table in view.tables:
         hist_nodes += [
             node(
-                func=create_fitted_hist_holder_closure(table),
-                inputs={"transformer": f"{view.name}.wrk.trn_{table}", **in_tables_wrk},
+                func=gen_closure(create_fitted_hist_holder, table),
+                inputs={"meta": f"{view.name}.metadata", **in_tables_wrk},
                 outputs=f"{view.name}.wrk.meas_hst_{table}",
                 namespace=f"{view.name}.wrk",
             ),

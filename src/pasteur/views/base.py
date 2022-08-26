@@ -64,12 +64,6 @@ class View:
         """Creates the table <name> using the tables provided based on the dependencies."""
         assert False, "Unimplemented"
 
-    def ingest_closure(self, name):
-        """Wraps ingest function to include the table name."""
-        fun = lambda **tables: self.ingest(name, **tables)
-        fun.__name__ = f"ingest_{name}"
-        return fun
-
     def filter(self, keys: pd.DataFrame, **tables):
         return filter_by_keys(keys, tables)
 

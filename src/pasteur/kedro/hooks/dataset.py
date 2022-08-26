@@ -91,6 +91,12 @@ class AddDatasetsForViewsHook:
         self.load_versions = load_versions
 
         for view, tables in self.tables.items():
+            self.add_pkl(
+                "primary",
+                f"{view}.metadata",
+                ["views", "metadata", view],
+            )
+
             for split in self.splits:
                 self.add_set(
                     "keys",

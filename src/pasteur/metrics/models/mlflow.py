@@ -29,11 +29,3 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
         f"models/{name}.html" if name != "table" else "models.html",
     )
     # mlflow.log_text(res.to_csv(), f"logs/_raw/models/{name}.csv")
-
-
-def mlflow_log_model_closure(name: str):
-    def closure(res: pd.DataFrame):
-        return mlflow_log_model_results(name, res)
-
-    closure.__name__ = f"log_{name}_model_results"
-    return closure

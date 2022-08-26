@@ -2,6 +2,18 @@ from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...views import View
+from .utils import gen_closure
+
+
+from ...metadata import Metadata
+from ...utils import get_params_for_pipe
+
+import pandas as pd
+
+
+def create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame]):
+    meta_dict = get_params_for_pipe(view, params)
+    return Metadata(meta_dict, tables)
 
 
 def create_view_pipeline(view: View):
@@ -10,7 +22,7 @@ def create_view_pipeline(view: View):
     pipe = pipeline(
         [
             node(
-                func=view.ingest_closure(t),
+                func=gen_closure(view.ingest, t, _fn=f"ingest_{t}"),
                 inputs={dep: f"in_{dep}" for dep in view.deps[t]},
                 outputs=f"view.{t}",
             )
@@ -18,11 +30,27 @@ def create_view_pipeline(view: View):
         ]
     )
 
-    return modular_pipeline(
+    trn_pipe = modular_pipeline(
         pipe=pipe,
         namespace=view.name,
         inputs={f"in_{dep}": f"{view.dataset}.{dep}" for dep in view.dataset_tables},
     )
+
+    meta_pipe = pipeline(
+        [
+            node(
+                func=gen_closure(create_metadata, view.name),
+                inputs={
+                    "params": "parameters",
+                    **{t: f"{view.name}.view.{t}" for t in tables},
+                },
+                outputs=f"{view.name}.metadata",
+                namespace=view.name,
+            )
+        ]
+    )
+
+    return trn_pipe + meta_pipe
 
 
 def create_filter_pipeline(view: View, splits: list[str]):

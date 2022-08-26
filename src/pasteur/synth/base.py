@@ -81,23 +81,20 @@ class Synth:
         assert False, "Not implemented"
 
 
-def synth_fit_closure(cls):
-    def fit(**kwargs: pd.DataFrame | TableTransformer):
-        ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
-        data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
+def synth_fit(cls, **kwargs: pd.DataFrame | TableTransformer):
+    ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
+    data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
 
-        transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
-        attrs = {n: t[cls.type].get_attributes() for n, t in transformers.items()}
+    transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
+    attrs = {n: t[cls.type].get_attributes() for n, t in transformers.items()}
 
-        meta = next(iter(transformers.values())).meta
-        algs = {**meta.algs.get(cls.name, {}), **meta.alg_override}
+    meta = next(iter(transformers.values())).meta
+    algs = {**meta.algs.get(cls.name, {}), **meta.alg_override}
 
-        model = cls(**algs, seed=meta.seed)
-        model.bake(attrs, data, ids)
-        model.fit(data, ids)
-        return model
-
-    return fit
+    model = cls(**algs, seed=meta.seed)
+    model.bake(attrs, data, ids)
+    model.fit(data, ids)
+    return model
 
 
 def synth_sample(model: Synth):

@@ -64,7 +64,6 @@ def limit_pbar_nesting(pbar_gen: Callable):
     on vs code. Up to 2 progress bars work fine."""
 
     def closure(*args, **kwargs):
-        active_pbars = sum(not pbar.disable for pbar in std_tqdm._instances)
         return pbar_gen(*args, **kwargs, **get_tqdm_args())
 
     return closure
