@@ -394,7 +394,7 @@ class TimeHist(BaseHist["TimeHist.TimeData"]):
         plt.xticks(tick_x, tick_label)
 
         ax.legend()
-        ax.set_title(self.col.capitalize())
+        ax.set_title(f"{self.col.capitalize()} Time")
         plt.tight_layout()
         return fig
 
