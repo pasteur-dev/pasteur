@@ -1,7 +1,7 @@
 import mlflow
 
 from .holder import HistHolder, VizData
-from ..mlflow import gen_html_figure_container
+from ..mlflow import gen_html_figure_container, load_matplotlib_style
 
 _SAVE_HTML = True
 
@@ -13,6 +13,7 @@ def mlflow_log_hists(holder: HistHolder, **data: VizData):
     if holder.table != "table":
         path_prefix += f"{holder.table}/"
 
+    load_matplotlib_style()
     vizs = holder.visualise(data)
 
     for name, viz in vizs.items():

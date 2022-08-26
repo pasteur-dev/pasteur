@@ -1,6 +1,7 @@
 from io import BytesIO
 import pandas as pd
 from matplotlib.figure import Figure
+from .styles import use_style
 
 from pandas.io.formats.style import Styler
 
@@ -98,6 +99,10 @@ def gen_html_table(table: Styler | pd.DataFrame | str, font_size: str = "18px") 
     return (BASE_TABLE_STYLE % font_size) + (
         table if isinstance(table, str) else table.to_html()
     )
+
+
+def load_matplotlib_style():
+    use_style("mlflow")
 
 
 def color_dataframe(
