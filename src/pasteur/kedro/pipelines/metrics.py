@@ -67,19 +67,31 @@ def create_visual_fit_pipelines(view: View):
         hist_nodes += [
             node(
                 func=gen_closure(create_fitted_hist_holder, table),
-                inputs={"meta": f"{view.name}.metadata", **in_tables_wrk},
+                inputs={
+                    "meta": f"{view.name}.metadata",
+                    "ids": f"{view.name}.wrk.ids_{table}",
+                    **in_tables_wrk,
+                },
                 outputs=f"{view.name}.wrk.meas_hst_{table}",
                 namespace=f"{view.name}.wrk",
             ),
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables_wrk},
+                inputs={
+                    "holder": f"{view.name}.wrk.meas_hst_{table}",
+                    "ids": f"{view.name}.wrk.ids_{table}",
+                    **in_tables_wrk,
+                },
                 outputs=f"{view.name}.wrk.meas_viz_{table}",
                 namespace=f"{view.name}.wrk",
             ),
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables_tst},
+                inputs={
+                    "holder": f"{view.name}.wrk.meas_hst_{table}",
+                    "ids": f"{view.name}.tst.ids_{table}",
+                    **in_tables_tst,
+                },
                 outputs=f"{view.name}.tst.meas_viz_{table}",
                 namespace=f"{view.name}.tst",
             ),
@@ -96,7 +108,11 @@ def create_visual_log_pipelines(view: View, alg: str):
         hist_nodes += [
             node(
                 func=project_hists_for_view,
-                inputs={"holder": f"{view.name}.wrk.meas_hst_{table}", **in_tables},
+                inputs={
+                    "holder": f"{view.name}.wrk.meas_hst_{table}",
+                    "ids": f"{view.name}.{alg}.ids_{table}",
+                    **in_tables,
+                },
                 outputs=f"{view.name}.{alg}.meas_viz_{table}",
                 namespace=f"{view.name}.{alg}",
             ),

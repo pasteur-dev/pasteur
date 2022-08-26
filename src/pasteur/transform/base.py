@@ -616,19 +616,22 @@ class DateTransformer(RefTransformer):
 
             match self.span:
                 case "year":
-                    out[f"{col}_year"] = vals.dt.year - rf_dt.year
-                    out[f"{col}_week"] = vals.dt.week
-                    out[f"{col}_day"] = vals.dt.day_of_week
+                    year = vals.dt.year - rf_dt.year
+                    out[f"{col}_year"] = year.clip(0, self.max_len - 1).astype("uint16")
+                    out[f"{col}_week"] = vals.dt.week.astype("uint16")
+                    out[f"{col}_day"] = vals.dt.day_of_week.astype("uint16")
                 case "week":
-                    out[f"{col}_week"] = (
+                    week = (
                         (vals.dt.normalize() - rf_dt.normalize()).dt.days
                         + rf_dt.day_of_week
                     ) // 7
-                    out[f"{col}_day"] = vals.dt.day_of_week
+                    out[f"{col}_week"] = week.clip(0, self.max_len - 1).astype("uint16")
+                    out[f"{col}_day"] = vals.dt.day_of_week.astype("uint16")
                 case "day":
-                    out[f"{col}_day"] = (
+                    day = (
                         vals.dt.normalize() - rf_dt.normalize()
                     ).dt.days + rf_dt.day_of_week
+                    out[f"{col}_day"] = day.clip(0, self.max_len - 1).astype("uint16")
 
         return out
 
@@ -647,7 +650,7 @@ class DateTransformer(RefTransformer):
                 case "year":
                     out[col] = self.iso_to_gregorian(
                         rf_dt.year + data[f"{col}_year"],
-                        data[f"{col}_week"].clip(0, 53),
+                        data[f"{col}_week"].clip(0, 52),
                         data[f"{col}_day"].clip(0, 6),
                     )
                 case "week":

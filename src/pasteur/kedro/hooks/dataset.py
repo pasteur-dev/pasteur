@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Collection, Dict, List, Union
+from typing import Any, Collection, Dict
 from os import path
 
 from kedro.framework.context import KedroContext

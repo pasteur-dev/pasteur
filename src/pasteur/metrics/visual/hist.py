@@ -98,11 +98,11 @@ class BaseHist(ABC, Generic[A]):
 
 class BaseRefHist(BaseHist[A], Generic[A]):
     @abstractmethod
-    def fit(self, data: pd.Series, ref: pd.Series):
+    def fit(self, data: pd.Series, ref: pd.Series | None = None):
         pass
 
     @abstractmethod
-    def process(self, data: pd.Series, ref: pd.Series) -> A:
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
         pass
 
 
@@ -195,7 +195,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         weeks: np.ndarray | None = None
         days: np.ndarray | None = None
 
-    def fit(self, data: pd.Series, ref: pd.Series):
+    def fit(self, data: pd.Series, ref: pd.Series | None = None):
         if "main_param" in self.meta.args:
             self.span = self.meta.args["main_param"].split(".")[0]
         elif "span" in self.meta.args:
@@ -212,10 +212,14 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             self.ref = None
 
         # Find histogram bin edges
-        mask = ~pd.isna(data) & ~pd.isna(ref)
-        data = data[mask]
-        ref = ref[mask]
-        rf_dt = self.ref if self.ref is not None else ref.dt
+        if self.ref is None:
+            assert ref is not None
+            mask = ~pd.isna(data) & ~pd.isna(ref)
+            data = data[mask]
+            rf_dt = ref[mask].dt
+        else:
+            data = data[~pd.isna(data)]
+            rf_dt = self.ref
 
         match self.span:
             case "year":
@@ -241,14 +245,18 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             segs, bins=self.bin_n, range=(0, self.max_len)
         )
 
-    def process(self, data: pd.Series, ref: pd.Series) -> DateData:
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
         assert self.ref is not None or ref is not None
 
         # Based on date transformer
-        mask = ~pd.isna(data) & ~pd.isna(ref)
-        data = data[mask]
-        ref = ref[mask]
-        rf_dt = self.ref if self.ref is not None else ref.dt
+        if self.ref is None:
+            assert ref is not None
+            mask = ~pd.isna(data) & ~pd.isna(ref)
+            data = data[mask]
+            rf_dt = ref[mask].dt
+        else:
+            data = data[~pd.isna(data)]
+            rf_dt = self.ref
 
         match self.span:
             case "year":
@@ -383,11 +391,11 @@ class DatetimeHist(BaseRefHist["DatetimeHist.DatetimeData"]):
         self.date = DateHist(col, meta)
         self.time = TimeHist(col, meta)
 
-    def fit(self, data: pd.Series, ref: pd.Series):
+    def fit(self, data: pd.Series, ref: pd.Series | None = None):
         self.date.fit(data, ref)
         self.time.fit(data)
 
-    def process(self, data: pd.Series, ref: pd.Series) -> A:
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
         date = self.date.process(data, ref)
         time = self.time.process(data)
         return self.DatetimeData(date, time)

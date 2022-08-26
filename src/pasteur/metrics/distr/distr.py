@@ -39,9 +39,9 @@ def calc_kl(ref: pd.DataFrame, syn: pd.DataFrame):
     for i, col_i in enumerate(cols):
         for j, col_j in enumerate(cols):
             k = calc_marginal_1way(a, domain, [i, j], KL_ZERO_FILL)
-            j = calc_marginal_1way(b, domain, [i, j], KL_ZERO_FILL)
+            l = calc_marginal_1way(b, domain, [i, j], KL_ZERO_FILL)
 
-            kl = rel_entr(k, j).sum()
+            kl = rel_entr(k, l).sum()
             kl_norm = 1 / (1 + kl)
             res.append([col_i, col_j, kl, kl_norm, len(k)])
 
