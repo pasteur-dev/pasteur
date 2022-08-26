@@ -1,24 +1,22 @@
 mimic_mm_core:
   tables:
     patients:
-      target: anchor_age
       primary_key: subject_id
       fields:
         subject_id: id
         gender: categorical
-        year_group: categorical
+        # year_group: categorical
         dod: date?:birth_year
-        birth_year: date
+        birth_year: fixed|date
 
     admissions:
-      target: admission_type
       primary_key: hadm_id
       fields:
         hadm_id: id
         subject_id: id:patients.subject_id
-        admittime: datetime|year.halfhour:patients.birth_year
-        dischtime: datetime|day.halfhour:admittime
-        deathtime: datetime?|day.halfhour:admittime
+        admittime: datetime|year.hour:patients.birth_year
+        dischtime: datetime|day.hour:admittime
+        deathtime: datetime?|day.hour:admittime
         admission_type: categorical
         admission_location: categorical?
         discharge_location: categorical?
@@ -26,20 +24,19 @@ mimic_mm_core:
         language: categorical
         marital_status: categorical?
         ethnicity: categorical
-        edregtime: datetime?|day.halfhour:admittime
-        edouttime: datetime?|day.halfhour:admittime
+        # edregtime: datetime?|day.halfhour:admittime
+        # edouttime: datetime?|day.halfhour:admittime
         hospital_expire_flag: categorical
 
     transfers:
-      target: eventtype
       primary_key: transfer_id
       fields:
         transfer_id: id
         hadm_id: id:admissions.hadm_id
         eventtype: categorical
         careunit: categorical?
-        intime: datetime|day.halfhour:admissions.admittime
-        outtime: datetime?|day.halfhour:intime
+        intime: datetime|day.hour:admissions.admittime
+        outtime: datetime?|day.hour:intime
 
 mimic_tab_admissions:
   tables:

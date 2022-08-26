@@ -16,7 +16,7 @@ def log_kl_mlflow(table: str, ref_name: str, **splits: pd.DataFrame):
         split_ref=ref_name,
     )
 
-    fn = f"distr/kl.html" if table == "table" else "distr/{table}_kl.html"
+    fn = f"distr/kl.html" if table == "table" else f"distr/{table}_kl.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
@@ -34,5 +34,5 @@ def log_cs_mlflow(table: str, ref_name: str, **splits: pd.DataFrame):
         split_ref=ref_name,
     )
 
-    fn = f"distr/cs.html" if table == "table" else "distr/{table}_cs.html"
+    fn = f"distr/cs.html" if table == "table" else f"distr/{table}_cs.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
