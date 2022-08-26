@@ -12,6 +12,70 @@ from ...utils import find_subclasses
 A = TypeVar("A")
 
 
+def _percent_formatter(x, pos):
+    return f"{100*x:.1f}%"
+
+
+def _gen_hist(
+    meta: ColumnMeta,
+    title: str,
+    bins: np.ndarray,
+    heights: dict[str, np.ndarray],
+    xticks_x=None,
+    xticks_label=None,
+):
+    fig, ax = plt.subplots()
+    x = bins[:-1]
+    w = (x[1] - x[0]) / len(heights)
+
+    is_log = meta.metrics.y_log == True
+    for i, (name, h) in enumerate(heights.items()):
+        ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=is_log)
+
+    ax.legend()
+    ax.set_title(title)
+    ax.yaxis.set_major_formatter(_percent_formatter)
+
+    if xticks_x is not None:
+        ax.set_xticks(xticks_x, xticks_label)
+
+    plt.tight_layout()
+    return fig
+
+
+def _gen_bar(
+    meta: ColumnMeta, title: str, cols: list[str], counts: dict[str, np.ndarray]
+):
+    fig, ax = plt.subplots()
+
+    x = np.array(range(len(cols)))
+    w = 0.9 / len(counts)
+
+    is_log = meta.metrics.y_log == True
+    for i, (name, c) in enumerate(counts.items()):
+        h = c / c.sum()
+        ax.bar(
+            x - 0.45 + w * i,
+            h,
+            width=w,
+            align="edge",
+            label=name,
+            log=is_log,
+        )
+
+    plt.xticks(x, cols)
+    rot = min(3 * len(cols), 90)
+    if rot > 10:
+        plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
+
+    ax.legend()
+    ax.set_title(title)
+    ax.yaxis.set_major_formatter(_percent_formatter)
+
+    plt.tight_layout()
+    return fig
+
+
 class BaseHist(ABC, Generic[A]):
     name = None
 
@@ -74,60 +138,33 @@ class NumericalHist(BaseHist["NumericalHist.NumericalData"]):
         return self.NumericalData(np.histogram(data, self.bins, density=True)[0])
 
     def visualise(self, data: dict[str, NumericalData]) -> Figure:
-        fig, ax = plt.subplots()
-        x = self.bins[:-1]
-        w = (x[1] - x[0]) / len(data)
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            h = d.bins / d.bins.sum()
-            ax.bar(x + w * i, h, width=w, label=name, log=is_log)
-        ax.legend()
-        ax.set_title(self.col.capitalize())
-        plt.tight_layout()
-        return fig
+        return _gen_hist(
+            self.meta,
+            self.col.capitalize(),
+            self.bins,
+            {n: d.bins for n, d in data.items()},
+        )
 
 
 class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
     name = "categorical"
 
     class CategoricalData(NamedTuple):
-        counts: pd.Series = None
+        counts: np.ndarray = None
 
     def fit(self, data: pd.Series):
         self.cols = data.value_counts().sort_values(ascending=False).index
 
     def process(self, data: pd.Series) -> CategoricalData:
-        dt = data.value_counts()
-        dt /= dt.sum()
-        return self.CategoricalData(dt)
+        return self.CategoricalData(data.value_counts()[self.cols].to_numpy())
 
     def visualise(self, data: dict[str, CategoricalData]) -> Figure:
-        fig, ax = plt.subplots()
-
-        x = np.array(range(len(self.cols)))
-        w = 0.9 / len(data)
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            ax.bar(
-                x - 0.45 + w * i,
-                d.counts[self.cols].to_numpy(),
-                width=w,
-                align="edge",
-                label=name,
-                log=is_log,
-            )
-
-        plt.xticks(x, self.cols.to_numpy())
-        rot = min(3 * len(self.cols), 90)
-        if rot > 10:
-            plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
-
-        ax.legend()
-        ax.set_title(self.col.capitalize())
-        plt.tight_layout()
-        return fig
+        return _gen_bar(
+            self.meta,
+            self.col.capitalize(),
+            self.cols,
+            {n: c.counts for n, c in data.items()},
+        )
 
 
 class OrdinalHist(CategoricalHist):
@@ -154,9 +191,9 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
     name = "date"
 
     class DateData(NamedTuple):
-        span: pd.Series | None = None
-        weeks: pd.Series | None = None
-        days: pd.Series | None = None
+        span: np.ndarray | None = None
+        weeks: np.ndarray | None = None
+        days: np.ndarray | None = None
 
     def fit(self, data: pd.Series, ref: pd.Series):
         if "main_param" in self.meta.args:
@@ -233,100 +270,44 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
 
         weeks = data.dt.week.astype("int16")
         days = data.dt.day_of_week.astype("int16")
-
-        weeks = weeks.value_counts()
-        weeks /= weeks.sum()
-        days = days.value_counts()
-        days /= days.sum()
-
+        weeks = weeks.value_counts().reindex(range(53), fill_value=0).to_numpy()
+        days = days.value_counts().reindex(range(7), fill_value=0).to_numpy()
         return self.DateData(span, weeks, days)
 
     def _viz_days(self, data: dict[str, DateData]):
-        fig, ax = plt.subplots()
-
-        x = np.array(range(7))
-        w = 0.9 / len(data)
-        ofs = 0.9 / 2
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            segments = d.days.reindex(range(7), fill_value=0).to_numpy()
-            ax.bar(
-                x - ofs + w * i,
-                segments,
-                width=w,
-                align="edge",
-                label=name,
-                log=is_log,
-            )
-
-        days_x = [0, 1, 2, 3, 4, 5, 6]
-        days_label = [
-            "Monday",
-            "Tuesday",
-            "Wednesday",
-            "Thursday",
-            "Friday",
-            "Saturday",
-            "Sunday",
-        ]
-        plt.xticks(days_x, days_label)
-
-        ax.legend()
-        ax.set_title(f"{self.col.capitalize()} Weekday")
-        plt.tight_layout()
-        return fig
+        return _gen_bar(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Weekday",
+            cols=[
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            ],
+            counts={n: d.days for n, d in data.items()},
+        )
 
     def _viz_weeks(self, data: dict[str, DateData]):
-        fig, ax = plt.subplots()
-
-        x = np.array(range(53))
-        w = 1 / len(data)
-        ofs = 1 / 2
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            segments = d.weeks.reindex(range(53), fill_value=0).to_numpy()
-            ax.bar(
-                x - ofs + w * i,
-                segments,
-                width=w,
-                align="edge",
-                label=name,
-                log=is_log,
-            )
-
-        tick_x = [2, 15, 28, 41]
-        tick_label = ["Winter", "Spring", "Summer", "Autumn"]
-        plt.xticks(tick_x, tick_label)
-
-        ax.legend()
-        ax.set_title(self.col.capitalize())
-        ax.set_title(f"{self.col.capitalize()} Season")
-        plt.tight_layout()
-        return fig
+        bins = np.array(range(54)) - 0.5
+        return _gen_hist(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Season",
+            bins=bins,
+            heights={n: d.weeks for n, d in data.items()},
+            xticks_x=[2, 15, 28, 41],
+            xticks_label=["Winter", "Spring", "Summer", "Autumn"],
+        )
 
     def _viz_binned(self, data: dict[str, DateData]):
-        fig, ax = plt.subplots()
-
-        x = self.bins[:-1]
-        w = (x[1] - x[0]) / len(data)
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            ax.bar(
-                x + w * i,
-                d.span,
-                width=w,
-                align="edge",
-                label=name,
-                log=is_log,
-            )
-
-        ax.legend()
-        ax.set_title(f"{self.col.capitalize()} {self.span.capitalize()}s")
-        plt.tight_layout()
-        return fig
+        return _gen_hist(
+            self.meta,
+            f"{self.col.capitalize()} {self.span.capitalize()}s",
+            self.bins,
+            {n: d.span for n, d in data.items()},
+        )
 
     def visualise(self, data: dict[str, DateData]) -> dict[str, Figure] | Figure:
         s = self.span
@@ -341,7 +322,7 @@ class TimeHist(BaseHist["TimeHist.TimeData"]):
     name = "time"
 
     class TimeData(NamedTuple):
-        counts: pd.Series = None
+        counts: np.ndarray = None
 
     def fit(self, data: pd.Series):
         if "main_param" in self.meta.args:
@@ -354,18 +335,20 @@ class TimeHist(BaseHist["TimeHist.TimeData"]):
     def process(self, data: pd.Series) -> TimeData:
         data = data[~pd.isna(data)]
         hours = data.dt.hour
+
         if self.span == "hour":
+            seg_len = 24
             segments = hours
         else:
+            seg_len = 48
             half_hours = data.dt.minute > 29
             segments = 2 * hours + half_hours
-        vc = segments.value_counts()
-        vc /= vc.sum()
-        return self.TimeData(vc)
+
+        return self.TimeData(
+            segments.value_counts().reindex(range(seg_len), fill_value=0).to_numpy()
+        )
 
     def visualise(self, data: dict[str, TimeData]) -> Figure:
-        fig, ax = plt.subplots()
-
         if self.span == "hour":
             seg_len = 24
             mult = 1
@@ -373,30 +356,19 @@ class TimeHist(BaseHist["TimeHist.TimeData"]):
             seg_len = 48
             mult = 2
 
-        x = np.array(range(seg_len))
-        w = 1 / len(data)
-
-        is_log = self.meta.metrics.y_log == True
-        for i, (name, d) in enumerate(data.items()):
-            segments = d.counts.reindex(range(seg_len), fill_value=0).to_numpy()
-            ax.bar(
-                x - 0.5 + w * i,
-                segments,
-                width=w,
-                align="edge",
-                label=name,
-                log=is_log,
-            )
-
+        bins = np.array(range(seg_len + 1)) - 0.5
         hours = [0, 3, 6, 9, 12, 15, 18, 21, 24]
         tick_x = mult * np.array(hours)
         tick_label = [f"{hour:02d}:00" for hour in hours]
-        plt.xticks(tick_x, tick_label)
 
-        ax.legend()
-        ax.set_title(f"{self.col.capitalize()} Time")
-        plt.tight_layout()
-        return fig
+        return _gen_hist(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Time",
+            bins=bins,
+            heights={n: d.counts for n, d in data.items()},
+            xticks_x=tick_x,
+            xticks_label=tick_label,
+        )
 
 
 class DatetimeHist(BaseRefHist["DatetimeHist.DatetimeData"]):
