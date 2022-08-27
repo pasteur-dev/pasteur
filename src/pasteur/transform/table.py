@@ -3,12 +3,10 @@ from typing import Collection, Dict, NamedTuple, Optional
 
 import pandas as pd
 
-from ..metadata import DEFAULT_TRANSFORMERS, Metadata
+from ..metadata import Metadata
 from .base import ChainTransformer, Transformer
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_TYPES = list(DEFAULT_TRANSFORMERS.keys())
 
 
 class Attribute(NamedTuple):
@@ -344,7 +342,7 @@ class TableTransformer:
         self,
         meta: Metadata,
         name: str,
-        types: str | Collection[str] = DEFAULT_TYPES,
+        types: str | Collection[str],
     ) -> None:
         self.name = name
         self.meta = meta

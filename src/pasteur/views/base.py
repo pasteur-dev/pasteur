@@ -45,8 +45,8 @@ class View:
 
     name: str = None
     dataset: str = None
-    deps: dict[str, list[str]] = None
-    trn_deps: dict[str, list[str]] | None = None
+    deps: dict[str, list[str]] = {}
+    trn_deps: dict[str, list[str]] = {}
     tabular: bool = False
 
     def __init__(self, **_) -> None:

@@ -24,11 +24,11 @@ WRK_SPLIT = "wrk"
 REF_SPLIT = "ref"
 
 
-def _get_algs(names: list[str]) -> dict[str, Synth]:
+def _get_algs(names: list[str]) -> dict[str, type[Synth]]:
     algs = get_synth()
     if names:
-        algs = {n: algs[n] for n in names}
-    return {n: alg() for n, alg in algs.items()}
+        return {n: algs[n] for n in names}
+    return algs
 
 
 def _get_views(names: list[str]) -> dict[str, View]:
@@ -53,7 +53,7 @@ def get_syn_types():
 
 
 def _get_all_types(algs: dict[str, Synth]):
-    alg_types = [a.type for a in algs]
+    alg_types = [a.type for a in algs.values()]
     return list_unique(alg_types, get_syn_types())
 
 
@@ -77,7 +77,7 @@ def generate_pipelines(
     trn_split = TRN_SPLIT
     wrk_split = WRK_SPLIT
     ref_split = REF_SPLIT
-    splits = list_unique(trn_split, wrk_split, ref_split)
+    splits = list_unique([trn_split, wrk_split, ref_split])
 
     # Wrk, ref splits are transformed to all types
     # Synthetic data is transformed only to syn_types (as required by metrics currently)
@@ -123,7 +123,7 @@ def generate_pipelines(
         for alg, cls in algs.items():
             pipe_synth = create_synth_pipeline(
                 view, wrk_split, trn_split, cls
-            ) + create_reverse_pipeline(view, alg, alg.type, trn_split)
+            ) + create_reverse_pipeline(view, alg, cls.type, trn_split)
 
             pipe_measure = create_transform_pipeline(
                 view, alg, syn_types, trn_split, gen_ids=False

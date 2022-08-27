@@ -20,8 +20,6 @@ install(show_locals=False)
 # from iris_example.hooks import ProjectHooks
 from .kedro.hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
 
-from .metadata import DEFAULT_TRANSFORMERS
-
 from .const import VIEWS, ALGS
 from .kedro.pipelines.main import (
     WRK_SPLIT,

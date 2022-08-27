@@ -18,13 +18,13 @@ class AddDatasetsForViewsHook:
         wrk_split: str,
         ref_split: str,
         all_types: list[str],
-        syn_types: list[str],
+        msr_types: list[str],
     ) -> None:
         self.tables = tables
         self.algs = algs
 
         self.all_types = all_types
-        self.syn_types = syn_types
+        self.msr_types = msr_types
 
         self.trn_split = trn_split
         self.wrk_split = wrk_split
@@ -106,7 +106,7 @@ class AddDatasetsForViewsHook:
 
             # Add metadata
             self.add_pkl(
-                "primary",
+                "metadata",
                 f"{view}.metadata",
                 ["views", "metadata", view],
             )
@@ -139,13 +139,12 @@ class AddDatasetsForViewsHook:
             # Add tables for splits
             #
             for table in tables:
-                self.add_set(
-                    "split",
-                    f"{view}.{split}.{table}",
-                    ["views", "primary", f"{view}.{split}", table],
-                )
-
                 for split in self.splits:
+                    self.add_set(
+                        "splits",
+                        f"{view}.{split}.{table}",
+                        ["views", "primary", f"{view}.{split}", table],
+                    )
                     for type in ["ids", *self.all_types]:
                         self.add_set(
                             "split_encoded",
@@ -163,7 +162,7 @@ class AddDatasetsForViewsHook:
                     ["synth", "models", f"{view}.{alg}"],
                     versioned=True,
                 )
-                for table in self.tables:
+                for table in tables:
                     for type in ("enc", "ids"):
                         self.add_set(
                             "synth_encoded",
@@ -179,7 +178,7 @@ class AddDatasetsForViewsHook:
                         versioned=True,
                     )
 
-                    for type in self.syn_types:
+                    for type in self.msr_types:
                         self.add_set(
                             "synth_reencoded",
                             f"{view}.{alg}.{type}_{table}",
@@ -195,14 +194,20 @@ class AddDatasetsForViewsHook:
                 self.add_pkl(
                     "measure",
                     f"{view}.{self.wrk_split}.meas_hst_{table}",
-                    ["views", "measure", "hist", f"{view}_holder", table],
+                    ["views", "measure", "hist", f"{view}.holder", table],
                 )
 
                 for split in [*self.algs, *self.splits]:
                     self.add_pkl(
                         "measure",
                         f"{view}.{split}.meas_viz_{table}",
-                        ["views", "measure", "visual", f"{view}_{table}", table],
+                        [
+                            "synth" if split in self.algs else "views",
+                            "measure",
+                            "visual",
+                            f"{view}.{split}",
+                            table,
+                        ],
                         versioned=split in self.algs,
                     )
 
@@ -215,5 +220,18 @@ class AddDatasetsForViewsHook:
                         versioned=True,
                     )
 
-                    # Distributions
-                    # Todo
+                # Distributions
+                for method in ["kl", "cs"]:
+                    for split in [self.ref_split, self.wrk_split, *self.algs]:
+                        self.add_pkl(
+                            "measure",
+                            f"{view}.{split}.meas_{method}_{table}",
+                            [
+                                "synth" if split in self.algs else "views",
+                                "measure",
+                                "distr",
+                                f"{view}.{split}",
+                                table,
+                            ],
+                            versioned=split in self.algs,
+                        )

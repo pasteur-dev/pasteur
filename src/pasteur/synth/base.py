@@ -4,9 +4,7 @@ import random
 import numpy as np
 import pandas as pd
 
-from pasteur.transform.table import Attribute
-
-from ..transform import TableTransformer
+from ..transform import Attribute, TableTransformer
 
 logger = logging.getLogger(__name__)
 
