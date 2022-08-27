@@ -1,7 +1,7 @@
 default:
   ratios:
     wrk: 0.8
-    tst: 0.2
+    ref: 0.2
 
   algs:
     privbayes:

@@ -67,6 +67,9 @@ class View:
     def filter(self, keys: pd.DataFrame, **tables):
         return filter_by_keys(keys, tables)
 
+    def __str__(self) -> str:
+        return self.name
+
 
 class TabularView(View):
     deps = {"table": ["table"]}

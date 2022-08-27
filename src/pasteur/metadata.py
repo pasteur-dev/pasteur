@@ -5,45 +5,6 @@ from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TRANSFORMERS = {
-    "num": {
-        "numerical": "normdist",
-        "ordinal": ("idx", "normalize"),
-        "categorical": ("idx", "normalize"),
-        "time": ("time", "normalize"),
-        "date": ("date", "normalize"),
-        "datetime": ("datetime", "normalize"),
-        "fixed": "fix",
-    },
-    "bin": {
-        "numerical": ("discrete", "gray"),
-        "ordinal": ("idx", "gray"),
-        "categorical": "onehot",
-        "time": ("time", "gray"),
-        "date": ("date", "gray"),
-        "datetime": ("datetime", "gray"),
-        "fixed": "fix",
-    },
-    "bhr": {  # Binary hierarchical
-        "numerical": ("discrete", "bin"),
-        "ordinal": ("idx", "bin"),
-        "categorical": "idx",
-        "time": ("time", "bin"),
-        "date": ("date", "bin"),
-        "datetime": ("datetime", "bin"),
-        "fixed": "fix",
-    },
-    "idx": {
-        "numerical": "discrete",
-        "ordinal": "idx",
-        "categorical": "idx",
-        "time": "time",
-        "date": "date",
-        "datetime": "datetime",
-        "fixed": "fix",
-    },
-}
-
 
 class MetricsMeta(NamedTuple):
     x_log: bool = False
@@ -227,9 +188,10 @@ class DatasetMeta:
         self,
         meta: dict,
         data: dict[str, pd.DataFrame] | None = None,
+        transformers: dict[str, dict[str, list[str] | str]] = {},
     ):
         transformers = merge_dicts(
-            DEFAULT_TRANSFORMERS,
+            transformers,
             meta.get("transformers", {}),
         )
 

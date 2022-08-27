@@ -22,13 +22,29 @@ from .kedro.hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
 
 from .metadata import DEFAULT_TRANSFORMERS
 
-types = list(DEFAULT_TRANSFORMERS.keys())
+from .const import VIEWS, ALGS
+from .kedro.pipelines.main import (
+    WRK_SPLIT,
+    REF_SPLIT,
+    TRN_SPLIT,
+    get_view_tables,
+    get_all_types,
+    get_syn_types,
+)
 
-from .pipeline_registry import algs, tables, splits
+tables = get_view_tables(VIEWS)
 
 HOOKS = (
-    AddDatasetsForViewsHook(tables, algs, types, splits),
-    CustomMlflowTrackingHook(tables, algs),
+    AddDatasetsForViewsHook(
+        tables,
+        ALGS,
+        TRN_SPLIT,
+        WRK_SPLIT,
+        REF_SPLIT,
+        get_all_types(ALGS),
+        get_syn_types(),
+    ),
+    CustomMlflowTrackingHook(tables, ALGS),
 )
 
 # Installed plugins for which to disable hook auto-registration.

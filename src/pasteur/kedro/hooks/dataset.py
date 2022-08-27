@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Collection, Dict
+from typing import Any
 from os import path
 
 from kedro.framework.context import KedroContext
@@ -12,15 +12,24 @@ from kedro.extras.datasets.pickle import PickleDataSet
 class AddDatasetsForViewsHook:
     def __init__(
         self,
-        tables: Dict[str, Collection[str]],
-        algs: Collection[str],
-        types: Collection[str],
-        splits: Collection[str],
+        tables: dict[str, list[str]],
+        algs: list[str],
+        trn_split: str,
+        wrk_split: str,
+        ref_split: str,
+        all_types: list[str],
+        syn_types: list[str],
     ) -> None:
         self.tables = tables
         self.algs = algs
-        self.types = types
-        self.splits = splits
+
+        self.all_types = all_types
+        self.syn_types = syn_types
+
+        self.trn_split = trn_split
+        self.wrk_split = wrk_split
+        self.ref_split = ref_split
+        self.splits = list(dict.fromkeys([trn_split, wrk_split, ref_split]))
 
     @hook_impl
     def after_context_created(
@@ -74,10 +83,10 @@ class AddDatasetsForViewsHook:
     def after_catalog_created(
         self,
         catalog: DataCatalog,
-        conf_catalog: Dict[str, Any],
-        conf_creds: Dict[str, Any],
+        conf_catalog: dict[str, Any],
+        conf_creds: dict[str, Any],
         save_version: str,
-        load_versions: Dict[str, str],
+        load_versions: dict[str, str],
     ) -> None:
         # Parquet converts timestamps, but synthetic data can contain ns variations
         # which result in a loss of quality. This causes an exception.
@@ -91,12 +100,18 @@ class AddDatasetsForViewsHook:
         self.load_versions = load_versions
 
         for view, tables in self.tables.items():
+            #
+            # Add view datasets
+            #
+
+            # Add metadata
             self.add_pkl(
                 "primary",
                 f"{view}.metadata",
                 ["views", "metadata", view],
             )
 
+            # Add keys
             for split in self.splits:
                 self.add_set(
                     "keys",
@@ -104,14 +119,7 @@ class AddDatasetsForViewsHook:
                     ["views", "keys", view, split],
                 )
 
-            for alg in self.algs:
-                self.add_pkl(
-                    "synth_models",
-                    f"{view}.{alg}.model",
-                    ["synth", "models", f"{view}.{alg}"],
-                    versioned=True,
-                )
-
+            # Add primary tables
             for table in tables:
                 self.add_set(
                     "primary",
@@ -119,30 +127,43 @@ class AddDatasetsForViewsHook:
                     ["views", "primary", view, table],
                 )
 
-                # Add datasets for splits
-                for split in self.splits:
-                    self.add_set(
-                        "split",
-                        f"{view}.{split}.{table}",
-                        ["views", "primary", f"{view}.{split}", table],
-                    )
+            # Add transformers
+            for table in tables:
+                self.add_pkl(
+                    "transformers",
+                    f"{view}.{self.trn_split}.trn_{table}",
+                    ["views", "transformer", f"{view}.{self.trn_split}", table],
+                )
 
-                    # For each materialized view table, add datasets for encoded, decoded forms
-                    for type in ["ids", *self.types]:
+            #
+            # Add tables for splits
+            #
+            for table in tables:
+                self.add_set(
+                    "split",
+                    f"{view}.{split}.{table}",
+                    ["views", "primary", f"{view}.{split}", table],
+                )
+
+                for split in self.splits:
+                    for type in ["ids", *self.all_types]:
                         self.add_set(
                             "split_encoded",
                             f"{view}.{split}.{type}_{table}",
                             ["views", type, f"{view}.{split}", table],
                         )
 
-                    # Add pickle dataset for transformers
-                    self.add_pkl(
-                        "transformers",
-                        f"{view}.{split}.trn_{table}",
-                        ["views", "transformer", f"{view}.{split}", table],
-                    )
-
-                for alg in self.algs:
+            #
+            # Add algorithm datasets
+            #
+            for alg in self.algs:
+                self.add_pkl(
+                    "synth_models",
+                    f"{view}.{alg}.model",
+                    ["synth", "models", f"{view}.{alg}"],
+                    versioned=True,
+                )
+                for table in self.tables:
                     for type in ("enc", "ids"):
                         self.add_set(
                             "synth_encoded",
@@ -157,7 +178,8 @@ class AddDatasetsForViewsHook:
                         ["synth", "dec", f"{view}.{alg}", table],
                         versioned=True,
                     )
-                    for type in self.types:
+
+                    for type in self.syn_types:
                         self.add_set(
                             "synth_reencoded",
                             f"{view}.{alg}.{type}_{table}",
@@ -165,23 +187,33 @@ class AddDatasetsForViewsHook:
                             versioned=True,
                         )
 
+            #
+            # Add measurement datasets
+            #
+            for table in tables:
+                # Histograms
+                self.add_pkl(
+                    "measure",
+                    f"{view}.{self.wrk_split}.meas_hst_{table}",
+                    ["views", "measure", "hist", f"{view}_holder", table],
+                )
+
+                for split in [*self.algs, *self.splits]:
                     self.add_pkl(
                         "measure",
-                        f"{view}.{alg}.meas_viz_{table}",
-                        ["synth", "measure", "visual", f"{view}.{alg}", table],
+                        f"{view}.{split}.meas_viz_{table}",
+                        ["views", "measure", "visual", f"{view}_{table}", table],
+                        versioned=split in self.algs,
                     )
+
+                # Models
+                for alg in self.algs:
                     self.add_pkl(
                         "measure",
                         f"{view}.{alg}.meas_mdl_{table}",
                         ["synth", "measure", "models", f"{view}.{alg}", table],
+                        versioned=True,
                     )
-                self.add_pkl(
-                    "measure",
-                    f"{view}.wrk.meas_hst_{table}",
-                    ["views", "measure", "hist", view, table],
-                )
-                self.add_pkl(
-                    "measure",
-                    f"{view}.wrk.meas_viz_{table}",
-                    ["views", "measure", "visual", view, table],
-                )
+
+                    # Distributions
+                    # Todo

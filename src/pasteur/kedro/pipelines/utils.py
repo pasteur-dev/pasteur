@@ -1,3 +1,9 @@
+from itertools import chain
+from typing import TypeVar
+
+A = TypeVar("A")
+
+
 def gen_closure(fun: callable, *args, _fn: str = None, **kwargs):
     """Creates a closure for function `fun`, by passing the positional arguments
     provided in this function to `fun` before the ones given to the function and
@@ -16,3 +22,7 @@ def gen_closure(fun: callable, *args, _fn: str = None, **kwargs):
         closure.__name__ = fun.__name__
 
     return closure
+
+
+def list_unique(*args: list[A]) -> list[A]:
+    return list(dict.fromkeys(chain(*args)))
