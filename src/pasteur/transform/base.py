@@ -546,7 +546,14 @@ class DateTransformer(RefTransformer):
     handles_na = False
 
     def __init__(self, span: str = "year", max_len=128, **_):
-        self.span = span
+        self.weeks53 = span == "year53"
+        if self.weeks53:
+            self.span = "year"
+        else:
+            # Since last week is trimmed, transform is not lossless
+            self.lossless = span == "year"
+            self.span = span
+
         self.max_len = max_len
 
     def fit(
@@ -571,7 +578,10 @@ class DateTransformer(RefTransformer):
                         "type": "ordinal",
                         "dom": self.max_len,
                     }
-                    constraints[f"{col}_week"] = {"type": "ordinal", "dom": 53}
+                    constraints[f"{col}_week"] = {
+                        "type": "ordinal",
+                        "dom": 53 if self.weeks53 else 52,
+                    }
                     constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
                 case "week":
                     constraints[f"{col}_week"] = {
@@ -599,7 +609,9 @@ class DateTransformer(RefTransformer):
     def iso_to_gregorian(iso_year, iso_week, iso_day):
         "Gregorian calendar date for the given ISO year, week and day"
         year_start = DateTransformer.iso_year_start(iso_year)
-        return year_start + pd.to_timedelta((iso_week - 1) * 7 + iso_day, unit="day")
+        return year_start + pd.to_timedelta(
+            (iso_week - 1) * 7 + iso_day - 1, unit="day"
+        )
 
     def transform(
         self, data: pd.DataFrame, ref: pd.Series | None = None
@@ -614,23 +626,38 @@ class DateTransformer(RefTransformer):
             # which doesn't have the dt member and requires direct access.
             rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
 
+            iso = vals.dt.isocalendar()
+            iso_rf = rf_dt.isocalendar()
+
+            if isinstance(rf, pd.Timestamp):
+                rf_year = iso_rf.year
+                rf_day = iso_rf.weekday
+            else:
+                rf_year = iso_rf["year"]
+                rf_day = iso_rf["day"]
+
             match self.span:
                 case "year":
-                    year = vals.dt.year - rf_dt.year
+                    year = iso["year"] - rf_year
+
+                    weeks = iso["week"].astype("uint16") - 1
+                    if not self.weeks53:
+                        # Put days in week 53 at the beginning of next year
+                        m = weeks == 52
+                        year[m] = year[m] + 1
+                        weeks[m] = 0
+
                     out[f"{col}_year"] = year.clip(0, self.max_len - 1).astype("uint16")
-                    out[f"{col}_week"] = vals.dt.week.astype("uint16")
-                    out[f"{col}_day"] = vals.dt.day_of_week.astype("uint16")
+                    out[f"{col}_week"] = weeks
+                    out[f"{col}_day"] = iso["day"].astype("uint16") - 1
                 case "week":
                     week = (
-                        (vals.dt.normalize() - rf_dt.normalize()).dt.days
-                        + rf_dt.day_of_week
+                        (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
                     ) // 7
                     out[f"{col}_week"] = week.clip(0, self.max_len - 1).astype("uint16")
-                    out[f"{col}_day"] = vals.dt.day_of_week.astype("uint16")
+                    out[f"{col}_day"] = iso["day"].astype("uint16") - 1
                 case "day":
-                    day = (
-                        vals.dt.normalize() - rf_dt.normalize()
-                    ).dt.days + rf_dt.day_of_week
+                    day = (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
                     out[f"{col}_day"] = day.clip(0, self.max_len - 1).astype("uint16")
 
         return out
@@ -644,25 +671,35 @@ class DateTransformer(RefTransformer):
             # When using a ref column accessing the date parameters is done by the dt member.
             # When self referencing to the minimum value, its type is a Timestamp
             # which doesn't have the dt member and requires direct access.
-            rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
+            if isinstance(rf, pd.Timestamp):
+                rf_dt = rf
+                iso_rf = rf.isocalendar()
+                rf_year = iso_rf.year
+                rf_day = iso_rf.weekday
+            else:
+                rf_dt = rf.dt
+                iso_rf = rf.dt.isocalendar()
+                rf_year = iso_rf["year"]
+                rf_day = iso_rf["day"]
 
             match self.span:
                 case "year":
                     out[col] = self.iso_to_gregorian(
-                        rf_dt.year + data[f"{col}_year"],
-                        data[f"{col}_week"].clip(0, 52),
-                        data[f"{col}_day"].clip(0, 6),
+                        rf_year + data[f"{col}_year"],
+                        data[f"{col}_week"].clip(0, 52) + 1,
+                        data[f"{col}_day"].clip(0, 6) + 1,
                     )
                 case "week":
                     out[col] = rf + pd.to_timedelta(
                         data[f"{col}_week"] * 7
                         + data[f"{col}_day"].clip(0, 6)
-                        - rf_dt.day_of_week,
+                        - rf_day
+                        + 1,
                         unit="days",
                     )
                 case "day":
                     out[col] = rf_dt.normalize() + pd.to_timedelta(
-                        data[f"{col}_day"] - rf_dt.day_of_week, unit="days"
+                        data[f"{col}_day"] - rf_day + 1, unit="days"
                     )
 
         return out
@@ -785,10 +822,10 @@ class DatetimeTransformer(RefTransformer):
     stateful = True
     handles_na = False
 
-    def __init__(self, span="year.halfhour", **_):
+    def __init__(self, span="year.halfhour", **kwargs):
         date_span, time_span = span.split(".")
-        self.dt = DateTransformer(date_span)
-        self.tt = TimeTransformer(time_span)
+        self.dt = DateTransformer(date_span, **kwargs)
+        self.tt = TimeTransformer(time_span, **kwargs)
 
     def fit(
         self,

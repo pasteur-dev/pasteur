@@ -203,6 +203,10 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         else:
             self.span = "year"
 
+        self.weeks53 = self.span == "year53"
+        if self.weeks53:
+            self.span = "year"
+
         self.max_len = self.meta.args.get("max_len", None)
         self.bin_n = self.meta.args.get("bins", 20)
 
@@ -258,27 +262,44 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             data = data[~pd.isna(data)]
             rf_dt = self.ref
 
+        iso = data.dt.isocalendar()
+        iso_rf = rf_dt.isocalendar()
+
+        if self.ref is not None:
+            rf_year = iso_rf.year
+            rf_day = iso_rf.weekday
+        else:
+            rf_year = iso_rf["year"]
+            rf_day = iso_rf["day"]
+
+        weeks = iso["week"].astype("int16") - 1
+        days = iso["day"].astype("int16") - 1
+
+        # Push week 53 to next year
+        if not self.weeks53:
+            m = weeks == 52
+            weeks[m] = 0
+
         match self.span:
             case "year":
-                years = data.dt.year - rf_dt.year
-                span = np.histogram(years, bins=self.bins, density=True)[0]
+                span = iso["year"] - rf_year
+                if not self.weeks53:
+                    span[m] += 1
+                span = np.histogram(span, bins=self.bins, density=True)[0]
             case "week":
-                weeks = (
-                    (data.dt.normalize() - rf_dt.normalize()).dt.days
-                    + rf_dt.day_of_week
-                ) // 7
-                span = np.histogram(weeks, bins=self.bins, density=True)[0]
+                span = ((data.dt.normalize() - rf_dt.normalize()).dt.days + rf_day) // 7
+                span = np.histogram(span, bins=self.bins, density=True)[0]
             case "day":
-                days = (
-                    data.dt.normalize() - rf_dt.normalize()
-                ).dt.days + rf_dt.day_of_week
-                span = np.histogram(days, bins=self.bins, density=True)[0]
+                span = (data.dt.normalize() - rf_dt.normalize()).dt.days + rf_day
+                span = np.histogram(span, bins=self.bins, density=True)[0]
             case other:
                 assert False, f"Span {self.span} not supported by DateHist"
 
-        weeks = data.dt.week.astype("int16")
-        days = data.dt.day_of_week.astype("int16")
-        weeks = weeks.value_counts().reindex(range(53), fill_value=0).to_numpy()
+        weeks = (
+            weeks.value_counts()
+            .reindex(range(53 if self.weeks53 else 52), fill_value=0)
+            .to_numpy()
+        )
         days = days.value_counts().reindex(range(7), fill_value=0).to_numpy()
         return self.DateData(span, weeks, days)
 
@@ -299,7 +320,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         )
 
     def _viz_weeks(self, data: dict[str, DateData]):
-        bins = np.array(range(54)) - 0.5
+        bins = np.array(range(54 if self.weeks53 else 53)) - 0.5
         return _gen_hist(
             meta=self.meta,
             title=f"{self.col.capitalize()} Season",
