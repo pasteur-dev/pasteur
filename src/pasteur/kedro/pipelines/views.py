@@ -20,21 +20,16 @@ def _create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame])
 def create_view_pipeline(view: View):
     tables = view.tables
 
-    pipe = pipeline(
+    trn_pipe = pipeline(
         [
             node(
                 func=gen_closure(view.ingest, t, _fn=f"ingest_{t}"),
-                inputs={dep: f"in_{dep}" for dep in view.deps[t]},
-                outputs=f"view.{t}",
+                inputs={dep: f"{view.dataset}.{dep}" for dep in view.deps[t]},
+                namespace=f"{view}.view",
+                outputs=f"{view}.view.{t}",
             )
             for t in tables
         ]
-    )
-
-    trn_pipe = modular_pipeline(
-        pipe=pipe,
-        namespace=view.name,
-        inputs={f"in_{dep}": f"{view.dataset}.{dep}" for dep in view.dataset_tables},
     )
 
     meta_pipe = pipeline(
@@ -43,10 +38,10 @@ def create_view_pipeline(view: View):
                 func=gen_closure(_create_metadata, view.name, _fn="create_metadata"),
                 inputs={
                     "params": "parameters",
-                    **{t: f"{view.name}.view.{t}" for t in tables},
+                    **{t: f"{view}.view.{t}" for t in tables},
                 },
-                outputs=f"{view.name}.metadata",
-                namespace=view.name,
+                outputs=f"{view}.view.metadata",
+                namespace=f"{view}.view",
             )
         ]
     )
@@ -62,12 +57,13 @@ def create_filter_pipeline(view: View, splits: list[str]):
         pipe += pipeline(
             [
                 node(
-                    func=view.filter,
+                    func=gen_closure(view.filter, _fn=f"filter_{split}"),
                     inputs={
                         "keys": f"keys.{split}",
                         **{t: f"view.{t}" for t in tables},
                     },
                     outputs={t: f"{split}.{t}" for t in tables},
+                    namespace=split,
                 )
             ]
         )

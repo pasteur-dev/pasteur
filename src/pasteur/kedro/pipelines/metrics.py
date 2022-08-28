@@ -61,7 +61,7 @@ def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
             node(
                 func=gen_closure(create_fitted_hist_holder, table),
                 inputs={
-                    "meta": f"{view.name}.metadata",
+                    "meta": f"{view.name}.view.metadata",
                     "ids": f"{view.name}.{wrk_split}.ids_{table}",
                     **in_tables_wrk,
                 },

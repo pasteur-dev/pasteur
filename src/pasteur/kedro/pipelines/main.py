@@ -48,13 +48,13 @@ def get_view_tables(names: list[str]):
     return {n: v.tables for n, v in _get_views(names).items()}
 
 
-def get_syn_types():
+def get_msr_types():
     return metrics_get_required_types()
 
 
 def _get_all_types(algs: dict[str, Synth]):
     alg_types = [a.type for a in algs.values()]
-    return list_unique(alg_types, get_syn_types())
+    return list_unique(alg_types, get_msr_types())
 
 
 def get_all_types(algs: list[str]):
@@ -81,7 +81,7 @@ def generate_pipelines(
 
     # Wrk, ref splits are transformed to all types
     # Synthetic data is transformed only to syn_types (as required by metrics currently)
-    syn_types = get_syn_types()
+    msr_types = get_msr_types()
     all_types = _get_all_types(algs)
 
     # Store complete pipelines first for kedro viz (main vs extra pipelines)
@@ -98,7 +98,7 @@ def generate_pipelines(
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
             create_transform_pipeline(view, trn_split, all_types)
-            + create_transform_pipeline(view, ref_split, all_types, trn_split)
+            + create_transform_pipeline(view, ref_split, msr_types, trn_split)
             + pipe_metrics_fit
         )
         if wrk_split != trn_split:
@@ -126,7 +126,7 @@ def generate_pipelines(
             ) + create_reverse_pipeline(view, alg, cls.type, trn_split)
 
             pipe_measure = create_transform_pipeline(
-                view, alg, syn_types, trn_split, gen_ids=False
+                view, alg, msr_types, trn_split, gen_ids=False
             ) + metrics_create_log_pipelines(view, alg, trn_split, wrk_split, ref_split)
 
             complete_pipe = pipe_ingest + pipe_synth + pipe_measure

@@ -27,7 +27,7 @@ from .kedro.pipelines.main import (
     TRN_SPLIT,
     get_view_tables,
     get_all_types,
-    get_syn_types,
+    get_msr_types,
 )
 
 tables = get_view_tables(VIEWS)
@@ -40,7 +40,7 @@ HOOKS = (
         WRK_SPLIT,
         REF_SPLIT,
         get_all_types(ALGS),
-        get_syn_types(),
+        get_msr_types(),
     ),
     CustomMlflowTrackingHook(tables, ALGS),
 )

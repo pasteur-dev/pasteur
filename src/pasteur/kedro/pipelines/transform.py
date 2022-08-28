@@ -93,7 +93,7 @@ def create_transform_pipeline(
         ]
 
     if trn_split is None:
-        inputs = {"metadata": f"{view}.metadata"}
+        inputs = {"metadata": f"{view}.view.metadata"}
     else:
         inputs = {f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in view.tables}
 

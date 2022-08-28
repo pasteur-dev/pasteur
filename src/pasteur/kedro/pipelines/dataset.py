@@ -26,7 +26,11 @@ def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
 
 
 def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
-    fun = gen_closure(dataset.keys_filtered, splits) if splits else dataset.keys
+    fun = (
+        gen_closure(dataset.keys_filtered, splits, _fn="gen_keys")
+        if splits
+        else dataset.keys
+    )
     fun = get_params_closure(fun, view, "ratios", "random_state")
 
     req_tables = {t: f"in_{t}" for t in dataset.key_deps}
@@ -40,6 +44,7 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
                     "params": "parameters",
                     **req_tables,
                 },
+                namespace="keys",
                 outputs={s: f"keys.{s}" for s in splits},
             )
         ]

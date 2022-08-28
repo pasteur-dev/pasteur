@@ -109,7 +109,7 @@ class AddDatasetsForViewsHook:
             # Add metadata
             self.add_pkl(
                 "metadata",
-                f"{view}.metadata",
+                f"{view}.view.metadata",
                 ["views", "metadata", view],
             )
 
