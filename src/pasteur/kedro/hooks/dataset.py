@@ -63,7 +63,8 @@ class AddDatasetsForViewsHook:
                 version=self.get_version(name, versioned),
             ),
         )
-        self.catalog.layers[layer].add(name)
+        if layer:
+            self.catalog.layers[layer].add(name)
 
     def add_pkl(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
@@ -77,7 +78,8 @@ class AddDatasetsForViewsHook:
                 version=self.get_version(name, versioned),
             ),
         )
-        self.catalog.layers[layer].add(name)
+        if layer:
+            self.catalog.layers[layer].add(name)
 
     @hook_impl
     def after_catalog_created(
@@ -192,7 +194,7 @@ class AddDatasetsForViewsHook:
             for table in tables:
                 # Histograms
                 self.add_pkl(
-                    "measure",
+                    None,  # TODO: fix circular dependency of this node layer
                     f"{view}.{self.wrk_split}.meas_hst_{table}",
                     ["views", "measure", "hist", f"{view}.holder", table],
                 )
@@ -230,6 +232,7 @@ class AddDatasetsForViewsHook:
                                 "synth" if split in self.algs else "views",
                                 "measure",
                                 "distr",
+                                method,
                                 f"{view}.{split}",
                                 table,
                             ],
