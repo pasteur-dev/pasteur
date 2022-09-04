@@ -29,6 +29,51 @@ class Level(list["Level | IDX_DTYPES"]):
             return "{" + base[1:-1] + "}"
         return base
 
+    @property
+    def max_height(self) -> int:
+        return max(lvl.max_height + 1 if isinstance(lvl, Level) else 0 for lvl in self)
+
+    def _get_groups_by_level(self, lvl: int) -> list[list[int]]:
+        groups = []
+        for l in self:
+            if isinstance(l, Level):
+                g = l._get_groups_by_level(lvl - 1)
+
+                if lvl == 0:
+                    groups.append(g)
+                else:
+                    groups.extend(g)
+            else:
+                groups.append(l)
+        return groups
+
+    def _get_max_n(self):
+        return max(lvl._get_max_n() if isinstance(lvl, Level) else lvl for lvl in self)
+
+    def get_groups(self, height: int) -> list[list[int]]:
+        return self._get_groups_by_level(self.max_height - height)
+
+    def get_dict_mapping(self, height: int) -> dict[int, int]:
+        groups = self.get_groups(height)
+        mapping = {}
+        for i, g in enumerate(groups):
+            if isinstance(g, list):
+                for j in g:
+                    mapping[j] = i
+            else:
+                mapping[g] = i
+
+        return mapping
+
+    def get_mapping(self, height: int) -> np.array:
+        domain = self._get_max_n() + 1
+        a = np.ndarray((domain), dtype=get_type(domain))
+
+        dmap = self.get_dict_mapping(height)
+        for i, j in dmap.items():
+            a[i] = j
+        return a
+
     @staticmethod
     def from_str(
         a: str, nullable: bool = False, ukn_val: Any | None = None
