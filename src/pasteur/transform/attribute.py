@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Any, NamedTuple, Literal
+from typing import Any, Literal
 
 IDX_DTYPES = np.uint8 | np.uint16 | np.uint32
 
@@ -24,7 +24,7 @@ class NodeLevel(Level, list[Level]):
     def __init__(self, type: Literal["cat", "ord"], arr: list[Level | Any]):
         lvls = []
         for a in arr:
-            if isinstance(a, Level):
+            if isinstance(a, NodeLevel):
                 lvls.append(a)
             else:
                 lvls.append(LeafLevel(a))
@@ -90,6 +90,15 @@ class NodeLevel(Level, list[Level]):
         for i, j in dmap.items():
             a[i] = j
         return a
+
+    def get_human_values(self) -> list[str]:
+        out = []
+        for lvl in self:
+            if isinstance(lvl, NodeLevel):
+                out.extend(lvl.get_human_values())
+            else:
+                out.append(str(lvl))
+        return out
 
     @staticmethod
     def from_str(
@@ -169,14 +178,43 @@ class IdxColumn:
         return "Idx" + repr(self.lvl)
 
 
+class CatColumn(IdxColumn):
+    def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
+        arr = []
+        if na:
+            arr.append(None)
+        if ukn_val is not None:
+            arr.append(ukn_val)
+        arr.extend(vals)
+
+        super().__init__(NodeLevel("cat", arr))
+
+
+class OrdColumn(IdxColumn):
+    def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
+        lvl = NodeLevel("ord", vals)
+
+        if na or ukn_val is not None:
+            arr = []
+            if na:
+                arr.append(None)
+            if ukn_val is not None:
+                arr.append(ukn_val)
+            arr.append(lvl)
+
+            lvl = NodeLevel("cat", arr)
+
+        super().__init__(lvl)
+
+
 class NumColumn:
     type = "num"
 
-    def __init__(self, min_bins: int) -> None:
-        self.min_bins = min_bins
+    def __init__(self, bins: int) -> None:
+        self.bins = bins
 
     def __str__(self) -> str:
-        return f"Num[{self.min_bins}]"
+        return f"Num[{self.bins}]"
 
     def __repr__(self) -> str:
         return str(self)
@@ -208,41 +246,22 @@ Attributes = dict[str, Attribute]
 
 class OrdAttribute(Attribute):
     def __init__(
-        self, name: str, cols: list[Any], na: bool = False, ukn_val: Any | None = None
+        self, name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
     ) -> None:
-        lvl = NodeLevel("ord", cols)
-
-        if na or ukn_val is not None:
-            arr = []
-            if na:
-                arr.append(None)
-            if ukn_val is not None:
-                arr.append(ukn_val)
-            arr.append(lvl)
-
-            lvl = NodeLevel("cat", arr)
-
-        cols = {name: IdxColumn(lvl)}
+        cols = {name: OrdColumn(vals, na, ukn_val)}
 
         super().__init__(name, cols, na, ukn_val is not None)
 
 
 class CatAttribute(Attribute):
     def __init__(
-        self, name: str, cols: list[Any], na: bool = False, ukn_val: Any | None = None
+        self, name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
     ) -> None:
-        arr = []
-        if na:
-            arr.append(None)
-        if ukn_val is not None:
-            arr.append(ukn_val)
-        arr.extend(cols)
-
-        cols = {name: IdxColumn(NodeLevel("cat", arr))}
+        cols = {name: CatColumn(vals, na, ukn_val)}
 
         super().__init__(name, cols, na, ukn_val is not None)
 
 
 class NumAttribute(Attribute):
-    def __init__(self, name: str, min_bins: int, na: bool = False) -> None:
-        super().__init__(name, {name: NumColumn(min_bins)}, na, False)
+    def __init__(self, name: str, bins: int, na: bool = False) -> None:
+        super().__init__(name, {name: NumColumn(bins)}, na, False)

@@ -389,3 +389,136 @@ class FixedValueTransformer(Transformer):
             out = out.assign(**{col: self.value})
 
         return out
+
+
+class NormalizeTransformer(Transformer):
+    """Normalizes numerical columns to (0, 1).
+
+    The max, min values are chosen when calling fit(), if a larger value appears
+    during transform it is clipped to (0, 1)."""
+
+    name = "normalize"
+    in_type = ("numerical", "ordinal")
+    out_type = "numerical"
+
+    deterministic = True
+    lossless = False
+    stateful = True
+    handles_na = False
+
+    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
+        constraints = constraints or {}
+        self.min = {}
+        self.max = {}
+        self.types = {}
+
+        for col in data:
+            if col in constraints:
+                c = constraints[col]
+                match c["type"]:
+                    case "ordinal":
+                        self.min[col] = 0
+                        self.max[col] = c["dom"] - 1
+                    case "numerical":
+                        self.min[col] = c["min"]
+                        self.max[col] = c["max"]
+                    case other:
+                        assert (
+                            False
+                        ), f"Type {other} of {col} not supported in normalize transformer."
+            else:
+                logger.warning(
+                    f"Infering min, max values for column {col}. This violates DP."
+                )
+                self.min[col] = data[col].min(axis=0)
+                self.max[col] = data[col].max(axis=0)
+
+            self.types[col] = data[col].dtype
+
+        return {
+            name: {"type": "numerical", "min": 0, "max": 1}
+            for name in self.types.keys()
+        }
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in data:
+            n = data[col]
+            n_min = self.min[col]
+            n_max = self.max[col]
+
+            out[col] = ((n - n_min) / (n_max - n_min)).clip(0, 1)
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame()
+
+        for col in self.min:
+            n = data[col]
+            n_min = self.min[col]
+            n_max = self.max[col]
+
+            out[col] = (n_min + (n_max - n_min) * n).astype(self.types[col])
+
+        return out
+
+
+class NormalDistTransformer(Transformer):
+    """Normalizes column to std 1, mean 0 on a normal distribution."""
+
+    name = "normdist"
+    in_type = ("numerical", "ordinal")
+    out_type = "numerical"
+
+    deterministic = True
+    lossless = True
+    stateful = True
+    handles_na = False
+
+    def __init__(self, max_std=10, **_):
+        self.max_std = max_std
+
+    def fit(
+        self,
+        data: pd.DataFrame,
+        constraints: dict[str, dict] | None = None,
+    ) -> dict[str, dict] | None:
+        self.std = {}
+        self.mean = {}
+        self.types = {}
+
+        for col in data:
+            self.std[col] = data[col].mean()
+            self.mean[col] = data[col].std()
+            self.types[col] = data[col].dtype
+
+        return {
+            name: {"type": "numerical", "min": -self.max_std, "max": self.max_std}
+            for name in self.types.keys()
+        }
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame(index=data.index)
+
+        for col in data:
+            n = data[col]
+            std = self.std[col]
+            mean = self.mean[col]
+
+            out[col] = (n - mean) / std
+
+        return out
+
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+        out = pd.DataFrame(index=data.index)
+
+        for col in self.std:
+            n = data[col].to_numpy().clip(-self.max_std, self.max_std)
+            std = self.std[col]
+            mean = self.mean[col]
+
+            out[col] = (n * std + mean).astype(self.types[col])
+
+        return out

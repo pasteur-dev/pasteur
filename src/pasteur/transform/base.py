@@ -4,17 +4,31 @@ import numpy as np
 import pandas as pd
 
 from ..utils import find_subclasses
+from .attribute import (
+    Attribute,
+    Attributes,
+    CatAttribute,
+    LeafLevel,
+    NodeLevel,
+    NumAttribute,
+    NumColumn,
+    OrdAttribute,
+    Column,
+    Level,
+    OrdColumn,
+    get_type,
+)
 
 logger = logging.getLogger(__name__)
 
 """Package with base transformers. 
 
-Contains transformers that convert raw data into 4 types (with name suffix):
-    - categorical: integer values from 0-N with columns with no relations
-    - ordinal: integer values from 0-N where `k` val is closer to `k + 1` than other vals.
-    - numerical: floating point values, assumed mean 0 and std 1.
-    - hierarchical: Transformer returns a set of columns, some of which contain information
-                    only in the context of other ones.
+Contains transformers that convert raw data into 2 types (with name suffix):
+    - numerical (num): floating point values (float32), including NaN
+    - discrete (idx): integer values (uintX) with metadata that make them:
+        - categorical: integer values from 0-N with columns with no relations
+        - ordinal: integer values from 0-N where `k` val is closer to `k + 1` than other vals.
+        - hierarchical: contains a hierarchy of ordinal and categorical values.
 
 Assume columns c0 and c1 with a hierarchical relationship (ex. Hour, minute).
 When sampling for parent relationships, c0 will be initially checked and
@@ -29,10 +43,6 @@ the user expects them in the output data.
 class Transformer:
     name = "base"
     "The name of the transformer, with which it's looked up in the dictionary."
-    in_type: str | list[str] = None
-    "Valid input types. The input is checked to be this or one of these types."
-    out_type = None
-    "The output type of the transformer, may change depending on the input."
 
     deterministic = True
     "For a given output, the input is the same."
@@ -40,37 +50,23 @@ class Transformer:
     "The decoded output equals the input."
     stateful = False
     "Transformer fits variables."
-    handles_na = False
-    "Transformer can handle NA values."
-    variable_domain = False
-    "Transformer domain is variable (idx only). Example: if c0=0, c1={0,m} but if c0=1, c1={0,n}."
 
     def __init__(self, **_):
-        pass
+        self.attr: Attribute = None
 
-    def fit(
-        self, data: pd.DataFrame, constraints: dict[str, dict] | None = None
-    ) -> dict[str, dict] | None:
-        """Fits to the provided data and returns a set of constraints for that data.
+    def fit(self, data: pd.Series) -> Attribute:
+        """Fits to the provided data"""
+        return self.attr
 
-        The constraints map column names to a dict that contains the type and specific
-        data to that type, such as min, max, or dom(ain).
-
-        The constraints can be passed on to the next transformer to avoid inferring them."""
-        pass
-
-    def fit_transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def fit_transform(self, data: pd.Series) -> pd.DataFrame:
         self.fit(data)
         return self.transform(data)
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def transform(self, data: pd.Series) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
-
-    def get_hierarchy(self, **_) -> dict[str, list[str]]:
-        return {}
 
 
 class RefTransformer(Transformer):
@@ -88,20 +84,18 @@ class RefTransformer(Transformer):
 
     def fit(
         self,
-        data: pd.DataFrame,
+        data: pd.Series,
         ref: pd.Series | None = None,
-    ) -> dict[str, dict] | None:
+    ) -> Attribute:
         pass
 
     def fit_transform(
-        self, data: pd.DataFrame, ref: pd.Series | None = None
+        self, data: pd.Series, ref: pd.Series | None = None
     ) -> pd.DataFrame:
         self.fit(data, ref)
         return self.transform(data, ref)
 
-    def transform(
-        self, data: pd.DataFrame, ref: pd.Series | None = None
-    ) -> pd.DataFrame:
+    def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
@@ -127,7 +121,6 @@ class ChainTransformer(RefTransformer):
     deterministic = True
     lossless = True
     stateful = False
-    handles_na = True
 
     @staticmethod
     def from_dict(transformer_names: list[str] | str, args: dict):
@@ -314,238 +307,94 @@ class IdxTransformer(Transformer):
     If the values are sortable, they will have adjacent integer values"""
 
     name = "idx"
-    in_type = ("categorical", "ordinal")
-    out_type = "ordinal"
-
     deterministic = True
     lossless = True
     stateful = True
-    handles_na = True
 
-    def __init__(self, unknown_value=None, is_sortable=True, **_):
+    def __init__(self, unknown_value=None, nullable: bool = False, **_):
         self.unknown_value = unknown_value
+        self.nullable = nullable
+        self.ordinal = False
 
-        # If a categorical attribute is sortable it can become ordinal
-        # otherwise switch output type to categorical.
-        if not is_sortable:
-            self.out_type = "categorical"
+    def fit(self, data: pd.Series):
+        vals = [v for v in data.unique() if not pd.isna(v)]
 
-    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
-        assert (
-            constraints is None
-        ), "This formatter should only be used for raw data, data from transformers will be already in idx format."
+        # Try to sort vals
+        try:
+            vals = sorted(vals)
+        except:
+            assert not self.ordinal, "Ordinal Array is not sortable"
 
-        self.vals = {}
-        self.mapping = {}
-        self.types = {}
+        vals = list(vals)
+        ofs = 0
+        if self.nullable:
+            ofs += 1
+        if self.unknown_value is not None:
+            ofs += 1
 
-        for col in data:
-            vals = [v for v in data[col].unique() if not pd.isna(v)]
+        self.mapping = {val: i + ofs for i, val in enumerate(vals)}
+        self.vals = {i + ofs: val for i, val in enumerate(vals)}
+        self.domain = ofs + len(vals)
+        self.ofs = ofs
 
-            # Try to sort vals
-            try:
-                vals = sorted(vals)
-            except:
-                pass
+        self.type = data.dtype
+        cls = OrdAttribute if self.ordinal else CatAttribute
+        self.attr = cls(data.name, vals, self.nullable, self.unknown_value)
+        return self.attr
 
-            vals = list(vals)
-            self.mapping[col] = {val: i for i, val in enumerate(vals)}
-            self.vals[col] = {
-                i: val for i, val in enumerate(vals + [self.unknown_value])
-            }
+    def transform(self, data: pd.Series) -> pd.DataFrame:
+        mapping = self.mapping
+        type = get_type(len(self.domain))
+        out_col = data.replace(mapping)
 
-            self.types[col] = data[col].dtype
+        # Handle categorical columns without blowing them up to full blown columns
+        out_col = out_col.cat.add_categories(range(self.ofs))
 
-        return {
-            name: {"type": self.out_type, "dom": len(vals) + 2}
-            for name, vals in self.vals.items()
-        }
+        # Handle NAs correctly
+        if self.nullable:
+            out_col = out_col.fillna(0)
+        else:
+            assert not np.any(data.isna())
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
-
-        for col, vals in data.items():
-            mapping = self.mapping[col]
-            out_col = vals.replace(mapping)
-            ukn_val = len(mapping)
-            na_val = len(mapping) + 1
-
-            # Handle categorical columns without blowing them up to full blown columns
-            if vals.dtype.name == "category":
-                out_col = out_col.cat.add_categories(ukn_val)
-
-            # Handle NAs correctly
-            if np.any(vals.isna()):
-                if vals.dtype.name == "category":
-                    out_col = out_col.cat.add_categories(na_val)
-                out_col = out_col.fillna(na_val)
-
+        if self.unknown_value is not None:
             out_col = out_col.where(
-                vals.isin(mapping.keys()) | vals.isna(), ukn_val
-            ).astype("int16")
-            out[col] = out_col
-
-        return out
-
-    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
-
-        for col in self.types:
-            vals = data[col]
-            na_val = len(self.mapping[col]) + 1
-            out[col] = (
-                vals.map(self.vals[col])
-                .where(vals != na_val, pd.NA)
-                .astype(self.types[col])
+                data.isin(mapping.keys()) | data.isna(), 1 if self.nullable else 0
             )
+        else:
+            assert np.all(data.isin(mapping.keys()) | data.isna())
 
-        return out
+        return pd.DataFrame(out_col.astype(type))
 
+    def reverse(self, data: pd.DataFrame) -> pd.Series:
+        k = data.keys()
+        assert len(k) == 1
+        col = data[k[0]]
 
-class NormalizeTransformer(Transformer):
-    """Normalizes numerical columns to (0, 1).
+        out = col.map(self.vals)
 
-    The max, min values are chosen when calling fit(), if a larger value appears
-    during transform it is clipped to (0, 1)."""
+        if self.nullable:
+            out = out.where(col != 0, pd.NA)
+        if self.unknown_value is not None:
+            out = out.where(col != (1 if self.nullable else 0), self.unknown_value)
 
-    name = "normalize"
-    in_type = ("numerical", "ordinal")
-    out_type = "numerical"
-
-    deterministic = True
-    lossless = False
-    stateful = True
-    handles_na = False
-
-    def fit(self, data: pd.DataFrame, constraints: dict[str, dict] | None = None):
-        constraints = constraints or {}
-        self.min = {}
-        self.max = {}
-        self.types = {}
-
-        for col in data:
-            if col in constraints:
-                c = constraints[col]
-                match c["type"]:
-                    case "ordinal":
-                        self.min[col] = 0
-                        self.max[col] = c["dom"] - 1
-                    case "numerical":
-                        self.min[col] = c["min"]
-                        self.max[col] = c["max"]
-                    case other:
-                        assert (
-                            False
-                        ), f"Type {other} of {col} not supported in normalize transformer."
-            else:
-                logger.warning(
-                    f"Infering min, max values for column {col}. This violates DP."
-                )
-                self.min[col] = data[col].min(axis=0)
-                self.max[col] = data[col].max(axis=0)
-
-            self.types[col] = data[col].dtype
-
-        return {
-            name: {"type": "numerical", "min": 0, "max": 1}
-            for name in self.types.keys()
-        }
-
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
-
-        for col in data:
-            n = data[col]
-            n_min = self.min[col]
-            n_max = self.max[col]
-
-            out[col] = ((n - n_min) / (n_max - n_min)).clip(0, 1)
-
-        return out
-
-    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
-
-        for col in self.min:
-            n = data[col]
-            n_min = self.min[col]
-            n_max = self.max[col]
-
-            out[col] = (n_min + (n_max - n_min) * n).astype(self.types[col])
-
-        return out
+        return out.astype(self.type)
 
 
-class NormalDistTransformer(Transformer):
-    """Normalizes column to std 1, mean 0 on a normal distribution."""
+class OrdinalTransformer(IdxTransformer):
+    name = "ordinal"
 
-    name = "normdist"
-    in_type = ("numerical", "ordinal")
-    out_type = "numerical"
-
-    deterministic = True
-    lossless = True
-    stateful = True
-    handles_na = False
-
-    def __init__(self, max_std=10, **_):
-        self.max_std = max_std
-
-    def fit(
-        self,
-        data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
-    ) -> dict[str, dict] | None:
-        self.std = {}
-        self.mean = {}
-        self.types = {}
-
-        for col in data:
-            self.std[col] = data[col].mean()
-            self.mean[col] = data[col].std()
-            self.types[col] = data[col].dtype
-
-        return {
-            name: {"type": "numerical", "min": -self.max_std, "max": self.max_std}
-            for name in self.types.keys()
-        }
-
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame(index=data.index)
-
-        for col in data:
-            n = data[col]
-            std = self.std[col]
-            mean = self.mean[col]
-
-            out[col] = (n - mean) / std
-
-        return out
-
-    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame(index=data.index)
-
-        for col in self.std:
-            n = data[col].to_numpy().clip(-self.max_std, self.max_std)
-            std = self.std[col]
-            mean = self.mean[col]
-
-            out[col] = (n * std + mean).astype(self.types[col])
-
-        return out
+    def __init__(self, unknown_value=None, nullable: bool = False, **_):
+        super().__init__(unknown_value, nullable, **_)
+        self.ordinal = True
 
 
 class DateTransformer(RefTransformer):
     name = "date"
-    in_type = ("date", "datetime")
-    out_type = "ordinal"
-
     deterministic = True
     lossless = True
     stateful = True
-    handles_na = False
 
-    def __init__(self, span: str = "year", max_len=128, **_):
+    def __init__(self, span: str = "year", nullable: bool = False, bins=128, **_):
         self.weeks53 = span == "year53"
         if self.weeks53:
             self.span = "year"
@@ -554,45 +403,60 @@ class DateTransformer(RefTransformer):
             self.lossless = span == "year"
             self.span = span
 
-        self.max_len = max_len
+        self.nullable = nullable
+        self.bins = bins
 
     def fit(
         self,
-        data: pd.DataFrame,
+        data: pd.Series,
         ref: pd.Series | None = None,
-    ) -> dict[str, dict] | None:
-        self.types = {}
-        self.ref = {}
+    ):
+        self.ref = data.min() if ref is None else None
+        col = data.name
+        self.col = col
 
-        constraints = {}
-        for col, vals in data.items():
-            # Add reference
-            self.types[col] = vals.dtype
-            if ref is None:
-                self.ref[col] = vals.min()
+        # Generate constraints for columns
+        days = [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ]
+        match self.span:
+            case "year":
+                self.attr = Attribute(
+                    col,
+                    {
+                        f"{col}_year": NumColumn(self.bins),
+                        f"{col}_week": OrdColumn(
+                            range(53 if self.weeks53 else 52), na=self.nullable
+                        ),
+                        f"{col}_day": OrdColumn(days, na=self.nullable),
+                    },
+                    self.nullable,
+                )
+            case "week":
+                self.attr = Attribute(
+                    col,
+                    {
+                        f"{col}_week": NumColumn(self.bins),
+                        f"{col}_day": OrdColumn(days, na=self.nullable),
+                    },
+                    self.nullable,
+                )
+            case "day":
+                self.attr = Attribute(
+                    col,
+                    {
+                        f"{col}_day": NumColumn(self.bins),
+                    },
+                    self.nullable,
+                )
 
-            # Generate constraints for columns
-            match self.span:
-                case "year":
-                    constraints[f"{col}_year"] = {
-                        "type": "ordinal",
-                        "dom": self.max_len,
-                    }
-                    constraints[f"{col}_week"] = {
-                        "type": "ordinal",
-                        "dom": 53 if self.weeks53 else 52,
-                    }
-                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
-                case "week":
-                    constraints[f"{col}_week"] = {
-                        "type": "ordinal",
-                        "dom": self.max_len,
-                    }
-                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": 7}
-                case "day":
-                    constraints[f"{col}_day"] = {"type": "ordinal", "dom": self.max_len}
-
-        return constraints
+        return self.attr
 
     @staticmethod
     def iso_year_start(iso_year):
@@ -613,236 +477,292 @@ class DateTransformer(RefTransformer):
             (iso_week - 1) * 7 + iso_day - 1, unit="day"
         )
 
-    def transform(
-        self, data: pd.DataFrame, ref: pd.Series | None = None
-    ) -> pd.DataFrame:
+    def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         out = pd.DataFrame()
+        col = self.col
+        vals = data
 
-        for col, vals in data.items():
-            rf = self.ref.get(col, ref)
-            assert rf is not None
-            # When using a ref column accessing the date parameters is done by the dt member.
-            # When self referencing to the minimum value, its type is a Timestamp
-            # which doesn't have the dt member and requires direct access.
-            rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
+        if self.nullable:
+            na_mask = pd.isna(vals)
+            if ref is not None:
+                na_mask |= pd.isna(ref)
+                ref = ref[~na_mask]
+            vals = vals[~na_mask]
+        else:
+            assert not np.any(
+                pd.isna(vals)
+            ), f"NA values detected in non-NA field: {self.col}"
 
-            iso = vals.dt.isocalendar()
-            iso_rf = rf_dt.isocalendar()
+        rf = self.ref if self.ref else ref
+        assert rf is not None
+        # When using a ref column accessing the date parameters is done by the dt member.
+        # When self referencing to the minimum value, its type is a Timestamp
+        # which doesn't have the dt member and requires direct access.
+        rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
 
-            if isinstance(rf, pd.Timestamp):
-                rf_year = iso_rf.year
-                rf_day = iso_rf.weekday
-            else:
-                rf_year = iso_rf["year"]
-                rf_day = iso_rf["day"]
+        iso = vals.dt.isocalendar()
+        iso_rf = rf_dt.isocalendar()
 
-            match self.span:
-                case "year":
-                    year = iso["year"] - rf_year
+        if isinstance(rf, pd.Timestamp):
+            rf_year = iso_rf.year
+            rf_day = iso_rf.weekday
+        else:
+            rf_year = iso_rf["year"]
+            rf_day = iso_rf["day"]
 
-                    weeks = iso["week"].astype("uint16") - 1
-                    if not self.weeks53:
-                        # Put days in week 53 at the beginning of next year
-                        m = weeks == 52
-                        year[m] = year[m] + 1
-                        weeks[m] = 0
+        ofs = 1 if self.nullable else 0
 
-                    out[f"{col}_year"] = year.clip(0, self.max_len - 1).astype("uint16")
-                    out[f"{col}_week"] = weeks
-                    out[f"{col}_day"] = iso["day"].astype("uint16") - 1
-                case "week":
-                    week = (
-                        (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
-                    ) // 7
-                    out[f"{col}_week"] = week.clip(0, self.max_len - 1).astype("uint16")
-                    out[f"{col}_day"] = iso["day"].astype("uint16") - 1
-                case "day":
-                    day = (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
-                    out[f"{col}_day"] = day.clip(0, self.max_len - 1).astype("uint16")
+        match self.span:
+            case "year":
+                year = iso["year"] - rf_year
+
+                weeks = iso["week"] - 1
+                if not self.weeks53:
+                    # Put days in week 53 at the beginning of next year
+                    m = weeks == 52
+                    year[m] = year[m] + 1
+                    weeks[m] = 0
+
+                out[f"{col}_year"] = year.astype("float32")
+                out[f"{col}_week"] = (weeks + ofs).astype("uint8")
+                out[f"{col}_day"] = (iso["day"] - 1 + ofs).astype("uint8")
+            case "week":
+                week = (
+                    (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
+                ) // 7
+                out[f"{col}_week"] = week.astype("float32")
+                out[f"{col}_day"] = (iso["day"] - 1 + ofs).astype("uint8")
+            case "day":
+                day = (vals.dt.normalize() - rf_dt.normalize()).dt.days + rf_day - 1
+                out[f"{col}_day"] = day.astype("float32")
+
+        if self.nullable:
+            out = out.reindex(data.index, fill_value=0)
+            # NAs were set as 0, change them to floats
+            out.loc[na_mask, f"{col}_{self.span}"] = np.nan
 
         return out
 
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
-        out = pd.DataFrame()
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.Series:
+        col = self.col
 
-        for col in self.types:
-            rf = self.ref.get(col, ref)
-            assert rf is not None
-            # When using a ref column accessing the date parameters is done by the dt member.
-            # When self referencing to the minimum value, its type is a Timestamp
-            # which doesn't have the dt member and requires direct access.
-            if isinstance(rf, pd.Timestamp):
-                rf_dt = rf
-                iso_rf = rf.isocalendar()
-                rf_year = iso_rf.year
-                rf_day = iso_rf.weekday
-            else:
-                rf_dt = rf.dt
-                iso_rf = rf.dt.isocalendar()
-                rf_year = iso_rf["year"]
-                rf_day = iso_rf["day"]
+        vals = data
+        fcol = f"{self.col}_{self.span}"
+        if self.nullable:
+            na_mask = pd.isna(vals[fcol]) | np.any(vals.drop(columns=fcol) == 0, axis=1)
+            if ref is not None:
+                na_mask |= pd.isna(ref)
+                ref = ref[~na_mask]
+            vals = vals[~na_mask]
+            ofs = 1
+        else:
+            ofs = 0
+            assert not np.any(pd.isnan(vals[fcol])), "NAN values found on nonNAN col"
 
-            match self.span:
-                case "year":
-                    out[col] = self.iso_to_gregorian(
-                        rf_year + data[f"{col}_year"],
-                        data[f"{col}_week"].clip(0, 52) + 1,
-                        data[f"{col}_day"].clip(0, 6) + 1,
-                    )
-                case "week":
-                    out[col] = rf + pd.to_timedelta(
-                        data[f"{col}_week"] * 7
-                        + data[f"{col}_day"].clip(0, 6)
-                        - rf_day
-                        + 1,
-                        unit="days",
-                    )
-                case "day":
-                    out[col] = rf_dt.normalize() + pd.to_timedelta(
-                        data[f"{col}_day"] - rf_day + 1, unit="days"
-                    )
+        rf = self.ref if self.ref is not None else ref
+        assert rf is not None
+        # When using a ref column accessing the date parameters is done by the dt member.
+        # When self referencing to the minimum value, its type is a Timestamp
+        # which doesn't have the dt member and requires direct access.
+        if isinstance(rf, pd.Timestamp):
+            rf_dt = rf
+            iso_rf = rf.isocalendar()
+            rf_year = iso_rf.year
+            rf_day = iso_rf.weekday
+        else:
+            rf_dt = rf.dt
+            iso_rf = rf.dt.isocalendar()
+            rf_year = iso_rf["year"]
+            rf_day = iso_rf["day"]
 
-        return out
+        match self.span:
+            case "year":
+                out = self.iso_to_gregorian(
+                    rf_year + np.round(vals[f"{col}_year"]).clip(0),
+                    (vals[f"{col}_week"] + 1 - ofs)
+                    .clip(1, 53 if self.weeks53 else 52)
+                    .astype("uint16"),
+                    (vals[f"{col}_day"] + 1 - ofs).clip(0, 7).astype("uint16"),
+                )
+            case "week":
+                out = rf + pd.to_timedelta(
+                    np.round(vals[f"{col}_week"]).clip(0) * 7
+                    + (vals[f"{col}_day"] - ofs).clip(0, 6).astype("uint16")
+                    - rf_day
+                    + 1,
+                    unit="days",
+                )
+            case "day":
+                out = rf_dt.normalize() + pd.to_timedelta(
+                    np.round(vals[f"{col}_day"]).clip(0) - rf_day + 1,
+                    unit="days",
+                )
+
+        return out.reindex(data.index, fill_value=pd.NaT)
 
 
 class TimeTransformer(Transformer):
-
     name = "time"
-    in_type = ("time", "datetime")
-    out_type = "ordinal"
 
     deterministic = True
     lossless = True
     stateful = True
-    handles_na = False
 
-    def __init__(self, span: str = "minute", **_):
+    def __init__(self, span: str = "minute", nullable: bool = False, **_):
         self.span = span
+        self.nullable = nullable
 
     def fit(
         self,
-        data: pd.DataFrame,
-        constraints: dict[str, dict] | None = None,
-    ) -> dict[str, dict] | None:
-        assert constraints is None
-
+        data: pd.Series,
+    ):
         span = self.span
-        constraints = {}
-        self.types = {}
-        for col, vals in data.items():
-            self.types[col] = vals.dtype
+        self.col = data.name
 
-            constraints[f"{col}_hour"] = {"type": "ordinal", "dom": 24}
+        hours = []
+        for hour in range(24):
+            if span == "hour":
+                hours.append(LeafLevel(hour))
             if span == "halfhour":
-                constraints[f"{col}_halfhour"] = {"type": "ordinal", "dom": 2}
-            if span in ("minute", "halfminute", "second"):
-                constraints[f"{col}_min"] = {"type": "ordinal", "dom": 60}
-            if span == "halfminute":
-                constraints[f"{col}_halfmin"] = {"type": "ordinal", "dom": 2}
-            if span == "second":
-                constraints[f"{col}_sec"] = {"type": "ordinal", "dom": 60}
+                hours.append(
+                    NodeLevel(
+                        "ord",
+                        [LeafLevel(f"{hour:02d}:00"), LeafLevel(f"{hour:02d}:00")],
+                    )
+                )
+            else:
+                mins = []
+                for min in range(60):
+                    if span == "minute":
+                        mins.append(LeafLevel(f"{hour:02d}:{min:02d}"))
+                    if span == "halfminute":
+                        mins.append(
+                            NodeLevel(
+                                "ord",
+                                [
+                                    LeafLevel(f"{hour:02d}:{min:02d}:00"),
+                                    LeafLevel(f"{hour:02d}:{min:02d}:30"),
+                                ],
+                            )
+                        )
+                    if span == "second":
+                        secs = []
+                        for sec in range(60):
+                            secs.append(LeafLevel(f"{hour:02d}:{min:02d}:{sec:02d}"))
+                        mins.append(NodeLevel("ord", secs))
 
-        return constraints
+                hours.append(NodeLevel("ord", mins))
+        lvl = NodeLevel("ord", hours)
+        if self.nullable:
+            lvl = NodeLevel("cat", [None, lvl])
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
+        self.domain = lvl.size
+
+        self.attr = Attribute(data.name, {f"{data.name}_time": lvl}, self.nullable)
+        return self.attr
+
+    def transform(self, date: pd.Series) -> pd.DataFrame:
+        out = pd.DataFrame(index=date.index)
         span = self.span
 
-        for col in self.types:
-            date = data[col]
-            out[f"{col}_hour"] = date.dt.hour
-            if span == "halfhour":
-                out[f"{col}_halfhour"] = date.dt.minute > 29
-            if span in ("minute", "halfminute", "second"):
-                out[f"{col}_min"] = date.dt.minute
-            if span == "halfminute":
-                out[f"{col}_halfmin"] = date.dt.second > 29
-            if span == "second":
-                out[f"{col}_sec"] = date.dt.second
+        out = date.dt.hour
+        if span == "halfhour":
+            out = out * 2 + (date.dt.minute > 29)
+        if span in ("minute", "halfminute", "second"):
+            out = out * 60 + date.dt.minute
+        if span == "halfminute":
+            out = out * 2 + (date.dt.second > 29)
+        if span == "second":
+            out = out * 60 + date.dt.second
 
-        return out
+        if self.nullable:
+            out += 1
+            out = out.where(~pd.isna(date), 0)
+        else:
+            assert not np.any(
+                pd.isna(date)
+            ), f"NA values detected in non-NA field: {self.col}"
+
+        out = out.astype(get_type(self.domain))
+        return pd.DataFrame({f"{self.col}_time": out})
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        out = pd.DataFrame()
         span = self.span
+        col = self.col
 
-        for col in self.types:
-            hour = data[f"{col}_hour"].clip(0, 23)
-            min = 0
-            sec = 0
-            if span == "halfhour":
-                min = 30 * data[f"{col}_halfhour"].clip(0, 1)
-            if span in ("minute", "halfminute", "second"):
-                min = data[f"{col}_min"].clip(0, 59)
-            if span == "halfminute":
-                sec = 30 * data[f"{col}_halfmin"].clip(0, 1)
-            if span == "second":
-                sec = data[f"{col}_sec"].clip(0, 59)
+        vals = data[f"{col}_time"]
 
-            out[col] = pd.to_datetime(
-                {
-                    "year": 2000,
-                    "month": 1,
-                    "day": 1,
-                    "hour": hour,
-                    "minute": min,
-                    "second": sec,
-                }
-            )
+        if self.nullable:
+            na_mask = vals == 0
+            vals = vals[~na_mask] - 1
 
-        return out
+        match span:
+            case "hour":
+                hour = vals
+                min = 0
+                sec = 0
+            case "halfhour":
+                hour = vals // 2
+                min = 30 * (vals % 2)
+                sec = 0
+            case "minute":
+                hour = vals // 60
+                min = vals % 60
+                sec = 0
+            case "halfminute":
+                hour = vals // 120
+                min = (vals // 2) % 60
+                sec = 30 * (vals % 2)
+            case "second":
+                hour = vals // 3600
+                min = (vals // 60) % 60
+                sec = vals % 60
 
-    def get_hierarchy(self, **_) -> dict[str, list[str]]:
-        out = {}
-        span = self.span
+        out = pd.to_datetime(
+            {
+                "year": 2000,
+                "month": 1,
+                "day": 1,
+                "hour": hour,
+                "minute": min,
+                "second": sec,
+            }
+        )
 
-        for col in self.types:
-            hier = [f"{col}_hour"]
-            if span == "halfhour":
-                hier += [f"{col}_halfhour"]
-            if span in ("minute", "halfminute", "second"):
-                hier += [f"{col}_min"]
-            if span == "halfminute":
-                hier += [f"{col}_halfmin"]
-            if span == "second":
-                hier += [f"{col}_sec"]
-
-            out[col] = hier
+        if self.nullable:
+            out_data = out
+            out = pd.Series(pd.NaT, index=data.index, name=col)
+            out[~na_mask] = out_data
+        else:
+            out.name = col
 
         return out
 
 
 class DatetimeTransformer(RefTransformer):
     name = "datetime"
-    in_type = ("time", "datetime")
-    out_type = "ordinal"
-
     deterministic = True
     lossless = True
     stateful = True
-    handles_na = False
 
     def __init__(self, span="year.halfhour", **kwargs):
         date_span, time_span = span.split(".")
+        self.nullable = kwargs.get("nullable", False)
         self.dt = DateTransformer(date_span, **kwargs)
         self.tt = TimeTransformer(time_span, **kwargs)
 
     def fit(
         self,
-        data: pd.DataFrame,
+        data: pd.Series,
         ref: pd.Series | None = None,
     ) -> dict[str, dict] | None:
-        self.types = {}
-        for col, vals in data.items():
-            self.types[col] = vals.dtype
+        self.col = data.name
 
         cdt = self.dt.fit(data, ref)
         ctt = self.tt.fit(data)
-        return {**cdt, **ctt}
+        return Attribute(self.col, cols={**cdt.cols, **ctt.cols}, na=self.nullable)
 
-    def transform(
-        self, data: pd.DataFrame, ref: pd.Series | None = None
-    ) -> pd.DataFrame:
+    def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         date_enc = self.dt.transform(data, ref)
         time_enc = self.tt.transform(data)
         return pd.concat([date_enc, time_enc], axis=1)
@@ -851,18 +771,17 @@ class DatetimeTransformer(RefTransformer):
         date_dec = self.dt.reverse(data, ref)
         time_dec = self.tt.reverse(data)
 
-        out = pd.DataFrame()
-        for col in self.types:
-            out[col] = pd.to_datetime(
-                {
-                    "year": date_dec[col].dt.year,
-                    "month": date_dec[col].dt.month,
-                    "day": date_dec[col].dt.day,
-                    "hour": time_dec[col].dt.hour,
-                    "minute": time_dec[col].dt.minute,
-                    "second": time_dec[col].dt.second,
-                }
-            )
+        out = pd.to_datetime(
+            {
+                "year": date_dec.dt.year,
+                "month": date_dec.dt.month,
+                "day": date_dec.dt.day,
+                "hour": time_dec.dt.hour,
+                "minute": time_dec.dt.minute,
+                "second": time_dec.dt.second,
+            }
+        )
+        out.name = self.col
 
         return out
 
