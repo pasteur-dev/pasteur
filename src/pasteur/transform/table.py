@@ -1,19 +1,18 @@
 import logging
-from typing import Collection, Dict, NamedTuple, Optional
+from typing import Collection, Dict, Optional
 
 import pandas as pd
 
 from ..metadata import Metadata
-from .base import ChainTransformer, Transformer
+from .attribute import Attribute, Attributes
+from .base import Transformer
+from ..utils import find_subclasses
 
 logger = logging.getLogger(__name__)
 
 
-class Attribute(NamedTuple):
-    cols: list[str] = []
-    has_na: bool = False
-    var_dom: bool = False
-    h: int = 0
+def _get_transformers():
+    return find_subclasses(Transformer)
 
 
 class ReferenceManager:
@@ -96,21 +95,19 @@ class ReferenceManager:
         return self.find_foreign_ids(self.name, tables)
 
 
-class TableTypeTransformer:
+class TableTransformer:
     def __init__(
         self,
-        ref: ReferenceManager,
         meta: Metadata,
         name: str,
         type: str,
     ) -> None:
-        self.ref = ref
+        self.ref = ReferenceManager(meta, name)
         self.name = name
         self.meta = meta
         self.type = type
 
         self.transformers: Dict[str, Transformer] = {}
-        self.constraints: dict[str, dict[str, any]] = {}
         self.fitted = False
 
     def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
@@ -119,6 +116,7 @@ class TableTypeTransformer:
 
         meta = self.meta[self.name]
         table = tables[self.name]
+        transformers = _get_transformers()
 
         if self.ref.table_has_reference():
             if ids is None:
@@ -153,12 +151,9 @@ class TableTypeTransformer:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
 
-            # Fit transformer with proper chain
-            chain = col.chains[self.type]
-            args = col.args.copy()
-            t = ChainTransformer.from_dict(chain, args)
-            constraints = t.fit(table[[name]], ref_col)
-            self.constraints[name] = constraints
+            # Fit transformer
+            t = transformers[col.type](**col.args)
+            t.fit(table[name], ref_col)
             self.transformers[name] = t
 
         self.fitted = True
@@ -277,99 +272,13 @@ class TableTypeTransformer:
         return dec_table
 
     def get_attributes(self) -> dict[str, Attribute]:
-        """Collates the table columns into ordered sets named attributes (sourced from transformer hierarchy).
-
-        If there's an attribute a0 with columns c0, c1, c2,
-        we only take c1 into consideration for a parent relationship with c0,
-        and c2 with both c1, c0.
-
-        Lowers computational complexity for bayesian networks from
-        `O(nChooseK(c_t, k*c_n))` to `O(nChooseK(a_n, k)*c_n)`, where the latter is
-        orders of magnitude smaller (combinations of marginals).
-        c_t: total columns, c_n: columns per attribute, k: columns selected for parents,
-        a_n: number of attributes
-
-        In addition, c0 may indicate an NA column (with domain 2).
-        In this case, the domain of the attribute should be increased by 1, which
-        notes the NA value, not doubled.
-
-        Purely categorical variables don't need special handling of None/NA, it
-        just gets encoded as another value. Hierarchical and numerical values do.
-
-        Example (binary encoding; 50 bits in total):
-        a_n=10, c_t=50, c_n=5
-        From O(...) = 2118760 for k=1
-        To O(...) = 1000 for k=4
-        """
+        """Returns information about the transformed columns and their hierarchical attributes."""
         assert self.fitted
-        transformers = self.transformers.values()
 
-        # Add actual attributes
         attrs = {}
-        for t in transformers:
-            hier = t.get_hierarchy()
-            attrs.update(hier)
-            for attr, cols in hier.items():
-                attrs[attr] = Attribute(cols, t.has_na, t.variable_domain)
-
-        # Add fake attributes for cols with no hierarchical relationship
-        cols_in_attr = list()
-        for a in attrs.values():
-            cols_in_attr.extend(a.cols)
-
-        # Use for loops to be deterministic
-        cols = []
-        for c in self.constraints.values():
-            for col in c.keys():
-                if col not in cols and col not in cols_in_attr:
-                    cols.append(col)
-
-        attrs.update({c: Attribute([c], False, False) for c in cols})
+        for t in self.transformers.values():
+            attrs[t.attr.name] = t.attr
         return attrs
-
-    def get_col_mapping(self) -> dict[str, list[str]]:
-        """Returns a mapping of original columns to transformed columns."""
-        mapping = {}
-        for orig_col, c in self.constraints.items():
-            mapping[orig_col] = list(c.keys())
-        return mapping
-
-
-class TableTransformer:
-    """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""
-
-    def __init__(
-        self,
-        meta: Metadata,
-        name: str,
-        types: str | Collection[str],
-    ) -> None:
-        self.name = name
-        self.meta = meta
-
-        self.transformers: Dict[str, TableTypeTransformer] = {}
-        self.ref = ReferenceManager(meta, name)
-        self.fitted = False
-
-        if isinstance(types, str):
-            types = [types]
-        self.types = types
 
     def find_ids(self, tables: Dict[str, pd.DataFrame]):
         return self.ref.find_foreign_ids(self.name, tables)
-
-    def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
-        # Lookup keys one and cache them
-        if self.ref.table_has_reference() and ids is None:
-            ids = self.ref.find_foreign_ids(self.name, tables)
-
-        for type in self.types:
-            transformer = TableTypeTransformer(self.ref, self.meta, self.name, type)
-            transformer.fit(tables, ids)
-            self.transformers[type] = transformer
-
-        self.fitted = True
-
-    def __getitem__(self, type):
-        assert self.fitted
-        return self.transformers[type]

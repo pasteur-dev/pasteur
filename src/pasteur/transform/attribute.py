@@ -210,11 +210,15 @@ class OrdColumn(IdxColumn):
 class NumColumn:
     type = "num"
 
-    def __init__(self, bins: int) -> None:
+    def __init__(
+        self, bins: int, min: int | float | None, max: int | float | None
+    ) -> None:
         self.bins = bins
+        self.min = min
+        self.max = max
 
     def __str__(self) -> str:
-        return f"Num[{self.bins}]"
+        return f"Num[{self.bins},{float(self.min):.2f}<x<{float(self.max):.2f}]"
 
     def __repr__(self) -> str:
         return str(self)
@@ -263,5 +267,12 @@ class CatAttribute(Attribute):
 
 
 class NumAttribute(Attribute):
-    def __init__(self, name: str, bins: int, na: bool = False) -> None:
-        super().__init__(name, {name: NumColumn(bins)}, na, False)
+    def __init__(
+        self,
+        name: str,
+        bins: int,
+        min: int | float | None,
+        max: int | float | None,
+        nullable: bool = False,
+    ) -> None:
+        super().__init__(name, {name: NumColumn(bins, min, max)}, nullable, False)

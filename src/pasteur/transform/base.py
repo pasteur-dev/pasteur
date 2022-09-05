@@ -29,14 +29,6 @@ Contains transformers that convert raw data into 2 types (with name suffix):
         - categorical: integer values from 0-N with columns with no relations
         - ordinal: integer values from 0-N where `k` val is closer to `k + 1` than other vals.
         - hierarchical: contains a hierarchy of ordinal and categorical values.
-
-Assume columns c0 and c1 with a hierarchical relationship (ex. Hour, minute).
-When sampling for parent relationships, c0 will be initially checked and
-the pair c0, c1 will only be checked if c0 conveys enough mutual information on its own
-(c1 only has meaning in the context of c0).
-
-However, all cN will be sampled, since it is assumed that if they were included
-the user expects them in the output data.
 """
 
 
@@ -105,200 +97,42 @@ class RefTransformer(Transformer):
         assert 0, "Unimplemented"
 
 
-class ChainTransformer(RefTransformer):
-    """Allows chain applying transformers together to a column.
+class NumericalTransformer(Transformer):
+    """Clips numerical values and attaches metadata to them."""
 
-    If nullable is set to true, null columns will be omitted when fitting the transformers.
-    This is to prevent the na_value from biasing the transformers.
-
-    When transforming, an NA bool column will be added and the NA value will be replaced
-    by na_val before transforming."""
-
-    name = "chain"
-    in_type = None
-    out_type = None
-
+    name = "numerical"
     deterministic = True
     lossless = True
-    stateful = False
+    stateful = True
 
-    @staticmethod
-    def from_dict(transformer_names: list[str] | str, args: dict):
-        if isinstance(transformer_names, str):
-            transformer_names = [transformer_names]
-
-        tdict = find_subclasses(Transformer)
-        if "main_param" in args and len(transformer_names) > 0:
-            # Pass main_param from extended syntax to first transformer if it exists
-            first = tdict[transformer_names[0]](args["main_param"], **args)
-            other = [tdict[name](**args) for name in transformer_names[1:]]
-            transformers = [first, *other]
-        else:
-            # Otherwise just create transformers normally
-            transformers = [tdict[name](**args) for name in transformer_names]
-
-        return ChainTransformer(transformers=transformers, **args)
-
-    def __init__(self, transformers: list[Transformer], nullable=False, **_) -> None:
-        self.transformers = transformers
-        if len(transformers):
-            self.in_type = transformers[0].in_type
-            self.out_type = transformers[-1].out_type
-
-            # Check transformer chain has valid types
-            out_type = transformers[0].out_type
-            for t in self.transformers[1:]:
-                assert (
-                    out_type == t.in_type
-                    if isinstance(t.in_type, str)
-                    else (out_type in t.in_type)
-                )
-                out_type = t.out_type
-
-        na_handled = any(t.handles_na for t in transformers)
-        self.handle_na = not na_handled and nullable
-        if self.handle_na:
-            logger.warning(
-                f"Nullable column doesn't have transformers for na vals, using <name>_NA col."
-            )
-        self.has_na = self.handle_na
-        self.nullable = nullable
-
-        self.deterministic = all(t.deterministic for t in transformers)
-        self.lossless = all(t.lossless for t in transformers)
-        self.variable_domain = any(t.variable_domain for t in transformers)
-
-    def fit(
+    def __init__(
         self,
-        data: pd.DataFrame,
-        ref: pd.Series | None = None,
+        bins: int = 64,
+        find_edges: bool = False,
+        min: float | int | None = None,
+        max: float | int | None = None,
+        nullable: bool = False,
+        **_,
     ):
-        if self.handle_na:
-            assert (
-                len(data.columns) == 1
-            ), "Can only handle one column when checking for NA"
-            self.na_col = f"{data.columns[0]}_na"
-            na_col = np.any(data.isna(), axis=1)
-            data = data[~na_col].infer_objects()
-            if ref is not None:
-                ref = ref[~na_col]
-                assert not np.any(
-                    pd.isna(ref)
-                ), "Ref column should have any null values."
-        else:
-            # If not nullable and null value was passed halt.
-            assert self.nullable or not np.any(
-                data.isna()
-            ), f"NA value in non nullable column {data.columns[0]}."
+        self.nullable = nullable
+        self.bins = bins
+        self.min = min
+        self.max = max
+        self.find_edges = find_edges
 
-        constraints = None
-        for t in self.transformers:
-            if isinstance(t, RefTransformer) and ref is not None:
-                constraints = t.fit(data, ref)
-                data = t.transform(data, ref)
-            else:
-                constraints = t.fit(data, constraints)
-                data = t.transform(data)
+    def fit(self, data: pd.Series):
+        self.col = data.name
+        if self.min is None and self.find_edges:
+            self.min = data.min()
+        if self.max is None and self.find_edges:
+            self.max = data.max()
+        return NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
 
-        # Checks whether we got constraints for all the output columns
-        # Whether a transformer should return always constraints is a diff. question.
-        assert set(constraints.keys()) == set(
-            data.keys()
-        ), f"Constraint columns different from data columns"
-        return constraints
+    def transform(self, data: pd.Series) -> pd.DataFrame:
+        return pd.DataFrame(data.clip(self.min, self.max))
 
-    def transform(
-        self, data: pd.DataFrame, ref: pd.Series | None = None
-    ) -> pd.DataFrame:
-        orig_idx = data.index
-
-        if self.handle_na:
-            na_col = np.any(data.isna(), axis=1)
-            data = data[~na_col].infer_objects()
-            if ref is not None:
-                ref = ref[~na_col]
-                assert not np.any(
-                    pd.isna(ref)
-                ), "Ref column should have any null values."
-        else:
-            # If not nullable and null value was passed halt.
-            assert self.nullable or not np.any(
-                data.isna()
-            ), f"NA value in non nullable column {data.columns[0]}."
-
-        for t in self.transformers:
-            if isinstance(t, RefTransformer) and ref is not None:
-                data = t.transform(data, ref)
-            else:
-                data = t.transform(data)
-
-        if self.handle_na:
-            fill_vals = {
-                n: False if pd.api.types.is_bool_dtype(dtype) else 0
-                for n, dtype in data.dtypes.items()
-            }
-            data = pd.concat([data, na_col.rename(self.na_col)], axis=1).fillna(
-                fill_vals
-            )
-
-        assert np.all(
-            np.sort(data.index) == np.sort(orig_idx)
-        ), f"Index was invalidated by one of {str([t.name for t in self.transformers])} transformers."
-        return data
-
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
-        orig_idx = data.index
-        if self.handle_na:
-            na_col = data[self.na_col]
-            data = data.drop(columns=[self.na_col])
-
-        for t in reversed(self.transformers):
-            if isinstance(t, RefTransformer) and ref is not None:
-                data = t.reverse(data, ref)
-            else:
-                data = t.reverse(data)
-
-        if self.handle_na:
-            data = data.where(na_col == 0, pd.NA)
-
-        assert np.all(
-            np.sort(data.index) == np.sort(orig_idx)
-        ), f"Index was invalidated by one of {str([t.name for t in self.transformers])} transformers."
-        return data
-
-    def get_hierarchy(self, **_) -> dict[str, list[str]]:
-        out = {}
-        for t in self.transformers:
-            hier = t.get_hierarchy()
-            new_hier = hier.copy()
-
-            # Slice in the columns from the new transformer into the old one
-            # If the new transformer creates new colums.
-            # Example:
-            # Old: a0: {c0, c1, c2}
-            # New: c0: {b0, b1}
-            # Combined: a0: {b0, b1, c1, c2}
-            for attr in out:
-                for new_attr, new_cols in hier.items():
-                    if new_attr in out[attr]:
-                        idx = out[attr].index(new_attr)
-                        out[attr] = (
-                            out[attr][:idx]
-                            + new_cols
-                            + (out[attr][idx + 1 :] if len(out[attr]) > idx else [])
-                        )
-
-                        # Delete attribute that was merged
-                        del new_hier[new_attr]
-
-            out.update(new_hier)
-
-        # FIXME: check this works. Add na column to each attribute.
-        if self.handle_na:
-            for cols in out.values():
-                cols.insert(0, self.na_col)
-
-        return out
+    def reverse(self, data: pd.DataFrame) -> pd.Series:
+        return data[self.col].clip(self.min, self.max)
 
 
 class IdxTransformer(Transformer):
@@ -306,7 +140,7 @@ class IdxTransformer(Transformer):
 
     If the values are sortable, they will have adjacent integer values"""
 
-    name = "idx"
+    name = "categorical"
     deterministic = True
     lossless = True
     stateful = True
@@ -760,7 +594,8 @@ class DatetimeTransformer(RefTransformer):
 
         cdt = self.dt.fit(data, ref)
         ctt = self.tt.fit(data)
-        return Attribute(self.col, cols={**cdt.cols, **ctt.cols}, na=self.nullable)
+        self.attr = Attribute(self.col, cols={**cdt.cols, **ctt.cols}, na=self.nullable)
+        return self.attr
 
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         date_enc = self.dt.transform(data, ref)
@@ -784,6 +619,3 @@ class DatetimeTransformer(RefTransformer):
         out.name = self.col
 
         return out
-
-    def get_hierarchy(self, **kwargs) -> dict[str, list[str]]:
-        return self.tt.get_hierarchy(**kwargs)
