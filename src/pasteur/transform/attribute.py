@@ -12,9 +12,24 @@ def get_type(domain: int):
     return np.uint32
 
 
-class Level(list["Level | IDX_DTYPES"]):
-    def __init__(self, type: Literal["cat", "ord"], *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class Level:
+    pass
+
+
+class LeafLevel(Level, str):
+    pass
+
+
+class NodeLevel(Level, list[Level]):
+    def __init__(self, type: Literal["cat", "ord"], arr: list[Level | Any]):
+        lvls = []
+        for a in arr:
+            if isinstance(a, Level):
+                lvls.append(a)
+            else:
+                lvls.append(LeafLevel(a))
+
+        super().__init__(lvls)
         self.type = type
 
     def __str__(self) -> str:
@@ -30,28 +45,30 @@ class Level(list["Level | IDX_DTYPES"]):
         return base
 
     @property
-    def max_height(self) -> int:
-        return max(lvl.max_height + 1 if isinstance(lvl, Level) else 0 for lvl in self)
+    def height(self) -> int:
+        return max(lvl.height + 1 if isinstance(lvl, NodeLevel) else 0 for lvl in self)
 
-    def _get_groups_by_level(self, lvl: int) -> list[list[int]]:
+    @property
+    def size(self) -> int:
+        return sum(lvl.size if isinstance(lvl, NodeLevel) else 1 for lvl in self)
+
+    def _get_groups_by_level(self, lvl: int, ofs: int = 0) -> list[list[int] | int]:
         groups = []
         for l in self:
-            if isinstance(l, Level):
-                g = l._get_groups_by_level(lvl - 1)
+            if isinstance(l, NodeLevel):
+                g, ofs = l._get_groups_by_level(lvl - 1, ofs)
 
                 if lvl == 0:
                     groups.append(g)
                 else:
                     groups.extend(g)
             else:
-                groups.append(l)
-        return groups
+                groups.append(ofs)
+                ofs += 1
+        return groups, ofs
 
-    def _get_max_n(self):
-        return max(lvl._get_max_n() if isinstance(lvl, Level) else lvl for lvl in self)
-
-    def get_groups(self, height: int) -> list[list[int]]:
-        return self._get_groups_by_level(self.max_height - height)
+    def get_groups(self, height: int) -> list[list[int] | int]:
+        return self._get_groups_by_level(self.height - height)[0]
 
     def get_dict_mapping(self, height: int) -> dict[int, int]:
         groups = self.get_groups(height)
@@ -66,7 +83,7 @@ class Level(list["Level | IDX_DTYPES"]):
         return mapping
 
     def get_mapping(self, height: int) -> np.array:
-        domain = self._get_max_n() + 1
+        domain = self.size
         a = np.ndarray((domain), dtype=get_type(domain))
 
         dmap = self.get_dict_mapping(height)
@@ -77,24 +94,19 @@ class Level(list["Level | IDX_DTYPES"]):
     @staticmethod
     def from_str(
         a: str, nullable: bool = False, ukn_val: Any | None = None
-    ) -> tuple["Level", list[str | int]]:
+    ) -> "NodeLevel":
         i = 0
-        names = []
-        name = ""
 
         stack = [[]]
         is_ord = [False]
         bracket_closed = False
 
         if nullable:
-            stack[-1].append(i)
-            i += 1
-            names.append(None)
+            stack[-1].append(LeafLevel(None))
         if ukn_val is not None:
-            stack[-1].append(i)
-            i += 1
-            names.append(ukn_val)
+            stack[-1].append(LeafLevel(ukn_val))
 
+        name = ""
         for j, c in enumerate(a):
             # Check brackets close correctly, after a bracket(s) closes a comma should follow
             if bracket_closed:
@@ -103,16 +115,7 @@ class Level(list["Level | IDX_DTYPES"]):
                 ), f"',' should follow after a bracket closing (']', '}}'): {a[:j+1]}<"
 
             if c in "]}," and not bracket_closed:
-                stack[-1].append(i)
-                i += 1
-
-                # Try to convert to int
-                try:
-                    name = int(name)
-                except:
-                    pass
-
-                names.append(name)
+                stack[-1].append(LeafLevel(name))
                 name = ""
 
             if c not in "[]{},":
@@ -130,56 +133,116 @@ class Level(list["Level | IDX_DTYPES"]):
                 case "}":
                     children = stack.pop()
                     assert not is_ord.pop(), "Unmatched '[' bracket, found '}'"
-                    stack[-1].append(Level("cat", children))
+                    stack[-1].append(NodeLevel("cat", children))
                 case "[":
                     stack.append([])
                     is_ord.append(True)
                 case "]":
                     children = stack.pop()
                     assert is_ord.pop(), "Unmatched '{' bracket, found ']'"
-                    stack[-1].append(Level("ord", children))
+                    stack[-1].append(NodeLevel("ord", children))
 
         lvl_attrs = stack[0]
         if len(lvl_attrs) == 1:
             lvl = lvl_attrs[0]
         else:
-            lvl = Level("cat", lvl_attrs)
+            lvl = NodeLevel("cat", lvl_attrs)
 
-        return lvl, names
-
-
-class OrdLevel(Level):
-    def __init__(self, *args, **kwargs):
-        super().__init__("ord", *args, **kwargs)
+        return lvl
 
 
-class CatLevel(Level):
-    def __init__(self, *args, **kwargs):
-        super().__init__("cat", *args, **kwargs)
-
-
-class Column(NamedTuple):
-    name: str
+class Column:
     type: Literal["idx", "num"]
-    na: bool
-    lvl: Level | None = None
+    name: str | None = None
 
 
-class Attribute(NamedTuple):
-    name: str
-    cols: dict[str, Column]
+class IdxColumn:
+    type = "idx"
 
-    @property
-    def na(self):
-        if len(self.cols) == 0:
-            return False
+    def __init__(self, lvl: NodeLevel) -> None:
+        self.lvl = lvl
 
-        na = next(iter(self.cols.values()))
-        for col in self.cols.values():
-            assert col.na == na, f"Attribute {self.name} has mixed nullability values."
+    def __str__(self) -> str:
+        return "Idx" + str(self.lvl)
 
-        return na
+    def __repr__(self) -> str:
+        return "Idx" + repr(self.lvl)
 
 
-class Attributes(dict[str, Attribute]):
-    pass
+class NumColumn:
+    type = "num"
+
+    def __init__(self, min_bins: int) -> None:
+        self.min_bins = min_bins
+
+    def __str__(self) -> str:
+        return f"Num[{self.min_bins}]"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+class Attribute:
+    def __init__(
+        self,
+        name: str,
+        cols: dict[str, Column],
+        na: bool = False,
+        ukn_val: bool = False,
+    ) -> None:
+        self.name = name
+        self.na = na
+        self.ukn_val = ukn_val
+
+        self.cols = cols
+
+    def __str__(self) -> str:
+        return f"Attr[na={int(self.na)},ukn={int(self.ukn_val)}]{self.cols}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+
+Attributes = dict[str, Attribute]
+
+
+class OrdAttribute(Attribute):
+    def __init__(
+        self, name: str, cols: list[Any], na: bool = False, ukn_val: Any | None = None
+    ) -> None:
+        lvl = NodeLevel("ord", cols)
+
+        if na or ukn_val is not None:
+            arr = []
+            if na:
+                arr.append(None)
+            if ukn_val is not None:
+                arr.append(ukn_val)
+            arr.append(lvl)
+
+            lvl = NodeLevel("cat", arr)
+
+        cols = {name: IdxColumn(lvl)}
+
+        super().__init__(name, cols, na, ukn_val is not None)
+
+
+class CatAttribute(Attribute):
+    def __init__(
+        self, name: str, cols: list[Any], na: bool = False, ukn_val: Any | None = None
+    ) -> None:
+        arr = []
+        if na:
+            arr.append(None)
+        if ukn_val is not None:
+            arr.append(ukn_val)
+        arr.extend(cols)
+
+        cols = {name: IdxColumn(NodeLevel("cat", arr))}
+
+        super().__init__(name, cols, na, ukn_val is not None)
+
+
+class NumAttribute(Attribute):
+    def __init__(self, name: str, min_bins: int, na: bool = False) -> None:
+        super().__init__(name, {name: NumColumn(min_bins)}, na, False)
