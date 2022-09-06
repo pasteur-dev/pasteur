@@ -7,14 +7,13 @@ from .utils import gen_closure
 
 from ...metadata import Metadata
 from ...utils import get_params_for_pipe
-from ...transform import DEFAULT_TRANSFORMERS
 
 import pandas as pd
 
 
 def _create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame]):
     meta_dict = get_params_for_pipe(view, params)
-    return Metadata(meta_dict, tables, DEFAULT_TRANSFORMERS)
+    return Metadata(meta_dict, tables, {})
 
 
 def create_view_pipeline(view: View):

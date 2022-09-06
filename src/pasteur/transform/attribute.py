@@ -1,5 +1,6 @@
 import numpy as np
 from typing import Any, Literal
+from copy import copy
 
 IDX_DTYPES = np.uint8 | np.uint16 | np.uint32
 
@@ -163,6 +164,7 @@ class NodeLevel(Level, list[Level]):
 class Column:
     type: Literal["idx", "num"]
     name: str | None = None
+    na: bool = False
 
 
 class IdxColumn:
@@ -207,7 +209,7 @@ class OrdColumn(IdxColumn):
         super().__init__(lvl)
 
 
-class NumColumn:
+class NumColumn(Column):
     type = "num"
 
     def __init__(
@@ -218,7 +220,7 @@ class NumColumn:
         self.max = max
 
     def __str__(self) -> str:
-        return f"Num[{self.bins},{float(self.min):.2f}<x<{float(self.max):.2f}]"
+        return f"Num[{self.bins},{self.min if self.min else float('nan'):.2f}<x<{self.max if self.max else float('nan'):.2f}]"
 
     def __repr__(self) -> str:
         return str(self)
@@ -236,7 +238,11 @@ class Attribute:
         self.na = na
         self.ukn_val = ukn_val
 
-        self.cols = cols
+        self.cols = {}
+        for name, col in cols.items():
+            col = copy(col)
+            col.na = na
+            self.cols[name] = col
 
     def __str__(self) -> str:
         return f"Attr[na={int(self.na)},ukn={int(self.ukn_val)}]{self.cols}"

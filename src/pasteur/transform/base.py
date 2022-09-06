@@ -1,7 +1,10 @@
 import logging
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+
+from pandas.api.types import is_categorical_dtype
 
 from ..utils import find_subclasses
 from .attribute import (
@@ -122,17 +125,19 @@ class NumericalTransformer(Transformer):
 
     def fit(self, data: pd.Series):
         self.col = data.name
+        self.dtype = data.dtype
         if self.min is None and self.find_edges:
             self.min = data.min()
         if self.max is None and self.find_edges:
             self.max = data.max()
-        return NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
+        self.attr = NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
+        return self.attr
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
-        return pd.DataFrame(data.clip(self.min, self.max))
+        return pd.DataFrame(data.clip(self.min, self.max).astype("float32"))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
-        return data[self.col].clip(self.min, self.max)
+        return data[self.col].clip(self.min, self.max).astype(self.dtype)
 
 
 class IdxTransformer(Transformer):
@@ -168,6 +173,7 @@ class IdxTransformer(Transformer):
 
         self.mapping = {val: i + ofs for i, val in enumerate(vals)}
         self.vals = {i + ofs: val for i, val in enumerate(vals)}
+        self.col = data.name
         self.domain = ofs + len(vals)
         self.ofs = ofs
 
@@ -178,11 +184,12 @@ class IdxTransformer(Transformer):
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
         mapping = self.mapping
-        type = get_type(len(self.domain))
+        type = get_type(self.domain)
         out_col = data.replace(mapping)
 
         # Handle categorical columns without blowing them up to full blown columns
-        out_col = out_col.cat.add_categories(range(self.ofs))
+        if is_categorical_dtype(out_col):
+            out_col = out_col.cat.add_categories(range(self.ofs))
 
         # Handle NAs correctly
         if self.nullable:
@@ -200,10 +207,7 @@ class IdxTransformer(Transformer):
         return pd.DataFrame(out_col.astype(type))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
-        k = data.keys()
-        assert len(k) == 1
-        col = data[k[0]]
-
+        col = data[self.col]
         out = col.map(self.vals)
 
         if self.nullable:
@@ -619,3 +623,39 @@ class DatetimeTransformer(RefTransformer):
         out.name = self.col
 
         return out
+
+
+class FixedValueTransformer(Transformer):
+    """The transform function of this transformer returns an empty dataframe and
+    when reversing it returns the columns with a fixed value.
+
+    Used for the anchoring date of a table."""
+
+    name = "fixed"
+    deterministic = True
+    lossless = True
+    stateful = True
+
+    def __init__(
+        self, dtype: Literal["date", "int", "float"] = "date", value: any = None, **_
+    ) -> None:
+        match dtype:
+            case "date":
+                val = value or "1/1/2000"
+                self.value = pd.to_datetime(val)
+            case "int":
+                self.value = int(value) or 0
+            case "float":
+                self.value = float(value) or 0.0
+
+    def fit(self, data: pd.Series):
+        self.col = data.name
+
+        self.attr = Attribute(self.col, {})
+        return self.attr
+
+    def transform(self, data: pd.Series) -> pd.DataFrame:
+        return pd.DataFrame(index=data.index)
+
+    def reverse(self, data: pd.DataFrame) -> pd.Series:
+        return pd.Series(self.value, index=data.index, name=self.col)

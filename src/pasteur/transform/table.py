@@ -5,7 +5,7 @@ import pandas as pd
 
 from ..metadata import Metadata
 from .attribute import Attribute, Attributes
-from .base import Transformer
+from .base import RefTransformer, Transformer
 from ..utils import find_subclasses
 
 logger = logging.getLogger(__name__)
@@ -100,22 +100,27 @@ class TableTransformer:
         self,
         meta: Metadata,
         name: str,
-        type: str,
     ) -> None:
         self.ref = ReferenceManager(meta, name)
         self.name = name
         self.meta = meta
-        self.type = type
 
         self.transformers: Dict[str, Transformer] = {}
         self.fitted = False
 
-    def fit(self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None):
+    def fit(
+        self,
+        tables: Dict[str, pd.DataFrame] | pd.DataFrame,
+        ids: pd.DataFrame | None = None,
+    ):
         # Only load foreign keys if required by column
         ids = None
 
         meta = self.meta[self.name]
-        table = tables[self.name]
+        if isinstance(tables, dict):
+            table = tables[self.name]
+        else:
+            table = tables
         transformers = _get_transformers()
 
         if self.ref.table_has_reference():
@@ -153,20 +158,26 @@ class TableTransformer:
 
             # Fit transformer
             t = transformers[col.type](**col.args)
-            t.fit(table[name], ref_col)
+            if isinstance(t, RefTransformer) and ref_col is not None:
+                t.fit(table[name], ref_col)
+            else:
+                t.fit(table[name])
             self.transformers[name] = t
 
         self.fitted = True
 
     def transform(
         self,
-        tables: Dict[str, pd.DataFrame],
+        tables: Dict[str, pd.DataFrame] | pd.DataFrame,
         ids: pd.DataFrame | None = None,
     ):
         assert self.fitted
 
         meta = self.meta[self.name]
-        table = tables[self.name]
+        if isinstance(tables, dict):
+            table = tables[self.name]
+        else:
+            table = tables
 
         # Only load foreign keys if required by column
         ids = None
@@ -197,7 +208,11 @@ class TableTransformer:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
 
-            tt = self.transformers[name].transform(table[[name]], ref_col)
+            t = self.transformers[name]
+            if isinstance(t, RefTransformer) and ref_col is not None:
+                tt = t.transform(table[name], ref_col)
+            else:
+                tt = t.transform(table[name])
             tts.append(tt)
 
         return pd.concat(tts, axis=1)
@@ -232,7 +247,11 @@ class TableTransformer:
                 ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
                 ref_col = ids.join(parent_tables[f_table][f_col], on=f_table)[f_col]
 
-            tt = transformers[name].reverse(table, ref_col)
+            t = transformers[name]
+            if isinstance(t, RefTransformer) and ref_col is not None:
+                tt = t.reverse(table, ref_col)
+            else:
+                tt = t.reverse(table)
             tts.append(tt)
 
         # Process columns with intra-table dependencies afterwards.
@@ -247,7 +266,12 @@ class TableTransformer:
                 continue
 
             ref_col = parent_cols[col.ref.col]
-            tt = transformers[name].reverse(table, ref_col)
+            t = transformers[name]
+            if isinstance(t, RefTransformer):
+                tt = t.reverse(table, ref_col)
+            else:
+                tt = t.reverse(table)
+
             # todo: make sure this solves inter-table dependencies
             parent_cols[name] = tt
             tts.append(tt)
