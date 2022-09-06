@@ -14,22 +14,18 @@ class AddDatasetsForViewsHook:
         self,
         tables: dict[str, list[str]],
         algs: list[str],
-        trn_split: str,
         wrk_split: str,
         ref_split: str,
-        all_types: list[str],
         msr_types: list[str],
     ) -> None:
         self.tables = tables
         self.algs = algs
 
-        self.all_types = all_types
         self.msr_types = msr_types
 
-        self.trn_split = trn_split
         self.wrk_split = wrk_split
         self.ref_split = ref_split
-        self.splits = list(dict.fromkeys([trn_split, wrk_split, ref_split]))
+        self.splits = list(dict.fromkeys([wrk_split, ref_split]))
 
     @hook_impl
     def after_context_created(
@@ -109,7 +105,7 @@ class AddDatasetsForViewsHook:
             # Add metadata
             self.add_pkl(
                 "metadata",
-                f"{view}.view.metadata",
+                f"{view}.metadata",
                 ["views", "metadata", view],
             )
 
@@ -133,8 +129,14 @@ class AddDatasetsForViewsHook:
             for table in tables:
                 self.add_pkl(
                     "transformers",
-                    f"{view}.{self.trn_split}.trn_{table}",
-                    ["views", "transformer", f"{view}.{self.trn_split}", table],
+                    f"{view}.trn.bst_{table}",
+                    ["views", "transformer", f"{view}.base", table],
+                )
+
+                self.add_pkl(
+                    "transformers",
+                    f"{view}.trn.atr_{table}",
+                    ["views", "attributes", f"{view}.base", table],
                 )
 
             #
@@ -147,12 +149,16 @@ class AddDatasetsForViewsHook:
                         f"{view}.{split}.{table}",
                         ["views", "primary", f"{view}.{split}", table],
                     )
-                    for type in ["ids", *self.all_types]:
-                        self.add_set(
-                            "split_encoded",
-                            f"{view}.{split}.{type}_{table}",
-                            ["views", type, f"{view}.{split}", table],
-                        )
+                    self.add_set(
+                        "split_encoded",
+                        f"{view}.{split}.enc_{table}",
+                        ["views", "encoded", view, table],
+                    )
+                    self.add_set(
+                        "split_encoded",
+                        f"{view}.{split}.ids_{table}",
+                        ["views", "ids", view, table],
+                    )
 
             #
             # Add algorithm datasets
@@ -164,19 +170,34 @@ class AddDatasetsForViewsHook:
                     ["synth", "models", f"{view}.{alg}"],
                     versioned=True,
                 )
+
                 for table in tables:
-                    for type in ("enc", "ids"):
+                    self.add_set(
+                        "synth_input",
+                        f"{view}.{alg}.in_{table}",
+                        ["synth", "input", f"{view}.{alg}", table],
+                        versioned=True,
+                    )
+
+                    for type in ("out", "ids"):
                         self.add_set(
-                            "synth_encoded",
+                            "synth_output",
                             f"{view}.{alg}.{type}_{table}",
                             ["synth", type, f"{view}.{alg}", table],
                             versioned=True,
                         )
 
                     self.add_set(
+                        "synth_encoded",
+                        f"{view}.{alg}.enc_{table}",
+                        ["synth", "encoded", f"{view}.{alg}", table],
+                        versioned=True,
+                    )
+
+                    self.add_set(
                         "synth_decoded",
                         f"{view}.{alg}.{table}",
-                        ["synth", "dec", f"{view}.{alg}", table],
+                        ["synth", "decoded", f"{view}.{alg}", table],
                         versioned=True,
                     )
 
@@ -195,14 +216,14 @@ class AddDatasetsForViewsHook:
                 # Histograms
                 self.add_pkl(
                     None,  # TODO: fix circular dependency of this node layer
-                    f"{view}.{self.wrk_split}.meas_hst_{table}",
+                    f"{view}.{self.wrk_split}.msr_hst_{table}",
                     ["views", "measure", "hist", f"{view}.holder", table],
                 )
 
                 for split in [*self.algs, *self.splits]:
                     self.add_pkl(
                         "measure",
-                        f"{view}.{split}.meas_viz_{table}",
+                        f"{view}.{split}.msr_viz_{table}",
                         [
                             "synth" if split in self.algs else "views",
                             "measure",
@@ -217,7 +238,7 @@ class AddDatasetsForViewsHook:
                 for alg in self.algs:
                     self.add_pkl(
                         "measure",
-                        f"{view}.{alg}.meas_mdl_{table}",
+                        f"{view}.{alg}.msr_mdl_{table}",
                         ["synth", "measure", "models", f"{view}.{alg}", table],
                         versioned=True,
                     )
@@ -227,7 +248,7 @@ class AddDatasetsForViewsHook:
                     for split in [self.ref_split, self.wrk_split, *self.algs]:
                         self.add_pkl(
                             "measure",
-                            f"{view}.{split}.meas_{method}_{table}",
+                            f"{view}.{split}.msr_{method}_{table}",
                             [
                                 "synth" if split in self.algs else "views",
                                 "measure",

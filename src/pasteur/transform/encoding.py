@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from copy import copy
 
+from ..utils import find_subclasses
 from .attribute import (
     Attributes,
     Attribute,
@@ -22,14 +23,13 @@ Model specific transformers have their own hyper-parameters and may be considere
 part of the model."""
 
 
-class EncodingTransformer:
-    """Receives tables that have been encoded by the base transformers and have
-    attributes, and reformats them to fit a specific model."""
+class AttributeTransformer:
+    """Encapsulates a special way to encode a column."""
 
-    name: str = None
-    attrs: Attributes = None
+    name: str
+    attr: Attribute
 
-    def fit(self, attrs: Attributes, data: pd.DataFrame) -> Attributes:
+    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
         assert 0, "Unimplemented"
 
     def transform(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -39,23 +39,52 @@ class EncodingTransformer:
         assert 0, "Unimplemented"
 
 
-class ColumnTransformer:
-    """Encapsulates a special way to encode a column."""
+class EncodingTransformer:
+    """Receives tables that have been encoded by the base transformers and have
+    attributes, and reformats them to fit a specific model."""
 
-    attr: ColumnAttr
+    transformers: dict[str, AttributeTransformer]
 
-    def fit(self, attr: ColumnAttr, data: pd.Series) -> Attribute:
-        assert 0, "Unimplemented"
+    def __init__(self, transformer: str, **kwargs) -> None:
+        self.kwargs = kwargs
+        self.trn_cls = find_subclasses(AttributeTransformer)[transformer]
+        self.transformers = {}
 
-    def transform(self, data: pd.Series) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+    def fit(self, attrs: Attributes, data: pd.DataFrame | None = None) -> Attributes:
+        self.transformers = {}
 
-    def reverse(self, enc: pd.DataFrame) -> pd.Series:
-        assert 0, "Unimplemented"
+        for n, a in attrs.items():
+            t = self.trn_cls(**self.kwargs)
+            t.fit(a, data)
+            self.transformers[n] = t
+
+        return self.attrs
+
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        cols = []
+
+        for t in self.transformers.values():
+            cols.append(t.transform(data))
+
+        return pd.concat(cols, axis=1)
+
+    def reverse(self, enc: pd.DataFrame) -> pd.DataFrame:
+        cols = []
+
+        for t in self.transformers.values():
+            cols.append(t.reverse(enc))
+
+        return pd.concat(cols, axis=1)
+
+    @property
+    def attrs(self):
+        return {a.name: a for a in [t.attr for t in self.transformers.values()]}
 
 
 class DiscretizationColumnTransformer:
-    def fit(self, attr: NumColumn, data: pd.Series) -> Attribute:
+    """Converts a numerical column into an ordinal one using histograms."""
+
+    def fit(self, attr: NumColumn, data: pd.Series) -> OrdColumn:
         self.in_attr = attr
         self.col = data.name
 
@@ -75,41 +104,54 @@ class DiscretizationColumnTransformer:
 
     def reverse(self, enc: pd.DataFrame) -> pd.Series:
         ofs = 1 if self.in_attr.na else 0
-        v = self.vals[(enc - ofs).clip(0, len(self.vals) - 1)]
+        v = self.vals[(enc[self.col] - ofs).clip(0, len(self.vals) - 1)]
         if self.attr.na:
-            v[enc == 0] = np.nan
-        return pd.Series(v, index=enc.index)
+            v[enc[self.col] == 0] = np.nan
+        return pd.Series(v, index=enc.index, name=self.col)
 
 
-class IdentityColumnTransformer:
-    def fit(self, attr: NumColumn, data: pd.Series) -> Attribute:
-        self.attr = attr
+class IdxAttributeTransformer(AttributeTransformer):
+    name = "idx"
+
+    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
+        self.transformers: dict[str, DiscretizationColumnTransformer] = {}
+
+        cols = {}
+        for name, col_attr in attr.cols.items():
+            if isinstance(col_attr, NumColumn):
+                t = DiscretizationColumnTransformer()
+                new_attr = t.fit(col_attr, data[name])
+                cols.update(new_attr)
+                self.transformers[name] = t
+            else:
+                cols[name] = col_attr
+
+        self.attr = copy(attr)
+        self.attr.update_cols(cols)
         return self.attr
 
-    def transform(self, data: pd.Series) -> pd.DataFrame:
-        return data
+    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+        out_cols = []
+        for name, col in data.items():
+            t = self.transformers.get(name, None)
+            if t:
+                out_cols.append(t.transform(col))
+            else:
+                out_cols.append(col)
 
-    def reverse(self, enc: pd.DataFrame) -> pd.Series:
-        return enc
+        return pd.concat(out_cols, axis=1)
+
+    def reverse(self, enc: pd.DataFrame) -> pd.DataFrame:
+        dec = enc.copy()
+        for n, t in self.transformers.items():
+            dec[n] = t.reverse(enc)
+
+        return dec
 
 
-class IdxEncodingTransformer(EncodingTransformer):
-    def fit(self, attrs: Attributes, data: pd.DataFrame) -> Attributes:
-        self.in_attrs = attrs
-        self.attrs = {}
-        self.transformers = {}
+class MeasureIdxTransformer(IdxAttributeTransformer):
+    pass
 
-        for an, attr in attrs.items():
-            cols = {}
-            for cn, col in attr.cols.items():
-                if isinstance(col, NumColumn):
-                    t = DiscretizationColumnTransformer()
-                else:
-                    t = IdentityColumnTransformer()
 
-                cattr = t.fit(col, data[cn])
-                self.transformers[cn] = t
-                cols[cn] = cattr
-            nattr = copy(attr)
-            nattr.cols = cols
-            self.attrs[an] = nattr
+class MeasureNumTransformer(EncodingTransformer):
+    pass

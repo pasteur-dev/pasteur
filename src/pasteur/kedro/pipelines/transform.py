@@ -5,20 +5,19 @@ from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
-from ...transform import TableTransformer
+from ...transform import TableTransformer, Attributes, EncodingTransformer
 from ...views import View
 from .utils import gen_closure
 
 
 def _fit_table(
     name: str,
-    types: Collection[str],
     meta: Metadata,
     **tables: dict[str, pd.DataFrame],
 ):
-    t = TableTransformer(meta, name, types)
+    t = TableTransformer(meta, name)
     t.fit(tables)
-    return t
+    return t, t.get_attributes()
 
 
 def _find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
@@ -26,50 +25,77 @@ def _find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
 
 
 def _transform_table(
-    type: str,
     transformer: TableTransformer,
     ids: pd.DataFrame,
     **tables: dict[str, pd.DataFrame],
 ):
-    return transformer[type].transform(tables, ids)
+    return transformer.transform(tables, ids)
 
 
 def _reverse_table(
-    type: str,
     transformer: TableTransformer,
     ids: pd.DataFrame,
     table: pd.DataFrame,
     **parents: dict[str, pd.DataFrame],
 ):
-    return transformer[type].reverse(table, ids, parents)
+    return transformer.reverse(table, ids, parents)
+
+
+def _fit_enc_table(
+    type: str,
+    attrs: Attributes,
+    table: pd.DataFrame,
+):
+    t = EncodingTransformer(type)
+    out_attrs = t.fit(attrs, table)
+    return t, out_attrs
+
+
+def _transform_enc_table(transformer: EncodingTransformer, table: pd.DataFrame):
+    return transformer.transform(table)
+
+
+def _reverse_enc_table(transformer: EncodingTransformer, table: pd.DataFrame):
+    return transformer.reverse(table)
+
+
+def _fit_transform_enc_table(
+    type: str,
+    attrs: Attributes,
+    table: pd.DataFrame,
+):
+    t = EncodingTransformer(type)
+    t.fit(attrs, table)
+    return t.transform(table)
+
+
+def create_base_transformers_pipeline(
+    view: View,
+):
+    return pipeline(
+        [
+            node(
+                func=gen_closure(_fit_table, table, _fn=f"fit_transformer_to_{table}"),
+                inputs={
+                    "meta": f"{view}.metadata",
+                    **{t: f"{view}.view.{t}" for t in view.tables},
+                },
+                outputs=[f"{view}.trn.bst_{table}", f"{view}.trn.atr_{table}"],
+                namespace=f"{view}.trn",
+            )
+            for table in view.tables
+        ]
+    )
 
 
 def create_transform_pipeline(
     view: View,
     split: str,
-    types: list[str] | str = [],
-    trn_split: str | None = None,
     gen_ids: bool = True,
 ):
-    if isinstance(types, str):
-        types = [types]
     table_nodes = []
 
     for t in view.tables:
-        # Allow using an existing transformer with trn_split
-        if trn_split is None:
-            table_nodes += [
-                node(
-                    func=gen_closure(
-                        _fit_table, t, types, _fn=f"fit_transformer_to_{t}"
-                    ),
-                    inputs={
-                        "meta": "metadata",
-                        **{t: t for t in view.tables},
-                    },
-                    outputs=f"trn_{t}",
-                ),
-            ]
         if gen_ids:
             table_nodes += [
                 node(
@@ -81,21 +107,17 @@ def create_transform_pipeline(
 
         table_nodes += [
             node(
-                func=gen_closure(_transform_table, type, _fn=f"transform_{type}_{t}"),
+                func=gen_closure(_transform_table, _fn=f"transform_{t}"),
                 inputs={
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",
                     **{t: t for t in view.tables},
                 },
-                outputs=f"{type}_{t}",
+                outputs=f"enc_{t}",
             )
-            for type in types
         ]
 
-    if trn_split is None:
-        inputs = {"metadata": f"{view}.view.metadata"}
-    else:
-        inputs = {f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in view.tables}
+        inputs = {f"trn_{t}": f"{view}.trn.bst_{t}" for t in view.tables}
 
     return modular_pipeline(
         pipe=pipeline(table_nodes),
@@ -104,7 +126,7 @@ def create_transform_pipeline(
     )
 
 
-def create_reverse_pipeline(view: View, alg: str, type: str, trn_split: str):
+def create_reverse_pipeline(view: View, alg: str):
     decode_pipe = pipeline(
         [
             node(
@@ -125,6 +147,31 @@ def create_reverse_pipeline(view: View, alg: str, type: str, trn_split: str):
         pipe=decode_pipe,
         namespace=f"{view}.{alg}",
         inputs={
-            **{f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in view.tables},
+            **{f"trn_{t}": f"{view}.trn.bst_{t}" for t in view.tables},
         },
     )
+
+
+def _create_measure_transform_pipeline(view: View, split: str, type: str):
+    table_nodes = []
+
+    for t in view.tables:
+        table_nodes += [
+            node(
+                func=gen_closure(
+                    _fit_transform_enc_table, type, _fn=f"encode_{t}_to_{type}"
+                ),
+                inputs=[f"{view}.trn.atr_{t}", f"{view}.{split}.enc_{t}"],
+                outputs=f"{view}.{split}.msr_{type}_{t}",
+            )
+        ]
+    return pipeline(table_nodes)
+
+
+def create_measure_transform_pipelines(view: View, splits: list[str], types: list[str]):
+    pipe = pipeline([])
+    for type in types:
+        for split in splits:
+            pipe += _create_measure_transform_pipeline(view, split, type)
+
+    return pipe

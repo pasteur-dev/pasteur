@@ -69,20 +69,6 @@ class ColumnMeta:
             metrics["bins"] = kwargs["bins"]
         self.metrics = MetricsMeta(**metrics)
 
-        # Add transformer chains from data, with fallback to table chains
-        # specific to type.
-        self.chains = {}
-        table_td = kwargs["td"]
-        own_td = kwargs.get("transformers", {})
-        for key in set(table_td).union(own_td):
-            table_chain = table_td.get(key, {}).get(type, [])
-            own_chain = own_td.get(key, [])
-
-            self.chains[key] = own_chain or table_chain
-
-            if not self.chains[key] and type != "id":
-                logger.warning("Column chain empty")
-
         # Add untyped version of args to use with transformers
         self.args = kwargs.copy()
         if main_param is not None:
@@ -117,7 +103,6 @@ class TableMeta:
         self,
         meta: dict,
         data: pd.DataFrame | None = None,
-        transformers: dict | None = None,
     ):
         self.primary_key = meta["primary_key"]
 
@@ -137,9 +122,6 @@ class TableMeta:
         else:
             self.metrics = TableMetrics()
 
-        # Update transformer chain dict from table entries
-        self.td = merge_dicts(transformers or {}, meta.get("transformers", {}))
-
         self._columns = {}
 
         # Run a key check to ensure metadata and table have the same keys
@@ -152,20 +134,10 @@ class TableMeta:
 
         fields = meta["fields"]
         for name, field in fields.items():
-            dtype = None
-            if data is not None:
-                if data.index.name == name:
-                    dtype = data.index.dtype
-                else:
-                    dtype = str(data.dtypes[name])
-
             if isinstance(field, str):
-                args = {"type": field, "td": self.td}
+                args = {"type": field}
             else:
                 args = field.copy()
-                if "dtype" not in args:
-                    args["dtype"] = dtype
-                args["td"] = self.td
 
             self._columns[name] = self.COLUMN_CLS(**args)
 
@@ -188,16 +160,10 @@ class DatasetMeta:
         self,
         meta: dict,
         data: dict[str, pd.DataFrame] | None = None,
-        transformers: dict[str, dict[str, list[str] | str]] = {},
     ):
-        transformers = merge_dicts(
-            transformers,
-            meta.get("transformers", {}),
-        )
-
         self._tables = {
             name: self.TABLE_CLS(
-                tmeta, data.get(name, None) if data is not None else None, transformers
+                tmeta, data.get(name, None) if data is not None else None
             )
             for name, tmeta in meta["tables"].items()
         }

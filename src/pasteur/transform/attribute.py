@@ -165,6 +165,7 @@ class Column:
     type: Literal["idx", "num"]
     name: str | None = None
     na: bool = False
+    name: str = None
 
 
 class IdxColumn:
@@ -213,14 +214,17 @@ class NumColumn(Column):
     type = "num"
 
     def __init__(
-        self, bins: int, min: int | float | None = None, max: int | float | None = None
+        self,
+        bins: int | None = None,
+        min: int | float | None = None,
+        max: int | float | None = None,
     ) -> None:
         self.bins = bins
         self.min = min
         self.max = max
 
     def __str__(self) -> str:
-        return f"Num[{self.bins},{self.min if self.min else float('nan'):.2f}<x<{self.max if self.max else float('nan'):.2f}]"
+        return f"Num[{self.bins if self.bins is not None else 'NA'},{self.min if self.min else float('nan'):.2f}<x<{self.max if self.max else float('nan'):.2f}]"
 
     def __repr__(self) -> str:
         return str(self)
@@ -237,11 +241,14 @@ class Attribute:
         self.name = name
         self.na = na
         self.ukn_val = ukn_val
+        self.update_cols(cols)
 
-        self.cols = {}
+    def update_cols(self, cols: dict[str, Column]):
+        self.cols: dict[str, Column] = {}
         for name, col in cols.items():
             col = copy(col)
-            col.na = na
+            col.na = self.na
+            col.name = name
             self.cols[name] = col
 
     def __str__(self) -> str:

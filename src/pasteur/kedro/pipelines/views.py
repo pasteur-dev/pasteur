@@ -13,7 +13,7 @@ import pandas as pd
 
 def _create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame]):
     meta_dict = get_params_for_pipe(view, params)
-    return Metadata(meta_dict, tables, {})
+    return Metadata(meta_dict, tables)
 
 
 def create_view_pipeline(view: View):
@@ -39,8 +39,8 @@ def create_view_pipeline(view: View):
                     "params": "parameters",
                     **{t: f"{view}.view.{t}" for t in tables},
                 },
-                outputs=f"{view}.view.metadata",
-                namespace=f"{view}.view",
+                outputs=f"{view}.metadata",
+                namespace=f"{view}",
             )
         ]
     )
