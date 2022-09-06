@@ -342,17 +342,17 @@ class DateTransformer(RefTransformer):
         iso_rf = rf_dt.isocalendar()
 
         if isinstance(rf, pd.Timestamp):
-            rf_year = iso_rf.year
+            rf_year = rf_dt.year
             rf_day = iso_rf.weekday
         else:
-            rf_year = iso_rf["year"]
+            rf_year = rf_dt.year
             rf_day = iso_rf["day"]
 
         ofs = 1 if self.nullable else 0
 
         match self.span:
             case "year":
-                year = iso["year"] - rf_year
+                year = vals.dt.year - rf_year
 
                 weeks = iso["week"] - 1
                 if not self.weeks53:
@@ -417,13 +417,13 @@ class DateTransformer(RefTransformer):
         # which doesn't have the dt member and requires direct access.
         if isinstance(rf, pd.Timestamp):
             rf_dt = rf
+            rf_year = rf_dt.year
             iso_rf = rf.isocalendar()
-            rf_year = iso_rf.year
             rf_day = iso_rf.weekday
         else:
             rf_dt = rf.dt
+            rf_year = rf_dt.year
             iso_rf = rf.dt.isocalendar()
-            rf_year = iso_rf["year"]
             rf_day = iso_rf["day"]
 
         match self.span:
