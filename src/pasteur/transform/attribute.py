@@ -213,7 +213,7 @@ class NumColumn(Column):
     type = "num"
 
     def __init__(
-        self, bins: int, min: int | float | None, max: int | float | None
+        self, bins: int, min: int | float | None = None, max: int | float | None = None
     ) -> None:
         self.bins = bins
         self.min = min

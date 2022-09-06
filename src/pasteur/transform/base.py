@@ -385,9 +385,22 @@ class DateTransformer(RefTransformer):
         col = self.col
 
         vals = data
+
+        # Check for nullability in the columns below
         fcol = f"{self.col}_{self.span}"
+        match self.span:
+            case "year":
+                dcols = [f"{self.col}_week", f"{self.col}_day"]
+            case "week":
+                dcols = [f"{self.col}_day"]
+            case _:
+                dcols = []
+
         if self.nullable:
-            na_mask = pd.isna(vals[fcol]) | np.any(vals.drop(columns=fcol) == 0, axis=1)
+            na_mask = pd.isna(vals[fcol])
+            if dcols:
+                na_mask |= np.any(vals[dcols] == 0, axis=1)
+
             if ref is not None:
                 na_mask |= pd.isna(ref)
                 ref = ref[~na_mask]
@@ -395,7 +408,7 @@ class DateTransformer(RefTransformer):
             ofs = 1
         else:
             ofs = 0
-            assert not np.any(pd.isnan(vals[fcol])), "NAN values found on nonNAN col"
+            assert not np.any(pd.isna(vals[fcol])), "NAN values found on nonNAN col"
 
         rf = self.ref if self.ref is not None else ref
         assert rf is not None
@@ -436,7 +449,7 @@ class DateTransformer(RefTransformer):
                     unit="days",
                 )
 
-        return out.reindex(data.index, fill_value=pd.NaT)
+        return out.reindex(data.index, fill_value=pd.NaT).rename(self.col)
 
 
 class TimeTransformer(Transformer):
