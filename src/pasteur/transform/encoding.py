@@ -6,8 +6,6 @@ from ..utils import find_subclasses
 from .attribute import (
     Attributes,
     Attribute,
-    Column as ColumnAttr,
-    OrdAttribute,
     NumColumn,
     OrdColumn,
 )
@@ -32,10 +30,10 @@ class AttributeTransformer:
     def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
         assert 0, "Unimplemented"
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
-    def reverse(self, enc: pd.DataFrame) -> pd.DataFrame:
+    def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         assert 0, "Unimplemented"
 
 
@@ -60,7 +58,7 @@ class EncodingTransformer:
 
         return self.attrs
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         cols = []
 
         for t in self.transformers.values():
@@ -68,7 +66,7 @@ class EncodingTransformer:
 
         return pd.concat(cols, axis=1)
 
-    def reverse(self, enc: pd.DataFrame) -> pd.DataFrame:
+    def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         cols = []
 
         for t in self.transformers.values():
@@ -79,6 +77,9 @@ class EncodingTransformer:
     @property
     def attrs(self):
         return {a.name: a for a in [t.attr for t in self.transformers.values()]}
+
+    def get_attributes(self):
+        return self.attrs
 
 
 class DiscretizationColumnTransformer:
@@ -94,7 +95,7 @@ class DiscretizationColumnTransformer:
         self.attr = OrdColumn(self.vals, attr.na)
         return self.attr
 
-    def transform(self, data: pd.Series) -> pd.DataFrame:
+    def encode(self, data: pd.Series) -> pd.DataFrame:
         ofs = 1 if self.in_attr.na else 0
         midx = len(self.vals) - 1  # clip digitize out of bounds values
         digits = (np.digitize(data, bins=self.edges) - 1).clip(0, midx) + ofs
@@ -102,7 +103,7 @@ class DiscretizationColumnTransformer:
             digits[pd.isna(data)] = 0
         return pd.Series(digits, index=data.index)
 
-    def reverse(self, enc: pd.DataFrame) -> pd.Series:
+    def decode(self, enc: pd.DataFrame) -> pd.Series:
         ofs = 1 if self.in_attr.na else 0
         v = self.vals[(enc[self.col] - ofs).clip(0, len(self.vals) - 1)]
         if self.attr.na:
@@ -130,7 +131,7 @@ class IdxAttributeTransformer(AttributeTransformer):
         self.attr.update_cols(cols)
         return self.attr
 
-    def transform(self, data: pd.DataFrame) -> pd.DataFrame:
+    def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         out_cols = []
         for name, col in data.items():
             t = self.transformers.get(name, None)
@@ -141,17 +142,9 @@ class IdxAttributeTransformer(AttributeTransformer):
 
         return pd.concat(out_cols, axis=1)
 
-    def reverse(self, enc: pd.DataFrame) -> pd.DataFrame:
+    def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         dec = enc.copy()
         for n, t in self.transformers.items():
             dec[n] = t.reverse(enc)
 
         return dec
-
-
-class MeasureIdxTransformer(IdxAttributeTransformer):
-    pass
-
-
-class MeasureNumTransformer(EncodingTransformer):
-    pass

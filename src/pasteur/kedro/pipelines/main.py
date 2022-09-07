@@ -16,8 +16,7 @@ from .metrics import (
 from .synth import create_synth_pipeline
 from .views import create_filter_pipeline, create_view_pipeline
 from .transform import (
-    create_base_transformers_pipeline,
-    create_measure_transform_pipelines,
+    create_transformers_pipeline,
     create_reverse_pipeline,
     create_transform_pipeline,
 )
@@ -82,6 +81,11 @@ def generate_pipelines(
     ref_split = REF_SPLIT
     splits = list_unique([wrk_split, ref_split])
 
+    # Wrk, ref splits are transformed to all types
+    # Synthetic data is transformed only to syn_types (as required by metrics currently)
+    msr_types = get_msr_types()
+    all_types = _get_all_types(algs)
+
     # Store complete pipelines first for kedro viz (main vs extra pipelines)
     main_pipes = {}
     extr_pipes = {}
@@ -95,10 +99,9 @@ def generate_pipelines(
 
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
-            create_base_transformers_pipeline(view)
-            + create_transform_pipeline(view, wrk_split, True)
-            + create_transform_pipeline(view, ref_split, True)
-            + create_measure_transform_pipelines(view, splits, get_msr_types())
+            create_transformers_pipeline(view, all_types)
+            + create_transform_pipeline(view, wrk_split, all_types)
+            + create_transform_pipeline(view, ref_split, msr_types)
             + pipe_metrics_fit
         )
 
@@ -117,15 +120,13 @@ def generate_pipelines(
 
         # Algorithm pipeline
         for alg, cls in algs.items():
-            pipe_synth = pipeline([])
-            pipe_measure = pipeline([])
-            # pipe_synth = create_synth_pipeline(
-            #     view, wrk_split, trn_split, cls
-            # ) + create_reverse_pipeline(view, alg)
+            pipe_synth = create_synth_pipeline(
+                view, wrk_split, cls
+            ) + create_reverse_pipeline(view, alg, cls.type)
 
-            # pipe_measure = create_transform_pipeline(
-            #     view, alg, False
-            # ) + metrics_create_log_pipelines(view, alg, trn_split, wrk_split, ref_split)
+            pipe_measure = create_transform_pipeline(
+                view, alg, msr_types, only_encode=True
+            ) + metrics_create_log_pipelines(view, alg, wrk_split, ref_split)
 
             complete_pipe = pipe_ingest + pipe_synth + pipe_measure
 

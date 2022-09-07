@@ -3,6 +3,8 @@ from typing import Collection, Dict, Optional
 
 import pandas as pd
 
+from pasteur.transform.encoding import EncodingTransformer
+
 from ..metadata import Metadata
 from .attribute import Attribute, Attributes
 from .base import RefTransformer, Transformer
@@ -95,13 +97,14 @@ class ReferenceManager:
         return self.find_foreign_ids(self.name, tables)
 
 
-class TableTransformer:
+class BaseTableTransformer:
     def __init__(
         self,
+        ref: ReferenceManager,
         meta: Metadata,
         name: str,
     ) -> None:
-        self.ref = ReferenceManager(meta, name)
+        self.ref = ref
         self.name = name
         self.meta = meta
 
@@ -306,3 +309,55 @@ class TableTransformer:
 
     def find_ids(self, tables: Dict[str, pd.DataFrame]):
         return self.ref.find_foreign_ids(self.name, tables)
+
+
+class TableTransformer:
+    """Holds the transformer dictionary for this table and manages the foreign relationships of the table."""
+
+    def __init__(
+        self,
+        meta: Metadata,
+        name: str,
+        types: str | Collection[str],
+    ) -> None:
+        self.name = name
+        self.meta = meta
+
+        self.ref = ReferenceManager(meta, name)
+        self.base = BaseTableTransformer(self.ref, meta, name)
+        self.transformers: Dict[str, EncodingTransformer] = {}
+        self.fitted = False
+
+        if isinstance(types, str):
+            types = [types]
+        self.types = types
+
+    def find_ids(self, tables: Dict[str, pd.DataFrame]):
+        return self.ref.find_foreign_ids(self.name, tables)
+
+    def fit_transform(
+        self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None
+    ):
+        """Fits the base transformer and the encoding transformers.
+
+        The data has to be encoded using the base transformer to make this possible.
+        So it's returned by the function, and there's no `fit` only function."""
+        if self.ref.table_has_reference() and ids is None:
+            ids = self.ref.find_foreign_ids(self.name, tables)
+
+        self.base.fit(tables, ids)
+
+        attrs = self.base.get_attributes()
+        table = self.base.transform(tables, ids)
+
+        for type in self.types:
+            transformer = EncodingTransformer(type)
+            transformer.fit(attrs, table)
+            self.transformers[type] = transformer
+
+        self.fitted = True
+        return table, ids
+
+    def __getitem__(self, type):
+        assert self.fitted
+        return self.transformers[type]

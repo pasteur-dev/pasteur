@@ -9,7 +9,6 @@ from .utils import gen_closure
 def create_synth_pipeline(
     view: View,
     split: str,
-    trn_split: str,
     cls: type,
 ):
     alg = cls.name
@@ -44,6 +43,6 @@ def create_synth_pipeline(
         inputs={
             **{f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
-            **{f"trn_{t}": f"{view}.{trn_split}.trn_{t}" for t in tables},
+            **{f"trn_{t}": f"{view}.trn.{t}" for t in tables},
         },
     )

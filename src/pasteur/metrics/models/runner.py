@@ -41,7 +41,7 @@ def _enc_to_orig_cols(
     return out
 
 
-def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.DataFrame):
+def node_calculate_model_scores(**tables: pd.DataFrame):
     types = get_required_types()
     meta = transformer.meta
     table_name = transformer.name

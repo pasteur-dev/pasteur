@@ -16,11 +16,13 @@ class AddDatasetsForViewsHook:
         algs: list[str],
         wrk_split: str,
         ref_split: str,
+        all_types: list[str],
         msr_types: list[str],
     ) -> None:
         self.tables = tables
         self.algs = algs
 
+        self.all_types = all_types
         self.msr_types = msr_types
 
         self.wrk_split = wrk_split
@@ -129,14 +131,8 @@ class AddDatasetsForViewsHook:
             for table in tables:
                 self.add_pkl(
                     "transformers",
-                    f"{view}.trn.bst_{table}",
-                    ["views", "transformer", f"{view}.base", table],
-                )
-
-                self.add_pkl(
-                    "transformers",
-                    f"{view}.trn.atr_{table}",
-                    ["views", "attributes", f"{view}.base", table],
+                    f"{view}.trn.{table}",
+                    ["views", "transformer", view, table],
                 )
 
             #
@@ -149,16 +145,20 @@ class AddDatasetsForViewsHook:
                         f"{view}.{split}.{table}",
                         ["views", "primary", f"{view}.{split}", table],
                     )
-                    self.add_set(
-                        "split_encoded",
-                        f"{view}.{split}.enc_{table}",
-                        ["views", "encoded", view, table],
-                    )
-                    self.add_set(
-                        "split_encoded",
-                        f"{view}.{split}.ids_{table}",
-                        ["views", "ids", view, table],
-                    )
+                    for type in ["ids", "bst", *self.all_types]:
+                        match type:
+                            case "ids":
+                                layer = "split_ids"
+                            case "bst":
+                                layer = "split_transformed"
+                            case others:
+                                layer = "split_encoded"
+
+                        self.add_set(
+                            layer,
+                            f"{view}.{split}.{type}_{table}",
+                            ["views", type, f"{view}.{split}", table],
+                        )
 
             #
             # Add algorithm datasets
@@ -170,34 +170,21 @@ class AddDatasetsForViewsHook:
                     ["synth", "models", f"{view}.{alg}"],
                     versioned=True,
                 )
-
                 for table in tables:
-                    self.add_set(
-                        "synth_input",
-                        f"{view}.{alg}.in_{table}",
-                        ["synth", "input", f"{view}.{alg}", table],
-                        versioned=True,
-                    )
+                    for type in ("enc", "bst", "ids"):
+                        layer = "synth_decoded" if type == "bst" else "synth_output"
 
-                    for type in ("out", "ids"):
                         self.add_set(
-                            "synth_output",
+                            layer,
                             f"{view}.{alg}.{type}_{table}",
                             ["synth", type, f"{view}.{alg}", table],
                             versioned=True,
                         )
 
                     self.add_set(
-                        "synth_encoded",
-                        f"{view}.{alg}.enc_{table}",
-                        ["synth", "encoded", f"{view}.{alg}", table],
-                        versioned=True,
-                    )
-
-                    self.add_set(
-                        "synth_decoded",
+                        "synth_reversed",
                         f"{view}.{alg}.{table}",
-                        ["synth", "decoded", f"{view}.{alg}", table],
+                        ["synth", "dec", f"{view}.{alg}", table],
                         versioned=True,
                     )
 

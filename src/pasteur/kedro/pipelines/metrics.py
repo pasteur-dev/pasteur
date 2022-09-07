@@ -18,9 +18,7 @@ from .utils import gen_closure
 from ...metrics.distr import log_kl_mlflow, log_cs_mlflow, calc_kl, calc_chisquare
 
 
-def _create_model_log_pipelines(
-    view: View, alg: str, trn_split: str, wrk_split: str, ref_split: str
-):
+def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
     calc_nodes = []
     for table in view.tables:
         in_tables = {}
@@ -34,7 +32,7 @@ def _create_model_log_pipelines(
             node(
                 func=node_calculate_model_scores,
                 inputs={
-                    "transformer": f"{view.name}.{trn_split}.trn_{table}",
+                    "transformer": f"{view.name}.trn.{table}",
                     **in_tables,
                 },
                 outputs=f"{view.name}.{alg}.msr_mdl_{table}",
@@ -135,8 +133,8 @@ def _create_distr_fit_pipelines(view: View, wrk_split: str, ref_split: str):
                 node(
                     func=gen_closure(calc, _fn=f"%s_{table}"),
                     inputs={
-                        "ref": f"{view.name}.{wrk_split}.msr_idx_{table}",
-                        "syn": f"{view.name}.{ref_split}.msr_idx_{table}",
+                        "ref": f"{view.name}.{wrk_split}.idx_{table}",
+                        "syn": f"{view.name}.{ref_split}.idx_{table}",
                     },
                     outputs=f"{view.name}.{ref_split}.msr_{method}_{table}",
                     namespace=f"{view.name}.{ref_split}",
@@ -154,8 +152,8 @@ def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
                 node(
                     func=calc,
                     inputs={
-                        "ref": f"{view.name}.{wrk_split}.msr_idx_{table}",
-                        "syn": f"{view.name}.{alg}.msr_idx_{table}",
+                        "ref": f"{view.name}.{wrk_split}.idx_{table}",
+                        "syn": f"{view.name}.{alg}.idx_{table}",
                     },
                     outputs=f"{view.name}.{alg}.msr_{method}_{table}",
                     namespace=f"{view.name}.{alg}",
@@ -190,11 +188,9 @@ def create_fit_pipelines(view: View, wrk_split: str, ref_split: str):
     ) + _create_visual_fit_pipelines(view, wrk_split, ref_split)
 
 
-def create_log_pipelines(
-    view: View, alg: str, trn_split: str, wrk_split: str, ref_split: str
-):
+def create_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
     return (
         _create_distr_log_pipelines(view, alg, wrk_split, ref_split)
-        + _create_model_log_pipelines(view, alg, trn_split, wrk_split, ref_split)
+        + _create_model_log_pipelines(view, alg, wrk_split, ref_split)
         + _create_visual_log_pipelines(view, alg, wrk_split, ref_split)
     )

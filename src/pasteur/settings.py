@@ -37,6 +37,7 @@ HOOKS = (
         ALGS,
         WRK_SPLIT,
         REF_SPLIT,
+        get_all_types(ALGS),
         get_msr_types(),
     ),
     CustomMlflowTrackingHook(tables, ALGS),

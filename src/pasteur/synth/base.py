@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import logging
 import random
 
@@ -5,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ..transform import Attribute, TableTransformer
+from ..metadata import Metadata
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ def make_deterministic(obj_func):
     return wrapped
 
 
-class Synth:
+class Synth(ABC):
     name = None
     type = "idx"
     tabular = True
@@ -44,6 +46,7 @@ class Synth:
     def __init__(self, **_) -> None:
         pass
 
+    @abstractmethod
     def bake(
         self,
         attrs: dict[str, dict[str, Attribute]],
@@ -55,6 +58,7 @@ class Synth:
         to the data. Optional"""
         pass
 
+    @abstractmethod
     def fit(
         self,
         data: dict[str, pd.DataFrame],
@@ -66,8 +70,9 @@ class Synth:
         Metadata of the dataset and the hierarchical attributes.
 
         Data and Ids are dictionaries containing the dataframes with the data."""
-        assert False, "Not implemented"
+        pass
 
+    @abstractmethod
     def sample(
         self, n: int | None = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
@@ -76,20 +81,19 @@ class Synth:
         Optional `n` parameter sets how many rows should be sampled. Otherwise,
         the initial size of the dataset is sampled.
         Warning: not setting `n` technically violates DP for DP-aware algorithms."""
-        assert False, "Not implemented"
+        pass
 
 
-def synth_fit(cls, **kwargs: pd.DataFrame | TableTransformer):
+def synth_fit(
+    meta: Metadata, cls: type[Synth], **kwargs: pd.DataFrame | TableTransformer
+):
     ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
     data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
+    attrs = {n[4:]: t for n, t in kwargs.items() if "atr_" in n}
 
-    transformers = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
-    attrs = {n: t[cls.type].get_attributes() for n, t in transformers.items()}
+    args = {**meta.algs.get(cls.name, {}), **meta.alg_override}
 
-    meta = next(iter(transformers.values())).meta
-    algs = {**meta.algs.get(cls.name, {}), **meta.alg_override}
-
-    model = cls(**algs, seed=meta.seed)
+    model = cls(**args, seed=meta.seed)
     model.bake(attrs, data, ids)
     model.fit(data, ids)
     return model
