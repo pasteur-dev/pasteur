@@ -97,7 +97,7 @@ class DiscretizationColumnTransformer:
             if attr.min is not None and attr.max is not None
             else None
         )
-        self.edges = np.histogram_bin_edges(data, attr.bins, rng)
+        self.edges = np.histogram_bin_edges(data[~pd.isna(data)], attr.bins, rng)
         self.vals = (self.edges[:-1] + self.edges[1:]) / 2
 
         self.attr = OrdColumn(self.vals, attr.na)
@@ -145,6 +145,9 @@ class IdxAttributeTransformer(AttributeTransformer):
         return self.attr
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
+        if len(self.attr.cols) == 0:
+            return pd.DataFrame(index=data.index)
+
         out_cols = []
         for name, col in self.attr.cols.items():
             t = self.transformers.get(name, None)
@@ -156,7 +159,7 @@ class IdxAttributeTransformer(AttributeTransformer):
         return pd.concat(out_cols, axis=1)
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
-        dec = pd.DataFrame()
+        dec = pd.DataFrame(index=enc.index)
         for n in self.attr.cols.keys():
             t = self.transformers.get(n, None)
             if t:
@@ -204,6 +207,8 @@ class NumAttributeTransformer(AttributeTransformer):
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         a = self.in_attr
+        if len(a.cols) == 0:
+            return pd.DataFrame(index=data.index)
         cols = []
 
         # Add NA column
