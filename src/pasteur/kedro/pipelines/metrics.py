@@ -23,9 +23,9 @@ def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
     for table in view.tables:
         in_tables = {}
         for type in model_get_required_types():
-            for split in (alg, wrk_split, ref_split):
+            for label, split in [("syn", alg), ("wrk", wrk_split), ("ref", ref_split)]:
                 in_tables[
-                    f"{type}.{split}.{table}"
+                    f"{type}.{label}.{table}"
                 ] = f"{view.name}.{split}.{type}_{table}"
 
         calc_nodes += [

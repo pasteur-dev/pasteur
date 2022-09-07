@@ -84,15 +84,15 @@ class Synth(ABC):
         pass
 
 
-def synth_fit(
-    meta: Metadata, cls: type[Synth], **kwargs: pd.DataFrame | TableTransformer
-):
+def synth_fit(cls: type[Synth], **kwargs: pd.DataFrame | TableTransformer):
     ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
     data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
-    attrs = {n[4:]: t for n, t in kwargs.items() if "atr_" in n}
+    trns = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
 
+    meta = next(iter(trns.values())).meta
     args = {**meta.algs.get(cls.name, {}), **meta.alg_override}
 
+    attrs = {n: t[cls.type].get_attributes() for n, t in trns.items()}
     model = cls(**args, seed=meta.seed)
     model.bake(attrs, data, ids)
     model.fit(data, ids)
@@ -116,6 +116,14 @@ class IdentSynth(Synth):
     tabular = True
     multimodal = True
     timeseries = True
+
+    def bake(
+        self,
+        attrs: dict[str, dict[str, Attribute]],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        pass
 
     def fit(
         self,

@@ -109,12 +109,12 @@ class DiscretizationColumnTransformer:
         digits = (np.digitize(data, bins=self.edges) - 1).clip(0, midx) + ofs
         if self.in_attr.na:
             digits[pd.isna(data)] = 0
-        return pd.Series(digits, index=data.index)
+        return pd.Series(digits, index=data.index, name=self.col)
 
     def decode(self, enc: pd.DataFrame) -> pd.Series:
         ofs = 1 if self.in_attr.na else 0
         v = self.vals[(enc[self.col] - ofs).clip(0, len(self.vals) - 1)]
-        if self.attr.na:
+        if self.in_attr.na:
             v[enc[self.col] == 0] = np.nan
         return pd.Series(v, index=enc.index, name=self.col)
 
@@ -156,10 +156,13 @@ class IdxAttributeTransformer(AttributeTransformer):
         return pd.concat(out_cols, axis=1)
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
-        dec = enc.copy()
-        for n, t in self.transformers.items():
-            dec[n] = t.decode(enc)
-
+        dec = pd.DataFrame()
+        for n in self.attr.cols.keys():
+            t = self.transformers.get(n, None)
+            if t:
+                dec[n] = t.decode(enc)
+            else:
+                dec[n] = enc[n]
         return dec
 
 
@@ -170,10 +173,30 @@ class NumAttributeTransformer(AttributeTransformer):
         self.in_attr = attr
 
         cols = {}
+        ofs = 0
         if attr.na:
             cols[f"{attr.name}_na"] = NumColumn()
+            ofs += 1
         if attr.ukn_val:
             cols[f"{attr.name}_ukn"] = NumColumn()
+            ofs += 1
+
+        for name, col in attr.cols.items():
+            if col.type == "num":
+                cols[name] = col
+            if col.type == "idx":
+                col: IdxColumn
+                if col.lvl.type == "ord" and col.lvl.size == len(col.lvl):
+                    cols[name] = NumColumn()
+                elif (
+                    col.lvl.type == "cat"
+                    and len(col.lvl) == ofs + 1
+                    and col.lvl[ofs].type == "ord"
+                ):
+                    cols[name] = NumColumn()
+                else:
+                    for i in range(col.lvl.size - ofs):
+                        cols[f"{name}_{i}"] = NumColumn()
 
         self.attr = copy(attr)
         self.attr.update_cols(cols)
@@ -226,11 +249,14 @@ class NumAttributeTransformer(AttributeTransformer):
                     ):
                         cols.append(data[name] - ofs)
                         encoded = True
+                elif col.lvl.type == "ord" and col.lvl.size == len(col.lvl):
+                    cols.append(data[name])
+                    encoded = True
 
                 # One hot encode everything else
                 if not encoded:
-                    for i in range(ofs, col.lvl.size):
-                        cols.append((data[name] == i).rename(f"{name}_{i}"))
+                    for i in range(col.lvl.size - ofs):
+                        cols.append((data[name] == i + ofs).rename(f"{name}_{i}"))
 
         return pd.concat(cols, axis=1)
 

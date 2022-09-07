@@ -348,7 +348,7 @@ class TableTransformer:
         ids: Optional[pd.DataFrame] = None,
         parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
     ):
-        return self.base.revesre(table, ids, parent_tables)
+        return self.base.reverse(table, ids, parent_tables)
 
     def fit_transform(
         self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None

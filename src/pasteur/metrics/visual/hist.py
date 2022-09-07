@@ -156,7 +156,9 @@ class CategoricalHist(BaseHist["CategoricalHist.CategoricalData"]):
         self.cols = data.value_counts().sort_values(ascending=False).index
 
     def process(self, data: pd.Series) -> CategoricalData:
-        return self.CategoricalData(data.value_counts()[self.cols].to_numpy())
+        return self.CategoricalData(
+            data.value_counts().reindex(self.cols, fill_value=0).to_numpy()
+        )
 
     def visualise(self, data: dict[str, CategoricalData]) -> Figure:
         return _gen_bar(

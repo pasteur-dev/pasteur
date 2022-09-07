@@ -19,7 +19,7 @@ def _fit_table(
     return t, ids
 
 
-def _base_transform_table(
+def _transform_table(
     transformer: TableTransformer,
     **tables: dict[str, pd.DataFrame],
 ):
@@ -72,7 +72,7 @@ def create_transform_pipeline(
         if not only_encode:
             table_nodes += [
                 node(
-                    func=gen_closure(_base_transform_table, _fn=f"transform_{t}"),
+                    func=gen_closure(_transform_table, _fn=f"transform_{t}"),
                     inputs={
                         "transformer": f"trn_{t}",
                         **{t: t for t in view.tables},

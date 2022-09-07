@@ -41,7 +41,7 @@ def _enc_to_orig_cols(
     return out
 
 
-def node_calculate_model_scores(**tables: pd.DataFrame):
+def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.DataFrame):
     types = get_required_types()
     meta = transformer.meta
     table_name = transformer.name
@@ -51,12 +51,15 @@ def node_calculate_model_scores(**tables: pd.DataFrame):
 
     for type in types:
         sets[type] = {}
-        orig_to_enc_cols[type] = transformer[type].get_col_mapping()
+
+        attr = transformer[type].get_attributes()
+        cols = {n: list(a.cols.keys()) for n, a in attr.items()}
+        orig_to_enc_cols[type] = cols
 
     for arg_name, table in tables.items():
         type, split, name = arg_name.split(".")
         if name == table_name:
-            sets[type][split if split in ("wrk", "tst") else "alg"] = table
+            sets[type][split] = table
 
     model_meta = meta[table_name].metrics.model
     test_cols = list(dict.fromkeys(model_meta.sensitive + model_meta.targets))
@@ -81,7 +84,7 @@ def calculate_model_scores(
     new_sets = {t: {} for t in types}
 
     # Create train, test sets, and remove index from dataframes.
-    for i, train_data in enumerate(("wrk", "alg")):
+    for i, train_data in enumerate(("wrk", "syn")):
         index = sets[types[0]][train_data].index
 
         train_idx, test_idx = train_test_split(
@@ -97,7 +100,7 @@ def calculate_model_scores(
             )
 
     for t in types:
-        for s in ("wrk", "tst"):
+        for s in ("wrk", "ref"):
             # Sort and nuke the index to avoid issues with sklearn drawing from
             # dataframes that are sorted differently
             new_sets[t][s] = sets[t][s].sort_index().reset_index(drop=True)
@@ -125,11 +128,11 @@ def calculate_model_scores(
 
             drop_x_cols = orig_to_enc_cols[cls.x_trn_type][orig_col]
             for y_col in orig_to_enc_cols[cls.y_trn_type][orig_col]:
-                for train_data in ("wrk", "alg"):
+                for train_data in ("wrk", "syn"):
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "tst"]
-                    if train_data == "alg":
+                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "ref"]
+                    if train_data == "syn":
                         eval_sets.extend(["wrk"])
 
                     jobs.append(
@@ -159,24 +162,24 @@ def calculate_model_scores(
     all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
     wrk_scores = (
         all_scores[all_scores["train_data"] == "wrk"]
-        .drop(columns=["alg_train", "alg_test", "train_data", "wrk"])
+        .drop(columns=["syn_train", "syn_test", "train_data", "wrk"])
         .rename(
             columns={
                 "wrk_train": "orig_train",
                 "wrk_test": "orig_test",
-                "tst": "orig_test_real",
+                "ref": "orig_test_real",
             }
         )
     )
     alg_scores = (
-        all_scores[all_scores["train_data"] == "alg"]
+        all_scores[all_scores["train_data"] == "syn"]
         .drop(columns=["wrk_train", "wrk_test", "train_data"])
         .rename(
             columns={
-                "alg_train": "synth_train",
-                "alg_test": "synth_test",
+                "syn_train": "synth_train",
+                "syn_test": "synth_test",
                 "wrk": "synth_test_orig",
-                "tst": "synth_test_real",
+                "ref": "synth_test_real",
             }
         )
     )

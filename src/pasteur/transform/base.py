@@ -110,7 +110,7 @@ class NumericalTransformer(Transformer):
 
     def __init__(
         self,
-        bins: int = 64,
+        bins: int = 20,
         find_edges: bool = False,
         min: float | int | None = None,
         max: float | int | None = None,
