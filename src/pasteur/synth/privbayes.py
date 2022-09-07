@@ -478,7 +478,7 @@ def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
 
 class PrivBayesSynth(Synth):
     name = "privbayes"
-    type = "bhr"
+    type = "idx"
     tabular = True
     multimodal = False
     timeseries = False

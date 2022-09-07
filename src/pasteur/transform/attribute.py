@@ -165,7 +165,6 @@ class Column:
     type: Literal["idx", "num"]
     name: str | None = None
     na: bool = False
-    name: str = None
 
 
 class IdxColumn:

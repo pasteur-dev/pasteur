@@ -6,6 +6,7 @@ from ..utils import find_subclasses
 from .attribute import (
     Attributes,
     Attribute,
+    Column,
     IdxColumn,
     NodeLevel,
     NumColumn,
@@ -64,7 +65,7 @@ class EncodingTransformer:
         cols = []
 
         for t in self.transformers.values():
-            cols.append(t.transform(data))
+            cols.append(t.encode(data))
 
         return pd.concat(cols, axis=1)
 
@@ -72,7 +73,7 @@ class EncodingTransformer:
         cols = []
 
         for t in self.transformers.values():
-            cols.append(t.reverse(enc))
+            cols.append(t.decode(enc))
 
         return pd.concat(cols, axis=1)
 
@@ -91,7 +92,12 @@ class DiscretizationColumnTransformer:
         self.in_attr = attr
         self.col = data.name
 
-        self.edges = np.histogram_bin_edges(data, attr.bins, (attr.min, attr.max))
+        rng = (
+            (attr.min, attr.max)
+            if attr.min is not None and attr.max is not None
+            else None
+        )
+        self.edges = np.histogram_bin_edges(data, attr.bins, rng)
         self.vals = (self.edges[:-1] + self.edges[1:]) / 2
 
         self.attr = OrdColumn(self.vals, attr.na)
@@ -101,7 +107,7 @@ class DiscretizationColumnTransformer:
         ofs = 1 if self.in_attr.na else 0
         midx = len(self.vals) - 1  # clip digitize out of bounds values
         digits = (np.digitize(data, bins=self.edges) - 1).clip(0, midx) + ofs
-        if self.attr.na:
+        if self.in_attr.na:
             digits[pd.isna(data)] = 0
         return pd.Series(digits, index=data.index)
 
@@ -124,7 +130,12 @@ class IdxAttributeTransformer(AttributeTransformer):
             if isinstance(col_attr, NumColumn):
                 t = DiscretizationColumnTransformer()
                 new_attr = t.fit(col_attr, data[name])
-                cols.update(new_attr)
+
+                if isinstance(new_attr, dict):
+                    cols.update(new_attr)
+                else:
+                    cols[name] = new_attr
+
                 self.transformers[name] = t
             else:
                 cols[name] = col_attr
@@ -135,24 +146,24 @@ class IdxAttributeTransformer(AttributeTransformer):
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         out_cols = []
-        for name, col in data.items():
+        for name, col in self.attr.cols.items():
             t = self.transformers.get(name, None)
             if t:
-                out_cols.append(t.transform(col))
+                out_cols.append(t.encode(data[name]))
             else:
-                out_cols.append(col)
+                out_cols.append(data[name])
 
         return pd.concat(out_cols, axis=1)
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         dec = enc.copy()
         for n, t in self.transformers.items():
-            dec[n] = t.reverse(enc)
+            dec[n] = t.decode(enc)
 
         return dec
 
 
-class IdxAttributeTransformer(AttributeTransformer):
+class NumAttributeTransformer(AttributeTransformer):
     name = "num"
 
     def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:

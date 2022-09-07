@@ -23,7 +23,7 @@ def _base_transform_table(
     transformer: TableTransformer,
     **tables: dict[str, pd.DataFrame],
 ):
-    ids = transformer.find_ids()
+    ids = transformer.find_ids(tables)
     return transformer.transform(tables, ids), ids
 
 
@@ -36,19 +36,21 @@ def _base_reverse_table(
     return transformer.reverse(table, ids, parents)
 
 
-def _enc_transform_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
-    return transformer[type].transform(table)
+def _encode_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
+    return transformer[type].encode(table)
 
 
-def _enc_reverse_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
-    return transformer[type].reverse(table)
+def _decode_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
+    return transformer[type].decode(table)
 
 
 def create_transformers_pipeline(view: View, types: list[str]):
     return pipeline(
         [
             node(
-                func=gen_closure(_fit_table, types, _fn=f"fit_transformer_to_{table}"),
+                func=gen_closure(
+                    _fit_table, table, types, _fn=f"fit_transformer_to_{table}"
+                ),
                 inputs={
                     "meta": f"{view}.metadata",
                     **{t: f"{view}.view.{t}" for t in view.tables},
@@ -82,7 +84,7 @@ def create_transform_pipeline(
         for type in types:
             table_nodes += [
                 node(
-                    func=gen_closure(_enc_transform_table, type, _fn=f"encode_{t}"),
+                    func=gen_closure(_encode_table, type, _fn=f"encode_{t}"),
                     inputs={
                         "transformer": f"trn_{t}",
                         "table": f"bst_{t}",
@@ -105,7 +107,7 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
     for t in view.tables:
         decode_nodes += [
             node(
-                func=gen_closure(_enc_reverse_table, type, _fn=f"decode_{t}"),
+                func=gen_closure(_decode_table, type, _fn=f"decode_{t}"),
                 inputs={
                     "transformer": f"trn_{t}",
                     "table": f"enc_{t}",

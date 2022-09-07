@@ -335,6 +335,21 @@ class TableTransformer:
     def find_ids(self, tables: Dict[str, pd.DataFrame]):
         return self.ref.find_foreign_ids(self.name, tables)
 
+    def transform(
+        self,
+        tables: Dict[str, pd.DataFrame] | pd.DataFrame,
+        ids: pd.DataFrame | None = None,
+    ):
+        return self.base.transform(tables, ids)
+
+    def reverse(
+        self,
+        table: pd.DataFrame,
+        ids: Optional[pd.DataFrame] = None,
+        parent_tables: Optional[Dict[str, pd.DataFrame]] = None,
+    ):
+        return self.base.revesre(table, ids, parent_tables)
+
     def fit_transform(
         self, tables: Dict[str, pd.DataFrame], ids: pd.DataFrame | None = None
     ):
@@ -344,6 +359,8 @@ class TableTransformer:
         So it's returned by the function, and there's no `fit` only function."""
         if self.ref.table_has_reference() and ids is None:
             ids = self.ref.find_foreign_ids(self.name, tables)
+        else:
+            ids = pd.DataFrame()
 
         self.base.fit(tables, ids)
 
