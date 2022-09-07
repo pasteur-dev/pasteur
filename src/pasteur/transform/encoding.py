@@ -6,6 +6,8 @@ from ..utils import find_subclasses
 from .attribute import (
     Attributes,
     Attribute,
+    IdxColumn,
+    NodeLevel,
     NumColumn,
     OrdColumn,
 )
@@ -148,3 +150,78 @@ class IdxAttributeTransformer(AttributeTransformer):
             dec[n] = t.reverse(enc)
 
         return dec
+
+
+class IdxAttributeTransformer(AttributeTransformer):
+    name = "num"
+
+    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
+        self.in_attr = attr
+
+        cols = {}
+        if attr.na:
+            cols[f"{attr.name}_na"] = NumColumn()
+        if attr.ukn_val:
+            cols[f"{attr.name}_ukn"] = NumColumn()
+
+        self.attr = copy(attr)
+        self.attr.update_cols(cols)
+        return self.attr
+
+    def encode(self, data: pd.DataFrame) -> pd.DataFrame:
+        a = self.in_attr
+        cols = []
+
+        # Add NA column
+        if a.na:
+            na_col = pd.Series(False, index=data.index, name=f"{a.name}_na")
+            for name, col in a.cols.items():
+                if col.type == "idx":
+                    na_col |= data[name] == 0
+                if col.type == "num":
+                    na_col |= pd.isna(data[name])
+            cols.append(na_col)
+
+        # Add ukn val column
+        if a.ukn_val:
+            ukn_col = pd.Series(False, index=data.index, name=f"{a.name}_ukn")
+            for name, col in a.cols.items():
+                if col.type == "idx":
+                    ukn_col |= data[name] == 1
+            cols.append(ukn_col)
+
+        # Add other columns
+        for name, col in a.cols.items():
+            if col.type == "num":
+                cols.append(data[name])
+            if col.type == "idx":
+                # TODO add proper encodings other than one hot
+                col: IdxColumn
+                ofs = 0
+                if a.na:
+                    ofs += 1
+                if a.ukn_val:
+                    ofs += 1
+
+                # Handle ordinal values
+                encoded = False
+                if len(col.lvl) == ofs + 1:
+                    lvl = col.lvl[ofs]
+                    # Level has to be ordinal and only include leafs (infered by size being equal to length)
+                    if (
+                        isinstance(lvl, NodeLevel)
+                        and lvl.type == "ord"
+                        and len(lvl) == lvl.size
+                    ):
+                        cols.append(data[name] - ofs)
+                        encoded = True
+
+                # One hot encode everything else
+                if not encoded:
+                    for i in range(ofs, col.lvl.size):
+                        cols.append((data[name] == i).rename(f"{name}_{i}"))
+
+        return pd.concat(cols, axis=1)
+
+    def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
+        assert False, "Not Implemented"

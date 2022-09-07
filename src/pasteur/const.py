@@ -1,2 +1,2 @@
 VIEWS = []
-ALGS = ["privbayes", "ident_bhr", "ident_num"]
+ALGS = ["privbayes", "ident_idx", "ident_num"]
