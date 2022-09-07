@@ -126,6 +126,11 @@ class AddDatasetsForViewsHook:
                     f"{view}.view.{table}",
                     ["views", "primary", view, table],
                 )
+                self.add_set(
+                    "transformers",
+                    f"{view}.trn.ids_{table}",
+                    ["views", "ids", f"{view}", table],
+                )
 
             # Add transformers
             for table in tables:
@@ -146,13 +151,10 @@ class AddDatasetsForViewsHook:
                         ["views", "primary", f"{view}.{split}", table],
                     )
                     for type in ["ids", "bst", *self.all_types]:
-                        match type:
-                            case "ids":
-                                layer = "split_ids"
-                            case "bst":
-                                layer = "split_transformed"
-                            case others:
-                                layer = "split_encoded"
+                        if type in ("ids", "bst"):
+                            layer = "split_transformed"
+                        else:
+                            layer = "split_encoded"
 
                         self.add_set(
                             layer,
@@ -203,7 +205,7 @@ class AddDatasetsForViewsHook:
                 # Histograms
                 self.add_pkl(
                     None,  # TODO: fix circular dependency of this node layer
-                    f"{view}.{self.wrk_split}.msr_hst_{table}",
+                    f"{view}.msr.hst_{table}",
                     ["views", "measure", "hist", f"{view}.holder", table],
                 )
 

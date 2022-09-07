@@ -50,43 +50,36 @@ def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
 
 
 def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
-    in_tables_wrk = {table: f"{view.name}.{wrk_split}.{table}" for table in view.tables}
-    in_tables_ref = {table: f"{view.name}.{ref_split}.{table}" for table in view.tables}
-
     hist_nodes = []
     for table in view.tables:
+        in_tables = {table: f"{view}.view.{table}" for table in view.tables}
         hist_nodes += [
             node(
                 func=gen_closure(create_fitted_hist_holder, table),
                 inputs={
                     "meta": f"{view.name}.metadata",
-                    "ids": f"{view.name}.{wrk_split}.ids_{table}",
-                    **in_tables_wrk,
+                    "ids": f"{view.name}.trn.ids_{table}",
+                    **in_tables,
                 },
-                outputs=f"{view.name}.{wrk_split}.msr_hst_{table}",
-                namespace=f"{view.name}.{wrk_split}",
-            ),
-            node(
-                func=project_hists_for_view,
-                inputs={
-                    "holder": f"{view.name}.{wrk_split}.msr_hst_{table}",
-                    "ids": f"{view.name}.{wrk_split}.ids_{table}",
-                    **in_tables_wrk,
-                },
-                outputs=f"{view.name}.{wrk_split}.msr_viz_{table}",
-                namespace=f"{view.name}.{wrk_split}",
-            ),
-            node(
-                func=project_hists_for_view,
-                inputs={
-                    "holder": f"{view.name}.{wrk_split}.msr_hst_{table}",
-                    "ids": f"{view.name}.{ref_split}.ids_{table}",
-                    **in_tables_ref,
-                },
-                outputs=f"{view.name}.{ref_split}.msr_viz_{table}",
-                namespace=f"{view.name}.{ref_split}",
-            ),
+                outputs=f"{view.name}.msr.hst_{table}",
+                namespace=f"{view.name}.msr",
+            )
         ]
+
+        for split in (wrk_split, ref_split):
+            in_tables = {table: f"{view}.{split}.{table}" for table in view.tables}
+            hist_nodes += [
+                node(
+                    func=project_hists_for_view,
+                    inputs={
+                        "holder": f"{view}.msr.hst_{table}",
+                        "ids": f"{view}.{split}.ids_{table}",
+                        **in_tables,
+                    },
+                    outputs=f"{view}.{split}.msr_viz_{table}",
+                    namespace=f"{view}.{split}",
+                ),
+            ]
 
     return pipeline(hist_nodes)
 
@@ -100,7 +93,7 @@ def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split
             node(
                 func=project_hists_for_view,
                 inputs={
-                    "holder": f"{view.name}.{wrk_split}.msr_hst_{table}",
+                    "holder": f"{view.name}.msr.hst_{table}",
                     "ids": f"{view.name}.{alg}.ids_{table}",
                     **in_tables,
                 },
@@ -110,7 +103,7 @@ def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split
             node(
                 func=mlflow_log_hists,
                 inputs={
-                    "holder": f"{view.name}.{wrk_split}.msr_hst_{table}",
+                    "holder": f"{view.name}.msr.hst_{table}",
                     "wrk": f"{view.name}.{wrk_split}.msr_viz_{table}",
                     "syn": f"{view.name}.{alg}.msr_viz_{table}",
                     "ref": f"{view.name}.{ref_split}.msr_viz_{table}",

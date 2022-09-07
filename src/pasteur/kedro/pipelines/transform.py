@@ -15,20 +15,16 @@ def _fit_table(
     **tables: dict[str, pd.DataFrame],
 ):
     t = TableTransformer(meta, name, types)
-    t.fit(tables)
-    return t, t.get_attributes()
-
-
-def _find_ids(transformer: TableTransformer, **tables: dict[str, pd.DataFrame]):
-    return transformer.find_ids(tables)
+    tables, ids = t.fit_transform(tables)
+    return t, ids
 
 
 def _base_transform_table(
     transformer: TableTransformer,
-    ids: pd.DataFrame,
     **tables: dict[str, pd.DataFrame],
 ):
-    return transformer.transform(tables, ids)
+    ids = transformer.find_ids()
+    return transformer.transform(tables, ids), ids
 
 
 def _base_reverse_table(
@@ -52,12 +48,12 @@ def create_transformers_pipeline(view: View, types: list[str]):
     return pipeline(
         [
             node(
-                func=gen_closure(_fit_table, table, _fn=f"fit_transformer_to_{table}"),
+                func=gen_closure(_fit_table, types, _fn=f"fit_transformer_to_{table}"),
                 inputs={
                     "meta": f"{view}.metadata",
                     **{t: f"{view}.view.{t}" for t in view.tables},
                 },
-                outputs=f"{view}.trn.{table}",
+                outputs=[f"{view}.trn.{table}", f"{view}.trn.ids_{table}"],
                 namespace=f"{view}.trn",
             )
             for table in view.tables
@@ -74,18 +70,12 @@ def create_transform_pipeline(
         if not only_encode:
             table_nodes += [
                 node(
-                    func=gen_closure(_find_ids, _fn=f"generate_{t}_ids"),
-                    inputs={"transformer": f"trn_{t}", **{t: t for t in view.tables}},
-                    outputs=f"ids_{t}",
-                ),
-                node(
                     func=gen_closure(_base_transform_table, _fn=f"transform_{t}"),
                     inputs={
                         "transformer": f"trn_{t}",
-                        "ids": f"ids_{t}",
                         **{t: t for t in view.tables},
                     },
-                    outputs=f"bst_{t}",
+                    outputs=[f"bst_{t}", f"ids_{t}"],
                 ),
             ]
 
