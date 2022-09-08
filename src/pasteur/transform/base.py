@@ -20,8 +20,8 @@ from .attribute import (
     Column,
     Level,
     OrdColumn,
+    get_dtype,
 )
-from ..math import get_dtype
 
 logger = logging.getLogger(__name__)
 

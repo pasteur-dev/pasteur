@@ -3,9 +3,39 @@ import pandas as pd
 from scipy.stats import chisquare
 from scipy.special import rel_entr
 
-from ...math import calc_marginal_1way
+from functools import reduce
+from ...transform import get_dtype
 
 KL_ZERO_FILL = 1e-24
+
+
+def calc_marginal_1way(
+    data: np.ndarray,
+    domain: np.ndarray,
+    x: list[int],
+    zero_fill: float | None = None,
+):
+    """Calculates the 1 way marginal of x, returned as a 1D array."""
+
+    x_dom = reduce(lambda a, b: a * b, domain[x], 1)
+    dtype = get_dtype(x_dom)
+
+    idx = np.zeros((len(data)), dtype=dtype)
+    tmp = np.empty((len(data)), dtype=dtype)
+    mul = 1
+    for col in reversed(x):
+        # idx += mul*data[:, col]
+        np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
+        mul *= domain[col]
+
+    counts = np.bincount(idx, minlength=x_dom)
+    margin = counts.astype("float")
+    margin /= margin.sum()
+    if zero_fill is not None:
+        # Mutual info turns into NaN without this
+        margin += zero_fill
+
+    return margin.reshape(-1)
 
 
 def calc_chisquare(ref: pd.DataFrame, syn: pd.DataFrame):

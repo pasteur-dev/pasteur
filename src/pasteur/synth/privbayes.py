@@ -10,7 +10,7 @@ from pasteur.transform.attribute import Attributes
 
 from ..progress import piter, prange, process_in_parallel
 from ..transform import Attribute
-from ..math import calc_marginal, calc_marginal_1way
+from .math import calc_marginal, calc_marginal_1way
 from .base import Synth, make_deterministic
 
 logger = logging.getLogger(__name__)
