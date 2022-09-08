@@ -1,6 +1,5 @@
 from pathlib import Path
 from IPython import get_ipython
-from kedro.extras.extensions.ipython import reload_kedro
 from kedro.framework.context import KedroContext
 from kedro.framework.session.session import KedroSession
 from kedro.io.data_catalog import DataCatalog
@@ -84,7 +83,13 @@ def register_kedro():
     ipy = get_ipython()
     ipy.register_magic_function(_pipe_magic, "line", "pipe")
     ipy.register_magic_function(_pipe_magic, "line", "p")
-    reload_kedro(Path.cwd().parent)
+
+    from kedro.extras.extensions.ipython import reload_kedro, _find_kedro_project
+    import logging
+
+    # Disable path message
+    logging.getLogger().handlers = []
+    reload_kedro(_find_kedro_project(Path.cwd()))
     _reconfigure_rich()
 
 

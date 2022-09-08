@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pandas as pd
 
-from ..transform import Attribute, TableTransformer
+from ..transform import Attribute, Attributes, TableTransformer
 from ..metadata import Metadata
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class IdentSynth(Synth):
 
     def bake(
         self,
-        attrs: dict[str, dict[str, Attribute]],
+        attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
