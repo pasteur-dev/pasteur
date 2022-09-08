@@ -5,10 +5,8 @@
 # messages to get printed to console. Same with rich as well
 import logging
 
-from rich import reconfigure
 from rich.traceback import install
 
-reconfigure(force_jupyter=False)
 logging.captureWarnings(True)
 # TODO: verify this works
 # remove handlers added by the default config

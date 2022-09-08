@@ -1,3 +1,4 @@
+from pathlib import Path
 from IPython import get_ipython
 from kedro.extras.extensions.ipython import reload_kedro
 from kedro.framework.context import KedroContext
@@ -8,7 +9,6 @@ from kedro.framework.startup import bootstrap_project
 
 from ..utils import str_params_to_dict, flat_params_to_dict
 from .runner import SimpleRunner
-from rich import reconfigure
 from ..progress import PBAR_JUP_NCOLS
 
 # Removes lint errors from VS Code
@@ -17,14 +17,28 @@ catalog: DataCatalog = None
 session: KedroSession = None
 pipelines: dict[str, Pipeline] = None
 
-_rich_console_args = {
-    "color_system": "truecolor",
-    "force_terminal": True,
-    "force_interactive": True,
-    "force_jupyter": False,
-    "width": PBAR_JUP_NCOLS,
-    "height": 100,
-}
+
+def _reconfigure_rich():
+    from rich import reconfigure, _console
+
+    _rich_console_args = {
+        "width": PBAR_JUP_NCOLS,
+        "height": 100,
+    }
+
+    reconfigure(**_rich_console_args)
+
+    # Disable html rendering when using jupyter
+    # force_jupyter=False messes with pretty print
+    _console_check_buffer = _console._check_buffer
+
+    def non_html_check_buffer(self):
+        tmp = self.is_jupyter
+        self.is_jupyter = False
+        _console_check_buffer.__get__(self)()
+        self.is_jupyter = tmp
+
+    _console._check_buffer = non_html_check_buffer.__get__(_console)
 
 
 def _pipe(pipe: str, params_str: str, params: dict):
@@ -34,7 +48,7 @@ def _pipe(pipe: str, params_str: str, params: dict):
     session = KedroSession.create(
         metadata.package_name, project_path, env=None, extra_params=params
     )
-    reconfigure(**_rich_console_args)
+    _reconfigure_rich()
     session.run(
         pipe,
         runner=SimpleRunner(pipe, params_str),
@@ -70,8 +84,8 @@ def register_kedro():
     ipy = get_ipython()
     ipy.register_magic_function(_pipe_magic, "line", "pipe")
     ipy.register_magic_function(_pipe_magic, "line", "p")
-    reload_kedro()
-    reconfigure(**_rich_console_args)
+    reload_kedro(Path.cwd().parent)
+    _reconfigure_rich()
 
 
 def load_ipython_extension(ipython):
