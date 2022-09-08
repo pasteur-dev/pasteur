@@ -6,6 +6,8 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
+from pasteur.transform.attribute import Attributes
+
 from ..progress import piter, prange, process_in_parallel
 from ..transform import Attribute
 from ..math import calc_marginal, calc_marginal_1way
@@ -65,7 +67,7 @@ def sens_entropy(n: int):
 
 def greedy_bayes(
     data: pd.DataFrame,
-    attr_str: dict[str, Attribute],
+    attrs: Attributes,
     e1: float,
     e2: float,
     theta: float,
@@ -504,7 +506,7 @@ class PrivBayesSynth(Synth):
     @make_deterministic
     def bake(
         self,
-        attrs: dict[str, dict[str, Attribute]],
+        attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
@@ -514,13 +516,6 @@ class PrivBayesSynth(Synth):
         table = data[table_name]
         attr = attrs[table_name]
         attr_names = list(attr.keys())
-
-        var_attr = [name for name, a in attr.items() if a.var_dom]
-        if len(var_attr):
-            logger.warning(
-                f"Current variable domain implementation (required by"
-                + f" {str(var_attr)}) technically violates DP (to be fixed)."
-            )
 
         # Fit network
         nodes_raw, domain_raw, t = greedy_bayes(

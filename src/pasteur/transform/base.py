@@ -11,6 +11,7 @@ from .attribute import (
     Attribute,
     Attributes,
     CatAttribute,
+    IdxColumn,
     LeafLevel,
     NodeLevel,
     NumAttribute,
@@ -19,8 +20,8 @@ from .attribute import (
     Column,
     Level,
     OrdColumn,
-    get_type,
 )
+from ..math import get_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,7 @@ class IdxTransformer(Transformer):
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
         mapping = self.mapping
-        type = get_type(self.domain)
+        type = get_dtype(self.domain)
         out_col = data.replace(mapping)
 
         # Handle categorical columns without blowing them up to full blown columns
@@ -509,7 +510,9 @@ class TimeTransformer(Transformer):
 
         self.domain = lvl.size
 
-        self.attr = Attribute(data.name, {f"{data.name}_time": lvl}, self.nullable)
+        self.attr = Attribute(
+            data.name, {f"{data.name}_time": IdxColumn(lvl)}, self.nullable
+        )
         return self.attr
 
     def transform(self, date: pd.Series) -> pd.DataFrame:
@@ -534,7 +537,7 @@ class TimeTransformer(Transformer):
                 pd.isna(date)
             ), f"NA values detected in non-NA field: {self.col}"
 
-        out = out.astype(get_type(self.domain))
+        out = out.astype(get_dtype(self.domain))
         return pd.DataFrame({f"{self.col}_time": out})
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:

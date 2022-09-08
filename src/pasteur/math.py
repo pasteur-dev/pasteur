@@ -6,9 +6,11 @@ import numpy as np
 def get_dtype(domain: int):
     # uint16 is 2x as fast as uint32 (5ms -> 3ms), use with marginals.
     # Marginal domain can not exceed max(uint16) size 65535 + 1
-    if domain < 65535 + 1:
-        return "uint16"
-    return "uint32"
+    if domain <= 1 << 8:
+        return np.uint8
+    if domain <= 1 << 16:
+        return np.uint16
+    return np.uint32
 
 
 def calc_marginal(

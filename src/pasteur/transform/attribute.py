@@ -2,15 +2,7 @@ import numpy as np
 from typing import Any, Literal
 from copy import copy
 
-IDX_DTYPES = np.uint8 | np.uint16 | np.uint32
-
-
-def get_type(domain: int):
-    if domain <= 1 << 8:
-        return np.uint8
-    if domain <= 1 << 16:
-        return np.uint16
-    return np.uint32
+from ..math import get_dtype
 
 
 class Level:
@@ -47,11 +39,14 @@ class NodeLevel(Level, list[Level]):
 
     @property
     def height(self) -> int:
-        return max(lvl.height + 1 if isinstance(lvl, NodeLevel) else 0 for lvl in self)
+        return max(lvl.height if isinstance(lvl, NodeLevel) else 0 for lvl in self) + 1
 
     @property
     def size(self) -> int:
         return sum(lvl.size if isinstance(lvl, NodeLevel) else 1 for lvl in self)
+
+    def get_domain(self, height: int):
+        return len(self.get_groups(height))
 
     def _get_groups_by_level(self, lvl: int, ofs: int = 0) -> list[list[int] | int]:
         groups = []
@@ -69,7 +64,7 @@ class NodeLevel(Level, list[Level]):
         return groups, ofs
 
     def get_groups(self, height: int) -> list[list[int] | int]:
-        return self._get_groups_by_level(self.height - height)[0]
+        return self._get_groups_by_level(self.height - 1 - height)[0]
 
     def get_dict_mapping(self, height: int) -> dict[int, int]:
         groups = self.get_groups(height)
@@ -85,7 +80,7 @@ class NodeLevel(Level, list[Level]):
 
     def get_mapping(self, height: int) -> np.array:
         domain = self.size
-        a = np.ndarray((domain), dtype=get_type(domain))
+        a = np.ndarray((domain), dtype=get_dtype(domain))
 
         dmap = self.get_dict_mapping(height)
         for i, j in dmap.items():
@@ -166,6 +161,12 @@ class Column:
     name: str | None = None
     na: bool = False
 
+    # Column type specific hints
+    lvl: NodeLevel
+    bins: int | None
+    max: float | int | None
+    max: float | int | None
+
 
 class IdxColumn:
     type = "idx"
@@ -240,6 +241,8 @@ class Attribute:
         self.name = name
         self.na = na
         self.ukn_val = ukn_val
+        self.common = self.na + self.ukn_val
+
         self.update_cols(cols)
 
     def update_cols(self, cols: dict[str, Column]):
@@ -255,6 +258,9 @@ class Attribute:
 
     def __repr__(self) -> str:
         return str(self)
+
+    def __getitem__(self, col: str) -> Column:
+        return self.cols[col]
 
 
 Attributes = dict[str, Attribute]
