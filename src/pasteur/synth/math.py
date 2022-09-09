@@ -13,7 +13,7 @@ class AttrSelector(NamedTuple):
     cols: dict[str, int]
 
 
-AttrSelectors = list[AttrSelector]
+AttrSelectors = dict[str, AttrSelector]
 
 
 def expand_table(
@@ -89,11 +89,11 @@ def calc_marginal(
 ):
     """Calculates the 1 way and 2 way marginals between the subsection of the
     hierarchical attribute x and the attributes p(arents)."""
-    xp = [x] + p
+    xp = [x] + list(p.values())
 
     # Find integer dtype based on domain
     p_dom = 1
-    for attr in p:
+    for attr in p.values():
         for i, (n, h) in enumerate(attr.cols.items()):
             p_dom *= domains[n][h] - (attr.common if i > 0 else 0)
     x_dom = 1
@@ -144,7 +144,7 @@ def calc_marginal_1way(
 
     # Find integer dtype based on domain
     dom = 1
-    for attr in x:
+    for attr in x.values():
         for i, (n, h) in enumerate(attr.cols.items()):
             dom *= domains[n][h] - (attr.common if i > 0 else 0)
     dtype = get_dtype(dom)
@@ -154,7 +154,7 @@ def calc_marginal_1way(
     _tmp_nd = np.empty((n,), dtype=dtype)
 
     mul = 1
-    for attr in reversed(x):
+    for attr in reversed(x.values()):
         for i, (n, h) in enumerate(attr.cols.items()):
             common = attr.common
             if i == 0 or common == 0:

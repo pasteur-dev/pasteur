@@ -27,8 +27,12 @@ ZERO_FILL = 1e-24
 
 
 class Node(NamedTuple):
-    x: AttrSelector
-    p: AttrSelectors
+    x: str
+    domain: int
+    p: dict[str, AttrSelector]
+
+
+Nodes = list[Node]
 
 
 def sens_mutual_info(n: int):
@@ -95,7 +99,7 @@ def greedy_bayes(
     theta: float,
     use_r: bool,
     random_init: bool,
-):
+) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
     Supports variable e1, e2, where in the paper they are defined as
@@ -116,16 +120,18 @@ def greedy_bayes(
     #
     col_names = []
     groups = []
+    group_names = []
     heights = []
     common = []
-    domains = []
-    for i, a in enumerate(attrs.values()):
+    domain = []
+    for i, (an, a) in enumerate(attrs.items()):
+        group_names.append(an)
         for n, c in a.cols.items():
             col_names.append(n)
             groups.append(i)
             heights.append(c.lvl.height)
             common.append(a.common)
-            domains.append([c.get_domain(h) for h in range(c.height)])
+            domain.append([c.get_domain(h) for h in range(c.height)])
 
     empty_pset = tuple(-1 for _ in range(d))
 
@@ -134,7 +140,7 @@ def greedy_bayes(
         s[x] = h
         return tuple(s)
 
-    def maximal_parents(V: tuple[int], tau: float, _pgroups=set()) -> list[tuple[int]]:
+    def maximal_parents(V: tuple[int], tau: float, pgroups=set()) -> list[tuple[int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
@@ -152,21 +158,21 @@ def greedy_bayes(
         U = set()
 
         for h in range(heights[x]):
-            dom = domains[x][h]
+            dom = domain[x][h]
             g = groups[x]
-            if g in _pgroups:
+            if g in pgroups:
                 dom -= common[x]
-                _pgroups_with_x = _pgroups
+                pgroups_with_x = pgroups
             else:
-                _pgroups_with_x = _pgroups.copy()
-                _pgroups_with_x.add(g)
+                pgroups_with_x = pgroups.copy()
+                pgroups_with_x.add(g)
 
-            for z in maximal_parents(V, tau / dom, _pgroups_with_x):
+            for z in maximal_parents(V, tau / dom, pgroups_with_x):
                 if z not in U:
                     U.add(z)
                     S.append(add_to_pset(z, x, h))
 
-        for z in maximal_parents(V, tau, _pgroups):
+        for z in maximal_parents(V, tau, pgroups):
             if z not in U:
                 S.append(z)
 
@@ -175,8 +181,29 @@ def greedy_bayes(
     #
     # Implement misc functions for summating the scores
     #
-    cols, cols_noncommon, domain = expand_table(attrs, table)
+    cols, cols_noncommon, domains = expand_table(attrs, table)
     score_cache = {}
+
+    def pset_to_attr_sel(pset: tuple[int]) -> AttrSelectors:
+        p_groups: dict[int, dict[int, int]] = {}
+        for p, h in enumerate(pset):
+            if h == -1:
+                continue
+
+            g = groups[p]
+            if g in p_groups:
+                p_groups[g][p] = h
+            else:
+                p_groups[g] = {p: h}
+
+        p_attrs: AttrSelectors = {}
+        for i, g in p_groups.items():
+            cmn = common[next(iter(g))]
+            p_attrs[group_names[i]] = AttrSelector(
+                common=cmn, cols={col_names[p]: h for p, h in g.items()}
+            )
+
+        return p_attrs
 
     def calc_candidate_scores(candidates: list[tuple[int, tuple[int]]]):
         """Calculates the mutual information approximation score for each candidate
@@ -199,30 +226,11 @@ def greedy_bayes(
             x_attr = AttrSelector(common[x], {col_names[x]: 0})
 
             # Create selectors for parents by first merging into attribute groups
-            p_groups: dict[int, dict[int, int]] = {}
-            for p, h in enumerate(pset):
-                if h == -1:
-                    continue
-
-                g = groups[p]
-                if g in p_groups:
-                    p_groups[g][p] = h
-                else:
-                    p_groups[g] = {p: h}
-
-            p_attrs: AttrSelectors = []
-            for g in p_groups.values():
-                cmn = common[next(iter(g))]
-                p_attrs.append(
-                    AttrSelector(
-                        common=cmn, cols={col_names[p]: h for p, h in g.items()}
-                    )
-                )
-
+            p_attrs = pset_to_attr_sel(pset)
             to_be_processed.append({"x": x_attr, "p": p_attrs})
 
         # Process new ones
-        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domains": domain}
+        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domains": domains}
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
         new_scores = process_in_parallel(
@@ -241,7 +249,9 @@ def greedy_bayes(
 
         return scores
 
-    def pick_candidate(candidates: list[tuple[int, tuple[int]]]):
+    def pick_candidate(
+        candidates: list[tuple[int, tuple[int]]]
+    ) -> tuple[int, tuple[int]]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
         candidates = list(candidates)
@@ -278,8 +288,8 @@ def greedy_bayes(
             calc_entropy(
                 cols,
                 cols_noncommon,
-                domain,
-                [AttrSelector(0, {col_names[x]: 0})],
+                domains,
+                {group_names[groups[x]]: AttrSelector(0, {col_names[x]: 0})},
             )
             for x in range(d)
         ]
@@ -314,7 +324,7 @@ def greedy_bayes(
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
-            psets = maximal_parents(V, t / domains[x][0], _pgroups={groups[x]})
+            psets = maximal_parents(V, t / domain[x][0], {groups[x]})
             for pset in psets:
                 O.append((x, pset))
             if not psets:
@@ -325,13 +335,17 @@ def greedy_bayes(
         A.remove(node[0])
         N.append(node)
 
-    return N, t
+    nodes = []
+    for x, pset in N:
+        node = Node(x=col_names[x], domain=domain[x][0], p=pset_to_attr_sel(pset))
+        nodes.append(node)
+
+    return nodes, t
 
 
 def print_tree(
-    tree: list[tuple[int, tuple[int]]],
-    domain: list[int],
-    attr_names: list[str],
+    attrs: Attributes,
+    nodes: Nodes,
     e1: float,
     e2: float,
     theta: float,
@@ -345,17 +359,17 @@ def print_tree(
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
-    for a, pset in list(tree):
-        a_name = attr_names[a]
-        s += f"\n│{a_name:>20s} │ {domain[a]:>3d} │ {t/domain[a]:>8.2f} │"
+    for x, domain, p in nodes:
+        s += f"\n│{x:>20s} │ {domain:>3d} │ {t/domain:>8.2f} │"
 
         line_str = ""
-        for p, h in enumerate(pset):
-            if h == -1:
-                continue
-
-            p_name = attr_names[p]
-            p_str = f" {p_name}.{h}"
+        for p_name, attr_sel in p.items():
+            p_str = f" {p_name}."
+            for col in attrs[p_name].cols:
+                if col in attr_sel.cols:
+                    p_str += str(attr_sel.cols[col])
+                else:
+                    p_str += "_"
 
             if len(p_str) + len(line_str) >= pset_len:
                 s += f"{line_str:57s}│"
@@ -547,35 +561,18 @@ class PrivBayesSynth(Synth):
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
-        attr = attrs[table_name]
-        attr_names = list(attr.keys())
+        attrs = attrs[table_name]
 
         # Fit network
-        nodes_raw, domain_raw, t = greedy_bayes(
-            table, attr, self.e1, self.e2, self.theta, self.use_r, self.random_init
+        nodes, t = greedy_bayes(
+            table, attrs, self.e1, self.e2, self.theta, self.use_r, self.random_init
         )
-
-        # Create tuples based on attributes
-        # A node is composed of an x atribute and a set of
-        nodes: list[Node] = []
-        for a, pset in nodes_raw:
-            x_attr = attr[attr_names[a]]
-            p_attrs = []
-
-            for p, h in enumerate(pset):
-                if h != -1:
-                    p_attrs.append(attr[attr_names[p]]._replace(h=h))
-
-            nodes.append(Node(x_attr, p_attrs))
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
         self.d = len(table.keys())
         self.t = t
-        self.attr = attr
-        self.attr_names = attr_names
-        self.nodes_raw = nodes_raw
-        self.domain_raw = domain_raw
+        self.attrs = attrs
         self.nodes = nodes
         logger.info(self)
 
@@ -607,9 +604,8 @@ class PrivBayesSynth(Synth):
 
     def __str__(self) -> str:
         return print_tree(
-            self.nodes_raw,
-            self.domain_raw,
-            self.attr_names,
+            self.attrs,
+            self.nodes,
             self.e1,
             self.e2,
             self.theta,
