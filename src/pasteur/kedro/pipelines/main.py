@@ -14,7 +14,7 @@ from .metrics import (
     create_log_pipelines as metrics_create_log_pipelines,
 )
 from .synth import create_synth_pipeline
-from .views import create_filter_pipeline, create_view_pipeline
+from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
 from .transform import (
     create_transformers_pipeline,
     create_reverse_pipeline,
@@ -105,10 +105,15 @@ def generate_pipelines(
             + pipe_metrics_fit
         )
 
+        # Metadata needs to be created every time to allow for overrides
+        # Fixme: can cause issues with some parameters
+        pipe_meta = create_meta_pipeline(view)
+
         pipe_ingest = (
             create_dataset_pipeline(datasets[view.dataset], view.dataset_tables)
             + create_keys_pipeline(datasets[view.dataset], name, splits)
             + create_view_pipeline(view)
+            + pipe_meta
             + create_filter_pipeline(view, splits)
             + pipe_transform
         )
@@ -135,8 +140,10 @@ def generate_pipelines(
                 extr_pipes[f"{name}.{alg}"] = complete_pipe
             else:
                 main_pipes[f"{name}.{alg}"] = complete_pipe
-            extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure
-            extr_pipes[f"{name}.{alg}.measure"] = pipe_metrics_fit + pipe_measure
+            extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure + pipe_meta
+            extr_pipes[f"{name}.{alg}.measure"] = (
+                pipe_metrics_fit + pipe_measure + pipe_meta
+            )
 
     # Hide extra pipes at the bottom of kedro viz
     # dictionaries are ordered

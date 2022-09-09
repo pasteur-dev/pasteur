@@ -84,12 +84,14 @@ class Synth(ABC):
         pass
 
 
-def synth_fit(cls: type[Synth], **kwargs: pd.DataFrame | TableTransformer):
+def synth_fit(
+    cls: type[Synth], metadata: Metadata, **kwargs: pd.DataFrame | TableTransformer
+):
     ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
     data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
     trns = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
 
-    meta = next(iter(trns.values())).meta
+    meta = metadata
     args = {**meta.algs.get(cls.name, {}), **meta.alg_override}
 
     attrs = {n: t[cls.type].get_attributes() for n, t in trns.items()}

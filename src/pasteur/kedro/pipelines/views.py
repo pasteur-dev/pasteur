@@ -17,9 +17,7 @@ def _create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame])
 
 
 def create_view_pipeline(view: View):
-    tables = view.tables
-
-    trn_pipe = pipeline(
+    return pipeline(
         [
             node(
                 func=gen_closure(view.ingest, t, _fn=f"ingest_{t}"),
@@ -27,25 +25,25 @@ def create_view_pipeline(view: View):
                 namespace=f"{view}.view",
                 outputs=f"{view}.view.{t}",
             )
-            for t in tables
+            for t in view.tables
         ]
     )
 
-    meta_pipe = pipeline(
+
+def create_meta_pipeline(view: View):
+    return pipeline(
         [
             node(
                 func=gen_closure(_create_metadata, view.name, _fn="create_metadata"),
                 inputs={
                     "params": "parameters",
-                    **{t: f"{view}.view.{t}" for t in tables},
+                    **{t: f"{view}.view.{t}" for t in view.tables},
                 },
                 outputs=f"{view}.metadata",
                 namespace=f"{view}",
             )
         ]
     )
-
-    return trn_pipe + meta_pipe
 
 
 def create_filter_pipeline(view: View, splits: list[str]):

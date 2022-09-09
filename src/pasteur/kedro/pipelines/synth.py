@@ -20,6 +20,7 @@ def create_synth_pipeline(
             node(
                 func=gen_closure(synth_fit, cls),
                 inputs={
+                    "metadata": "metadata",
                     **{f"trn_{t}": f"trn_{t}" for t in tables},
                     **{f"ids_{t}": f"in_ids_{t}" for t in tables},
                     **{f"enc_{t}": f"in_enc_{t}" for t in tables},
@@ -41,7 +42,8 @@ def create_synth_pipeline(
         pipe=synth_pipe,
         namespace=f"{view}.{alg}",
         inputs={
-            **{f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
+            "metadata": f"{view}.metadata",
+            ** {f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
             **{f"trn_{t}": f"{view}.trn.{t}" for t in tables},
         },
