@@ -160,7 +160,11 @@ class BaseTableTransformer:
                     ref_col = table[f_col]
 
             # Fit transformer
-            t = transformers[col.type](**col.args)
+            if "main_param" in col.args:
+                t = transformers[col.type](col.args["main_param"], **col.args)
+            else:
+                t = transformers[col.type](**col.args)
+
             if isinstance(t, RefTransformer) and ref_col is not None:
                 t.fit(table[name], ref_col)
             else:
