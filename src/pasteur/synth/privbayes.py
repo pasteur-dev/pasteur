@@ -27,7 +27,8 @@ ZERO_FILL = 1e-24
 
 
 class Node(NamedTuple):
-    x: str
+    attr: str
+    col: str
     domain: int
     p: dict[str, AttrSelector]
 
@@ -324,7 +325,7 @@ def greedy_bayes(
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
-            psets = maximal_parents(V, t / domain[x][0], {groups[x]})
+            psets = maximal_parents(V, t / domain[x][0])
             for pset in psets:
                 O.append((x, pset))
             if not psets:
@@ -337,7 +338,12 @@ def greedy_bayes(
 
     nodes = []
     for x, pset in N:
-        node = Node(x=col_names[x], domain=domain[x][0], p=pset_to_attr_sel(pset))
+        node = Node(
+            attr=group_names[groups[x]],
+            col=col_names[x],
+            domain=domain[x][0],
+            p=pset_to_attr_sel(pset),
+        )
         nodes.append(node)
 
     return nodes, t
@@ -359,7 +365,7 @@ def print_tree(
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
-    for x, domain, p in nodes:
+    for _, x, domain, p in nodes:
         s += f"\n│{x:>20s} │ {domain:>3d} │ {t/domain:>8.2f} │"
 
         line_str = ""
@@ -384,83 +390,46 @@ def print_tree(
     return s
 
 
-def calc_noisy_marginals(data: pd.DataFrame, nodes: list[Node], noise_scale: float):
+def calc_noisy_marginals(
+    attrs: Attributes, table: pd.DataFrame, nodes: Nodes, noise_scale: float
+):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
+    cols, cols_noncommon, domains = expand_table(attrs, table)
 
     marginals = []
-    for x, p in nodes:
-        x_cols = x.cols[: len(x.cols) - x.h]
-        p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
-        cols = p_cols + x_cols
+    for _, x, x_dom, p in nodes:
+        xp = [x] + list(p.values())
+
+        # Find integer dtype based on domain
+        p_dom = 1
+        for attr in p.values():
+            for i, (n, h) in enumerate(attr.cols.items()):
+                p_dom *= domains[n][h] - (attr.common if i > 0 else 0)
 
         dtype = "uint32"
-        sub_data = data[cols].to_numpy(dtype=dtype)
-        sub_domain = sub_data.max(axis=0) + 1
 
-        idx = np.zeros((len(data)), dtype=dtype)
-        tmp = np.empty((len(data)), dtype=dtype)
+        n, d = table.shape
+        _sum_nd = np.zeros((n,), dtype=dtype)
+        _tmp_nd = np.zeros((n,), dtype=dtype)
+
         mul = 1
-        for i in reversed(range(len(cols))):
-            # idx += mul*data[:, col]
-            np.add(idx, np.multiply(mul, sub_data[:, i], out=tmp), out=idx)
-            mul *= sub_domain[i]
+        for attr in reversed(p.values()):
+            for i, (n, h) in enumerate(attr.cols.items()):
+                common = attr.common
+                if i == 0 or common == 0:
+                    np.multiply(cols[n][h], mul, out=_tmp_nd)
+                else:
+                    np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd)
 
-        x_dom = reduce(lambda a, b: a * b, sub_domain, 1)
+                np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+                mul *= domains[n][h] - (common if i > 0 else 0)
 
-        counts = np.bincount(idx, minlength=x_dom)
-        margin = counts.astype("float").reshape(sub_domain)
+        np.multiply(cols[x][0], mul, out=_tmp_nd)
+        np.add(_sum_nd, _tmp_nd, out=_sum_nd)
 
+        counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
+        margin = counts.reshape(x_dom, p_dom).astype("float32")
         noise = np.random.laplace(scale=noise_scale, size=margin.shape)
-
-        # Consider a0.col0 being a NA indicatior. When a0.col0=1 then a0 is NA.
-        # This counts as 1 value in the domain, however it doubles the size of
-        # the marginal. If we apply noise uniformely to the marginal then half of
-        # it will go to the NA value, skewing its probability.
-
-        # The following loop removes all noise from the marginals a0.col0=1,
-        # except for the marginal a0.col0=1, a0.colN=0, such as that the NA is
-        # also DP protected.
-        for a in [x] + p:
-            if not a.has_na:
-                continue
-
-            na_col = a.cols[0]
-
-            # Find noise of NA
-            na_idx = []
-            for col in cols:
-                if col == na_col:
-                    na_idx.append(1)
-                elif col in a.cols:
-                    na_idx.append(0)
-                else:
-                    na_idx.append(slice(None))
-            na_idx = tuple(na_idx)
-            na_noise = noise[na_idx]
-
-            # Zero out all other noise for na
-            idx = []
-            for col in cols:
-                if col == na_col:
-                    idx.append(1)
-                else:
-                    idx.append(slice(None))
-            idx = tuple(idx)
-            noise[idx] = 0
-
-            # Replace noise again
-            noise[na_idx] = na_noise
-
-        # Handle noise for attributes with variable domains
-        # variable domain means that if c0=0, c1={0,n}, but if c0=1. c1={0,m}
-        # where m != n. A proper solution to this would be using a mask for the
-        # valid attributes.
-        #
-        # However, for now we will just assume that if a count in the marginal
-        # is 0 then it's invalid. This violates DP for marginals with low counts.
-        # But performs similarly. TODO: Use proper implementation.
-        if any(a.var_dom for a in [x] + p):
-            noise[margin == 0] = 0
 
         marginal = (margin + noise).clip(0)
         marginal /= marginal.sum()
@@ -587,7 +556,8 @@ class PrivBayesSynth(Synth):
         noise = 2 * self.d / (self.n * self.e2)
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
-        self.marginals = calc_noisy_marginals(table, self.nodes, noise)
+            noise = 0
+        self.marginals = calc_noisy_marginals(self.attrs, table, self.nodes, noise)
 
     @make_deterministic
     def sample(
