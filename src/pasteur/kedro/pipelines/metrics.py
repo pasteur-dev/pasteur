@@ -2,6 +2,8 @@ import pandas as pd
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from pasteur.metrics.mlflow import mlflow_log_as_str
+
 from ...metrics.models import (
     get_required_types as model_get_required_types,
     mlflow_log_model_results,
@@ -24,25 +26,23 @@ def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
         in_tables = {}
         for type in model_get_required_types():
             for label, split in [("syn", alg), ("wrk", wrk_split), ("ref", ref_split)]:
-                in_tables[
-                    f"{type}.{label}.{table}"
-                ] = f"{view.name}.{split}.{type}_{table}"
+                in_tables[f"{type}.{label}.{table}"] = f"{view}.{split}.{type}_{table}"
 
         calc_nodes += [
             node(
                 func=node_calculate_model_scores,
                 inputs={
-                    "transformer": f"{view.name}.trn.{table}",
+                    "transformer": f"{view}.trn.{table}",
                     **in_tables,
                 },
-                outputs=f"{view.name}.{alg}.msr_mdl_{table}",
-                namespace=f"{view.name}.{alg}",
+                outputs=f"{view}.{alg}.msr_mdl_{table}",
+                namespace=f"{view}.{alg}",
             ),
             node(
                 func=gen_closure(mlflow_log_model_results, table),
-                inputs=f"{view.name}.{alg}.msr_mdl_{table}",
+                inputs=f"{view}.{alg}.msr_mdl_{table}",
                 outputs=None,
-                namespace=f"{view.name}.{alg}",
+                namespace=f"{view}.{alg}",
             ),
         ]
 
@@ -57,12 +57,12 @@ def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
             node(
                 func=gen_closure(create_fitted_hist_holder, table),
                 inputs={
-                    "meta": f"{view.name}.metadata",
-                    "ids": f"{view.name}.trn.ids_{table}",
+                    "meta": f"{view}.metadata",
+                    "ids": f"{view}.trn.ids_{table}",
                     **in_tables,
                 },
-                outputs=f"{view.name}.msr.hst_{table}",
-                namespace=f"{view.name}.msr",
+                outputs=f"{view}.msr.hst_{table}",
+                namespace=f"{view}.msr",
             )
         ]
 
@@ -85,7 +85,7 @@ def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
 
 
 def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
-    in_tables = {table: f"{view.name}.{alg}.{table}" for table in view.tables}
+    in_tables = {table: f"{view}.{alg}.{table}" for table in view.tables}
 
     hist_nodes = []
     for table in view.tables:
@@ -93,23 +93,23 @@ def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split
             node(
                 func=project_hists_for_view,
                 inputs={
-                    "holder": f"{view.name}.msr.hst_{table}",
-                    "ids": f"{view.name}.{alg}.ids_{table}",
+                    "holder": f"{view}.msr.hst_{table}",
+                    "ids": f"{view}.{alg}.ids_{table}",
                     **in_tables,
                 },
-                outputs=f"{view.name}.{alg}.msr_viz_{table}",
-                namespace=f"{view.name}.{alg}",
+                outputs=f"{view}.{alg}.msr_viz_{table}",
+                namespace=f"{view}.{alg}",
             ),
             node(
                 func=mlflow_log_hists,
                 inputs={
-                    "holder": f"{view.name}.msr.hst_{table}",
-                    "wrk": f"{view.name}.{wrk_split}.msr_viz_{table}",
-                    "syn": f"{view.name}.{alg}.msr_viz_{table}",
-                    "ref": f"{view.name}.{ref_split}.msr_viz_{table}",
+                    "holder": f"{view}.msr.hst_{table}",
+                    "wrk": f"{view}.{wrk_split}.msr_viz_{table}",
+                    "syn": f"{view}.{alg}.msr_viz_{table}",
+                    "ref": f"{view}.{ref_split}.msr_viz_{table}",
                 },
                 outputs=None,
-                namespace=f"{view.name}.{alg}",
+                namespace=f"{view}.{alg}",
             ),
         ]
 
@@ -126,11 +126,11 @@ def _create_distr_fit_pipelines(view: View, wrk_split: str, ref_split: str):
                 node(
                     func=gen_closure(calc, _fn=f"%s_{table}"),
                     inputs={
-                        "ref": f"{view.name}.{wrk_split}.idx_{table}",
-                        "syn": f"{view.name}.{ref_split}.idx_{table}",
+                        "ref": f"{view}.{wrk_split}.idx_{table}",
+                        "syn": f"{view}.{ref_split}.idx_{table}",
                     },
-                    outputs=f"{view.name}.{ref_split}.msr_{method}_{table}",
-                    namespace=f"{view.name}.{ref_split}",
+                    outputs=f"{view}.{ref_split}.msr_{method}_{table}",
+                    namespace=f"{view}.{ref_split}",
                 ),
             ]
 
@@ -145,11 +145,11 @@ def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
                 node(
                     func=calc,
                     inputs={
-                        "ref": f"{view.name}.{wrk_split}.idx_{table}",
-                        "syn": f"{view.name}.{alg}.idx_{table}",
+                        "ref": f"{view}.{wrk_split}.idx_{table}",
+                        "syn": f"{view}.{alg}.idx_{table}",
                     },
-                    outputs=f"{view.name}.{alg}.msr_{method}_{table}",
-                    namespace=f"{view.name}.{alg}",
+                    outputs=f"{view}.{alg}.msr_{method}_{table}",
+                    namespace=f"{view}.{alg}",
                 ),
             ]
 
@@ -158,15 +158,30 @@ def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
                 node(
                     func=gen_closure(log, table, "ref"),
                     inputs={
-                        "ref": f"{view.name}.{ref_split}.msr_{method}_{table}",
-                        "syn": f"{view.name}.{alg}.msr_{method}_{table}",
+                        "ref": f"{view}.{ref_split}.msr_{method}_{table}",
+                        "syn": f"{view}.{alg}.msr_{method}_{table}",
                     },
                     outputs=None,
-                    namespace=f"{view.name}.{alg}",
+                    namespace=f"{view}.{alg}",
                 ),
             ]
 
     return pipeline(nodes)
+
+
+def _create_synth_log_pipeline(view: View, alg: str):
+    return pipeline(
+        [
+            node(
+                func=gen_closure(
+                    mlflow_log_as_str, "synth", _fn="mlflow_log_model_view"
+                ),
+                inputs=[f"{view}.{alg}.model"],
+                outputs=None,
+                namespace=f"{view}.{alg}",
+            ),
+        ]
+    )
 
 
 def get_required_types():
@@ -186,4 +201,5 @@ def create_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
         _create_distr_log_pipelines(view, alg, wrk_split, ref_split)
         + _create_model_log_pipelines(view, alg, wrk_split, ref_split)
         + _create_visual_log_pipelines(view, alg, wrk_split, ref_split)
+        + _create_synth_log_pipeline(view, alg)
     )

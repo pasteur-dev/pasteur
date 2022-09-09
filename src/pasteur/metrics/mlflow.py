@@ -1,9 +1,9 @@
 from io import BytesIO
 import pandas as pd
 from matplotlib.figure import Figure
-from .styles import use_style
-
 from pandas.io.formats.style import Styler
+
+from .styles import use_style
 
 # Taken from jupyter, with sans serif added
 BASE_TABLE_STYLE = """<style type="text/css">
@@ -40,6 +40,21 @@ BASE_TABLE_STYLE = """<style type="text/css">
   }
 </style>
 """
+
+BASE_TXT_STYLE = """<style type="text/css">
+  pre {
+    font-family: monospace;
+    border: none;
+    border-collapse: collapse;
+    border-spacing: 0;
+    color: rgba(0,0,0,.85);
+    font-size: %s;
+    table-layout: fixed;
+  }
+</style>
+"""
+
+UTF8_META = '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />'
 
 
 def gen_html_figure_container(viz: dict[str, Figure]):
@@ -215,3 +230,12 @@ def color_dataframe(
         )
 
     return pts
+
+
+def mlflow_log_as_str(path: str, obj, font_size: str = "16px"):
+    from html import escape
+    import mlflow
+
+    s = f"{UTF8_META}{BASE_TXT_STYLE % font_size}<pre>{escape(str(obj))}</pre>"
+    if mlflow.active_run():
+        mlflow.log_text(s, path + ".html")
