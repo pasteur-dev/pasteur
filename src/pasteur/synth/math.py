@@ -116,11 +116,11 @@ def calc_marginal(
         l_mul = 1
         for i, (n, h) in enumerate(attr.cols.items()):
             if common == 0 or i == 0:
-                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
+                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
             else:
-                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
+                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
 
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
         mul *= l_mul + common
 
@@ -168,11 +168,11 @@ def calc_marginal_1way(
         l_mul = 1
         for i, (n, h) in enumerate(attr.cols.items()):
             if common == 0 or i == 0:
-                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
+                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
             else:
-                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
+                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
 
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
         mul *= l_mul + common
 

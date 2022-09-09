@@ -1,16 +1,11 @@
-from cmath import isnan
 import logging
-from functools import reduce
-from itertools import chain
 from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 
-from pasteur.transform.attribute import IdxColumn
-
 from ..progress import piter, prange, process_in_parallel
-from ..transform import Attribute, Attributes
+from ..transform import Attributes, get_dtype
 from .base import Synth, make_deterministic
 from .math import (
     AttrSelector,
@@ -411,36 +406,35 @@ def calc_noisy_marginals(
 
     marginals = []
     for _, x, x_dom, p in nodes:
-        xp = [x] + list(p.values())
-
         # Find integer dtype based on domain
         p_dom = 1
         for attr in p.values():
             for i, (n, h) in enumerate(attr.cols.items()):
                 p_dom *= domains[n][h] - (attr.common if i > 0 else 0)
 
-        dtype = "uint32"
-
+        dtype = get_dtype(p_dom * x_dom)
         n, d = table.shape
         _sum_nd = np.zeros((n,), dtype=dtype)
         _tmp_nd = np.zeros((n,), dtype=dtype)
 
         mul = 1
-        for attr in reversed(p.values()):
+        for attr in p.values():
             common = attr.common
             l_mul = 1
             for i, (n, h) in enumerate(attr.cols.items()):
                 if i == 0 or common == 0:
-                    np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
+                    np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
                 else:
-                    np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
+                    np.multiply(
+                        cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype
+                    )
 
-                np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+                np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                 l_mul *= domains[n][h] - common
             mul *= l_mul + common
 
-        np.multiply(cols[x][0], mul, out=_tmp_nd)
-        np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+        np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
+        np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
 
         counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
         margin = counts.reshape(x_dom, p_dom).astype("float32")
@@ -456,8 +450,7 @@ def calc_noisy_marginals(
 def sample_rows(
     attrs: Attributes, nodes: list[Node], marginals: np.array, n: int
 ) -> pd.DataFrame:
-    dtype = "uint32"
-    out = pd.DataFrame(dtype=dtype)
+    out = pd.DataFrame()
 
     # FIXME: Handle common dependencies when sampling
     for (x_attr, x, x_domain, p), marginal in zip(nodes, marginals):
@@ -473,9 +466,10 @@ def sample_rows(
 
             # Get groups for marginal
             mul = 1
+            dtype = get_dtype(m.shape[0] * m.shape[1])
             _sum_nd = np.zeros((n,), dtype=dtype)
             _tmp_nd = np.zeros((n,), dtype=dtype)
-            for attr_name, attr in reversed(p.items()):
+            for attr_name, attr in p.items():
                 common = attr.common
                 l_mul = 1
                 for i, (col_name, h) in enumerate(attr.cols.items()):
@@ -486,12 +480,13 @@ def sample_rows(
                     col_lvl = mapping[out[col_name]]
                     if common != 0 and i != 0:
                         col_lvl = np.where(col_lvl > common, col_lvl - common, 0)
-                    np.multiply(col_lvl, mul * l_mul, out=_tmp_nd)
-                    np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+                    np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
+                    np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                     l_mul *= domain - common
                 mul *= l_mul + common
 
-            out_col = np.zeros((n,), dtype=dtype)
+            # Sample groups
+            out_col = np.zeros((n,), dtype=get_dtype(x_domain))
             groups = _sum_nd
             for group in np.unique(groups):
                 size = np.sum(groups == group)
