@@ -233,7 +233,9 @@ class DateTransformer(RefTransformer):
     lossless = True
     stateful = True
 
-    def __init__(self, span: str = "year", nullable: bool = False, bins=128, **_):
+    def __init__(
+        self, span: str = "year", nullable: bool = False, bins=64, max_len=63, **_
+    ):
         self.weeks53 = span == "year53"
         if self.weeks53:
             self.span = "year"
@@ -244,6 +246,7 @@ class DateTransformer(RefTransformer):
 
         self.nullable = nullable
         self.bins = bins
+        self.max_len = max_len
 
     def fit(
         self,
@@ -269,7 +272,7 @@ class DateTransformer(RefTransformer):
                 self.attr = Attribute(
                     col,
                     {
-                        f"{col}_year": NumColumn(self.bins),
+                        f"{col}_year": NumColumn(self.bins, 0, self.max_len),
                         f"{col}_week": OrdColumn(
                             range(53 if self.weeks53 else 52), na=self.nullable
                         ),
@@ -281,7 +284,7 @@ class DateTransformer(RefTransformer):
                 self.attr = Attribute(
                     col,
                     {
-                        f"{col}_week": NumColumn(self.bins),
+                        f"{col}_week": NumColumn(self.bins, 0, self.max_len),
                         f"{col}_day": OrdColumn(days, na=self.nullable),
                     },
                     self.nullable,
@@ -290,7 +293,7 @@ class DateTransformer(RefTransformer):
                 self.attr = Attribute(
                     col,
                     {
-                        f"{col}_day": NumColumn(self.bins),
+                        f"{col}_day": NumColumn(self.bins, 0, self.max_len),
                     },
                     self.nullable,
                 )
@@ -445,8 +448,9 @@ class DateTransformer(RefTransformer):
                     unit="days",
                 )
             case "day":
+                # TODO: fix negative spans
                 out = rf_dt.normalize() + pd.to_timedelta(
-                    np.round(vals[f"{col}_day"]).clip(0) - rf_day + 1,
+                    (np.round(vals[f"{col}_day"]) - rf_day + 1).astype("int32"),
                     unit="days",
                 )
 
@@ -474,12 +478,12 @@ class TimeTransformer(Transformer):
         hours = []
         for hour in range(24):
             if span == "hour":
-                hours.append(LeafLevel(hour))
-            if span == "halfhour":
+                hours.append(LeafLevel(f"{hour:02d}:00"))
+            elif span == "halfhour":
                 hours.append(
                     NodeLevel(
                         "ord",
-                        [LeafLevel(f"{hour:02d}:00"), LeafLevel(f"{hour:02d}:00")],
+                        [LeafLevel(f"{hour:02d}:00"), LeafLevel(f"{hour:02d}:30")],
                     )
                 )
             else:

@@ -14,7 +14,14 @@ mimic_mm_core:
       fields:
         hadm_id: id
         subject_id: id:patients.subject_id
-        admittime: datetime|year.hour:patients.birth_year
+        admittime:
+          type: datetime
+          span: year.hour
+          ref:
+            table: patients
+            col: bith_year
+          max_len: 99
+          bins: 100
         dischtime: datetime|day.hour:admittime
         deathtime: datetime?|day.hour:admittime
         admission_type: categorical
@@ -46,9 +53,20 @@ mimic_tab_admissions:
         hadm_id: id
 
         birth_year: fixed|date
-        dod: date?:birth_year
+        dod:
+          type: date
+          span: year
+          ref: birth_year
+          nullable: True
+          max_len: 99
+          bins: 32
 
-        admittime: datetime|year.hour:birth_year
+        admittime:
+          type: datetime
+          span: year.hour
+          ref: birth_year
+          max_len: 99
+          bins: 32
         dischtime: datetime|day.hour:admittime
         deathtime: datetime?|day.hour:admittime
 
