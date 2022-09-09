@@ -141,13 +141,24 @@ def greedy_bayes(
         s[x] = h
         return tuple(s)
 
-    def maximal_parents(V: tuple[int], tau: float, pgroups=set()) -> list[tuple[int]]:
+    def maximal_parents(
+        V: tuple[int], tau: float, P: dict[int, dict[int, int]] = {}
+    ) -> list[tuple[int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
         attribute that can be indexed in a higher level"""
 
-        if tau < 1:
+        # Calculate domain manually to correct it
+        dom = 1
+        for g, a in P.items():
+            l_dom = 1
+            for x, h in a.items():
+                cmn = common[x]  # same for x of a
+                l_dom *= domain[x][h] - cmn
+            dom *= l_dom + cmn
+
+        if tau / dom < 1:
             return []
         if not V:
             return [empty_pset]
@@ -158,22 +169,22 @@ def greedy_bayes(
         S = []
         U = set()
 
-        for h in range(heights[x]):
-            dom = domain[x][h]
-            g = groups[x]
-            if g in pgroups:
-                dom -= common[x]
-                pgroups_with_x = pgroups
-            else:
-                pgroups_with_x = pgroups.copy()
-                pgroups_with_x.add(g)
+        # Create copy of P for the version with x that has
+        # a dict for x's group. Avoid deep copying
+        P_x = P.copy()
+        g = groups[x]
+        gx = P.get(g, {}).copy()
+        P_x[g] = gx
 
-            for z in maximal_parents(V, tau / dom, pgroups_with_x):
+        for h in range(heights[x]):
+            # Only changes local copy
+            P_x[g][x] = h
+            for z in maximal_parents(V, tau, P_x):
                 if z not in U:
                     U.add(z)
                     S.append(add_to_pset(z, x, h))
 
-        for z in maximal_parents(V, tau, pgroups):
+        for z in maximal_parents(V, tau, P):
             if z not in U:
                 S.append(z)
 
@@ -414,15 +425,17 @@ def calc_noisy_marginals(
 
         mul = 1
         for attr in reversed(p.values()):
+            common = attr.common
+            l_mul = 1
             for i, (n, h) in enumerate(attr.cols.items()):
-                common = attr.common
                 if i == 0 or common == 0:
-                    np.multiply(cols[n][h], mul, out=_tmp_nd)
+                    np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
                 else:
-                    np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd)
+                    np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
 
                 np.add(_sum_nd, _tmp_nd, out=_sum_nd)
-                mul *= domains[n][h] - (common if i > 0 else 0)
+                l_mul *= domains[n][h] - common
+            mul *= l_mul + common
 
         np.multiply(cols[x][0], mul, out=_tmp_nd)
         np.add(_sum_nd, _tmp_nd, out=_sum_nd)

@@ -94,11 +94,15 @@ def calc_marginal(
     # Find integer dtype based on domain
     p_dom = 1
     for attr in p.values():
+        common = attr.common
+        l_dom = 1
         for i, (n, h) in enumerate(attr.cols.items()):
-            p_dom *= domains[n][h] - (attr.common if i > 0 else 0)
+            l_dom *= domains[n][h] - common
+        p_dom *= l_dom + common
     x_dom = 1
     for i, (n, h) in enumerate(x.cols.items()):
-        x_dom *= domains[n][h] - (attr.common if i > 0 else 0)
+        x_dom *= domains[n][h] - x.common
+    x_dom += x.common
 
     dtype = get_dtype(p_dom * x_dom)
 
@@ -108,15 +112,17 @@ def calc_marginal(
 
     mul = 1
     for attr in reversed(xp):
+        common = attr.common
+        l_mul = 1
         for i, (n, h) in enumerate(attr.cols.items()):
-            common = attr.common
-            if i == 0 or common == 0:
-                np.multiply(cols[n][h], mul, out=_tmp_nd)
+            if common == 0 or i == 0:
+                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
             else:
-                np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd)
+                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
 
             np.add(_sum_nd, _tmp_nd, out=_sum_nd)
-            mul *= domains[n][h] - (common if i > 0 else 0)
+            l_mul *= domains[n][h] - common
+        mul *= l_mul + common
 
     counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
     margin = counts.reshape(x_dom, p_dom).astype("float32")
@@ -145,8 +151,11 @@ def calc_marginal_1way(
     # Find integer dtype based on domain
     dom = 1
     for attr in x.values():
+        common = attr.common
+        l_dom = 1
         for i, (n, h) in enumerate(attr.cols.items()):
-            dom *= domains[n][h] - (attr.common if i > 0 else 0)
+            l_dom *= domains[n][h] - common
+        dom *= l_dom + common
     dtype = get_dtype(dom)
 
     n = len(next(iter(cols.values()))[0])
@@ -155,15 +164,17 @@ def calc_marginal_1way(
 
     mul = 1
     for attr in reversed(x.values()):
+        common = attr.common
+        l_mul = 1
         for i, (n, h) in enumerate(attr.cols.items()):
-            common = attr.common
-            if i == 0 or common == 0:
-                np.multiply(cols[n][h], mul, out=_tmp_nd)
+            if common == 0 or i == 0:
+                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd)
             else:
-                np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd)
+                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd)
 
             np.add(_sum_nd, _tmp_nd, out=_sum_nd)
-            mul *= domains[n][h] - (common if i > 0 else 0)
+            l_mul *= domains[n][h] - common
+        mul *= l_mul + common
 
     counts = np.bincount(_sum_nd, minlength=dom)
     margin = counts.astype("float32")
