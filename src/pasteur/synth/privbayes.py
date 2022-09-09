@@ -409,8 +409,11 @@ def calc_noisy_marginals(
         # Find integer dtype based on domain
         p_dom = 1
         for attr in p.values():
+            l_dom = 1
+            common = attr.common
             for i, (n, h) in enumerate(attr.cols.items()):
-                p_dom *= domains[n][h] - (attr.common if i > 0 else 0)
+                l_dom *= domains[n][h] - common
+            p_dom *= l_dom + common
 
         dtype = get_dtype(p_dom * x_dom)
         n, d = table.shape
