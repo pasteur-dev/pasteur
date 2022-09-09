@@ -37,9 +37,17 @@ def sens_mutual_info(n: int):
     return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
 
 
-def calc_mutual_info(j_mar: np.ndarray, x_mar: np.ndarray, p_mar: np.ndarray):
+def calc_mutual_info(
+    cols: dict[str, list[np.ndarray]],
+    cols_noncommon: dict[str, list[np.ndarray]],
+    domains: dict[str, list[int]],
+    x: AttrSelector,
+    p: AttrSelectors,
+):
     """Calculates mutual information I(X,P) for the provided data using log2."""
-    return np.sum(j_mar * np.log2(j_mar / np.outer(x_mar, p_mar)))
+    j_mar, x_mar, p_mar = calc_marginal(cols, cols_noncommon, domains, x, p, ZERO_FILL)
+    mi = np.sum(j_mar * np.log2(j_mar / (np.outer(x_mar, p_mar) + ZERO_FILL)))
+    return mi
 
 
 def sens_r_function(n: int):
@@ -47,15 +55,28 @@ def sens_r_function(n: int):
     return 3 / n + 2 / (n**2)
 
 
-def calc_r_function(j_mar: np.ndarray, x_mar: np.ndarray, p_mar: np.ndarray):
+def calc_r_function(
+    cols: dict[str, list[np.ndarray]],
+    cols_noncommon: dict[str, list[np.ndarray]],
+    domains: dict[str, list[int]],
+    x: AttrSelector,
+    p: AttrSelectors,
+):
     """Calculates the R(X,P) function for the provided data."""
+    j_mar, x_mar, p_mar = calc_marginal(cols, cols_noncommon, domains, x, p)
     r = np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
     return r
 
 
-def calc_entropy(mar: np.ndarray):
+def calc_entropy(
+    cols: dict[str, list[np.ndarray]],
+    cols_noncommon: dict[str, list[np.ndarray]],
+    domains: dict[str, list[int]],
+    x: AttrSelectors,
+):
     """Calculates the entropy for the provided data."""
     # TODO: check this is correct using scipy
+    mar = calc_marginal_1way(cols, cols_noncommon, domains, x, ZERO_FILL)
     ent = -np.sum(mar * np.log2(mar))
     return ent
 
@@ -106,7 +127,7 @@ def greedy_bayes(
             common.append(a.common)
             domains.append([c.get_domain(h) for h in range(c.height)])
 
-    empty_pset = tuple(-1 for _ in range(n))
+    empty_pset = tuple(-1 for _ in range(d))
 
     def add_to_pset(s, x, h):
         s = list(s)
@@ -201,7 +222,7 @@ def greedy_bayes(
             to_be_processed.append({"x": x_attr, "p": p_attrs})
 
         # Process new ones
-        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domain": domain}
+        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domains": domain}
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
         new_scores = process_in_parallel(
@@ -246,6 +267,7 @@ def greedy_bayes(
     #
     # Implement greedy bayes (as shown in the paper)
     #
+    n, d = table.shape
     if random_init:
         x1 = np.random.randint(d)
     else:
@@ -254,9 +276,10 @@ def greedy_bayes(
         # to a bad network.
         vals = [
             calc_entropy(
-                calc_marginal_1way(
-                    cols, cols_noncommon, domains, AttrSelector(0, {x: 0})
-                )
+                cols,
+                cols_noncommon,
+                domain,
+                [AttrSelector(0, {col_names[x]: 0})],
             )
             for x in range(d)
         ]
@@ -272,7 +295,7 @@ def greedy_bayes(
         else:
             x1 = np.random.choice(range(d), size=1, p=p)[0]
 
-    A = [a for a in range(range(d)) if a != x1]
+    A = [a for a in range(d) if a != x1]
     t = (n * e2) / (2 * d * theta)
 
     # Allow for "unbounded" privacy budget without destroying the computer.
@@ -291,7 +314,7 @@ def greedy_bayes(
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
-            psets = maximal_parents(V, t / domains[x][0])
+            psets = maximal_parents(V, t / domains[x][0], _pgroups={groups[x]})
             for pset in psets:
                 O.append((x, pset))
             if not psets:
