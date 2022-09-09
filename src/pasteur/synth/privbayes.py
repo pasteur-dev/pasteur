@@ -1,3 +1,4 @@
+from cmath import isnan
 import logging
 from functools import reduce
 from itertools import chain
@@ -153,12 +154,13 @@ def greedy_bayes(
         dom = 1
         for g, a in P.items():
             l_dom = 1
+            cmn = 0
             for x, h in a.items():
                 cmn = common[x]  # same for x of a
                 l_dom *= domain[x][h] - cmn
             dom *= l_dom + cmn
 
-        if tau / dom < 1:
+        if tau < dom:
             return []
         if not V:
             return [empty_pset]
@@ -451,58 +453,56 @@ def calc_noisy_marginals(
     return marginals
 
 
-def sample_rows(nodes: list[Node], marginals: np.array, n: int) -> pd.DataFrame:
+def sample_rows(
+    attrs: Attributes, nodes: list[Node], marginals: np.array, n: int
+) -> pd.DataFrame:
     dtype = "uint32"
     out = pd.DataFrame(dtype=dtype)
 
-    for (x, p), marginal in zip(nodes, marginals):
-        x_cols = x.cols[: len(x.cols) - x.h]
-        p_cols = list(chain.from_iterable(a.cols[: len(a.cols) - a.h] for a in p))
-
-        domain = {name: marginal.shape[i] for i, name in enumerate(p_cols + x_cols)}
-        domain_p = np.product(marginal.shape[: len(p_cols)])
-        domain_x = np.product(marginal.shape[-len(x_cols) :])
-
-        # Create lookup tables where for each column there's
-        # idx -> val, where idx in (0, domain_x)
-        nums = np.arange(domain_x)
-        luts = {}
-        for name in reversed(x_cols):
-            luts[name] = nums % domain[name]
-            nums //= domain[name]
-
+    # FIXME: Handle common dependencies when sampling
+    for (x_attr, x, x_domain, p), marginal in zip(nodes, marginals):
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
             m = marginal.reshape(-1)
-            idx = np.random.choice(domain_x, size=n, p=m)
+            out_col = np.random.choice(x_domain, size=n, p=m)
         else:
             # Use conditional probability
-            m = marginal.reshape((domain_p, domain_x))
-            m = m / m.sum(axis=1, keepdims=True)
+            m = marginal
+            m = m / m.sum(axis=0, keepdims=True)
 
-            # Some marginal groups were never sampled in the original data
-            # However, noise from DP might lead to some of them being sampled
-            # Store those groups and sample them uniformly when that happens.
-            blacklist = np.any(np.isnan(m), axis=1)
+            # Get groups for marginal
+            mul = 1
+            _sum_nd = np.zeros((n,), dtype=dtype)
+            _tmp_nd = np.zeros((n,), dtype=dtype)
+            for attr_name, attr in reversed(p.items()):
+                common = attr.common
+                l_mul = 1
+                for i, (col_name, h) in enumerate(attr.cols.items()):
+                    col = attrs[attr_name].cols[col_name]
+                    mapping = np.array(col.lvl.get_mapping(h), dtype=dtype)
+                    domain = col.get_domain(h)
 
-            p_idx = np.zeros(n, dtype=dtype)
-            for name in p_cols:
-                p_idx *= np.uint16(domain[name])
-                p_idx += out[name].to_numpy(dtype=dtype)
+                    col_lvl = mapping[out[col_name]]
+                    if common != 0 and i != 0:
+                        col_lvl = np.where(col_lvl > common, col_lvl - common, 0)
+                    np.multiply(col_lvl, mul * l_mul, out=_tmp_nd)
+                    np.add(_sum_nd, _tmp_nd, out=_sum_nd)
+                    l_mul *= domain - common
+                mul *= l_mul + common
 
-            # Apply conditional probability by group
-            # groups are proportional to dom(P) = vectorized
-            idx = np.empty(len(p_idx), dtype=dtype)
-            for group in np.unique(p_idx):
-                size = np.sum(p_idx == group)
-                idx[p_idx == group] = np.random.choice(
-                    domain_x, size=size, p=m[group, :] if not blacklist[group] else None
-                )
+            out_col = np.zeros((n,), dtype=dtype)
+            groups = _sum_nd
+            for group in np.unique(groups):
+                size = np.sum(groups == group)
+                p = m[:, group]
+                # FIXME: find sampling strategy for this
+                if np.any(np.isnan(p)):
+                    continue
+                out_col[groups == group] = np.random.choice(x_domain, size=size, p=p)
 
-        # Place columns in Dataframe using luts
-        for name in x_cols:
-            out[name] = luts[name][idx]
+        # Output column
+        out[x] = out_col
 
     return out
 
@@ -578,7 +578,7 @@ class PrivBayesSynth(Synth):
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         data = {
             self.table_name: sample_rows(
-                self.nodes, self.marginals, self.n if n is None else n
+                self.attrs, self.nodes, self.marginals, self.n if n is None else n
             )
         }
         ids = {self.table_name: pd.DataFrame()}
