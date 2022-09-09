@@ -83,9 +83,7 @@ def greedy_bayes(
 
     Binary domains are not supported due to computational intractability."""
 
-    cols, cols_noncommon, domain = expand_table(attrs, table)
     n, d = table.shape
-
     n_chosen = 1 if random_init else 0
     calc_fun = calc_r_function if use_r else calc_mutual_info
     sens_fun = sens_r_function if use_r else sens_mutual_info
@@ -95,32 +93,59 @@ def greedy_bayes(
     # (recursive implementation is a bit slow)
     # (wrapped in a closure due to fancy syntactic sugar lambdas)
     #
+    col_names = []
+    groups = []
+    heights = []
+    common = []
+    domains = []
+    for i, a in enumerate(attrs.values()):
+        for n, c in a.cols.items():
+            col_names.append(n)
+            groups.append(i)
+            heights.append(c.lvl.height)
+            common.append(a.common)
+            domains.append([c.get_domain(h) for h in range(c.height)])
 
-    def maximal_parent_sets(
-        V: list[IdxColumn], t: float
-    ) -> list[tuple[str, AttrSelectors]]:
+    empty_pset = tuple(-1 for _ in range(n))
+
+    def add_to_pset(s, x, h):
+        s = list(s)
+        s[x] = h
+        return tuple(s)
+
+    def maximal_parents(V: tuple[int], tau: float, _pgroups=set()) -> list[tuple[int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
         attribute that can be indexed in a higher level"""
 
-        if t < 1:
+        if tau < 1:
             return []
         if not V:
-            return [[]]
+            return [empty_pset]
+
+        x = V[0]
+        V = V[1:]
 
         S = []
         U = set()
-        x = V[0]
-        for h in range(x.height):
-            for z in maximal_parent_sets(V[1:], t / x.get_domain(h)):
-                if z in U:
-                    continue
 
-                U.add(z)
-                S.append(add_to_pset(z, x, h))
+        for h in range(heights[x]):
+            dom = domains[x][h]
+            g = groups[x]
+            if g in _pgroups:
+                dom -= common[x]
+                _pgroups_with_x = _pgroups
+            else:
+                _pgroups_with_x = _pgroups.copy()
+                _pgroups_with_x.add(g)
 
-        for z in maximal_parent_sets(V[1:], t):
+            for z in maximal_parents(V, tau / dom, _pgroups_with_x):
+                if z not in U:
+                    U.add(z)
+                    S.append(add_to_pset(z, x, h))
+
+        for z in maximal_parents(V, tau, _pgroups):
             if z not in U:
                 S.append(z)
 
@@ -129,6 +154,7 @@ def greedy_bayes(
     #
     # Implement misc functions for summating the scores
     #
+    cols, cols_noncommon, domain = expand_table(attrs, table)
     score_cache = {}
 
     def calc_candidate_scores(candidates: list[tuple[int, tuple[int]]]):
@@ -148,18 +174,34 @@ def greedy_bayes(
 
             x, pset = candidate
 
-            x_cols = attr[x]
-            p_cols = []
+            # Create selector for x
+            x_attr = AttrSelector(common[x], {col_names[x]: 0})
+
+            # Create selectors for parents by first merging into attribute groups
+            p_groups: dict[int, dict[int, int]] = {}
             for p, h in enumerate(pset):
                 if h == -1:
                     continue
 
-                p_cols.extend(attr[p][: height(p) - h])
+                g = groups[p]
+                if g in p_groups:
+                    p_groups[g][p] = h
+                else:
+                    p_groups[g] = {p: h}
 
-            to_be_processed.append({"x": x_cols, "p": p_cols})
+            p_attrs: AttrSelectors = []
+            for g in p_groups.values():
+                cmn = common[next(iter(g))]
+                p_attrs.append(
+                    AttrSelector(
+                        common=cmn, cols={col_names[p]: h for p, h in g.items()}
+                    )
+                )
+
+            to_be_processed.append({"x": x_attr, "p": p_attrs})
 
         # Process new ones
-        base_args = {"domain": domain, "data": data}
+        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domain": domain}
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
         new_scores = process_in_parallel(
@@ -205,12 +247,19 @@ def greedy_bayes(
     # Implement greedy bayes (as shown in the paper)
     #
     if random_init:
-        x1 = np.random.randint(len(attr))
+        x1 = np.random.randint(d)
     else:
         # Pick x1 based on entropy
         # consumes some privacy budget, but starting with a bad choice can lead
         # to a bad network.
-        vals = [calc_entropy(data, domain, x) for x in attr]
+        vals = [
+            calc_entropy(
+                calc_marginal_1way(
+                    cols, cols_noncommon, domains, AttrSelector(0, {x: 0})
+                )
+            )
+            for x in range(d)
+        ]
         vals = np.array(vals)
         vals -= vals.max()
 
@@ -221,9 +270,9 @@ def greedy_bayes(
         if e1 > MAX_EPSILON:
             x1 = np.argmax(p)
         else:
-            x1 = np.random.choice(len(attr), size=1, p=p)[0]
+            x1 = np.random.choice(range(d), size=1, p=p)[0]
 
-    A = [a for a in range(0, len(attr)) if a != x1]
+    A = [a for a in range(range(d)) if a != x1]
     t = (n * e2) / (2 * d * theta)
 
     # Allow for "unbounded" privacy budget without destroying the computer.
@@ -242,7 +291,7 @@ def greedy_bayes(
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
-            psets = maximal_parent_sets(V, t / dom(x, 0))
+            psets = maximal_parents(V, t / domains[x][0])
             for pset in psets:
                 O.append((x, pset))
             if not psets:
@@ -253,9 +302,7 @@ def greedy_bayes(
         A.remove(node[0])
         N.append(node)
 
-    domain = [dom(x, 0) for x in range(len(attr))]
-
-    return N, domain, t
+    return N, t
 
 
 def print_tree(
