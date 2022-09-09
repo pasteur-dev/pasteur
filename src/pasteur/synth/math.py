@@ -8,6 +8,14 @@ import pandas as pd
 from ..transform import Attribute, Attributes, get_dtype
 
 
+class AttrSelector(NamedTuple):
+    common: int
+    cols: dict[str, int]
+
+
+AttrSelectors = list[AttrSelector]
+
+
 def expand_table(
     attrs: Attributes, table: pd.DataFrame
 ) -> tuple[
@@ -71,14 +79,6 @@ def expand_table(
     return cols, cols_noncommon, domains
 
 
-class AttrSelector(NamedTuple):
-    common: int
-    cols: dict[str, int]
-
-
-AttrSelectors = list[AttrSelector]
-
-
 def calc_marginal(
     cols: dict[str, list[np.ndarray]],
     cols_noncommon: dict[str, list[np.ndarray]],
@@ -133,13 +133,6 @@ def calc_marginal(
     return j_mar, x_mar, p_mar
 
 
-x = AttrSelector(1, {"dod_year": 0, "dod_day": 1})
-p = [
-    AttrSelector(1, {"deathtime_year": 0, "deathtime_week": 1}),
-    AttrSelector(0, {"admission_type": 0}),
-]
-
-
 def calc_marginal_1way(
     cols: dict[str, list[np.ndarray]],
     cols_noncommon: dict[str, list[np.ndarray]],
@@ -151,7 +144,7 @@ def calc_marginal_1way(
 
     # Find integer dtype based on domain
     dom = 1
-    for attr in p:
+    for attr in x:
         for i, (n, h) in enumerate(attr.cols.items()):
             dom *= domains[n][h] - (attr.common if i > 0 else 0)
     dtype = get_dtype(dom)

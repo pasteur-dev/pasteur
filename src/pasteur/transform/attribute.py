@@ -188,6 +188,16 @@ class IdxColumn:
     def __repr__(self) -> str:
         return "Idx" + repr(self.lvl)
 
+    def get_domain(self, height: int):
+        return self.lvl.get_domain(height)
+
+    def get_mapping(self, height: int):
+        return self.lvl.get_mapping(height)
+
+    @property
+    def height(self):
+        return self.lvl.height
+
 
 class CatColumn(IdxColumn):
     def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):

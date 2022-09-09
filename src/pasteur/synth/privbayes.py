@@ -6,12 +6,18 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from pasteur.transform.attribute import Attributes
+from pasteur.transform.attribute import IdxColumn
 
 from ..progress import piter, prange, process_in_parallel
-from ..transform import Attribute
-from .math import calc_marginal, calc_marginal_1way
+from ..transform import Attribute, Attributes
 from .base import Synth, make_deterministic
+from .math import (
+    AttrSelector,
+    AttrSelectors,
+    calc_marginal,
+    calc_marginal_1way,
+    expand_table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +27,8 @@ ZERO_FILL = 1e-24
 
 
 class Node(NamedTuple):
-    x: Attribute = None
-    p: list[Attribute] = []
+    x: AttrSelector
+    p: AttrSelectors
 
 
 def sens_mutual_info(n: int):
@@ -31,10 +37,8 @@ def sens_mutual_info(n: int):
     return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
 
 
-def calc_mutual_info(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[int]):
+def calc_mutual_info(j_mar: np.ndarray, x_mar: np.ndarray, p_mar: np.ndarray):
     """Calculates mutual information I(X,P) for the provided data using log2."""
-
-    j_mar, x_mar, p_mar = calc_marginal(data, domain, x, p, ZERO_FILL)
     return np.sum(j_mar * np.log2(j_mar / np.outer(x_mar, p_mar)))
 
 
@@ -43,18 +47,15 @@ def sens_r_function(n: int):
     return 3 / n + 2 / (n**2)
 
 
-def calc_r_function(data: np.ndarray, domain: np.ndarray, x: list[int], p: list[int]):
+def calc_r_function(j_mar: np.ndarray, x_mar: np.ndarray, p_mar: np.ndarray):
     """Calculates the R(X,P) function for the provided data."""
-
-    j_mar, x_mar, p_mar = calc_marginal(data, domain, x, p)
     r = np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
     return r
 
 
-def calc_entropy(data: np.ndarray, domain: np.ndarray, x: list[int]):
+def calc_entropy(mar: np.ndarray):
     """Calculates the entropy for the provided data."""
     # TODO: check this is correct using scipy
-    mar = calc_marginal_1way(data, domain, x, ZERO_FILL)
     ent = -np.sum(mar * np.log2(mar))
     return ent
 
@@ -66,7 +67,7 @@ def sens_entropy(n: int):
 
 
 def greedy_bayes(
-    data: pd.DataFrame,
+    table: pd.DataFrame,
     attrs: Attributes,
     e1: float,
     e2: float,
@@ -82,23 +83,10 @@ def greedy_bayes(
 
     Binary domains are not supported due to computational intractability."""
 
-    # Keep string names based on their index on a list.
-    cols = list(data.columns)
-    attr = []
-    has_na = []
-    for a in attr_str.values():
-        has_na.append(a.has_na)
-        attr.append([cols.index(col) for col in a.cols])
+    cols, cols_noncommon, domain = expand_table(attrs, table)
+    n, d = table.shape
 
-    # 30k is a sweet spot for categorical variables
-    # Dropping pandas for a 5x in speed when calculating marginals
-    data = data.to_numpy(dtype="uint32")
-    domain = data.max(axis=0) + 1
-
-    n = len(data)
-    d = len(attr)
     n_chosen = 1 if random_init else 0
-
     calc_fun = calc_r_function if use_r else calc_mutual_info
     sens_fun = sens_r_function if use_r else sens_mutual_info
 
@@ -108,34 +96,9 @@ def greedy_bayes(
     # (wrapped in a closure due to fancy syntactic sugar lambdas)
     #
 
-    # Returns the height of a hierarchical attribute
-    height = lambda a: len(attr[a])
-
-    # Returns the domain of a hierarchical attribute at height h (h=0 is max)
-    # TODO: check NA check is correct
-    # Dom of a value is the product of its columns
-    dom_no_na = lambda a, h: reduce(
-        lambda k, l: k * l, [domain[c] for c in attr[a][: height(a) - h]], 1
-    )
-    # If theres an NA column it will be the first one, so it's skipped and 1 is added.
-    dom_has_na = (
-        lambda a, h: reduce(
-            lambda k, l: k * l, [domain[c] for c in attr[a][1 : height(a) - h]], 1
-        )
-        + 1
-    )
-    # The only place to correct for an NA hierarchical value in the value function is here
-    # Mutual information function should stay the same, the invalid values that have 0
-    # don't affect entropy. Other than that, not adding noise to invalid marginals
-    dom = lambda a, h: dom_has_na(a, h) if has_na[a] else dom_no_na(a, h)
-
-    # Sets are tuples that contain the height of each attribute in them, or -1
-    # if the attribute is not in them
-    # create_pset = lambda a, h: tuple(h if i == a else -1 for i in range(len(attr)))
-    add_to_pset = lambda z, a, h: tuple(h if i == a else c for i, c in enumerate(z))
-    empty_pset = tuple(-1 for _ in range(len(attr)))
-
-    def maximal_parent_sets(V: list[int], t: float) -> list[tuple[int, int]]:
+    def maximal_parent_sets(
+        V: list[IdxColumn], t: float
+    ) -> list[tuple[str, AttrSelectors]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
@@ -144,13 +107,13 @@ def greedy_bayes(
         if t < 1:
             return []
         if not V:
-            return [empty_pset]
+            return [[]]
 
         S = []
         U = set()
         x = V[0]
-        for h in range(height(x)):
-            for z in maximal_parent_sets(V[1:], t / dom(x, h)):
+        for h in range(x.height):
+            for z in maximal_parent_sets(V[1:], t / x.get_domain(h)):
                 if z in U:
                     continue
 
