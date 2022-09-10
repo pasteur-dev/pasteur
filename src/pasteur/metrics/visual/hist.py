@@ -196,6 +196,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         span: np.ndarray | None = None
         weeks: np.ndarray | None = None
         days: np.ndarray | None = None
+        na: np.ndarray | None = None
 
     def fit(self, data: pd.Series, ref: pd.Series | None = None):
         if "main_param" in self.meta.args:
@@ -250,6 +251,7 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
         self.bins = np.histogram_bin_edges(
             segs, bins=self.bin_n, range=(0, self.max_len)
         )
+        self.nullable = self.meta.args.get("nullable", False)
 
     def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
         assert self.ref is not None or ref is not None
@@ -261,7 +263,8 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             data = data[mask]
             rf_dt = ref[mask].dt
         else:
-            data = data[~pd.isna(data)]
+            mask = ~pd.isna(data)
+            data = data[mask]
             rf_dt = self.ref
 
         iso = data.dt.isocalendar()
@@ -303,7 +306,13 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             .to_numpy()
         )
         days = days.value_counts().reindex(range(7), fill_value=0).to_numpy()
-        return self.DateData(span, weeks, days)
+
+        na = None
+        if self.nullable:
+            non_na_rate = np.sum(mask) / len(mask)
+            na = np.array([non_na_rate, 1 - non_na_rate])
+
+        return self.DateData(span, weeks, days, na)
 
     def _viz_days(self, data: dict[str, DateData]):
         return _gen_bar(
@@ -340,13 +349,24 @@ class DateHist(BaseRefHist["DateHist.DateData"]):
             {n: d.span for n, d in data.items()},
         )
 
+    def _viz_na(self, data: dict[str, DateData]):
+        return _gen_bar(
+            self.meta,
+            f"{self.col.capitalize()} NA",
+            ["Val", "NA"],
+            {n: d.na for n, d in data.items()},
+        )
+
     def visualise(self, data: dict[str, DateData]) -> dict[str, Figure] | Figure:
         s = self.span
-        return {
+        charts = {
             f"n{s}s": self._viz_binned(data),
             "weeks": self._viz_weeks(data),
             "days": self._viz_days(data),
         }
+        if self.nullable:
+            charts["na"] = self._viz_na(data)
+        return charts
 
 
 class TimeHist(BaseHist["TimeHist.TimeData"]):

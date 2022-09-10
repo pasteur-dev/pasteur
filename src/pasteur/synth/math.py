@@ -85,11 +85,11 @@ def calc_marginal(
     domains: dict[str, list[int]],
     x: AttrSelector,
     p: AttrSelectors,
+    partial: bool = False,
     zero_fill: float | None = None,
 ):
     """Calculates the 1 way and 2 way marginals between the subsection of the
     hierarchical attribute x and the attributes p(arents)."""
-    xp = [x] + list(p.values())
 
     # Find integer dtype based on domain
     p_dom = 1
@@ -110,8 +110,9 @@ def calc_marginal(
     _sum_nd = np.zeros((n,), dtype=dtype)
     _tmp_nd = np.zeros((n,), dtype=dtype)
 
+    # Handle parents
     mul = 1
-    for attr in reversed(xp):
+    for attr in p.values():
         common = attr.common
         l_mul = 1
         for i, (n, h) in enumerate(attr.cols.items()):
@@ -123,6 +124,23 @@ def calc_marginal(
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
         mul *= l_mul + common
+
+    # Handle x
+    common = x.common
+    for i, (n, h) in enumerate(x.cols.items()):
+        if common == 0 or (i == 0 and not partial):
+            np.multiply(cols[n][h], mul, out=_tmp_nd, dtype=dtype)
+        else:
+            np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd, dtype=dtype)
+
+        np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+        mul *= domains[n][h] - common
+
+    # Keep only non-common items if there is a parent to source the others
+    if partial:
+        n = next(iter(x.cols))
+        _sum_nd = _sum_nd[cols[n][0] >= common]
+        x_dom = x_dom - x.common
 
     counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
     margin = counts.reshape(x_dom, p_dom).astype("float32")

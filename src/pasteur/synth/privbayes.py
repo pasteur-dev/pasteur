@@ -38,15 +38,9 @@ def sens_mutual_info(n: int):
     return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
 
 
-def calc_mutual_info(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
-    x: AttrSelector,
-    p: AttrSelectors,
-):
+def calc_mutual_info(*args, **kwargs):
     """Calculates mutual information I(X,P) for the provided data using log2."""
-    j_mar, x_mar, p_mar = calc_marginal(cols, cols_noncommon, domains, x, p, ZERO_FILL)
+    j_mar, x_mar, p_mar = calc_marginal(*args, **kwargs, zero_fill=ZERO_FILL)
     mi = np.sum(j_mar * np.log2(j_mar / (np.outer(x_mar, p_mar) + ZERO_FILL)))
     return mi
 
@@ -56,15 +50,9 @@ def sens_r_function(n: int):
     return 3 / n + 2 / (n**2)
 
 
-def calc_r_function(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
-    x: AttrSelector,
-    p: AttrSelectors,
-):
+def calc_r_function(*args, **kwargs):
     """Calculates the R(X,P) function for the provided data."""
-    j_mar, x_mar, p_mar = calc_marginal(cols, cols_noncommon, domains, x, p)
+    j_mar, x_mar, p_mar = calc_marginal(*args, **kwargs)
     r = np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
     return r
 
@@ -214,7 +202,9 @@ def greedy_bayes(
 
         return p_attrs
 
-    def calc_candidate_scores(candidates: list[tuple[int, tuple[int]]]):
+    def calc_candidate_scores(
+        candidates: list[tuple[int, tuple[int]]], parents: list[int]
+    ):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
 
@@ -236,13 +226,23 @@ def greedy_bayes(
 
             # Create selectors for parents by first merging into attribute groups
             p_attrs = pset_to_attr_sel(pset)
-            to_be_processed.append({"x": x_attr, "p": p_attrs})
+
+            # Find parent and if there is one use partial marginal in mutual info fun
+            group = groups[x]
+            partial = False
+            for p in parents:
+                if group == groups[p]:
+                    partial = True
+                    break
+
+            to_be_processed.append({"x": x_attr, "p": p_attrs, "partial": partial})
 
         # Process new ones
         base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domains": domains}
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
         new_scores = process_in_parallel(
+            # FIXME: handle partial marginals
             calc_fun,
             to_be_processed,
             base_args,
@@ -259,12 +259,12 @@ def greedy_bayes(
         return scores
 
     def pick_candidate(
-        candidates: list[tuple[int, tuple[int]]]
+        candidates: list[tuple[int, tuple[int]]], parents: list[int]
     ) -> tuple[int, tuple[int]]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
         candidates = list(candidates)
-        vals = np.array(calc_candidate_scores(candidates))
+        vals = np.array(calc_candidate_scores(candidates, parents))
 
         # If e1 is bigger than max_epsilon, assume it's infinite.
         if np.isinf(e1) or e1 > MAX_EPSILON:
@@ -333,13 +333,13 @@ def greedy_bayes(
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
-            psets = maximal_parents(V, t / domain[x][0])
+            psets = maximal_parents(V, t, {groups[x]: {x: 0}})
             for pset in psets:
                 O.append((x, pset))
             if not psets:
                 O.append((x, empty_pset))
 
-        node = pick_candidate(O)
+        node = pick_candidate(O, V)
         V.append(node[0])
         A.remove(node[0])
         N.append(node)
@@ -373,8 +373,17 @@ def print_tree(
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
-    for _, x, domain, p in nodes:
-        s += f"\n│{x:>20s} │ {domain:>3d} │ {t/domain:>8.2f} │"
+    used_attrs = set()
+    for x_attr, x, domain, p in nodes:
+        # Show * when using a reduced marginal + correct domain
+        common = attrs[x_attr].common
+        if x_attr in used_attrs and common:
+            dom = f"{domain-common:>3d}*"
+        else:
+            dom = f"{domain:>3d} "
+        used_attrs.add(x_attr)
+
+        s += f"\n│{x:>20s} │ {dom}│ {t/domain:>8.2f} │"
 
         line_str = ""
         for p_name, attr_sel in p.items():
@@ -405,7 +414,8 @@ def calc_noisy_marginals(
     cols, cols_noncommon, domains = expand_table(attrs, table)
 
     marginals = []
-    for _, x, x_dom, p in nodes:
+    used_attrs = set()
+    for x_attr, x, x_dom, p in nodes:
         # Find integer dtype based on domain
         p_dom = 1
         for attr in p.values():
@@ -436,8 +446,18 @@ def calc_noisy_marginals(
                 l_mul *= domains[n][h] - common
             mul *= l_mul + common
 
-        np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
-        np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+        # If one of the previous columns is from the same attribute
+        # take reduced marginal and source common values from it
+        # -> fixes NA probability and saves bandwidth
+        if x_attr in used_attrs and attrs[x_attr].common:
+            np.multiply(cols_noncommon[x][0], mul, out=_tmp_nd, dtype=dtype)
+            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+            _sum_nd = _sum_nd[cols[x][0] >= attrs[x_attr].common]
+            x_dom = x_dom - attrs[x_attr].common
+        else:
+            np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
+            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+        used_attrs.add(x_attr)
 
         counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
         margin = counts.reshape(x_dom, p_dom).astype("float32")
@@ -455,13 +475,18 @@ def sample_rows(
 ) -> pd.DataFrame:
     out = pd.DataFrame()
 
-    # FIXME: Handle common dependencies when sampling
+    attr_sampled_cols: dict[str, str] = {}
     for (x_attr, x, x_domain, p), marginal in zip(nodes, marginals):
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
             m = marginal.reshape(-1)
-            out_col = np.random.choice(x_domain, size=n, p=m)
+            common = attrs[x_attr].common if x_attr in attr_sampled_cols else 0
+            out_col = np.random.choice(x_domain - common, size=n, p=m) + common
+
+            if common:
+                col = out[attr_sampled_cols[x_attr]]
+                out_col[col < common] = col[col < common]
         else:
             # Use conditional probability
             m = marginal
@@ -491,16 +516,27 @@ def sample_rows(
             # Sample groups
             out_col = np.zeros((n,), dtype=get_dtype(x_domain))
             groups = _sum_nd
+            # Use reduced marginal if column has been sampled before
+            # if `common=0` behavior is identical
+            common = attrs[x_attr].common if x_attr in attr_sampled_cols else 0
             for group in np.unique(groups):
                 size = np.sum(groups == group)
                 p = m[:, group]
                 # FIXME: find sampling strategy for this
                 if np.any(np.isnan(p)):
                     continue
-                out_col[groups == group] = np.random.choice(x_domain, size=size, p=p)
+                out_col[groups == group] = (
+                    np.random.choice(x_domain - common, size=size, p=p) + common
+                )
+
+            # Pin common values to equal the parent
+            if common:
+                col = out[attr_sampled_cols[x_attr]]
+                out_col[col < common] = col[col < common]
 
         # Output column
         out[x] = out_col
+        attr_sampled_cols[x_attr] = x
 
     return out
 
