@@ -7,7 +7,7 @@ import logging
 from rich import get_console
 import sys
 from contextlib import contextmanager
-from os import cpu_count
+from os import cpu_count, environ
 from typing import Callable, TextIO, TypeVar
 
 import numpy as np
@@ -26,6 +26,9 @@ PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
 # Assumes a stripping github filter is used to remove the empty space (or time)
 # at the start
 PBAR_JUP_NCOLS = 135 + PBAR_OFFSET
+
+# Disable multiprocessing when debugging due to process launch debug overhead
+MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
 
 
 def is_jupyter() -> bool:  # pragma: no cover
@@ -97,8 +100,13 @@ def process_in_parallel(
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
     calls before exiting."""
-    if len(per_call_args) < 2 * min_chunk_size:
-        return calc_worker((fun, base_args, per_call_args))
+    if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
+        out = []
+        for op in piter(per_call_args, total=len(per_call_args), leave=False):
+            args = {**base_args, **op} if base_args else op
+            out.append(fun(**args))
+
+        return out
 
     chunk_n = min(cpu_count() * 5, len(per_call_args) // min_chunk_size)
     per_call_n = len(per_call_args) // chunk_n
