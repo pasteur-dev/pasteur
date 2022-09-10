@@ -519,6 +519,8 @@ def sample_rows(
             if common:
                 col = out[attr_sampled_cols[x_attr]]
                 out_col[col < common] = col[col < common]
+
+            out_col = out_col.astype(get_dtype(x_domain))
         else:
             # Use conditional probability
             m = marginal
