@@ -26,6 +26,7 @@ class Node(NamedTuple):
     attr: str
     col: str
     domain: int
+    partial: bool
     p: dict[str, AttrSelector]
 
 
@@ -343,11 +344,12 @@ def greedy_bayes(
         N.append(node)
 
     nodes = []
-    for x, _, pset in N:
+    for x, partial, pset in N:
         node = Node(
             attr=group_names[groups[x]],
             col=col_names[x],
             domain=domain[x][0],
+            partial=partial,
             p=pset_to_attr_sel(pset),
         )
         nodes.append(node)
@@ -371,15 +373,13 @@ def print_tree(
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Column Nodes':>20s} │ Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
-    used_attrs = set()
-    for x_attr, x, domain, p in nodes:
+    for x_attr, x, domain, partial, p in nodes:
         # Show * when using a reduced marginal + correct domain
         common = attrs[x_attr].common
-        if x_attr in used_attrs and common:
+        if partial and common:
             dom = f"{domain-common:>3d}*"
         else:
             dom = f"{domain:>3d} "
-        used_attrs.add(x_attr)
 
         # Print Line start
         s += f"\n│{x:>20s} │ {dom}│ {t/domain:>8.2f} │"
@@ -444,16 +444,19 @@ def calc_noisy_marginals(
     cols, cols_noncommon, domains = expand_table(attrs, table)
 
     marginals = []
-    used_attrs = set()
-    for x_attr, x, x_dom, p in nodes:
+    for x_attr, x, x_dom, partial, p in nodes:
         # Find integer dtype based on domain
         p_dom = 1
-        for attr in p.values():
+        for attr_name, attr in p.items():
             l_dom = 1
             common = attr.common
             for i, (n, h) in enumerate(attr.cols.items()):
                 l_dom *= domains[n][h] - common
-            p_dom *= l_dom + common
+
+            if partial and attr_name == x_attr:
+                p_dom *= l_dom
+            else:
+                p_dom *= l_dom + common
 
         dtype = get_dtype(p_dom * x_dom)
         n, d = table.shape
@@ -461,11 +464,12 @@ def calc_noisy_marginals(
         _tmp_nd = np.zeros((n,), dtype=dtype)
 
         mul = 1
-        for attr in p.values():
+        for attr_name, attr in p.items():
             common = attr.common
+            p_partial = partial and x_attr == attr_name
             l_mul = 1
             for i, (n, h) in enumerate(attr.cols.items()):
-                if i == 0 or common == 0:
+                if common == 0 or (i == 0 and not p_partial):
                     np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
                 else:
                     np.multiply(
@@ -474,12 +478,16 @@ def calc_noisy_marginals(
 
                 np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                 l_mul *= domains[n][h] - common
-            mul *= l_mul + common
+
+            if p_partial:
+                mul *= l_mul
+            else:
+                mul *= l_mul + common
 
         # If one of the previous columns is from the same attribute
         # take reduced marginal and source common values from it
         # -> fixes NA probability and saves bandwidth
-        if x_attr in used_attrs and attrs[x_attr].common:
+        if partial and attrs[x_attr].common:
             np.multiply(cols_noncommon[x][0], mul, out=_tmp_nd, dtype=dtype)
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             _sum_nd = _sum_nd[cols[x][0] >= attrs[x_attr].common]
@@ -487,7 +495,6 @@ def calc_noisy_marginals(
         else:
             np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-        used_attrs.add(x_attr)
 
         counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
         margin = counts.reshape(x_dom, p_dom).astype("float32")
@@ -506,7 +513,7 @@ def sample_rows(
     out = pd.DataFrame()
 
     attr_sampled_cols: dict[str, str] = {}
-    for (x_attr, x, x_domain, p), marginal in zip(nodes, marginals):
+    for (x_attr, x, x_domain, partial, p), marginal in zip(nodes, marginals):
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
@@ -532,18 +539,23 @@ def sample_rows(
             for attr_name, attr in p.items():
                 common = attr.common
                 l_mul = 1
+                p_partial = partial and attr_name == x_attr
                 for i, (col_name, h) in enumerate(attr.cols.items()):
                     col = attrs[attr_name].cols[col_name]
                     mapping = np.array(col.lvl.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 
                     col_lvl = mapping[out[col_name]]
-                    if common != 0 and i != 0:
+                    if common != 0 and (i != 0 or p_partial):
                         col_lvl = np.where(col_lvl > common, col_lvl - common, 0)
                     np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
                     np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                     l_mul *= domain - common
-                mul *= l_mul + common
+
+                if p_partial:
+                    mul *= l_mul
+                else:
+                    mul *= l_mul + common
 
             # Sample groups
             out_col = np.zeros((n,), dtype=get_dtype(x_domain))
