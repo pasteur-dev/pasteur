@@ -207,9 +207,7 @@ def greedy_bayes(
 
         return p_attrs
 
-    def calc_candidate_scores(
-        candidates: list[tuple[int, tuple[int]]], parents: list[int]
-    ):
+    def calc_candidate_scores(candidates: list[tuple[int, bool, tuple[int]]]):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
 
@@ -224,21 +222,13 @@ def greedy_bayes(
                 cached[i] = True
                 continue
 
-            x, pset = candidate
+            x, partial, pset = candidate
 
             # Create selector for x
             x_attr = AttrSelector(common[x], {col_names[x]: 0})
 
             # Create selectors for parents by first merging into attribute groups
             p_attrs = pset_to_attr_sel(pset)
-
-            # Find parent and if there is one use partial marginal in mutual info fun
-            group = groups[x]
-            partial = False
-            for p in parents:
-                if group == groups[p]:
-                    partial = True
-                    break
 
             to_be_processed.append({"x": x_attr, "p": p_attrs, "partial": partial})
 
@@ -264,12 +254,12 @@ def greedy_bayes(
         return scores
 
     def pick_candidate(
-        candidates: list[tuple[int, tuple[int]]], parents: list[int]
+        candidates: list[tuple[int, bool, tuple[int]]]
     ) -> tuple[int, tuple[int]]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
         candidates = list(candidates)
-        vals = np.array(calc_candidate_scores(candidates, parents))
+        vals = np.array(calc_candidate_scores(candidates))
 
         # If e1 is bigger than max_epsilon, assume it's infinite.
         if np.isinf(e1) or e1 > MAX_EPSILON:
@@ -332,25 +322,28 @@ def greedy_bayes(
         )
 
     V = [x1]
-    N = [(x1, empty_pset)]
+    V_groups = set()
+    N = [(x1, False, empty_pset)]
 
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
+            partial = groups[x] in V_groups
             psets = maximal_parents(V, t, {groups[x]: {x: 0}})
             for pset in psets:
-                O.append((x, pset))
+                O.append((x, partial, pset))
             if not psets:
-                O.append((x, empty_pset))
+                O.append((x, partial, empty_pset))
 
-        node = pick_candidate(O, V)
+        node = pick_candidate(O)
         V.append(node[0])
+        V_groups.add(groups[node[0]])
         A.remove(node[0])
         N.append(node)
 
     nodes = []
-    for x, pset in N:
+    for x, _, pset in N:
         node = Node(
             attr=group_names[groups[x]],
             col=col_names[x],
