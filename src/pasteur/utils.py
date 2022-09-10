@@ -126,15 +126,3 @@ def get_params_for_pipe(name: str, params: dict):
     the parameter namespace"""
     view = name.split(".")[0]
     return merge_dicts(params.get("default", {}), params.get(view, {}), params)
-
-
-def get_params_closure(fun: callable, view: str, *arguments: str):
-    def closure(params: dict, **kwargs):
-        meta = get_params_for_pipe(view, params)
-        meta_kwargs = {n: meta[n] for n in arguments}
-
-        ext_kwargs = {**meta_kwargs, **kwargs}
-        return fun(**ext_kwargs)
-
-    closure.__name__ = fun.__name__
-    return closure

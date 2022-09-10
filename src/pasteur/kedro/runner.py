@@ -13,11 +13,15 @@ from kedro.runner.runner import AbstractRunner, run_node
 from pluggy import PluginManager
 import logging
 
-from ..progress import piter, logging_redirect_pbar, is_jupyter
+from ..progress import (
+    MULTIPROCESS_ENABLE,
+    PBAR_MIN_PIPE_LEN,
+    piter,
+    logging_redirect_pbar,
+    is_jupyter,
+)
 
 logger = logging.getLogger(__name__)
-
-PROGRESS_BAR_MIN_PIPE_LEN = 9
 
 
 def simplify_logging():
@@ -53,7 +57,7 @@ def simplify_logging():
     return loggers
 
 
-class SimpleRunner(AbstractRunner):
+class SimpleSequentialRunner(AbstractRunner):
     """``SimpleRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
     loading bar. It also force enables async save of datasets.
     """
@@ -98,7 +102,7 @@ class SimpleRunner(AbstractRunner):
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
 
-        use_pbar = len(nodes) >= PROGRESS_BAR_MIN_PIPE_LEN and not is_jupyter()
+        use_pbar = len(nodes) >= PBAR_MIN_PIPE_LEN and not is_jupyter()
 
         with logging_redirect_pbar():
             desc = f"Executing pipeline {self.pipe_name}"
@@ -137,3 +141,11 @@ class SimpleRunner(AbstractRunner):
 
             if use_pbar and exec_index == len(nodes) - 1:
                 pbar.set_description(desc.replace("Executing", "Executed"))
+
+
+if MULTIPROCESS_ENABLE:
+    from .prunner import SimpleParallelRunner
+
+    SimpleRunner = SimpleParallelRunner
+else:
+    SimpleRunner = SimpleSequentialRunner

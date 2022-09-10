@@ -16,7 +16,7 @@ def _create_metadata(view: str, params: dict):
     return Metadata(meta_dict)
 
 
-def _check_tables(view: str, metadata: Metadata, **tables: dict[str, pd.DataFrame]):
+def _check_tables(metadata: Metadata, **tables: dict[str, pd.DataFrame]):
     metadata.check(tables)
 
 
@@ -33,7 +33,7 @@ def create_view_pipeline(view: View):
         ]
         + [
             node(
-                func=gen_closure(_check_tables, view.name, _fn="check_tables"),
+                func=gen_closure(_check_tables, _fn="check_tables"),
                 inputs={
                     "metadata": f"{view}.metadata",
                     **{t: f"{view}.view.{t}" for t in view.tables},

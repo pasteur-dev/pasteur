@@ -2,8 +2,7 @@ from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...dataset import Dataset
-from ...utils import get_params_closure
-from .utils import gen_closure
+from .utils import gen_closure, get_params_closure
 
 
 def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):

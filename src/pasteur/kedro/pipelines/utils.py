@@ -1,10 +1,17 @@
+from functools import partial
 from itertools import chain
-from typing import TypeVar
+from typing import Callable, TypeVar
+
+from ...utils import get_params_for_pipe
 
 A = TypeVar("A")
 
 
-def gen_closure(fun: callable, *args, _fn: str = None, **kwargs):
+def list_unique(*args: list[A]) -> list[A]:
+    return list(dict.fromkeys(chain(*args)))
+
+
+class gen_closure(partial):
     """Creates a closure for function `fun`, by passing the positional arguments
     provided in this function to `fun` before the ones given to the function and
     by passing the sum of named arguments given to both functions.
@@ -13,16 +20,26 @@ def gen_closure(fun: callable, *args, _fn: str = None, **kwargs):
     be renamed using the `_fn` parameter. If fn contains `%s`, it will be
     replaced with the function name"""
 
-    def closure(*args2, **kwargs2):
-        return fun(*args, *args2, **kwargs, **kwargs2)
+    def __new__(cls, func, /, *args, _fn: str | None = None, **keywords):
+        self = super().__new__(cls, func, *args, **keywords)
 
-    if _fn:
-        closure.__name__ = _fn.replace("%s", fun.__name__)
-    else:
-        closure.__name__ = fun.__name__
+        if _fn:
+            self.__name__ = _fn.replace("%s", func.__name__)
+        else:
+            self.__name__ = func.__name__
 
-    return closure
+        return self
 
 
-def list_unique(*args: list[A]) -> list[A]:
-    return list(dict.fromkeys(chain(*args)))
+def _params_closure(
+    fun: Callable, view: str, arguments: list[str], params: dict, **kwargs
+):
+    meta = get_params_for_pipe(view, params)
+    meta_kwargs = {n: meta[n] for n in arguments}
+
+    ext_kwargs = {**meta_kwargs, **kwargs}
+    return fun(**ext_kwargs)
+
+
+def get_params_closure(fun: Callable, view: str, *arguments: str):
+    return gen_closure(_params_closure, fun, view, arguments, _fn=fun.__name__)

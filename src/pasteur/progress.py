@@ -2,6 +2,7 @@
 
 Deals with vs code jupyter not supporting multiple progress bars."""
 
+import functools
 import io
 import logging
 from rich import get_console
@@ -26,9 +27,12 @@ PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
 # Assumes a stripping github filter is used to remove the empty space (or time)
 # at the start
 PBAR_JUP_NCOLS = 135 + PBAR_OFFSET
+PBAR_MIN_PIPE_LEN = 9
 
 # Disable multiprocessing when debugging due to process launch debug overhead
 MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
+
+A = TypeVar("A")
 
 
 def is_jupyter() -> bool:  # pragma: no cover
@@ -62,10 +66,11 @@ def get_tqdm_args():
     }
 
 
-def limit_pbar_nesting(pbar_gen: Callable):
+def limit_pbar_nesting(pbar_gen: A) -> A:
     """Prevent nesting too much on jupyter. This causes ugly gaps to be generated
     on vs code. Up to 2 progress bars work fine."""
 
+    @functools.wraps(pbar_gen)
     def closure(*args, **kwargs):
         return pbar_gen(*args, **kwargs, **get_tqdm_args())
 
