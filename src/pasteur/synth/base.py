@@ -49,13 +49,15 @@ class Synth(ABC):
     @abstractmethod
     def bake(
         self,
-        attrs: dict[str, dict[str, Attribute]],
+        attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        """Bakes the transformer based on the data provided (such as creating a
-        modeling a bayesian network on the data). Does not fit the transformer
-        to the data. Optional"""
+        """Bakes the transformer based on the data provided (such as creating and
+        modeling a bayesian network on the data).
+
+        Attributes provide context about the data columns, including hierarchical
+        relationships, na vals, etc."""
         pass
 
     @abstractmethod
@@ -64,10 +66,7 @@ class Synth(ABC):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        """Bakes and fits the model based on the provided data.
-
-        Transformers provide the Synthetic algorithm with access to the
-        Metadata of the dataset and the hierarchical attributes.
+        """Fits the model based on the provided data.
 
         Data and Ids are dictionaries containing the dataframes with the data."""
         pass

@@ -11,9 +11,13 @@ from ...utils import get_params_for_pipe
 import pandas as pd
 
 
-def _create_metadata(view: str, params: dict, **tables: dict[str, pd.DataFrame]):
+def _create_metadata(view: str, params: dict):
     meta_dict = get_params_for_pipe(view, params)
-    return Metadata(meta_dict, tables)
+    return Metadata(meta_dict)
+
+
+def _check_tables(view: str, metadata: Metadata, **tables: dict[str, pd.DataFrame]):
+    metadata.check(tables)
 
 
 def create_view_pipeline(view: View):
@@ -27,6 +31,17 @@ def create_view_pipeline(view: View):
             )
             for t in view.tables
         ]
+        + [
+            node(
+                func=gen_closure(_check_tables, view.name, _fn="check_tables"),
+                inputs={
+                    "metadata": f"{view}.metadata",
+                    **{t: f"{view}.view.{t}" for t in view.tables},
+                },
+                outputs=None,
+                namespace=f"{view}.view",
+            )
+        ]
     )
 
 
@@ -35,10 +50,7 @@ def create_meta_pipeline(view: View):
         [
             node(
                 func=gen_closure(_create_metadata, view.name, _fn="create_metadata"),
-                inputs={
-                    "params": "parameters",
-                    **{t: f"{view}.view.{t}" for t in view.tables},
-                },
+                inputs="parameters",
                 outputs=f"{view}.metadata",
                 namespace=f"{view}",
             )

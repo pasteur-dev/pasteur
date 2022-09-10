@@ -99,12 +99,8 @@ class TableMetrics(NamedTuple):
 class TableMeta:
     COLUMN_CLS = ColumnMeta
 
-    def __init__(
-        self,
-        meta: dict,
-        data: pd.DataFrame | None = None,
-    ):
-        self.primary_key = meta["primary_key"]
+    def __init__(self, meta: dict):
+        self.primary_key = meta.get("primary_key", None)
 
         if "metrics" in meta:
             metrics_dict = meta["metrics"]
@@ -123,14 +119,6 @@ class TableMeta:
             self.metrics = TableMetrics()
 
         self._columns = {}
-
-        # Run a key check to ensure metadata and table have the same keys
-        if data is not None:
-            table_keys = set(data.keys())
-            meta_keys = set(meta["fields"].keys())
-
-            diff_keys = meta_keys.difference(table_keys, {data.index.name})
-            assert not diff_keys, "Columns missing from table: " + str(diff_keys)
 
         fields = meta["fields"]
         for name, field in fields.items():
@@ -152,6 +140,14 @@ class TableMeta:
     def __getitem__(self, col) -> ColumnMeta:
         return self._columns[col]
 
+    def check(self, data: pd.DataFrame):
+        """Run a key check to ensure metadata and table have the same keys"""
+        table_keys = set(data.keys())
+        meta_keys = set(self._columns.keys())
+
+        diff_keys = meta_keys.difference(table_keys, {data.index.name})
+        assert not diff_keys, "Columns missing from table: " + str(diff_keys)
+
 
 class DatasetMeta:
     TABLE_CLS = TableMeta
@@ -159,13 +155,9 @@ class DatasetMeta:
     def __init__(
         self,
         meta: dict,
-        data: dict[str, pd.DataFrame] | None = None,
     ):
         self._tables = {
-            name: self.TABLE_CLS(
-                tmeta, data.get(name, None) if data is not None else None
-            )
-            for name, tmeta in meta["tables"].items()
+            name: self.TABLE_CLS(tmeta) for name, tmeta in meta["tables"].items()
         }
 
         self.alg_override = meta.get("alg", {})
@@ -185,14 +177,15 @@ class DatasetMeta:
             return self._tables[name[0]][name[1]]
         return self._tables[name]
 
-    @staticmethod
-    def from_kedro_params(
-        params: dict, view: str, data: dict[str, pd.DataFrame] | None = None
-    ):
-        from .utils import get_params_for_pipe
+    def check(self, data: dict[str, pd.DataFrame]):
+        data_tables = set(data.keys())
+        meta_tables = set(self._tables.keys())
+        assert (
+            data_tables == meta_tables
+        ), f"Metadata/data have different tables: {data_tables.symmetric_difference(meta_tables)}"
 
-        meta_dict = get_params_for_pipe(view, params)
-        return DatasetMeta(meta_dict, data)
+        for name, meta in self._tables.items():
+            meta.check(data[name])
 
 
 class Metadata(DatasetMeta):
