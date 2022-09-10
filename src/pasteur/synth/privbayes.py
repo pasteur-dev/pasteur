@@ -203,7 +203,9 @@ def greedy_bayes(
         for i, g in p_groups.items():
             cmn = common[next(iter(g))]
             p_attrs[group_names[i]] = AttrSelector(
-                common=cmn, cols={col_names[p]: h for p, h in g.items()}
+                name=group_names[i],
+                common=cmn,
+                cols={col_names[p]: h for p, h in g.items()},
             )
 
         return p_attrs
@@ -226,7 +228,7 @@ def greedy_bayes(
             x, partial, pset = candidate
 
             # Create selector for x
-            x_attr = AttrSelector(common[x], {col_names[x]: 0})
+            x_attr = AttrSelector(group_names[groups[x]], common[x], {col_names[x]: 0})
 
             # Create selectors for parents by first merging into attribute groups
             p_attrs = pset_to_attr_sel(pset)
@@ -294,7 +296,11 @@ def greedy_bayes(
                 cols,
                 cols_noncommon,
                 domains,
-                {group_names[groups[x]]: AttrSelector(0, {col_names[x]: 0})},
+                {
+                    group_names[groups[x]]: AttrSelector(
+                        group_names[groups[x]], 0, {col_names[x]: 0}
+                    )
+                },
             )
             for x in range(d)
         ]

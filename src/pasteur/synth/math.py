@@ -9,6 +9,7 @@ from ..transform import Attribute, Attributes, get_dtype
 
 
 class AttrSelector(NamedTuple):
+    name: str
     common: int
     cols: dict[str, int]
 
@@ -112,9 +113,10 @@ def calc_marginal(
 
     # Handle parents
     mul = 1
-    for attr in p.values():
+    for attr_name, attr in p.items():
         common = attr.common
         l_mul = 1
+        p_partial = partial and attr_name == x.name
         for i, (n, h) in enumerate(attr.cols.items()):
             if common == 0 or i == 0:
                 np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
@@ -123,7 +125,11 @@ def calc_marginal(
 
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
-        mul *= l_mul + common
+
+        if p_partial:
+            mul *= l_mul
+        else:
+            mul *= l_mul + common
 
     # Handle x
     common = x.common
