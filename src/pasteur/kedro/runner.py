@@ -70,7 +70,7 @@ class SimpleSequentialRunner(AbstractRunner):
         self.pipe_name = pipe_name
         self.params_str = params_str
 
-        super().__init__(is_async=True)
+        super().__init__(is_async=MULTIPROCESS_ENABLE)
 
     def create_default_data_set(self, ds_name: str) -> AbstractDataSet:
         return MemoryDataSet()

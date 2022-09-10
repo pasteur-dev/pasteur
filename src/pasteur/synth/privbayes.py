@@ -524,7 +524,7 @@ def sample_rows(
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
             m = marginal.reshape(-1)
-            common = attrs[x_attr].common if x_attr in attr_sampled_cols else 0
+            common = attrs[x_attr].common if partial else 0
             out_col = np.random.choice(x_domain - common, size=n, p=m) + common
 
             if common:
@@ -536,6 +536,7 @@ def sample_rows(
             # Use conditional probability
             m = marginal
             m = m / m.sum(axis=0, keepdims=True)
+            p_avg = marginal.sum(axis=1) / marginal.sum()
 
             # Get groups for marginal
             mul = 1
@@ -568,13 +569,13 @@ def sample_rows(
             groups = _sum_nd
             # Use reduced marginal if column has been sampled before
             # if `common=0` behavior is identical
-            common = attrs[x_attr].common if x_attr in attr_sampled_cols else 0
+            common = attrs[x_attr].common if partial else 0
             for group in np.unique(groups):
                 size = np.sum(groups == group)
                 p = m[:, group]
                 # FIXME: find sampling strategy for this
                 if np.any(np.isnan(p)):
-                    continue
+                    p = p_avg
                 out_col[groups == group] = (
                     np.random.choice(x_domain - common, size=size, p=p) + common
                 )
