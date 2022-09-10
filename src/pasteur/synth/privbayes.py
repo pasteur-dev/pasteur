@@ -133,7 +133,7 @@ def greedy_bayes(
         possible combinations of attributes, such that if t > 1 there isn't an
         attribute that can be indexed in a higher level"""
 
-        # Calculate domain manually to correct it
+        # Calculate domain manually to correct it based on common attrs
         dom = 1
         for g, a in P.items():
             l_dom = 1
@@ -162,6 +162,11 @@ def greedy_bayes(
         P_x[g] = gx
 
         for h in range(heights[x]):
+            # Check domain is non-one when considering common attrs
+            # Having multiple cols with domain 1 can skew exponential alg
+            # into selecting columns from multi-col attributes
+            if P.get(groups[x], None) and domain[x][h] == common[x] + 1:
+                continue
             # Only changes local copy
             P_x[g][x] = h
             for z in maximal_parents(V, tau, P_x):
@@ -371,7 +376,7 @@ def print_tree(
     pset_len = 57
 
     s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
-    s += f"\n│{'Attribute':>20s} │ Dom │ Avail. t │ Parents{' '*(pset_len - 8)}│"
+    s += f"\n│{'Column Nodes':>20s} │ Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
     s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
     used_attrs = set()
     for x_attr, x, domain, p in nodes:
@@ -383,16 +388,19 @@ def print_tree(
             dom = f"{domain:>3d} "
         used_attrs.add(x_attr)
 
+        # Print Line start
         s += f"\n│{x:>20s} │ {dom}│ {t/domain:>8.2f} │"
 
+        # Print Parents
         line_str = ""
         for p_name, attr_sel in p.items():
-            p_str = f" {p_name}."
+            p_str = f" {p_name}["
             for col in attrs[p_name].cols:
                 if col in attr_sel.cols:
                     p_str += str(attr_sel.cols[col])
                 else:
-                    p_str += "_"
+                    p_str += "."
+            p_str += "]"
 
             if len(p_str) + len(line_str) >= pset_len:
                 s += f"{line_str:57s}│"
@@ -403,7 +411,31 @@ def print_tree(
 
         s += f"{line_str:57s}│"
 
-    s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
+    s += f"\n├{'─'*21}┼─────┼──────────┴{'─'*pset_len}┤"
+    s += f"\n├ {'Multi-Col Attrs':>19s} │ Cmn │           {' '*pset_len}│"
+    s += f"\n├{'─'*21}┼─────┼───────────{'─'*pset_len}┤"
+
+    # Print mutli-column attrs
+    for name, attr in attrs.items():
+        cols = attr.cols
+        if len(cols) <= 1:
+            continue
+
+        s += f"\n│{name:>20s} │ {attr.common:>3d} │"
+        line_str = ""
+        for i, col in enumerate(cols):
+            c_str = f" {col}"
+
+            if len(c_str) + len(line_str) >= pset_len + 11:
+                s += f"{line_str:57s}│"
+                s += f"\n│{' '*21}│     │"
+                line_str = f" >{c_str}"
+            else:
+                line_str += c_str
+
+        s += f"{line_str:68s}│"
+
+    s += f"\n└{'─'*21}┴─────────────────{'─'*pset_len}┘"
     return s
 
 
