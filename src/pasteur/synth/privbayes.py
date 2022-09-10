@@ -411,11 +411,16 @@ def print_tree(
 
         s += f"{line_str:57s}│"
 
-    s += f"\n├{'─'*21}┼─────┼──────────┴{'─'*pset_len}┤"
-    s += f"\n├ {'Multi-Col Attrs':>19s} │ Cmn │           {' '*pset_len}│"
-    s += f"\n├{'─'*21}┼─────┼───────────{'─'*pset_len}┤"
+    # Skip multi-col attr printing if there aren't any of them.
+    if not any(len(attr.cols) > 1 for attr in attrs.values()):
+        s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
+        return s
 
     # Print mutli-column attrs
+    s += f"\n├{'─'*21}┼─────┼──────────┴{'─'*pset_len}┤"
+    s += f"\n│ {'Multi-Col Attrs':>19s} │ Cmn │ Columns   {' '*pset_len}│"
+    s += f"\n├{'─'*21}┼─────┼───────────{'─'*pset_len}┤"
+
     for name, attr in attrs.items():
         cols = attr.cols
         if len(cols) <= 1:
@@ -435,7 +440,7 @@ def print_tree(
 
         s += f"{line_str:68s}│"
 
-    s += f"\n└{'─'*21}┴─────────────────{'─'*pset_len}┘"
+    s += f"\n└{'─'*21}┴─────┴───────────{'─'*pset_len}┘"
     return s
 
 
