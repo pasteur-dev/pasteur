@@ -1,7 +1,9 @@
 import logging
+from logging.handlers import QueueHandler
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import chain
+import threading
 
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
@@ -18,6 +20,35 @@ from ..progress import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _logging_thread_fun(q):
+    while True:
+        record = q.get()
+        if record is None:
+            break
+        logger = logging.getLogger(record.name)
+        logger.handle(record)
+
+
+def _replace_loggers_with_queue(q):
+    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+    loggers.append(logging.root)
+
+    for l in loggers:
+        l.propagate = True
+        l.handlers = []
+        l.level = logging.NOTSET
+
+    from logging.handlers import QueueHandler
+
+    logging.root.handlers.append(QueueHandler(q))
+
+
+def _replace_logging(fun, *args, _q=None, **kwargs):
+    if _q is not None:
+        _replace_loggers_with_queue(_q)
+    return fun(*args, **kwargs)
 
 
 class SimpleParallelRunner(ParallelRunner):
@@ -79,6 +110,11 @@ class SimpleParallelRunner(ParallelRunner):
         with logging_redirect_pbar(), ProcessPoolExecutor(
             max_workers=max_workers
         ) as pool:
+            # set up logging handler
+            log_queue = self._manager.Queue()
+            lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
+            lp.start()
+
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
@@ -101,6 +137,7 @@ class SimpleParallelRunner(ParallelRunner):
                 for node in ready:
                     futures.add(
                         pool.submit(
+                            _replace_logging,
                             _run_node_synchronization,
                             node,
                             catalog,
@@ -108,6 +145,7 @@ class SimpleParallelRunner(ParallelRunner):
                             session_id,
                             package_name=PACKAGE_NAME,
                             logging_config=LOGGING,  # type: ignore
+                            _q=log_queue,
                         )
                     )
                 if not futures:
@@ -157,3 +195,7 @@ class SimpleParallelRunner(ParallelRunner):
                             and data_set not in pipeline.outputs()
                         ):
                             catalog.release(data_set)
+
+            # Remove logging queue
+            log_queue.put(None)
+            lp.join()
