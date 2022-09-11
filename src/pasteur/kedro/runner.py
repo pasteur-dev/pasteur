@@ -24,39 +24,6 @@ from ..progress import (
 logger = logging.getLogger(__name__)
 
 
-def simplify_logging():
-    # Add basic formatting
-    logFormatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    rootLogger = logging.getLogger()
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(logFormatter)
-    rootLogger.handlers.clear()
-    rootLogger.addHandler(consoleHandler)
-
-    # Disable var overloading warning and node print
-    for package in (
-        "kedro.pipeline.node",
-        "kedro.config.common",
-        "kedro.framework.session.session",
-        "kedro.extras.extensions.ipython",
-        "IPKernelApp",
-        "dummy",
-    ):
-        logger = logging.getLogger(package)
-        logger.setLevel(logging.ERROR)
-        logger.propagate = False
-
-    # Disable all customised loaders
-    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-    for logger in loggers:
-        logger.propagate = False
-        logger.handlers.clear()
-        logger.addHandler(consoleHandler)
-    return loggers
-
-
 class SimpleSequentialRunner(AbstractRunner):
     """``SimpleRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
     loading bar. It also force enables async save of datasets.

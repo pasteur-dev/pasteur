@@ -33,10 +33,10 @@ def str_params_to_dict(params: list[str]):
     for item in params:
         item = item.split("=", 1)
         if len(item) != 2:
-            raise
+            assert False
         key = item[0].strip()
         if not key:
-            raise
+            assert False
         value = item[1].strip()
         param_dict = _update_value_nested_dict(
             param_dict, _try_convert_to_numeric(value), key.split(".")

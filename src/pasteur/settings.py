@@ -6,15 +6,14 @@
 import logging
 
 from rich.traceback import install
-import click
-import kedro
+from .progress import RICH_TRACEBACK_ARGS
 
 logging.captureWarnings(True)
 # TODO: verify this works
 # remove handlers added by the default config
 logging.getLogger("kedro").handlers = []
 logging.root.handlers = []
-install(show_locals=False, max_frames=10, suppress=[kedro, click])
+install(**RICH_TRACEBACK_ARGS)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks

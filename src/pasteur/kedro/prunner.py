@@ -1,7 +1,7 @@
 import logging
-from logging.handlers import QueueHandler
+from rich import get_console
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import chain
 import threading
 
@@ -10,10 +10,12 @@ from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner, _run_node_synchronization
 from pluggy import PluginManager
+from rich.traceback import install
 
 from ..progress import (
     MULTIPROCESS_ENABLE,
     PBAR_MIN_PIPE_LEN,
+    RICH_TRACEBACK_ARGS,
     piter,
     logging_redirect_pbar,
     is_jupyter,
@@ -48,7 +50,14 @@ def _replace_loggers_with_queue(q):
 def _replace_logging(fun, *args, _q=None, **kwargs):
     if _q is not None:
         _replace_loggers_with_queue(_q)
-    return fun(*args, **kwargs)
+    try:
+        return fun(*args, **kwargs)
+    except Exception as e:
+        get_console().print_exception(**RICH_TRACEBACK_ARGS)
+        logger.error(
+            f"Node \"{args[0].name.split('(')[0]}\" failed with error:\n{type(e).__name__}: {e}"
+        )
+        raise
 
 
 class SimpleParallelRunner(ParallelRunner):
@@ -126,7 +135,8 @@ class SimpleParallelRunner(ParallelRunner):
             else:
                 pbar = nodes
 
-            while True:
+            node_failed = False
+            while not node_failed:
                 if use_pbar:
                     n = len(done_nodes) - last_index
                     pbar.update(n)
@@ -183,12 +193,20 @@ class SimpleParallelRunner(ParallelRunner):
                 for future in done:
                     try:
                         node = future.result()
+                        done_nodes.add(node)
                     except Exception:
-                        # Remove logging queue
-                        log_queue.put(None)
-                        lp.join()
-                        raise
-                    done_nodes.add(node)
+                        # Wait for all nodes to finish to print all exceptions
+                        # if there are more errors
+                        wait(futures, return_when=ALL_COMPLETED)
+
+                        # Log to console
+                        logger.error(f"One (or more) of the nodes failed, exiting...")
+                        node_failed = True
+                        # Remove unfinished pbar
+                        if use_pbar:
+                            pbar.leave = False
+                            pbar.close()
+                        break
 
                     # Print message
                     if not use_pbar or not is_jupyter():
@@ -217,3 +235,13 @@ class SimpleParallelRunner(ParallelRunner):
             # Remove logging queue
             log_queue.put(None)
             lp.join()
+
+            if node_failed:
+                # exception needs to be raised for the `on_pipeline_error`
+                # hook to run
+                # Remove system exception hook to avoid printing exception to
+                # the console
+                import sys
+
+                sys.excepthook = lambda *_: None
+                raise Exception()

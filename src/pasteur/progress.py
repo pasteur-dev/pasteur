@@ -5,16 +5,17 @@ Deals with vs code jupyter not supporting multiple progress bars."""
 import functools
 import io
 import logging
-from rich import get_console
 import sys
 from contextlib import contextmanager
 from os import cpu_count, environ
 from typing import Callable, TextIO, TypeVar
 
+import click
+import kedro
 import numpy as np
+from rich import get_console
 from tqdm import tqdm, trange
-from tqdm.contrib.concurrent import process_map, thread_map
-from tqdm.contrib.logging import logging_redirect_tqdm
+from tqdm.contrib.concurrent import process_map
 from tqdm.std import tqdm as std_tqdm
 
 # Jupyter doesn't support going up lines (moving cursor)
@@ -28,6 +29,12 @@ PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
 # at the start
 PBAR_JUP_NCOLS = 135 + PBAR_OFFSET
 PBAR_MIN_PIPE_LEN = 9
+
+RICH_TRACEBACK_ARGS = {
+    "show_locals": False,
+    "max_frames": 10,
+    "suppress": [kedro, click],
+}
 
 # Disable multiprocessing when debugging due to process launch debug overhead
 MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
