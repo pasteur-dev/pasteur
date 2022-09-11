@@ -46,20 +46,26 @@ class ColumnMeta:
         # Add reference column, used for dates and IDs
         # Format: <table>.<col>
         if ref is not None:
-            d = ref.split(".")
-            if len(d) == 2:
-                table = d[0]
-                col = d[1]
-            # For ids, if . is omitted, the format is assumed:
-            # <table>
-            elif self.type == "id":
-                table = d[0]
-                col = None
-            # For other types of columns (such as dates) the format is:
-            # <col> (the column might be in the same table).
+            if isinstance(ref, str):
+                d = ref.split(".")
+                if len(d) == 2:
+                    table = d[0]
+                    col = d[1]
+                # For ids, if . is omitted, the format is assumed:
+                # <table>
+                elif self.type == "id":
+                    table = d[0]
+                    col = None
+                # For other types of columns (such as dates) the format is:
+                # <col> (the column might be in the same table).
+                else:
+                    table = None
+                    col = d[0]
+            elif isinstance(ref, dict):
+                table = ref.get("table", None)
+                col = ref["col"]
             else:
-                table = None
-                col = d[0]
+                assert False, f"Unsupported ref format: {ref}"
             self.ref = ColumnRef(table, col)
         else:
             self.ref = None

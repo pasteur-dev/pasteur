@@ -164,11 +164,29 @@ class SimpleParallelRunner(ParallelRunner):
                             f"have not been run:\n{debug_data_str}"
                         )
                     break  # pragma: no cover
+
+                # Set pbar description
+                if use_pbar:
+                    if len(futures) == 1:
+                        pbar.set_description(
+                            f"Executing node {len(done_nodes) + 1:2d}/{len(nodes)}"
+                        )
+                    else:
+                        node_str = ", ".join(
+                            str(len(done_nodes) + 1 + i) for i in range(len(futures))
+                        )
+
+                        pbar.set_description(
+                            f"Executing nodes {{{node_str}}}/{len(nodes)}"
+                        )
                 done, futures = wait(futures, return_when=FIRST_COMPLETED)
                 for future in done:
                     try:
                         node = future.result()
                     except Exception:
+                        # Remove logging queue
+                        log_queue.put(None)
+                        lp.join()
                         raise
                     done_nodes.add(node)
 

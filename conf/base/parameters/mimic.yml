@@ -19,7 +19,7 @@ mimic_mm_core:
           span: year.hour
           ref:
             table: patients
-            col: bith_year
+            col: birth_year
           max_len: 99
           bins: 100
         dischtime: datetime|day.hour:admittime
