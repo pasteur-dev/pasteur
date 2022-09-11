@@ -493,11 +493,12 @@ def calc_noisy_marginals(
         # If one of the previous columns is from the same attribute
         # take reduced marginal and source common values from it
         # -> fixes NA probability and saves bandwidth
-        if partial and attrs[x_attr].common:
+        common = attrs[x_attr].common if partial else 0
+        if common:
             np.multiply(cols_noncommon[x][0], mul, out=_tmp_nd, dtype=dtype)
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-            _sum_nd = _sum_nd[cols[x][0] >= attrs[x_attr].common]
-            x_dom = x_dom - attrs[x_attr].common
+            _sum_nd = _sum_nd[cols[x][0] >= common]
+            x_dom = x_dom - common
         else:
             np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
@@ -536,7 +537,7 @@ def sample_rows(
             # Use conditional probability
             m = marginal
             m = m / m.sum(axis=0, keepdims=True)
-            p_avg = marginal.sum(axis=1) / marginal.sum()
+            m_avg = marginal.sum(axis=1) / marginal.sum()
 
             # Get groups for marginal
             mul = 1
@@ -572,12 +573,12 @@ def sample_rows(
             common = attrs[x_attr].common if partial else 0
             for group in np.unique(groups):
                 size = np.sum(groups == group)
-                p = m[:, group]
+                m_g = m[:, group]
                 # FIXME: find sampling strategy for this
-                if np.any(np.isnan(p)):
-                    p = p_avg
+                if np.any(np.isnan(m_g)):
+                    m_g = m_avg
                 out_col[groups == group] = (
-                    np.random.choice(x_domain - common, size=size, p=p) + common
+                    np.random.choice(x_domain - common, size=size, p=m_g) + common
                 )
 
             # Pin common values to equal the parent
