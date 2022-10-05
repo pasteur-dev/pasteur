@@ -652,7 +652,7 @@ class PrivBayesSynth(Synth):
     ):
         table = data[self.table_name]
         self.n = len(table)
-        noise = 2 * self.d / (self.n * self.e2)
+        noise = 2 * self.d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
