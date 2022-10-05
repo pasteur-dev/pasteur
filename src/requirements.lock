@@ -4,6 +4,10 @@
 #
 #    pip-compile --output-file=/mnt/ext/projects/pasteur/src/requirements.lock /mnt/ext/projects/pasteur/src/requirements.txt
 #
+absl-py==1.2.0
+    # via
+    #   jax
+    #   jaxlib
 aiofiles==0.6.0
     # via kedro-viz
 alembic==1.8.1
@@ -21,7 +25,7 @@ argon2-cffi==21.3.0
     #   notebook
 argon2-cffi-bindings==21.2.0
     # via argon2-cffi
-arrow==1.2.2
+arrow==1.2.3
     # via jinja2-time
 asgiref==3.5.2
     # via uvicorn
@@ -38,13 +42,13 @@ beautifulsoup4==4.11.1
     # via nbconvert
 binaryornot==0.4.4
     # via cookiecutter
-black==22.6.0
+black==22.8.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 bleach==5.0.1
     # via nbconvert
-boto3==1.24.61
+boto3==1.24.86
     # via parquet-tools
-botocore==1.27.61
+botocore==1.27.86
     # via
     #   boto3
     #   s3transfer
@@ -52,7 +56,7 @@ build==0.8.0
     # via pip-tools
 cachetools==4.2.4
     # via kedro
-certifi==2022.6.15
+certifi==2022.9.24
     # via requests
 cffi==1.15.1
     # via argon2-cffi-bindings
@@ -71,7 +75,7 @@ click==8.1.3
     #   pip-tools
     #   strawberry-graphql
     #   uvicorn
-cloudpickle==2.1.0
+cloudpickle==2.2.0
     # via mlflow
 colorama==0.4.5
     # via
@@ -80,9 +84,11 @@ colorama==0.4.5
     #   parquet-tools
 commonmark==0.9.1
     # via rich
+contourpy==1.0.5
+    # via matplotlib
 cookiecutter==2.1.1
     # via kedro
-coverage[toml]==6.4.4
+coverage[toml]==6.5.0
     # via pytest-cov
 cursor==1.3.5
     # via halo
@@ -96,17 +102,19 @@ decorator==5.1.1
     # via ipython
 defusedxml==0.7.1
     # via nbconvert
-docker==5.0.3
+docker==6.0.0
     # via mlflow
-dynaconf==3.1.9
+dynaconf==3.1.11
     # via kedro
 entrypoints==0.4
     # via
     #   jupyter-client
     #   mlflow
+etils[epath]==0.8.0
+    # via jax
 fastapi==0.66.1
     # via kedro-viz
-fastjsonschema==2.16.1
+fastjsonschema==2.16.2
     # via nbformat
 flake8==3.9.2
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
@@ -114,9 +122,9 @@ flask==2.2.2
     # via
     #   mlflow
     #   prometheus-flask-exporter
-fonttools==4.37.1
+fonttools==4.37.4
     # via matplotlib
-fsspec==2022.1.0
+fsspec==2022.7.1
     # via kedro
 gitdb==4.0.9
     # via gitpython
@@ -124,29 +132,33 @@ gitpython==3.1.27
     # via
     #   kedro
     #   mlflow
-graphql-core==3.2.1
+graphql-core==3.2.3
     # via strawberry-graphql
 greenlet==1.1.3
     # via sqlalchemy
 gunicorn==20.1.0
     # via mlflow
-h11==0.13.0
+h11==0.14.0
     # via uvicorn
 halo==0.0.29
     # via parquet-tools
-httptools==0.4.0
+httptools==0.5.0
     # via uvicorn
-idna==3.3
+idna==3.4
     # via
     #   anyio
     #   requests
-importlib-metadata==4.12.0
+importlib-metadata==4.13.0
     # via
     #   kedro
     #   mlflow
+importlib-resources==5.9.0
+    # via
+    #   etils
+    #   kedro
 iniconfig==1.1.1
     # via pytest
-ipykernel==6.15.1
+ipykernel==6.16.0
     # via
     #   ipywidgets
     #   jupyter
@@ -171,7 +183,7 @@ ipython-genutils==0.2.0
     #   nbclassic
     #   notebook
     #   qtconsole
-ipywidgets==8.0.1
+ipywidgets==8.0.2
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   ipympl
@@ -180,6 +192,10 @@ isort==5.10.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 itsdangerous==2.1.2
     # via flask
+jax==0.3.21
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
+jaxlib==0.3.20
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 jedi==0.18.1
     # via ipython
 jinja2==3.1.2
@@ -200,11 +216,11 @@ jmespath==0.10.0
     #   boto3
     #   botocore
     #   kedro
-joblib==1.1.0
+joblib==1.2.0
     # via scikit-learn
 json5==0.9.10
     # via jupyterlab-server
-jsonschema==4.14.0
+jsonschema==4.16.0
     # via
     #   jupyterlab-server
     #   nbformat
@@ -231,36 +247,34 @@ jupyter-core==4.11.1
     #   nbformat
     #   notebook
     #   qtconsole
-jupyter-server==1.18.1
+jupyter-server==1.19.1
     # via
     #   jupyterlab
     #   jupyterlab-server
     #   nbclassic
     #   notebook-shim
-jupyterlab==3.4.5
+jupyterlab==3.4.8
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 jupyterlab-pygments==0.2.2
     # via nbconvert
-jupyterlab-server==2.15.1
+jupyterlab-server==2.15.2
     # via jupyterlab
-jupyterlab-widgets==3.0.2
+jupyterlab-widgets==3.0.3
     # via ipywidgets
-kedro==0.18.2
+kedro==0.18.3
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   kedro-mlflow
     #   kedro-viz
-kedro-mlflow==0.11.1
+kedro-mlflow==0.11.4
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
-kedro-viz==5.0.1
+kedro-viz==5.1.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 kiwisolver==1.4.4
     # via matplotlib
 log-symbols==0.0.14
     # via halo
-lxml==4.9.1
-    # via nbconvert
-mako==1.2.1
+mako==1.2.3
     # via alembic
 markupsafe==2.1.1
     # via
@@ -268,7 +282,7 @@ markupsafe==2.1.1
     #   mako
     #   nbconvert
     #   werkzeug
-matplotlib==3.5.3
+matplotlib==3.6.0
     # via ipympl
 matplotlib-inline==0.1.6
     # via
@@ -278,35 +292,35 @@ mccabe==0.6.1
     # via flake8
 mistune==2.0.4
     # via nbconvert
-mlflow==1.28.0
+mlflow==1.29.0
     # via kedro-mlflow
 mypy-extensions==0.4.3
     # via black
-nbclassic==0.4.3
+nbclassic==0.4.4
     # via jupyterlab
-nbclient==0.6.7
+nbclient==0.6.8
     # via nbconvert
-nbconvert==7.0.0
+nbconvert==7.1.0
     # via
     #   jupyter
     #   jupyter-server
     #   nbclassic
     #   notebook
-nbformat==5.4.0
+nbformat==5.6.1
     # via
     #   jupyter-server
     #   nbclassic
     #   nbclient
     #   nbconvert
     #   notebook
-nest-asyncio==1.5.5
+nest-asyncio==1.5.6
     # via
     #   ipykernel
     #   jupyter-client
     #   nbclassic
     #   nbclient
     #   notebook
-networkx==2.8.6
+networkx==2.8.7
     # via kedro-viz
 notebook==6.4.12
     # via
@@ -314,22 +328,29 @@ notebook==6.4.12
     #   jupyterlab
 notebook-shim==0.1.0
     # via nbclassic
-numpy==1.23.2
+numpy==1.23.3
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
+    #   contourpy
     #   ipympl
+    #   jax
+    #   jaxlib
     #   matplotlib
     #   mlflow
+    #   opt-einsum
     #   pandas
     #   pyarrow
     #   scikit-learn
     #   scipy
     #   xgboost
-oauthlib==3.2.0
+oauthlib==3.2.1
     # via databricks-cli
+opt-einsum==3.3.0
+    # via jax
 packaging==21.3
     # via
     #   build
+    #   docker
     #   ipykernel
     #   jupyter-server
     #   jupyterlab
@@ -339,7 +360,7 @@ packaging==21.3
     #   nbconvert
     #   pytest
     #   qtpy
-pandas==1.4.3
+pandas==1.5.0
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
     #   kedro-viz
@@ -351,7 +372,7 @@ parquet-tools==0.2.11
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 parso==0.8.3
     # via jedi
-pathspec==0.9.0
+pathspec==0.10.1
     # via black
 pep517==0.13.0
     # via build
@@ -381,13 +402,13 @@ prometheus-client==0.14.1
     #   prometheus-flask-exporter
 prometheus-flask-exporter==0.20.3
     # via mlflow
-prompt-toolkit==3.0.30
+prompt-toolkit==3.0.31
     # via
     #   ipython
     #   jupyter-console
-protobuf==4.21.5
+protobuf==4.21.7
     # via mlflow
-psutil==5.9.1
+psutil==5.9.2
     # via ipykernel
 ptyprocess==0.7.0
     # via
@@ -403,7 +424,7 @@ pycodestyle==2.7.0
     # via flake8
 pycparser==2.21
     # via cffi
-pydantic==1.9.2
+pydantic==1.10.2
     # via
     #   fastapi
     #   kedro-mlflow
@@ -417,7 +438,7 @@ pygments==2.13.0
     #   qtconsole
     #   rich
     #   strawberry-graphql
-pyjwt==2.4.0
+pyjwt==2.5.0
     # via databricks-cli
 pyparsing==3.0.9
     # via
@@ -442,15 +463,13 @@ python-dateutil==2.8.2
     #   matplotlib
     #   pandas
     #   strawberry-graphql
-python-dotenv==0.20.0
+python-dotenv==0.21.0
     # via uvicorn
-python-json-logger==2.0.4
-    # via kedro
 python-multipart==0.0.5
     # via strawberry-graphql
 python-slugify==6.1.2
     # via cookiecutter
-pytz==2022.2.1
+pytz==2022.4
     # via
     #   babel
     #   mlflow
@@ -461,7 +480,7 @@ pyyaml==6.0
     #   kedro
     #   mlflow
     #   uvicorn
-pyzmq==23.2.1
+pyzmq==24.0.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -469,9 +488,9 @@ pyzmq==23.2.1
     #   nbclassic
     #   notebook
     #   qtconsole
-qtconsole==5.3.1
+qtconsole==5.3.2
     # via jupyter
-qtpy==2.2.0
+qtpy==2.2.1
     # via qtconsole
 querystring-parser==1.2.4
     # via mlflow
@@ -482,7 +501,7 @@ requests==2.28.1
     #   docker
     #   jupyterlab-server
     #   mlflow
-rich==12.5.1
+rich==12.6.0
     # via kedro
 rope==0.21.1
     # via kedro
@@ -493,6 +512,8 @@ scikit-learn==1.1.2
 scipy==1.9.1
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
+    #   jax
+    #   jaxlib
     #   mlflow
     #   scikit-learn
     #   xgboost
@@ -514,32 +535,32 @@ six==1.16.0
     #   thrift
 smmap==5.0.0
     # via gitdb
-sniffio==1.2.0
+sniffio==1.3.0
     # via anyio
 soupsieve==2.3.2.post1
     # via beautifulsoup4
 spinners==0.0.24
     # via halo
-sqlalchemy==1.4.40
+sqlalchemy==1.4.41
     # via
     #   alembic
     #   kedro-viz
     #   mlflow
-sqlparse==0.4.2
+sqlparse==0.4.3
     # via mlflow
 starlette==0.14.2
     # via fastapi
-strawberry-graphql==0.126.2
+strawberry-graphql==0.127.0
     # via kedro-viz
 tabulate==0.8.10
     # via
     #   databricks-cli
     #   parquet-tools
-tenacity==8.0.1
+tenacity==8.1.0
     # via plotly
-termcolor==1.1.0
+termcolor==2.0.1
     # via halo
-terminado==0.15.0
+terminado==0.16.0
     # via
     #   jupyter-server
     #   nbclassic
@@ -561,6 +582,7 @@ tomli==2.0.1
     #   black
     #   build
     #   coverage
+    #   jupyterlab
     #   pep517
 toposort==1.7
     # via kedro
@@ -573,9 +595,9 @@ tornado==6.2
     #   nbclassic
     #   notebook
     #   terminado
-tqdm==4.64.0
+tqdm==4.64.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
-traitlets==5.3.0
+traitlets==5.4.0
     # via
     #   ipykernel
     #   ipympl
@@ -593,15 +615,18 @@ traitlets==5.3.0
     #   qtconsole
 typing-extensions==4.3.0
     # via
+    #   etils
+    #   jax
     #   pydantic
     #   strawberry-graphql
 urllib3==1.26.12
     # via
     #   botocore
+    #   docker
     #   requests
 uvicorn[standard]==0.17.6
     # via kedro-viz
-uvloop==0.16.0
+uvloop==0.17.0
     # via uvicorn
 watchgod==0.8.2
     # via
@@ -613,7 +638,7 @@ webencodings==0.5.1
     # via
     #   bleach
     #   tinycss2
-websocket-client==1.4.0
+websocket-client==1.4.1
     # via
     #   docker
     #   jupyter-server
@@ -623,12 +648,14 @@ werkzeug==2.2.2
     # via flask
 wheel==0.37.1
     # via pip-tools
-widgetsnbextension==4.0.2
+widgetsnbextension==4.0.3
     # via ipywidgets
 xgboost==1.6.2
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 zipp==3.8.1
-    # via importlib-metadata
+    # via
+    #   etils
+    #   importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip
