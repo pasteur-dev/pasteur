@@ -10,10 +10,6 @@ from contextlib import contextmanager
 from os import cpu_count, environ
 from typing import Callable, TextIO, TypeVar
 
-import click
-import kedro
-import numpy as np
-from rich import get_console
 from tqdm import tqdm, trange
 from tqdm.contrib.concurrent import process_map
 from tqdm.std import tqdm as std_tqdm
@@ -33,7 +29,7 @@ PBAR_MIN_PIPE_LEN = 9
 RICH_TRACEBACK_ARGS = {
     "show_locals": False,
     "max_frames": 10,
-    "suppress": [kedro, click],
+    "suppress": ["kedro", "click"],
 }
 
 # Disable multiprocessing when debugging due to process launch debug overhead
@@ -112,6 +108,8 @@ def process_in_parallel(
 
     Task is split into chunks based on CPU cores and each process handles a chunk of
     calls before exiting."""
+    import numpy as np
+
     if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
         out = []
         for op in piter(per_call_args, total=len(per_call_args), leave=False):
@@ -154,6 +152,8 @@ def _is_console_logging_handler(handler):
 @contextmanager
 def logging_redirect_pbar():
     """ "Implementation of the logging_redirect_tqdm context manager that supports the rich handler."""
+    from rich import get_console
+
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     loggers.append(logging.root)
     orig_streams: list[list[TextIO]] = []
