@@ -3,12 +3,11 @@ from typing import Collection, Dict, Optional
 
 import pandas as pd
 
-from pasteur.transform.encoding import EncodingTransformer
-
 from ..metadata import Metadata
+from ..utils import find_subclasses
 from .attribute import Attribute, Attributes
 from .base import RefTransformer, Transformer
-from ..utils import find_subclasses
+from .encoding import EncodingTransformer
 
 logger = logging.getLogger(__name__)
 

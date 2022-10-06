@@ -1,6 +1,6 @@
 import pandas as pd
 
-from .base import Dataset, split_keys
+from .base import Dataset
 
 
 class MimicDataset(Dataset):
@@ -42,4 +42,6 @@ class MimicDataset(Dataset):
         return tables[name]
 
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
+        from .utils import split_keys
+
         return split_keys(tables["core_patients"], ratios, random_state)

@@ -1,7 +1,11 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, NamedTuple
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 import logging
-from .utils import merge_dicts
-import pandas as pd
-from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
 

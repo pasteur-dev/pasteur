@@ -1,14 +1,18 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ...views import View
-from .utils import gen_closure
-
-
 from ...metadata import Metadata
 from ...utils import get_params_for_pipe
+from .utils import gen_closure
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from ...views import View
 
 
 def _create_metadata(view: str, params: dict):

@@ -79,7 +79,6 @@ def calculate_model_scores(
     sets: dict[str, dict[str, pd.DataFrame]],
     orig_to_enc_cols: dict[str, dict[str, list[str]]],
 ):
-
     types = list(sets.keys())
     new_sets = {t: {} for t in types}
 

@@ -1,10 +1,16 @@
-import pandas as pd
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ...metadata import Metadata
-from ...transform import TableTransformer
-from ...views import View
+if TYPE_CHECKING:
+    import pandas as pd
+    from ...metadata import Metadata
+    from ...transform import TableTransformer
+    from ...views import View
+
 from .utils import gen_closure
 
 
@@ -14,6 +20,8 @@ def _fit_table(
     meta: Metadata,
     **tables: dict[str, pd.DataFrame],
 ):
+    from ...transform import TableTransformer
+
     t = TableTransformer(meta, name, types)
     tables, ids = t.fit_transform(tables)
     return t, ids

@@ -1,23 +1,25 @@
-import pandas as pd
 from kedro.pipeline import node, pipeline
-from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from pasteur.metrics.mlflow import mlflow_log_as_str
-
-from ...metrics.models import (
-    get_required_types as model_get_required_types,
-    mlflow_log_model_results,
-    node_calculate_model_scores,
-)
-from ...metrics.visual import (
-    project_hists_for_view,
-    create_fitted_hist_holder,
-    mlflow_log_hists,
-)
+from ...metrics.models import get_required_types as model_get_required_types
+from ...metrics.models import mlflow_log_model_results, node_calculate_model_scores
 from ...views.base import View
-from .utils import gen_closure
+from .utils import gen_closure, lazy_load
 
-from ...metrics.distr import log_kl_mlflow, log_cs_mlflow, calc_kl, calc_chisquare
+calc_chisquare, calc_kl, log_cs_mlflow, log_kl_mlflow = lazy_load(
+    __package__,
+    "...metrics.distr",
+    ["calc_chisquare", "calc_kl", "log_cs_mlflow", "log_kl_mlflow"],
+)
+mlflow_log_as_str = lazy_load(__package__, "...metrics.mlflow", "mlflow_log_as_str")
+create_fitted_hist_holder, mlflow_log_hists, project_hists_for_view = lazy_load(
+    __package__,
+    "...metrics.visual",
+    [
+        "create_fitted_hist_holder",
+        "mlflow_log_hists",
+        "project_hists_for_view",
+    ],
+)
 
 
 def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):

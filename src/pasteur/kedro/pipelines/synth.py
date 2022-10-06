@@ -1,9 +1,15 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
-from ...views import View
 from .utils import gen_closure
+
+if TYPE_CHECKING:
+    from ...views import View
 
 
 def create_synth_pipeline(
@@ -43,7 +49,7 @@ def create_synth_pipeline(
         namespace=f"{view}.{alg}",
         inputs={
             "metadata": f"{view}.metadata",
-            ** {f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
+            **{f"in_enc_{t}": f"{view}.{split}.{type}_{t}" for t in tables},
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
             **{f"trn_{t}": f"{view}.trn.{t}" for t in tables},
         },

@@ -1,6 +1,8 @@
-from functools import reduce
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
-import pandas as pd
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def filter_by_keys(
@@ -54,6 +56,8 @@ class View:
 
     @property
     def dataset_tables(self):
+        from functools import reduce
+
         return list(dict.fromkeys(reduce(lambda a, b: a + b, self.deps.values(), [])))
 
     @property

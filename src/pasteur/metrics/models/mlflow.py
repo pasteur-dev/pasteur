@@ -1,9 +1,15 @@
-import mlflow
-import pandas as pd
-from ..mlflow import gen_html_table
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def mlflow_log_model_results(name: str, res: pd.DataFrame):
+    import mlflow
+    import pandas as pd
+    from ..mlflow import gen_html_table
+
     if not mlflow.active_run():
         return
 

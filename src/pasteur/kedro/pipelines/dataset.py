@@ -1,8 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from kedro.pipeline import Pipeline, node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from ...dataset import Dataset
 from .utils import gen_closure, get_params_closure
+
+if TYPE_CHECKING:
+    from ...dataset import Dataset
 
 
 def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):

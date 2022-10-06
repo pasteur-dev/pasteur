@@ -1,5 +1,9 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from .base import TabularDataset
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class AdultDataset(TabularDataset):

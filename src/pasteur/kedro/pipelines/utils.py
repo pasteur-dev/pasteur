@@ -43,3 +43,17 @@ def _params_closure(
 
 def get_params_closure(fun: Callable, view: str, *arguments: str):
     return gen_closure(_params_closure, fun, view, arguments, _fn=fun.__name__)
+
+
+def _lazy_execute(anchor: str, module: str, fun: str, *args, **kwargs):
+    from importlib import import_module
+
+    module = import_module(module, anchor)
+
+    return getattr(module, fun)(*args, **kwargs)
+
+
+def lazy_load(anchor, module: str, funs: list[str] | str):
+    if isinstance(funs, str):
+        return gen_closure(_lazy_execute, anchor, module, funs, _fn=funs)
+    return (gen_closure(_lazy_execute, anchor, module, fun, _fn=fun) for fun in funs)

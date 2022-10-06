@@ -1,5 +1,3 @@
-from functools import reduce
-from itertools import chain
 from typing import Dict
 
 from kedro.pipeline import Pipeline, pipeline
