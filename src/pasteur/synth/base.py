@@ -1,12 +1,15 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from ..transform import Attributes, TableTransformer
+    from ..metadata import Metadata
+
 import logging
-import random
-
-import numpy as np
-import pandas as pd
-
-from ..transform import Attribute, Attributes, TableTransformer
-from ..metadata import Metadata
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +20,10 @@ def make_deterministic(obj_func):
 
     If the algorithm sampled the same amount of numbers at the same order, then the
     numbers should be the same."""
+
+    import random
+
+    import numpy as np
 
     def wrapped(self, *args, **kwargs):
         if self.seed is not None:

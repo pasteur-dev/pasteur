@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-import pandas as pd
+from typing import TYPE_CHECKING
+
 from ...utils import find_subclasses
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class BaseModel(ABC):
@@ -32,8 +38,8 @@ class XGBoostlassifierModel(BaseModel):
         self.num_round = num_round
 
     def fit(self, x: pd.DataFrame, y: pd.DataFrame):
-        import xgboost as xgb
         import numpy as np
+        import xgboost as xgb
 
         dtrain = xgb.DMatrix(x, label=y)
         self._bst = xgb.train(
@@ -43,8 +49,8 @@ class XGBoostlassifierModel(BaseModel):
         )
 
     def score(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
-        import xgboost as xgb
         import numpy as np
+        import xgboost as xgb
 
         deval = xgb.DMatrix(x, label=y)
         return np.mean(self._bst.predict(deval) == y.to_numpy().T)

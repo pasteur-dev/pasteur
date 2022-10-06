@@ -1,8 +1,6 @@
 from ..utils import find_subclasses
 from .base import *
-from .privbayes import *
-
-# from .sdv import *
+from .synth import *
 
 
 def get_synth():

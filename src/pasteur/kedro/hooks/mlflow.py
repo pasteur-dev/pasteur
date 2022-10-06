@@ -11,7 +11,6 @@ from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro_mlflow.config.kedro_mlflow_config import (
     KedroMlflowConfig,
-    KedroMlflowConfigError,
 )
 from kedro_mlflow.framework.hooks import MlflowHook
 from kedro_mlflow.framework.hooks.utils import (
@@ -52,9 +51,13 @@ class CustomMlflowTrackingHook(MlflowHook):
         try:
             conf_mlflow_yml = context.config_loader.get("mlflow*", "mlflow*/**")
         except MissingConfigException:
-            raise KedroMlflowConfigError(
-                "No 'mlflow.yml' config file found in environment. Use ``kedro mlflow init`` command in CLI to create a default config file."
+            logger.warning(
+                "No 'mlflow.yml' config file found in environment. Default configuration will be used. Use ``kedro mlflow init`` command in CLI to customize the configuration."
             )
+            # we create an empty dict to have the same behaviour when the mlflow.yml
+            # is commented out. In this situation there is no MissingConfigException
+            # but we got an empty dict
+            conf_mlflow_yml = {}
         mlflow_config = KedroMlflowConfig.parse_obj(conf_mlflow_yml)
 
         # store in context for interactive use
