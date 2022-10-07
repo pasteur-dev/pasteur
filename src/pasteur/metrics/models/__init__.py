@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
 
 def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.DataFrame):
-    from .runner import node_calculate_model_scores
+    from .runner import node_calculate_model_scores as node_calculate_model_scores_orig
 
-    return node_calculate_model_scores(transformer, **tables)
+    return node_calculate_model_scores_orig(transformer, **tables)
 
 
 __all__ = [

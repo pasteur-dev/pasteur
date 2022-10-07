@@ -68,7 +68,7 @@ class ExternalPythonSynth(Synth, ABC):
                         with open(fn, "w") as f:
                             json.dump(data, f)
                     case "csv":
-                        fn = path.join(dir, f"{name}.json")
+                        fn = path.join(dir, f"{name}.csv")
                         assert isinstance(data, pd.DataFrame)
                         data.to_csv(fn, **self._pg_args)
                 fns[name] = fn
@@ -91,8 +91,13 @@ class ExternalPythonSynth(Synth, ABC):
 
             # Unfold the dictionary
             params = ""
-            for param, val in param_dict.items():
-                params += f"{param} {val} "
+
+            if isinstance(param_dict, dict):
+                for param, val in param_dict.items():
+                    params += f"{param} {val} "
+            else:
+                for param in param_dict:
+                    params += f"{param} "
 
             full_cmd = f"{python_bin} {cmd} {params}"
 
@@ -107,7 +112,7 @@ class ExternalPythonSynth(Synth, ABC):
 
             # Load output data
             loaded_out = {}
-            for name, type in data_out:
+            for name, type in data_out.items():
                 fn = fns[name]
                 match type:
                     case "csv":
@@ -130,7 +135,7 @@ class ExternalPythonSynth(Synth, ABC):
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
-    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+    ) -> tuple[dict[str, Any] | list[Any], dict[str, tuple[str, Any]], dict[str, str]]:
         """Called during fit.
 
         Should return a parameter dictionary for the synthesis command,
@@ -185,7 +190,7 @@ class AimSynth(ExternalPythonSynth):
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
-    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+    ) -> tuple[dict[str, Any] | list[Any], dict[str, tuple[str, Any]], dict[str, str]]:
         assert len(data) == 1
         self.table_name = next(iter(data))
         table = data[self.table_name]
@@ -217,3 +222,93 @@ class AimSynth(ExternalPythonSynth):
         import pandas as pd
 
         return {self.table_name: data["save"]}, {self.table_name: pd.DataFrame()}
+
+
+class PrivMrfSynth(ExternalPythonSynth):
+    """ Runs the PrivMrf algorithm externally.
+    
+    Place the following snippet in `<priv-mrf>/pasteur.py`:
+    ```
+    from sys import argv
+    import PrivMRF
+    import PrivMRF.utils.tools as tools
+    from PrivMRF.domain import Domain
+    import numpy as np
+
+    if __name__ == '__main__':
+        fn_data, fn_domain, fn_synth, e = argv
+        e = float(e)
+
+        data, _ = tools.read_csv(fn_data)
+        data = np.array(data, dtype=int)
+
+        json_domain = tools.read_json_domain(fn_domain)
+        domain = Domain(json_domain, list(range(data.shape[1])))
+
+        model = PrivMRF.run(data, domain, attr_hierarchy=None, \
+            exp_name='exp', epsilon=e, p_config={})
+
+        syn_data = model.synthetic_data(fn_synth)
+    ```
+    """
+
+    name = "mrf"
+    type = "idx"
+    tabular = True
+    multimodal = False
+    timeseries = False
+    gpu = True
+
+    def __init__(
+        self,
+        e: float = 1.12,
+        seed: int | None = None,
+        **_,
+    ) -> None:
+        super().__init__(cmd="pasteur.py", **_)
+        self.e = e
+        self.seed = seed
+
+    def _prepare_synthesis_data(
+        self,
+        attrs: dict[str, Attributes],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+        assert len(data) == 1
+        self.table_name = next(iter(data))
+        table = data[self.table_name]
+
+        params = ["{dataset}", "{domain}", "{out}", f"{self.e}"]
+
+        col_names = []
+        domain = {}
+        for attr in attrs[self.table_name].values():
+            for name, col in attr.cols.items():
+                domain[str(len(col_names))] = {
+                    "type": "discrete",
+                    "domain": col.lvl.size,
+                }
+                col_names.append(name)
+
+        self.id = table.index.name
+        self.col_names = col_names
+
+        col_mapping = {name: i for i, name in enumerate(col_names)}
+        dataset = table.rename(columns=col_mapping)
+
+        data_in = {"dataset": ("csv", dataset), "domain": ("json", domain)}
+        data_out = {"out": "csv"}
+
+        return params, data_in, data_out
+
+    def _return_synthetic_data(
+        self, data: dict[str, Any]
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        import pandas as pd
+
+        col_mapping = {str(i): name for i, name in enumerate(self.col_names)}
+        table = data["out"].rename(columns=col_mapping)
+        table.index.name = self.id
+
+        return {self.table_name: table}, {self.table_name: pd.DataFrame()}

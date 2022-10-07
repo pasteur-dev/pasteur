@@ -12,3 +12,9 @@ default:
     aim:
       dir: ${private_pgm}
       venv: ${private_pgm}/venv
+      e: 1
+
+    mrf:
+      dir: ${privmrf}
+      venv: ${privmrf}/venv
+      e: 1.120
