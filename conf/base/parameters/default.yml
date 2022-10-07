@@ -8,3 +8,7 @@ default:
       e1: 0.3
       e2: 0.7
       theta: 4
+
+    aim:
+      dir: ${private_pgm}
+      venv: ${private_pgm}/venv

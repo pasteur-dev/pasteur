@@ -1,0 +1,219 @@
+from __future__ import annotations
+from abc import ABC, abstractmethod
+
+import logging
+from typing import TYPE_CHECKING, Any
+
+from .base import Synth, make_deterministic
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from ..transform import Attributes
+
+logger = logging.getLogger(__name__)
+
+
+class ExternalPythonSynth(Synth, ABC):
+    """Abstract class for calling synthesis algorithms written in python
+    from other projects.
+
+    Can use a custom virtual environment, custom project directory, and custom command.
+    With parameters defined per execution."""
+
+    type = "idx"
+    tabular = True
+    multimodal = False
+    timeseries = False
+
+    _pg_args = {"index": False}
+
+    def __init__(
+        self,
+        venv: str | None = None,
+        dir: str | None = None,
+        cmd: str | None = None,
+        **_,
+    ) -> None:
+        super().__init__(**_)
+        self.venv = venv
+        self.dir = dir
+        self.cmd = cmd
+
+    def bake(
+        self,
+        attrs: dict[str, Attributes],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        self.attrs = attrs
+
+    def fit(self, data: dict[str, pd.DataFrame], ids: dict[str, pd.DataFrame]):
+        from os import path, system
+        from tempfile import TemporaryDirectory
+        import json
+        import pandas as pd
+
+        param_dict, data_in, data_out = self._prepare_synthesis_data(
+            self.attrs, data, ids
+        )
+
+        with TemporaryDirectory(f"_{self.name}") as dir:
+            fns = {}
+            # Save input data to temporary files
+            for name, (type, data) in data_in.items():
+                match type:
+                    case "json":
+                        fn = path.join(dir, f"{name}.json")
+                        with open(fn, "w") as f:
+                            json.dump(data, f)
+                    case "csv":
+                        fn = path.join(dir, f"{name}.json")
+                        assert isinstance(data, pd.DataFrame)
+                        data.to_csv(fn, **self._pg_args)
+                fns[name] = fn
+
+            for name, type in data_out.items():
+                fns[name] = path.join(dir, f"{name}.{type}")
+
+            # Create command
+            # python3 or path/to/venv/bin/python3
+            python_bin = path.join(self.venv, "bin/python3") if self.venv else "python3"
+
+            # can call a module with -m, or include a dir and make the command a
+            # python script
+            if self.dir:
+                # path/to/proj/test.py
+                cmd = path.join(self.dir, self.cmd)
+            else:
+                # -m kedro ...
+                cmd = self.cmd
+
+            # Unfold the dictionary
+            params = ""
+            for param, val in param_dict.items():
+                params += f"{param} {val} "
+
+            full_cmd = f"{python_bin} {cmd} {params}"
+
+            # Replace file names with directory
+            full_cmd = full_cmd.format_map(fns)
+
+            # Run command
+            logger.info(f"Running command {self.cmd} as: \n{full_cmd}")
+            code = system(full_cmd)
+
+            assert code == 0, "Synthesis algorithm exited with error."
+
+            # Load output data
+            loaded_out = {}
+            for name, type in data_out:
+                fn = fns[name]
+                match type:
+                    case "csv":
+                        loaded_out[name] = pd.read_csv(fn)
+                    case "json":
+                        loaded_out[name] = json.load(fn)
+
+            self.loaded_out = loaded_out
+
+    def sample(
+        self, n: int | None = None
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        assert n is None, "Variable n not supported"
+
+        return self._return_synthetic_data(self.loaded_out)
+
+    @abstractmethod
+    def _prepare_synthesis_data(
+        self,
+        attrs: dict[str, Attributes],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+        """Called during fit.
+
+        Should return a parameter dictionary for the synthesis command,
+        a dictionary of `<name>` to `(<type>,<data>)` tuples, where type is json or csv,
+        and a dictionary of <name> to <type> tuples for output data
+
+        The data in the input dictionary is saved to the filesystem in a temporary
+        directory.
+
+        The names in the output dictionary are associated with temporary files.
+
+        Parameters containing `{name}` are substituted by the filename of
+        the file with that name in the input/output dictionary.
+        """
+        pass
+
+    @abstractmethod
+    def _return_synthetic_data(
+        self, data: dict[str, Any]
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        """Receives as input a dictionary of `<name>` to `<data>` pairs.
+
+        This function is expected to output a data, ids pair of DataFrame dictionaries,
+        in the same format the sample function expects."""
+        pass
+
+
+class AimSynth(ExternalPythonSynth):
+    name = "aim"
+    type = "idx"
+    tabular = True
+    multimodal = False
+    timeseries = False
+    gpu = True
+
+    def __init__(
+        self,
+        e: float = 1,
+        delta: float | None = None,
+        max_model_size: int = 80,
+        seed: int | None = None,
+        **_,
+    ) -> None:
+        super().__init__(cmd="mechanisms/aim.py", **_)
+        self.e = e
+        self.delta = delta
+        self.max_model_size = max_model_size
+        self.seed = seed
+
+    def _prepare_synthesis_data(
+        self,
+        attrs: dict[str, Attributes],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+        assert len(data) == 1
+        self.table_name = next(iter(data))
+        table = data[self.table_name]
+
+        n = len(table)
+
+        params = {
+            "--dataset": "{dataset}",
+            "--domain": "{domain}",
+            "--save": "{save}",
+            "--epsilon": self.e,
+            "--delta": self.delta if self.delta != None else 1 / n / 10,
+            "--max_model_size": self.max_model_size,
+        }
+
+        domain = {}
+        for attr in attrs[self.table_name].values():
+            for name, col in attr.cols.items():
+                domain[name] = col.lvl.size
+
+        data_in = {"dataset": ("csv", table), "domain": ("json", domain)}
+        data_out = {"save": "csv"}
+
+        return params, data_in, data_out
+
+    def _return_synthetic_data(
+        self, data: dict[str, Any]
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        import pandas as pd
+
+        return {self.table_name: data["save"]}, {self.table_name: pd.DataFrame()}

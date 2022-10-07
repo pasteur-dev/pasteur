@@ -46,9 +46,9 @@ black==22.8.0
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 bleach==5.0.1
     # via nbconvert
-boto3==1.24.86
+boto3==1.24.88
     # via parquet-tools
-botocore==1.27.86
+botocore==1.27.88
     # via
     #   boto3
     #   s3transfer
@@ -298,9 +298,9 @@ mypy-extensions==0.4.3
     # via black
 nbclassic==0.4.4
     # via jupyterlab
-nbclient==0.6.8
+nbclient==0.7.0
     # via nbconvert
-nbconvert==7.1.0
+nbconvert==7.2.1
     # via
     #   jupyter
     #   jupyter-server
@@ -384,7 +384,7 @@ pillow==9.2.0
     # via
     #   ipympl
     #   matplotlib
-pip-tools==6.8.0
+pip-tools==6.9.0
     # via kedro
 platformdirs==2.5.2
     # via black
