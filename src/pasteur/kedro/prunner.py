@@ -1,4 +1,5 @@
 import logging
+import signal
 import threading
 from collections import Counter
 from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ProcessPoolExecutor, wait
@@ -25,12 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 def _logging_thread_fun(q):
-    while True:
-        record = q.get()
-        if record is None:
-            break
-        logger = logging.getLogger(record.name)
-        logger.handle(record)
+    try:
+        while True:
+            record = q.get()
+            if record is None:
+                break
+            logger = logging.getLogger(record.name)
+            logger.handle(record)
+    except EOFError:
+        pass
 
 
 def _replace_loggers_with_queue(q):
@@ -45,6 +49,10 @@ def _replace_loggers_with_queue(q):
     from logging.handlers import QueueHandler
 
     logging.root.handlers.append(QueueHandler(q))
+
+
+def _disable_keyboard_interrupt():
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def _replace_logging(fun, *args, _q=None, **kwargs):
@@ -122,7 +130,7 @@ class SimpleParallelRunner(ParallelRunner):
         from kedro.framework.project import LOGGING, PACKAGE_NAME
 
         with logging_redirect_pbar(), ProcessPoolExecutor(
-            max_workers=max_workers
+            max_workers=max_workers, initializer=_disable_keyboard_interrupt
         ) as pool:
             # set up logging handler
             log_queue = self._manager.Queue()
@@ -139,8 +147,9 @@ class SimpleParallelRunner(ParallelRunner):
                 pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
             last_index = 0
 
-            node_failed = False
-            while not node_failed:
+            failed = False
+            interrupted = False
+            while not failed:
                 if use_pbar:
                     n = len(done_nodes) - last_index
                     pbar.update(n)
@@ -200,11 +209,17 @@ class SimpleParallelRunner(ParallelRunner):
                             f"Executing nodes {{{node_str}}}/{len(nodes)}"
                         )
 
-                done, futures = wait(
-                    futures,
-                    return_when=FIRST_COMPLETED,
-                    timeout=0 if len(non_parallel) else None,
-                )
+                try:
+                    done, futures = wait(
+                        futures,
+                        return_when=FIRST_COMPLETED,
+                        timeout=0 if len(non_parallel) else None,
+                    )
+                except KeyboardInterrupt:
+                    interrupted = True
+                    done = set()
+                    non_parallel = set()
+
                 for future in chain(done, non_parallel):
                     try:
                         # Run non-parallel nodes in the same process
@@ -218,6 +233,9 @@ class SimpleParallelRunner(ParallelRunner):
                                     self._is_async,
                                     session_id,
                                 )
+                            except KeyboardInterrupt as e:
+                                interrupted = True
+                                raise Exception()
                             except Exception as e:
                                 get_console().print_exception(**RICH_TRACEBACK_ARGS)
                                 logger.error(
@@ -230,11 +248,15 @@ class SimpleParallelRunner(ParallelRunner):
                     except Exception:
                         # Wait for all nodes to finish to print all exceptions
                         # if there are more errors
-                        wait(futures, return_when=ALL_COMPLETED)
+                        for future in futures:
+                            future.cancel()
 
                         # Log to console
-                        logger.error(f"One (or more) of the nodes failed, exiting...")
-                        node_failed = True
+                        if not interrupted:
+                            logger.error(
+                                f"One (or more) of the nodes failed, exiting..."
+                            )
+                        failed = True
                         # Remove unfinished pbar
                         if use_pbar:
                             pbar.leave = False
@@ -269,7 +291,9 @@ class SimpleParallelRunner(ParallelRunner):
             log_queue.put(None)
             lp.join()
 
-            if node_failed:
+            if interrupted:
+                logger.error(f"Received KeyboardInterrupt, exiting...")
+            if failed:
                 # exception needs to be raised for the `on_pipeline_error`
                 # hook to run
                 # Remove system exception hook to avoid printing exception to

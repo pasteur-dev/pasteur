@@ -1,7 +1,7 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
 
 import logging
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from .base import Synth, make_deterministic
@@ -25,6 +25,7 @@ class ExternalPythonSynth(Synth, ABC):
     tabular = True
     multimodal = False
     timeseries = False
+    gpu = True
 
     _pg_args = {"index": False}
 
@@ -40,6 +41,10 @@ class ExternalPythonSynth(Synth, ABC):
         self.dir = dir
         self.cmd = cmd
 
+    @property
+    def _logger(self):
+        return logging.getLogger(f"extern.{self.name if self.name else 'ukn'}")
+
     def bake(
         self,
         attrs: dict[str, Attributes],
@@ -49,9 +54,14 @@ class ExternalPythonSynth(Synth, ABC):
         self.attrs = attrs
 
     def fit(self, data: dict[str, pd.DataFrame], ids: dict[str, pd.DataFrame]):
-        from os import path, system
-        from tempfile import TemporaryDirectory
         import json
+        import shlex
+        import signal
+        import subprocess
+        from os import path
+        from tempfile import TemporaryDirectory
+        from threading import Thread
+
         import pandas as pd
 
         param_dict, data_in, data_out = self._prepare_synthesis_data(
@@ -105,10 +115,57 @@ class ExternalPythonSynth(Synth, ABC):
             full_cmd = full_cmd.format_map(fns)
 
             # Run command
-            logger.info(f"Running command {self.cmd} as: \n{full_cmd}")
-            code = system(full_cmd)
+            self._logger.info(f"Running command {self.cmd} as: \n{full_cmd}")
 
-            assert code == 0, "Synthesis algorithm exited with error."
+            def _log_pipe(proc, is_err):
+                if is_err:
+                    f = self._logger.warn
+                    s = proc.stderr
+                else:
+                    f = self._logger.info
+                    s = proc.stdout
+
+                while True:
+                    line = s.readline()
+                    if not line:
+                        break
+                    f(line[:-1])
+
+            proc = None
+            tout = None
+            terr = None
+            try:
+
+                def preexec_function():
+                    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+                proc = subprocess.Popen(
+                    shlex.split(full_cmd),
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    preexec_fn=preexec_function,
+                )
+
+                tout = Thread(target=_log_pipe, args=(proc, False))
+                terr = Thread(target=_log_pipe, args=(proc, True))
+                tout.start()
+                terr.start()
+
+                proc.wait()
+
+                if tout:
+                    tout.join()
+                if terr:
+                    terr.join()
+            except:
+                if proc and not proc.poll():
+                    proc.terminate()
+                if tout:
+                    tout.join()
+                if terr:
+                    terr.join()
+                raise
 
             # Load output data
             loaded_out = {}
