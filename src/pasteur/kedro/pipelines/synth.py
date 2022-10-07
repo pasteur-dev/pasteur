@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, pipeline
+from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
@@ -10,12 +10,13 @@ from .utils import gen_closure
 
 if TYPE_CHECKING:
     from ...views import View
+    from ...synth import Synth
 
 
 def create_synth_pipeline(
     view: View,
     split: str,
-    cls: type,
+    cls: type[Synth],
 ):
     alg = cls.name
     type = cls.type
@@ -32,6 +33,7 @@ def create_synth_pipeline(
                     **{f"enc_{t}": f"in_enc_{t}" for t in tables},
                 },
                 outputs="model",
+                tags=["gpu"] if cls.gpu else None,
             ),
             node(
                 func=synth_sample,
@@ -40,6 +42,7 @@ def create_synth_pipeline(
                     **{f"ids_{t}": f"ids_{t}" for t in tables},
                     **{f"enc_{t}": f"enc_{t}" for t in tables},
                 },
+                tags=["gpu"] if cls.gpu else None,
             ),
         ]
     )

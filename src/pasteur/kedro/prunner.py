@@ -1,24 +1,24 @@
 import logging
-from rich import get_console
+import threading
 from collections import Counter
 from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ProcessPoolExecutor, wait
 from itertools import chain
-import threading
 
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner, _run_node_synchronization
+from kedro.runner.runner import run_node
 from pluggy import PluginManager
-from rich.traceback import install
+from rich import get_console
 
 from ..progress import (
     MULTIPROCESS_ENABLE,
     PBAR_MIN_PIPE_LEN,
     RICH_TRACEBACK_ARGS,
-    piter,
-    logging_redirect_pbar,
     is_jupyter,
+    logging_redirect_pbar,
+    piter,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +60,11 @@ def _replace_logging(fun, *args, _q=None, **kwargs):
         raise
 
 
+def _is_concurrency_safe(node: Node):
+    unsafe_tags = set(["gpu", "non_parallel"])
+    return len(node.tags.intersection(unsafe_tags)) == 0
+
+
 class SimpleParallelRunner(ParallelRunner):
     def __init__(
         self,
@@ -69,7 +74,7 @@ class SimpleParallelRunner(ParallelRunner):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        super().__init__(None, True)
+        super().__init__(is_async=True)
 
     @property
     def _logger(self):
@@ -80,7 +85,7 @@ class SimpleParallelRunner(ParallelRunner):
         pipeline: Pipeline,
         catalog: DataCatalog,
         hook_manager: PluginManager,
-        session_id: str = None,
+        session_id: str,
     ) -> None:
         """The abstract interface for running pipelines.
 
@@ -127,13 +132,12 @@ class SimpleParallelRunner(ParallelRunner):
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
+            pbar: piter = None  # type: ignore
             if not is_jupyter() or not use_pbar:
                 logger.info(desc)
             if use_pbar:
                 pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
-                last_index = 0
-            else:
-                pbar = nodes
+            last_index = 0
 
             node_failed = False
             while not node_failed:
@@ -144,21 +148,26 @@ class SimpleParallelRunner(ParallelRunner):
 
                 ready = {n for n in todo_nodes if node_dependencies[n] <= done_nodes}
                 todo_nodes -= ready
+                non_parallel: set[Node] = set()
                 for node in ready:
-                    futures.add(
-                        pool.submit(
-                            _replace_logging,
-                            _run_node_synchronization,
-                            node,
-                            catalog,
-                            self._is_async,
-                            session_id,
-                            package_name=PACKAGE_NAME,
-                            logging_config=LOGGING,  # type: ignore
-                            _q=log_queue,
+                    if _is_concurrency_safe(node):
+                        futures.add(
+                            pool.submit(
+                                _replace_logging,
+                                _run_node_synchronization,
+                                node,
+                                catalog,
+                                self._is_async,
+                                session_id,
+                                package_name=PACKAGE_NAME,
+                                logging_config=LOGGING,  # type: ignore
+                                _q=log_queue,
+                            )
                         )
-                    )
-                if not futures:
+                    else:
+                        non_parallel.add(node)
+
+                if not futures and not non_parallel:
                     if todo_nodes:
                         debug_data = {
                             "todo_nodes": todo_nodes,
@@ -177,22 +186,46 @@ class SimpleParallelRunner(ParallelRunner):
 
                 # Set pbar description
                 if use_pbar:
-                    if len(futures) == 1:
+                    if len(futures) + len(non_parallel) == 1:
                         pbar.set_description(
                             f"Executing node {len(done_nodes) + 1:2d}/{len(nodes)}"
                         )
                     else:
                         node_str = ", ".join(
-                            str(len(done_nodes) + 1 + i) for i in range(len(futures))
+                            str(len(done_nodes) + 1 + i)
+                            for i in range(len(futures) + len(non_parallel))
                         )
 
                         pbar.set_description(
                             f"Executing nodes {{{node_str}}}/{len(nodes)}"
                         )
-                done, futures = wait(futures, return_when=FIRST_COMPLETED)
-                for future in done:
+
+                done, futures = wait(
+                    futures,
+                    return_when=FIRST_COMPLETED,
+                    timeout=0 if len(non_parallel) else None,
+                )
+                for future in chain(done, non_parallel):
                     try:
-                        node = future.result()
+                        # Run non-parallel nodes in the same process
+                        if isinstance(future, Node):
+                            node = future
+                            try:
+                                run_node(
+                                    node,
+                                    catalog,
+                                    hook_manager,
+                                    self._is_async,
+                                    session_id,
+                                )
+                            except Exception as e:
+                                get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                                logger.error(
+                                    f"Node \"{node.name.split('(')[0]}\" failed with error:\n{type(e).__name__}: {e}"
+                                )
+                                raise
+                        else:
+                            node = future.result()
                         done_nodes.add(node)
                     except Exception:
                         # Wait for all nodes to finish to print all exceptions

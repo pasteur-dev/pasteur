@@ -49,6 +49,7 @@ class Synth(ABC):
     tabular = True
     multimodal = False
     timeseries = False
+    gpu = False
 
     def __init__(self, **_) -> None:
         pass

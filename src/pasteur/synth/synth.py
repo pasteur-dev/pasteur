@@ -19,6 +19,7 @@ class PrivBayesSynth(Synth):
     tabular = True
     multimodal = False
     timeseries = False
+    gpu = True
 
     def __init__(
         self,
