@@ -8,6 +8,7 @@ from .attribute import (
     Attribute,
     IdxColumn,
     Level,
+    LevelColumn,
     NumColumn,
     OrdColumn,
 )
@@ -87,7 +88,7 @@ class EncodingTransformer:
 class DiscretizationColumnTransformer:
     """Converts a numerical column into an ordinal one using histograms."""
 
-    def fit(self, attr: NumColumn, data: pd.Series) -> OrdColumn:
+    def fit(self, attr: NumColumn, data: pd.Series) -> IdxColumn:
         self.in_attr = attr
         self.col = data.name
 
@@ -99,21 +100,29 @@ class DiscretizationColumnTransformer:
         self.edges = np.histogram_bin_edges(data[~pd.isna(data)], attr.bins, rng)
         self.vals = (self.edges[:-1] + self.edges[1:]) / 2
 
-        self.attr = OrdColumn(self.vals, attr.na)
+        if attr.common <= 1:
+            self.attr = OrdColumn(self.vals, na=attr.common == 1)
+        else:
+            assert (
+                False
+            ), "Discretizing multi-column attributes which contain multiple common values and numerical attributes is not supported for now"
+            # The problem is that when there's one common value, ie NA, there's a floating point presentation for it
+            # but for more there's not...
+            # self.attr = LevelColumn(Level("ord", self.vals), attr.common)
         return self.attr
 
     def encode(self, data: pd.Series) -> pd.DataFrame:
-        ofs = 1 if self.in_attr.na else 0
+        ofs = self.in_attr.common
         midx = len(self.vals) - 1  # clip digitize out of bounds values
         digits = (np.digitize(data, bins=self.edges) - 1).clip(0, midx) + ofs
-        if self.in_attr.na:
+        if ofs:
             digits[pd.isna(data)] = 0
         return pd.Series(digits, index=data.index, name=self.col)
 
     def decode(self, enc: pd.DataFrame) -> pd.Series:
-        ofs = 1 if self.in_attr.na else 0
+        ofs = self.in_attr.common
         v = self.vals[(enc[self.col] - ofs).clip(0, len(self.vals) - 1)]
-        if self.in_attr.na:
+        if ofs:
             v[enc[self.col] == 0] = np.nan
         return pd.Series(v, index=enc.index, name=self.col)
 
@@ -175,29 +184,20 @@ class NumAttributeTransformer(AttributeTransformer):
         self.in_attr = attr
 
         cols = {}
-        ofs = 0
-        if attr.na:
-            cols[f"{attr.name}_na"] = NumColumn()
-            ofs += 1
-        if attr.ukn_val:
-            cols[f"{attr.name}_ukn"] = NumColumn()
-            ofs += 1
+
+        common = attr.common
+        for i in range(common):
+            cols[f"{attr.name}_cmn_{i}"] = NumColumn()
 
         for name, col in attr.cols.items():
-            if col.type == "num":
+            if isinstance(col, NumColumn):
                 cols[name] = col
-            if col.type == "idx":
-                col: IdxColumn
-                if col.lvl.type == "ord" and col.lvl.size == len(col.lvl):
-                    cols[name] = NumColumn()
-                elif (
-                    col.lvl.type == "cat"
-                    and len(col.lvl) == ofs + 1
-                    and col.lvl[ofs].type == "ord"
-                ):
+            if isinstance(col, IdxColumn):
+                if col.is_ordinal():
                     cols[name] = NumColumn()
                 else:
-                    for i in range(col.lvl.size - ofs):
+                    assert col.common == common
+                    for i in range(col.get_domain(0) - col.common):
                         cols[f"{name}_{i}"] = NumColumn()
 
         self.attr = copy(attr)
@@ -210,57 +210,37 @@ class NumAttributeTransformer(AttributeTransformer):
             return pd.DataFrame(index=data.index)
         cols = []
 
-        # Add NA column
-        if a.na:
-            na_col = pd.Series(False, index=data.index, name=f"{a.name}_na")
-            for name, col in a.cols.items():
-                if col.type == "idx":
-                    na_col |= data[name] == 0
-                if col.type == "num":
-                    na_col |= pd.isna(data[name])
-            cols.append(na_col)
+        only_has_na = a.common == 1 and a.na
 
-        # Add ukn val column
-        if a.ukn_val:
-            ukn_col = pd.Series(False, index=data.index, name=f"{a.name}_ukn")
+        # Handle common values
+        for i in range(a.common):
+            cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}")
+
             for name, col in a.cols.items():
-                if col.type == "idx":
-                    ukn_col |= data[name] == 1
-            cols.append(ukn_col)
+                if isinstance(col, IdxColumn):
+                    cmn_col |= data[name] == i
+                if isinstance(col, NumColumn) and only_has_na:
+                    # Numerical values are expected to be NA for all common values
+                    # so they are only used to set the common values when:
+                    # `common == 1 and a.na`, meaning the only common value is NA.``
+                    cmn_col |= pd.isna(data[name])
 
         # Add other columns
         for name, col in a.cols.items():
-            if col.type == "num":
+            if isinstance(col, NumColumn):
                 cols.append(data[name])
-            if col.type == "idx":
+            elif isinstance(col, IdxColumn):
                 # TODO add proper encodings other than one hot
-                col: IdxColumn
-                ofs = 0
-                if a.na:
-                    ofs += 1
-                if a.ukn_val:
-                    ofs += 1
 
                 # Handle ordinal values
-                encoded = False
-                if len(col.lvl) == ofs + 1:
-                    lvl = col.lvl[ofs]
-                    # Level has to be ordinal and only include leafs (infered by size being equal to length)
-                    if (
-                        isinstance(lvl, Level)
-                        and lvl.type == "ord"
-                        and len(lvl) == lvl.size
-                    ):
-                        cols.append(data[name] - ofs)
-                        encoded = True
-                elif col.lvl.type == "ord" and col.lvl.size == len(col.lvl):
-                    cols.append(data[name])
-                    encoded = True
-
-                # One hot encode everything else
-                if not encoded:
-                    for i in range(col.lvl.size - ofs):
-                        cols.append((data[name] == i + ofs).rename(f"{name}_{i}"))
+                if col.is_ordinal():
+                    cols.append(data[name] - col.common)
+                else:
+                    # One hot encode everything else
+                    for i in range(col.get_domain(0) - col.common):
+                        cols.append(
+                            (data[name] == i + col.common).rename(f"{name}_{i}")
+                        )
 
         return pd.concat(cols, axis=1)
 

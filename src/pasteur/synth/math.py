@@ -60,12 +60,11 @@ def expand_table(
             col_noncommon = []
             col_dom = []
 
-            lvl = col.lvl
-            for height in range(lvl.height):
-                domain = lvl.get_domain(height)
+            for height in range(col.height):
+                domain = col.get_domain(height)
                 col_dom.append(domain)
 
-                col_lvl = lvl.get_mapping(height)[table[name]]
+                col_lvl = col.get_mapping(height)[table[name]]
                 col_lvl = col_lvl.astype(get_dtype(domain))
                 col_hier.append(col_lvl)
 

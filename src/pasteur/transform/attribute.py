@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from ctypes import Union
 import numpy as np
 from typing import Any, Literal, TypeVar
@@ -13,7 +14,9 @@ def get_dtype(domain: int):
         return np.uint16
     return np.uint32
 
+
 LI = TypeVar("LI", "Level", int)
+
 
 class Level(list[LI]):
     def __init__(self, type: Literal["cat", "ord"], arr: list["Level" | Any]):
@@ -100,8 +103,6 @@ class Level(list[LI]):
 
     @staticmethod
     def from_str(a: str, nullable: bool = False, ukn_val: Any | None = None) -> "Level":
-        i = 0
-
         stack = [[]]
         is_ord = [False]
         bracket_closed = False
@@ -157,71 +158,112 @@ class Level(list[LI]):
 
 
 class Column:
-    type: Literal["idx", "num"]
     name: str | None = None
-    na: bool = False
-
-    # Column type specific hints
-    lvl: Level
-    bins: int | None
-    max: float | int | None
-    max: float | int | None
+    common: int = 0
 
 
-class IdxColumn:
-    type = "idx"
+class IdxColumn(Column, ABC):
+    @abstractmethod
+    def get_domain(self, height: int) -> int:
+        """Returns the domain of the attribute in the given height."""
+        pass
 
-    def __init__(self, lvl: Level) -> None:
-        self.lvl = lvl
+    @abstractmethod
+    def get_mapping(self, height: int) -> np.array:
+        """Returns a numpy array that associates discrete values with groups at
+        the given height."""
+        pass
+
+    @property
+    def height(self) -> int:
+        """Returns the maximum height of this column."""
+        return 0
+
+    def is_ordinal(self) -> bool:
+        """Returns whether this column is ordinal, other than for the elements
+        it shares in common with the other attributes."""
+        return False
+
+
+class LevelColumn(IdxColumn):
+    """A specific type of IdxColumn, which contains a hierarchical attribute
+    structure based on a tree."""
+
+    def __init__(self, lvl: Level, common: int = 0) -> None:
+        self._lvl = lvl
+        self.common = common
 
     def __str__(self) -> str:
-        return "Idx" + str(self.lvl)
+        return "Idx" + str(self._lvl)
 
     def __repr__(self) -> str:
-        return "Idx" + repr(self.lvl)
+        return "Idx" + repr(self._lvl)
 
     def get_domain(self, height: int):
-        return self.lvl.get_domain(height)
+        return self._lvl.get_domain(height)
 
     def get_mapping(self, height: int):
-        return self.lvl.get_mapping(height)
+        return self._lvl.get_mapping(height)
+
+    def is_ordinal(self) -> bool:
+        if self._lvl.type == "ord" and self._lvl.size == len(self._lvl):
+            return True
+        if (
+            self._lvl.type == "cat"
+            and len(self._lvl) == self.common + 1
+            and self._lvl[self.common].type == "ord"
+        ):
+            return True
+        return False
 
     @property
     def height(self):
-        return self.lvl.height
+        return self._lvl.height
 
 
-class CatColumn(IdxColumn):
+class CatColumn(LevelColumn):
+    """Initializer for LevelColumn, which initializes a single level Categorical column."""
+
     def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
         arr = []
+        common = 0
         if na:
             arr.append(None)
+            common += 1
         if ukn_val is not None:
             arr.append(ukn_val)
+            common += 1
         arr.extend(vals)
 
         super().__init__(Level("cat", arr))
 
 
-class OrdColumn(IdxColumn):
+class OrdColumn(LevelColumn):
+    """Initializer for LevelColumn, which initializes a single level Ordinal column, which might have common values."""
+
     def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
         lvl = Level("ord", vals)
+        common = 0
 
         if na or ukn_val is not None:
             arr = []
             if na:
+                common += 1
                 arr.append(None)
             if ukn_val is not None:
+                common += 1
                 arr.append(ukn_val)
             arr.append(lvl)
 
             lvl = Level("cat", arr)
 
-        super().__init__(lvl)
+        super().__init__(lvl, common)
 
 
 class NumColumn(Column):
-    type = "num"
+    """Numerical Column, its value can be represented with a number, which might be NaN.
+
+    TODO: handle multiple common values (1 is assumed to be NA), appropriately."""
 
     def __init__(
         self,
@@ -259,8 +301,8 @@ class Attribute:
         self.cols: dict[str, Column] = {}
         for name, col in cols.items():
             col = copy(col)
-            col.na = self.na
             col.name = name
+            col.common = self.common
             self.cols[name] = col
 
     def __str__(self) -> str:

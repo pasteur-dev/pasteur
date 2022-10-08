@@ -9,7 +9,7 @@ from ..utils import find_subclasses
 from .attribute import (
     Attribute,
     CatAttribute,
-    IdxColumn,
+    LevelColumn,
     Level,
     NumAttribute,
     NumColumn,
@@ -510,7 +510,7 @@ class TimeTransformer(Transformer):
         self.domain = lvl.size
 
         self.attr = Attribute(
-            data.name, {f"{data.name}_time": IdxColumn(lvl)}, self.nullable
+            data.name, {f"{data.name}_time": LevelColumn(lvl)}, self.nullable
         )
         return self.attr
 

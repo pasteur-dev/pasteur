@@ -114,7 +114,7 @@ def greedy_bayes(
         for n, c in a.cols.items():
             col_names.append(n)
             groups.append(i)
-            heights.append(c.lvl.height)
+            heights.append(c.height)
             common.append(a.common)
             domain.append([c.get_domain(h) for h in range(c.height)])
 
@@ -549,7 +549,7 @@ def sample_rows(
                 p_partial = partial and attr_name == x_attr
                 for i, (col_name, h) in enumerate(attr.cols.items()):
                     col = attrs[attr_name].cols[col_name]
-                    mapping = np.array(col.lvl.get_mapping(h), dtype=dtype)
+                    mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 
                     col_lvl = mapping[out[col_name]]
