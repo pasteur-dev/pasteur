@@ -1,5 +1,6 @@
+from ctypes import Union
 import numpy as np
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 from copy import copy
 
 
@@ -12,23 +13,16 @@ def get_dtype(domain: int):
         return np.uint16
     return np.uint32
 
+LI = TypeVar("LI", "Level", int)
 
-class Level:
-    pass
-
-
-class LeafLevel(Level, str):
-    pass
-
-
-class NodeLevel(Level, list[Level]):
-    def __init__(self, type: Literal["cat", "ord"], arr: list[Level | Any]):
+class Level(list[LI]):
+    def __init__(self, type: Literal["cat", "ord"], arr: list["Level" | Any]):
         lvls = []
         for a in arr:
-            if isinstance(a, NodeLevel):
+            if isinstance(a, Level):
                 lvls.append(a)
             else:
-                lvls.append(LeafLevel(a))
+                lvls.append(str(a))
 
         super().__init__(lvls)
         self.type = type
@@ -47,11 +41,11 @@ class NodeLevel(Level, list[Level]):
 
     @property
     def height(self) -> int:
-        return max(lvl.height if isinstance(lvl, NodeLevel) else 0 for lvl in self) + 1
+        return max(lvl.height if isinstance(lvl, Level) else 0 for lvl in self) + 1
 
     @property
     def size(self) -> int:
-        return sum(lvl.size if isinstance(lvl, NodeLevel) else 1 for lvl in self)
+        return sum(lvl.size if isinstance(lvl, Level) else 1 for lvl in self)
 
     def get_domain(self, height: int):
         return len(self.get_groups(height))
@@ -59,7 +53,7 @@ class NodeLevel(Level, list[Level]):
     def _get_groups_by_level(self, lvl: int, ofs: int = 0) -> list[list[int] | int]:
         groups = []
         for l in self:
-            if isinstance(l, NodeLevel):
+            if isinstance(l, Level):
                 g, ofs = l._get_groups_by_level(lvl - 1, ofs)
 
                 if lvl == 0:
@@ -98,16 +92,14 @@ class NodeLevel(Level, list[Level]):
     def get_human_values(self) -> list[str]:
         out = []
         for lvl in self:
-            if isinstance(lvl, NodeLevel):
+            if isinstance(lvl, Level):
                 out.extend(lvl.get_human_values())
             else:
                 out.append(str(lvl))
         return out
 
     @staticmethod
-    def from_str(
-        a: str, nullable: bool = False, ukn_val: Any | None = None
-    ) -> "NodeLevel":
+    def from_str(a: str, nullable: bool = False, ukn_val: Any | None = None) -> "Level":
         i = 0
 
         stack = [[]]
@@ -115,9 +107,9 @@ class NodeLevel(Level, list[Level]):
         bracket_closed = False
 
         if nullable:
-            stack[-1].append(LeafLevel(None))
+            stack[-1].append(str(None))
         if ukn_val is not None:
-            stack[-1].append(LeafLevel(ukn_val))
+            stack[-1].append(str(ukn_val))
 
         name = ""
         for j, c in enumerate(a):
@@ -128,7 +120,7 @@ class NodeLevel(Level, list[Level]):
                 ), f"',' should follow after a bracket closing (']', '}}'): {a[:j+1]}<"
 
             if c in "]}," and not bracket_closed:
-                stack[-1].append(LeafLevel(name))
+                stack[-1].append(str(name))
                 name = ""
 
             if c not in "[]{},":
@@ -146,20 +138,20 @@ class NodeLevel(Level, list[Level]):
                 case "}":
                     children = stack.pop()
                     assert not is_ord.pop(), "Unmatched '[' bracket, found '}'"
-                    stack[-1].append(NodeLevel("cat", children))
+                    stack[-1].append(Level("cat", children))
                 case "[":
                     stack.append([])
                     is_ord.append(True)
                 case "]":
                     children = stack.pop()
                     assert is_ord.pop(), "Unmatched '{' bracket, found ']'"
-                    stack[-1].append(NodeLevel("ord", children))
+                    stack[-1].append(Level("ord", children))
 
         lvl_attrs = stack[0]
         if len(lvl_attrs) == 1:
             lvl = lvl_attrs[0]
         else:
-            lvl = NodeLevel("cat", lvl_attrs)
+            lvl = Level("cat", lvl_attrs)
 
         return lvl
 
@@ -170,7 +162,7 @@ class Column:
     na: bool = False
 
     # Column type specific hints
-    lvl: NodeLevel
+    lvl: Level
     bins: int | None
     max: float | int | None
     max: float | int | None
@@ -179,7 +171,7 @@ class Column:
 class IdxColumn:
     type = "idx"
 
-    def __init__(self, lvl: NodeLevel) -> None:
+    def __init__(self, lvl: Level) -> None:
         self.lvl = lvl
 
     def __str__(self) -> str:
@@ -208,12 +200,12 @@ class CatColumn(IdxColumn):
             arr.append(ukn_val)
         arr.extend(vals)
 
-        super().__init__(NodeLevel("cat", arr))
+        super().__init__(Level("cat", arr))
 
 
 class OrdColumn(IdxColumn):
     def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
-        lvl = NodeLevel("ord", vals)
+        lvl = Level("ord", vals)
 
         if na or ukn_val is not None:
             arr = []
@@ -223,7 +215,7 @@ class OrdColumn(IdxColumn):
                 arr.append(ukn_val)
             arr.append(lvl)
 
-            lvl = NodeLevel("cat", arr)
+            lvl = Level("cat", arr)
 
         super().__init__(lvl)
 

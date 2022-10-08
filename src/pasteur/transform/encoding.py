@@ -6,9 +6,8 @@ from ..utils import find_subclasses
 from .attribute import (
     Attributes,
     Attribute,
-    Column,
     IdxColumn,
-    NodeLevel,
+    Level,
     NumColumn,
     OrdColumn,
 )
@@ -248,7 +247,7 @@ class NumAttributeTransformer(AttributeTransformer):
                     lvl = col.lvl[ofs]
                     # Level has to be ordinal and only include leafs (infered by size being equal to length)
                     if (
-                        isinstance(lvl, NodeLevel)
+                        isinstance(lvl, Level)
                         and lvl.type == "ord"
                         and len(lvl) == lvl.size
                     ):

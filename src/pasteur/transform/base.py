@@ -3,22 +3,17 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-
 from pandas.api.types import is_categorical_dtype
 
 from ..utils import find_subclasses
 from .attribute import (
     Attribute,
-    Attributes,
     CatAttribute,
     IdxColumn,
-    LeafLevel,
-    NodeLevel,
+    Level,
     NumAttribute,
     NumColumn,
     OrdAttribute,
-    Column,
-    Level,
     OrdColumn,
     get_dtype,
 )
@@ -478,39 +473,39 @@ class TimeTransformer(Transformer):
         hours = []
         for hour in range(24):
             if span == "hour":
-                hours.append(LeafLevel(f"{hour:02d}:00"))
+                hours.append(f"{hour:02d}:00")
             elif span == "halfhour":
                 hours.append(
-                    NodeLevel(
+                    Level(
                         "ord",
-                        [LeafLevel(f"{hour:02d}:00"), LeafLevel(f"{hour:02d}:30")],
+                        [f"{hour:02d}:00", f"{hour:02d}:30"],
                     )
                 )
             else:
                 mins = []
                 for min in range(60):
                     if span == "minute":
-                        mins.append(LeafLevel(f"{hour:02d}:{min:02d}"))
+                        mins.append(f"{hour:02d}:{min:02d}")
                     if span == "halfminute":
                         mins.append(
-                            NodeLevel(
+                            Level(
                                 "ord",
                                 [
-                                    LeafLevel(f"{hour:02d}:{min:02d}:00"),
-                                    LeafLevel(f"{hour:02d}:{min:02d}:30"),
+                                    f"{hour:02d}:{min:02d}:00",
+                                    f"{hour:02d}:{min:02d}:30",
                                 ],
                             )
                         )
                     if span == "second":
                         secs = []
                         for sec in range(60):
-                            secs.append(LeafLevel(f"{hour:02d}:{min:02d}:{sec:02d}"))
-                        mins.append(NodeLevel("ord", secs))
+                            secs.append(f"{hour:02d}:{min:02d}:{sec:02d}")
+                        mins.append(Level("ord", secs))
 
-                hours.append(NodeLevel("ord", mins))
-        lvl = NodeLevel("ord", hours)
+                hours.append(Level("ord", mins))
+        lvl = Level("ord", hours)
         if self.nullable:
-            lvl = NodeLevel("cat", [None, lvl])
+            lvl = Level("cat", [None, lvl])
 
         self.domain = lvl.size
 
