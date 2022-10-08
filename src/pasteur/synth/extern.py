@@ -266,7 +266,7 @@ class AimSynth(ExternalPythonSynth):
         domain = {}
         for attr in attrs[self.table_name].values():
             for name, col in attr.cols.items():
-                domain[name] = col.lvl.size
+                domain[name] = col.get_domain(0)
 
         data_in = {"dataset": ("csv", table), "domain": ("json", domain)}
         data_out = {"save": "csv"}
@@ -344,7 +344,7 @@ class PrivMrfSynth(ExternalPythonSynth):
             for name, col in attr.cols.items():
                 domain[str(len(col_names))] = {
                     "type": "discrete",
-                    "domain": col.lvl.size,
+                    "domain": col.get_domain(0),
                 }
                 col_names.append(name)
 

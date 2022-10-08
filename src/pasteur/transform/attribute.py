@@ -190,35 +190,35 @@ class LevelColumn(IdxColumn):
     structure based on a tree."""
 
     def __init__(self, lvl: Level, common: int = 0) -> None:
-        self._lvl = lvl
+        self.head = lvl
         self.common = common
 
     def __str__(self) -> str:
-        return "Idx" + str(self._lvl)
+        return "Idx" + str(self.head)
 
     def __repr__(self) -> str:
-        return "Idx" + repr(self._lvl)
+        return "Idx" + repr(self.head)
 
     def get_domain(self, height: int):
-        return self._lvl.get_domain(height)
+        return self.head.get_domain(height)
 
     def get_mapping(self, height: int):
-        return self._lvl.get_mapping(height)
+        return self.head.get_mapping(height)
 
     def is_ordinal(self) -> bool:
-        if self._lvl.type == "ord" and self._lvl.size == len(self._lvl):
+        if self.head.type == "ord" and self.head.size == len(self.head):
             return True
         if (
-            self._lvl.type == "cat"
-            and len(self._lvl) == self.common + 1
-            and self._lvl[self.common].type == "ord"
+            self.head.type == "cat"
+            and len(self.head) == self.common + 1
+            and self.head[self.common].type == "ord"
         ):
             return True
         return False
 
     @property
     def height(self):
-        return self._lvl.height
+        return self.head.height
 
 
 class CatColumn(LevelColumn):
