@@ -84,11 +84,12 @@ def register_kedro():
     ipy.register_magic_function(_pipe_magic, "line", "pipe")
     ipy.register_magic_function(_pipe_magic, "line", "p")
 
-    from kedro.extras.extensions.ipython import reload_kedro, _find_kedro_project
+    from kedro.ipython import reload_kedro, _find_kedro_project
     import logging
 
     # Disable path message
     logging.getLogger().handlers = []
+    _reconfigure_rich()
     reload_kedro(_find_kedro_project(Path.cwd()))
     _reconfigure_rich()
 
