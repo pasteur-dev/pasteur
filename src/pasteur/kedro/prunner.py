@@ -259,14 +259,9 @@ class SimpleParallelRunner(ParallelRunner):
                                 f"One (or more) of the nodes failed, exiting..."
                             )
                         failed = True
-                        # Remove unfinished pbar
-                        if use_pbar:
-                            pbar.leave = False
-                            pbar.close()
-                        break
 
                     # Print message
-                    if not use_pbar or not is_jupyter():
+                    if (not use_pbar or not is_jupyter()) and not failed:
                         node_name = node.name.split("(")[0]
                         logger.info(
                             f"Completed node {len(done_nodes):2d}/{len(nodes):2d}: {node_name}"
@@ -296,6 +291,11 @@ class SimpleParallelRunner(ParallelRunner):
             if interrupted:
                 logger.error(f"Received KeyboardInterrupt, exiting...")
             if failed:
+                # Remove unfinished pbar
+                if use_pbar:
+                    pbar.leave = False
+                    pbar.close()
+
                 # exception needs to be raised for the `on_pipeline_error`
                 # hook to run
                 # Remove system exception hook to avoid printing exception to
