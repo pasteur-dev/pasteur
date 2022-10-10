@@ -22,21 +22,24 @@ class PrivBayesSynth(Synth):
 
     def __init__(
         self,
+        ep: float = None,
         e1: float = 0.3,
         e2: float = 0.7,
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
         random_init: bool = False,
-        **_,
+        **kwargs,
     ) -> None:
         super().__init__()
+        self.ep = ep
         self.e1 = e1
         self.e2 = e2
         self.theta = theta
         self.use_r = use_r
         self.seed = seed
         self.random_init = random_init
+        self.kwargs = kwargs
 
     @make_deterministic
     def bake(
@@ -45,24 +48,46 @@ class PrivBayesSynth(Synth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        from .privbayes import greedy_bayes
+        from copy import copy
+
+        from .privbayes import greedy_bayes, rebalance_column
 
         assert len(data) == 1, "Only tabular data supported for now"
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
-        attrs = attrs[table_name]
+        table_attrs = attrs[table_name]
+
+        if self.ep is not None:
+            new_attrs = {}
+            for name, attr in table_attrs.items():
+                cols = {}
+                for col_name, col in attr.cols.items():
+                    cols[col_name] = rebalance_column(
+                        table[col_name], col, self.ep, **self.kwargs
+                    )
+
+                new_attr = copy(attr)
+                new_attr.update_cols(cols)
+                new_attrs[name] = new_attr
+            table_attrs = new_attrs
 
         # Fit network
         nodes, t = greedy_bayes(
-            table, attrs, self.e1, self.e2, self.theta, self.use_r, self.random_init
+            table,
+            table_attrs,
+            self.e1,
+            self.e2,
+            self.theta,
+            self.use_r,
+            self.random_init,
         )
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
         self.d = len(table.keys())
         self.t = t
-        self.attrs = attrs
+        self.attrs = table_attrs
         self.nodes = nodes
         logger.info(self)
 
@@ -87,6 +112,7 @@ class PrivBayesSynth(Synth):
         self, n: int = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         import pandas as pd
+
         from .privbayes import sample_rows
 
         data = {

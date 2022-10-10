@@ -148,7 +148,7 @@ def find_smallest_group(counts: np.array, parent: list):
     # First do a recursive pass
     for child in parent:
         if isinstance(child, list):
-            node, a, b, size = find_smallest_group(child)
+            node, a, b, size = find_smallest_group(counts, child)
             if s_size == -1 or size < s_size:
                 s_node = node
                 s_a = a
@@ -209,7 +209,7 @@ def create_node_to_group_map(tree: list, n: int, ofs: int = 0):
                     grouping[i] = ofs
             ofs += 1
         else:
-            ofs = create_node_to_group_map(child, grouping, ofs)
+            ofs = create_node_to_group_map(child, n, ofs)
 
     return ofs
 
@@ -286,6 +286,7 @@ class RebalancedColumn(IdxColumn):
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
+        **_,
     ) -> None:
         self.grouping = make_grouping(counts, col.head)
 

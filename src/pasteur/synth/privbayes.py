@@ -4,6 +4,8 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
+from pasteur.transform.attribute import LevelColumn
+
 from ..progress import piter, prange, process_in_parallel
 from ..transform import Attributes, get_dtype
 from .math import (
@@ -13,6 +15,7 @@ from .math import (
     calc_marginal_1way,
     expand_table,
 )
+from .hierarchy import RebalancedColumn
 
 logger = logging.getLogger(__name__)
 
@@ -590,3 +593,9 @@ def sample_rows(
         attr_sampled_cols[x_attr] = x
 
     return out
+
+def rebalance_column(col_data: pd.Series, col: LevelColumn, ep: float, **kwargs):
+    # FIXME: add DP
+    counts = np.bincount(col_data, minlength=col.get_domain(0))
+    assert isinstance(col, LevelColumn)
+    return RebalancedColumn(counts, col, **kwargs)
