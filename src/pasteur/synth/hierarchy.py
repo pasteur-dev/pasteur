@@ -192,15 +192,13 @@ def find_smallest_group(counts: np.array, parent: list):
     return s_node, s_a, s_b, s_size
 
 
-def create_node_to_group_map(tree: list, n: int, ofs: int = 0):
+def create_node_to_group_map(tree: list, grouping: np.array, ofs: int = 0):
     """Traverses `tree` and creates an array which maps nodes to groups such that:
 
     `arr[x] = y`, where `x` is the node and `y` is its group.
 
-    `n` is the number of discrete values of the attribute and `ofs` is
+    `grouping` is updated in place to form arr recursively and `ofs` is
     used to keep track of the current group number during recursion."""
-
-    grouping = np.empty((n,))
 
     for child in tree:
         if isinstance(child, tuple):
@@ -209,7 +207,7 @@ def create_node_to_group_map(tree: list, n: int, ofs: int = 0):
                     grouping[i] = ofs
             ofs += 1
         else:
-            ofs = create_node_to_group_map(child, n, ofs)
+            ofs = create_node_to_group_map(child, grouping, ofs)
 
     return ofs
 
@@ -228,7 +226,7 @@ def make_grouping(counts: np.array, head: Level) -> np.ndarray:
         node, a, b, _ = find_smallest_group(counts, tree)
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
-        grouping[i, :] = create_node_to_group_map(tree, n)
+        create_node_to_group_map(tree, grouping[i, :])
 
     return grouping
 
@@ -300,7 +298,7 @@ class RebalancedColumn(IdxColumn):
             self.height_to_grouping = list(range(len(self.grouping)))
 
     def get_domain(self, height: int) -> int:
-        return self.grouping[self.height_to_grouping[height], :].max()
+        return self.grouping[self.height_to_grouping[height], :].max() + 1
 
     def get_mapping(self, height: int) -> np.array:
         return self.grouping[self.height_to_grouping[height], :]
