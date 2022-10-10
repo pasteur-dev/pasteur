@@ -50,6 +50,7 @@ class Synth(ABC):
     multimodal = False
     timeseries = False
     gpu = False
+    parallel = False
 
     def __init__(self, **_) -> None:
         pass

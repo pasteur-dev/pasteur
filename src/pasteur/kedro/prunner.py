@@ -69,7 +69,7 @@ def _replace_logging(fun, *args, _q=None, **kwargs):
 
 
 def _is_concurrency_safe(node: Node):
-    unsafe_tags = set(["gpu", "non_parallel"])
+    unsafe_tags = set(["gpu", "parallel"])
     return len(node.tags.intersection(unsafe_tags)) == 0
 
 
@@ -217,8 +217,12 @@ class SimpleParallelRunner(ParallelRunner):
                     )
                 except KeyboardInterrupt:
                     interrupted = True
+                    failed = True
+
                     done = set()
                     non_parallel = set()
+                    for future in futures:
+                        future.cancel()
 
                 for future in chain(done, non_parallel):
                     try:
@@ -246,8 +250,6 @@ class SimpleParallelRunner(ParallelRunner):
                             node = future.result()
                         done_nodes.add(node)
                     except Exception:
-                        # Wait for all nodes to finish to print all exceptions
-                        # if there are more errors
                         for future in futures:
                             future.cancel()
 

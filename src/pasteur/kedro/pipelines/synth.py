@@ -22,6 +22,12 @@ def create_synth_pipeline(
     type = cls.type
     tables = view.tables
 
+    tags = []
+    if cls.gpu:
+        tags.append("gpu")
+    if cls.parallel:
+        tags.append("parallel")
+
     synth_pipe = pipeline(
         [
             node(
@@ -33,7 +39,7 @@ def create_synth_pipeline(
                     **{f"enc_{t}": f"in_enc_{t}" for t in tables},
                 },
                 outputs="model",
-                tags=["gpu"] if cls.gpu else None,
+                tags=tags,
             ),
             node(
                 func=synth_sample,
@@ -42,7 +48,7 @@ def create_synth_pipeline(
                     **{f"ids_{t}": f"ids_{t}" for t in tables},
                     **{f"enc_{t}": f"enc_{t}" for t in tables},
                 },
-                tags=["gpu"] if cls.gpu else None,
+                tags=tags,
             ),
         ]
     )
