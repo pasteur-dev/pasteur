@@ -233,19 +233,35 @@ def make_grouping(counts: np.array, head: Level) -> np.ndarray:
     return grouping
 
 
-def reshape_domain_list(
+def generate_domain_list(
     max_domain: int, u: float = 1.3, fixed: list[int] = [2, 4, 5, 8, 12]
 ):
+    """Takes in a `max_domain` value and uses it to produce a new increasing domain
+    list, based on `u` and `fixed`.
+
+    The strategy used is increasing the domain every time by the ratio `u`,
+    where `u > 1`. For example:
+    if `u = 1.3`, domain 10 becomes 13 etc.
+
+    For low domain values, however, this leads to repeating values and low increase,
+    so the `fixed` domain list is used to specify the starting domain values.
+
+    If the `fixed` list goes higher than `max_domain`, only the values up to `max_domain`
+    are kept, and `max_domain` is placed at the end.
+
+    Otherwise, the last `fixed` value is multiplied by `u` and ceiled. This repeats
+    until surpassing `max_domain`, and the last value is replaced by `max_domain`."""
+
     # Start by applying the fixed domain values
     # If the fixed domain list goes higher than the domain of the attribute
     # use the fixed list values that are lower, and append the maximum value at the end
-    new_domain = []
+    new_domains = []
     for i, dom in enumerate(fixed):
         if dom >= max_domain:
-            new_domain.append(max_domain)
+            new_domains.append(max_domain)
             break
         else:
-            new_domain.append(dom)
+            new_domains.append(dom)
 
     # If the fixed values don't go that high, continue by adding values that increase
     # by u, yielding log(max_domain, u) levels
@@ -254,12 +270,12 @@ def reshape_domain_list(
         new_level_n = ceil(log(max_domain / fixed_max_dom, u))
 
         for i in range(1, new_level_n):
-            dom = ceil(fixed_max_dom) * u**i
-            new_domain.append(int(dom))
+            dom = ceil(fixed_max_dom * u**i)
+            new_domains.append(int(dom))
 
-        new_domain.append(max_domain)
+        new_domains.append(max_domain)
 
-    return new_domain
+    return new_domains
 
 
 class RebalancedColumn(IdxColumn):
@@ -274,19 +290,23 @@ class RebalancedColumn(IdxColumn):
         self.grouping = make_grouping(counts, col.head)
 
         if reshape_domain:
-            self.domains = reshape_domain_list(self.grouping.shape[1], u, fixed)
+            max_domain = self.grouping.shape[1]
+            domains = generate_domain_list(max_domain, u, fixed)
+
+            self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
+
         else:
-            self.domains = range(len(self.grouping))
+            self.height_to_grouping = list(range(len(self.grouping)))
 
     def get_domain(self, height: int) -> int:
-        return self.grouping[self.domains[height], :].max()
+        return self.grouping[self.height_to_grouping[height], :].max()
 
     def get_mapping(self, height: int) -> np.array:
-        return self.grouping[self.domains[height], :]
+        return self.grouping[self.height_to_grouping[height], :]
 
     @property
     def height(self) -> int:
-        return len(self.domains)
+        return len(self.height_to_grouping)
 
     def is_ordinal(self) -> bool:
         return False
