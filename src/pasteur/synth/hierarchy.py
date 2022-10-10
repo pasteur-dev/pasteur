@@ -1,8 +1,9 @@
 from itertools import combinations
+from math import ceil, log
 
 import numpy as np
 
-from ..transform.attribute import Level, LevelColumn, get_dtype, IdxColumn
+from ..transform.attribute import IdxColumn, Level, LevelColumn, get_dtype
 
 
 def get_group_for_x(x: int, n: int) -> tuple[bool]:
@@ -232,19 +233,60 @@ def make_grouping(counts: np.array, head: Level) -> np.ndarray:
     return grouping
 
 
+def reshape_domain_list(
+    max_domain: int, u: float = 1.3, fixed: list[int] = [2, 4, 5, 8, 12]
+):
+    # Start by applying the fixed domain values
+    # If the fixed domain list goes higher than the domain of the attribute
+    # use the fixed list values that are lower, and append the maximum value at the end
+    new_domain = []
+    for i, dom in enumerate(fixed):
+        if dom >= max_domain:
+            new_domain.append(max_domain)
+            break
+        else:
+            new_domain.append(dom)
+
+    # If the fixed values don't go that high, continue by adding values that increase
+    # by u, yielding log(max_domain, u) levels
+    fixed_max_dom = fixed[-1]
+    if fixed_max_dom < max_domain:
+        new_level_n = ceil(log(max_domain / fixed_max_dom, u))
+
+        for i in range(1, new_level_n):
+            dom = ceil(fixed_max_dom) * u**i
+            new_domain.append(int(dom))
+
+        new_domain.append(max_domain)
+
+    return new_domain
+
+
 class RebalancedColumn(IdxColumn):
-    def __init__(self, counts: np.array, col: LevelColumn) -> None:
+    def __init__(
+        self,
+        counts: np.array,
+        col: LevelColumn,
+        reshape_domain: bool = True,
+        u: float = 1.3,
+        fixed: list[int] = [2, 4, 5, 8, 12],
+    ) -> None:
         self.grouping = make_grouping(counts, col.head)
 
+        if reshape_domain:
+            self.domains = reshape_domain_list(self.grouping.shape[1], u, fixed)
+        else:
+            self.domains = range(len(self.grouping))
+
     def get_domain(self, height: int) -> int:
-        return self.grouping[height, :].max()
+        return self.grouping[self.domains[height], :].max()
 
     def get_mapping(self, height: int) -> np.array:
-        return self.grouping[height, :]
+        return self.grouping[self.domains[height], :]
 
     @property
     def height(self) -> int:
-        return len(self.grouping)
+        return len(self.domains)
 
     def is_ordinal(self) -> bool:
         return False
