@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 MAX_EPSILON = 1e3 - 10
 MAX_T = 1e5
 ZERO_FILL = 1e-24
+MAX_COLS = 128
+MAX_ATTR_COLS = 8
+
+# Represents a parent set, immutable, hashable, fast
+# index is col, val is height. -1 means not included
+EMPTY_PSET = tuple(-1 for _ in range(MAX_COLS))
+
+EMPTY_LIST = [-1 for _ in range(MAX_ATTR_COLS)]
+EMPTY_ACTIVE = [False for _ in range(MAX_ATTR_COLS)]
 
 
 class Node(NamedTuple):
@@ -79,6 +88,27 @@ def sens_entropy(n: int):
     return np.log2(n) / n - (n - 1) / n * np.log2((n - 1) / n)
 
 
+def add_to_pset(s: tuple, x: int, h: int):
+    """Given parent set `s`, adds attribute `x` with height `h`.
+
+    Making a list is faster than ex. using an iterator."""
+    s = list(s)
+    s[x] = h
+    return tuple(s)
+
+
+def add_multiple_to_pset(s: tuple, x: list[int], h: list[int]):
+    """Given parent set `s`, adds attributes `x` with heights `h`.
+
+    `x` is checked for length, so `h` may be a larger array."""
+
+    s = list(s)
+
+    for i in range(len(x)):
+        s[x[i]] = h[i]
+    return tuple(s)
+
+
 def greedy_bayes(
     table: pd.DataFrame,
     attrs: Attributes,
@@ -104,14 +134,13 @@ def greedy_bayes(
     #
     # Set up maximal parents algorithm as shown in paper
     # (recursive implementation is a bit slow)
-    # (wrapped in a closure due to fancy syntactic sugar lambdas)
     #
-    col_names = []
-    groups = []
-    group_names = []
-    heights = []
-    common = []
-    domain = []
+    col_names = []  # col -> str name
+    groups = []  # col -> attribute parent
+    group_names = []  # attr (group) -> str name
+    heights = []  # col -> max height
+    common = []  # col -> common val number
+    domain = []  # col, height -> domain
     for i, (an, a) in enumerate(attrs.items()):
         group_names.append(an)
         for n, c in a.cols.items():
@@ -121,65 +150,119 @@ def greedy_bayes(
             common.append(a.common)
             domain.append([c.get_domain(h) for h in range(c.height)])
 
-    empty_pset = tuple(-1 for _ in range(d))
+    def group_nodes(V: tuple[int], x: int):
+        """Groups nodes in set `V` into tuples based on their group.
 
-    def add_to_pset(s, x, h):
-        s = list(s)
-        s[x] = h
-        return tuple(s)
+        This allows the `maximal_parent` algorithm to skip calculating the domain
+        every time.
+
+        Then shifts the group of `x` to be first so that `maximal_parent` can
+        calculate the partial domain. In addition to the tuples, returns
+        whether there is a node from the group of `x`."""
+        A_dict = {}
+        for c in V:
+            group = groups[c]
+            if group in A_dict:
+                A_dict[groups[c]].append(c)
+            else:
+                A_dict[groups[c]] = [c]
+
+        x_group = A_dict.pop(groups[x], None)
+        A = tuple(tuple(group) for group in A_dict.values())
+        if x_group:
+            A = (x_group, *A)
+
+        return A, x_group is not None
 
     def maximal_parents(
-        V: tuple[int], tau: float, P: dict[int, dict[int, int]] = {}
+        A: tuple[tuple[int]], tau: float, partial: bool = False
     ) -> list[tuple[int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
-        attribute that can be indexed in a higher level"""
+        attribute that can be indexed in a higher level
 
-        # Calculate domain manually to correct it based on common attrs
-        dom = 1
-        for g, a in P.items():
-            l_dom = 1
-            cmn = 0
-            for x, h in a.items():
-                cmn = common[x]  # same for x of a
-                l_dom *= domain[x][h] - cmn
-            dom *= l_dom + cmn
+        If `partial` is true the first set domain will be reduced by common"""
 
-        if tau < dom:
-            return []
-        if not V:
-            return [empty_pset]
+        if not A:
+            return [EMPTY_PSET]
 
-        x = V[0]
-        V = V[1:]
+        a = A[0]
+        a_n = len(a)
+        x = a[0]
+        cmn = common[x]
 
+        A = A[1:]
         S = []
         U = set()
 
-        # Create copy of P for the version with x that has
-        # a dict for x's group. Avoid deep copying
-        P_x = P.copy()
-        g = groups[x]
-        gx = P.get(g, {}).copy()
-        P_x[g] = gx
+        if a_n == 1:
+            # Use specific implementation for single variables
+            x = a[0]
+            for h in range(heights[x]):
+                # Find domain
+                l_dom = domain[x][h] - (cmn if partial else 0)
 
-        for h in range(heights[x]):
-            # Check domain is non-one when considering common attrs
-            # Having multiple cols with domain 1 can skew exponential alg
-            # into selecting columns from multi-col attributes
-            if P.get(groups[x], None) and domain[x][h] == common[x] + 1:
-                continue
-            # Only changes local copy
-            P_x[g][x] = h
-            for z in maximal_parents(V, tau, P_x):
+                # Run check to skip recursion
+                if tau < l_dom:
+                    continue
+
+                for z in maximal_parents(A, tau / l_dom):
+                    if z not in U:
+                        U.add(z)
+                        S.append(add_to_pset(z, x, h))
+
+            for z in maximal_parents(A, tau):
                 if z not in U:
-                    U.add(z)
-                    S.append(add_to_pset(z, x, h))
+                    S.append(z)
+        else:
+            # Compensating for multi-domain attrs is more complicated
+            curr_attrs = list(EMPTY_LIST)
+            act_attrs = list(EMPTY_ACTIVE)
+            has_combs = True
 
-        for z in maximal_parents(V, tau, P):
-            if z not in U:
-                S.append(z)
+            while has_combs:
+                # Simple counter structure without iterators that will iterate over
+                # all attribute height combinations
+                for i in range(a_n):
+                    carry = curr_attrs[i] == heights[a[i]] - 1 - (i != 0)
+                    act_attrs[i] = not carry
+
+                    if carry:
+                        curr_attrs[i] = -1
+                        # Detect overflow and break
+                        # Placing check on with condition would make it run every time
+                        if i == a_n - 1:
+                            has_combs = False
+                    else:
+                        curr_attrs[i] += 1
+                        break
+
+                # Find domain
+                l_dom = 1
+                if has_combs:
+                    for i in range(a_n):
+                        h = curr_attrs[i]
+                        if h != -1:
+                            dom = domain[a[i]][h]
+                            l_dom *= dom - cmn
+                    if not partial:
+                        l_dom += cmn
+                # print(curr_attrs[:a_n], l_dom)
+
+                # Run check to skip recursion
+                if tau < l_dom:
+                    continue
+
+                # Original algorithm ends by running another loop which doesn't include x
+                # Conveniently, when i overflows and we run the last execution, curr_attrs
+                # will consist of -1, which is equivalent
+                act_frozen = tuple(act_attrs)
+                for z in maximal_parents(A, tau / l_dom):
+                    check = (act_frozen, z)
+                    if check not in U:
+                        U.add(check)
+                        S.append(add_multiple_to_pset(z, a, curr_attrs))
 
         return S
 
@@ -190,6 +273,7 @@ def greedy_bayes(
     score_cache = {}
 
     def pset_to_attr_sel(pset: tuple[int]) -> AttrSelectors:
+        """Converts a parent set to the format required by the marginal calculation."""
         p_groups: dict[int, dict[int, int]] = {}
         for p, h in enumerate(pset):
             if h == -1:
@@ -332,18 +416,21 @@ def greedy_bayes(
 
     V = [x1]
     V_groups = set()
-    N = [(x1, False, empty_pset)]
+    N = [(x1, False, EMPTY_PSET)]
 
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
             partial = groups[x] in V_groups
-            psets = maximal_parents(V, t, {groups[x]: {x: 0}})
+            Vg, has_attr_parent = group_nodes(V, x)
+
+            new_tau = t / (domain[x][0] - (common[x] if partial else 0))
+            psets = maximal_parents(Vg, new_tau, partial and has_attr_parent)
             for pset in psets:
                 O.append((x, partial, pset))
             if not psets:
-                O.append((x, partial, empty_pset))
+                O.append((x, partial, EMPTY_PSET))
 
         node = pick_candidate(O)
         V.append(node[0])
@@ -593,6 +680,7 @@ def sample_rows(
         attr_sampled_cols[x_attr] = x
 
     return out
+
 
 def rebalance_column(col_data: pd.Series, col: LevelColumn, ep: float, **kwargs):
     # FIXME: add DP

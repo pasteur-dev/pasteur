@@ -44,7 +44,7 @@ def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int = None) -> li
         if ofs < common:
             out.append(None)
         elif isinstance(child, Level):
-            out.append(create_tree(child, ofs, n))
+            out.append(create_tree(child, common, ofs, n))
         else:
             out.append(get_group_for_x(ofs, n))
 
@@ -319,7 +319,6 @@ class RebalancedColumn(IdxColumn):
         if reshape_domain:
             max_domain = self.grouping.shape[1]
             domains = generate_domain_list(max_domain, self.common, u, fixed)
-            print(domains)
 
             self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
 
