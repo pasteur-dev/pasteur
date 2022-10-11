@@ -29,16 +29,21 @@ class CatNode(list):
     pass
 
 
-def create_tree(node: Level, ofs: int = 0, n: int = None) -> list:
+def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int = None) -> list:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
-    replaced by bucket groups, with each bucket group containing the node it replaced."""
+    replaced by bucket groups, with each bucket group containing the node it replaced.
+
+    For buckets lower than common, they are replaced by `None` to prevent merging
+    them."""
     if n is None:
         n = node.get_domain(0)
     out = CatNode() if node.type == "cat" else OrdNode()
 
     for child in node:
-        if isinstance(child, Level):
+        if ofs < common:
+            out.append(None)
+        elif isinstance(child, Level):
             out.append(create_tree(child, ofs, n))
         else:
             out.append(get_group_for_x(ofs, n))
@@ -139,7 +144,12 @@ def find_smallest_group(counts: np.array, parent: list):
     Returns the parent `node` of `a` and `b`, `a`, `b`, and the size of the resulting group.
 
     Can be used with `merge_groups_in_node()` and `prune_tree()` to merge the two smallest
-    groups in the tree."""
+    groups in the tree.
+
+    `parent` represents a tree over the hierarchy of the attribute.
+    Children can either be lists (nodes), tuples (leafs, groups), or None
+    (placeholders, common values, shouldn't be merged).
+    """
     s_node = None
     s_a = None
     s_b = None
@@ -160,10 +170,10 @@ def find_smallest_group(counts: np.array, parent: list):
         # For ordinal nodes we only check nearby nodes
         for i in range(len(parent) - 1):
             a = parent[i]
-            if isinstance(a, list):
+            if not isinstance(a, tuple):
                 continue
             b = parent[i + 1]
-            if isinstance(b, list):
+            if not isinstance(b, tuple):
                 continue
 
             size = get_group_size(counts, merge_groups(a, b))
@@ -176,10 +186,10 @@ def find_smallest_group(counts: np.array, parent: list):
         # For categorical nodes we check all pairs
         for i, j in combinations(range(len(parent)), 2):
             a = parent[i]
-            if isinstance(a, list):
+            if not isinstance(a, tuple):
                 continue
             b = parent[j]
-            if isinstance(b, list):
+            if not isinstance(b, tuple):
                 continue
 
             size = get_group_size(counts, merge_groups(a, b))
@@ -201,7 +211,12 @@ def create_node_to_group_map(tree: list, grouping: np.array, ofs: int = 0):
     used to keep track of the current group number during recursion."""
 
     for child in tree:
-        if isinstance(child, tuple):
+        if child is None:
+            # unclean, assumes when `None`, `ofs <= common`, ie the first `common`
+            # buckets will be None
+            grouping[ofs] = ofs
+            ofs += 1
+        elif isinstance(child, tuple):
             for i, present in enumerate(child):
                 if present:
                     grouping[i] = ofs
@@ -212,17 +227,22 @@ def create_node_to_group_map(tree: list, grouping: np.array, ofs: int = 0):
     return ofs
 
 
-def make_grouping(counts: np.array, head: Level) -> np.ndarray:
+def make_grouping(counts: np.array, head: Level, common: int = 0) -> np.ndarray:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
+
+    `common` is the number of values in the beginning of the domain are shared with other
+    columns in the attribute. Those values will never be merged.
+    This also means that the minimum domain of this column will be `common + 1`.
     """
 
-    tree = create_tree(head)
+    tree = create_tree(head, common)
     n = head.get_domain(0)
-    grouping = np.empty((n - 1, n), dtype=get_dtype(n))
+    grouping = np.empty((n - common, n), dtype=get_dtype(n))
+    create_node_to_group_map(tree, grouping[0, :])
 
-    for i in range(0, n - 1):
+    for i in range(1, n - common):
         node, a, b, _ = find_smallest_group(counts, tree)
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
@@ -232,7 +252,7 @@ def make_grouping(counts: np.array, head: Level) -> np.ndarray:
 
 
 def generate_domain_list(
-    max_domain: int, u: float = 1.3, fixed: list[int] = [2, 4, 5, 8, 12]
+    max_domain: int, common: int, u: float = 1.3, fixed: list[int] = [2, 4, 5, 8, 12]
 ):
     """Takes in a `max_domain` value and uses it to produce a new increasing domain
     list, based on `u` and `fixed`.
@@ -248,22 +268,29 @@ def generate_domain_list(
     are kept, and `max_domain` is placed at the end.
 
     Otherwise, the last `fixed` value is multiplied by `u` and ceiled. This repeats
-    until surpassing `max_domain`, and the last value is replaced by `max_domain`."""
+    until surpassing `max_domain`, and the last value is replaced by `max_domain`.
+
+    `common` is a correction that ensures the minimum domain is bigger or equal
+    to `common` + 1."""
 
     # Start by applying the fixed domain values
     # If the fixed domain list goes higher than the domain of the attribute
     # use the fixed list values that are lower, and append the maximum value at the end
     new_domains = []
+
+    if common != 0:
+        new_domains.append(common + 1)
+
     for i, dom in enumerate(fixed):
         if dom >= max_domain:
             new_domains.append(max_domain)
             break
-        else:
+        elif dom > common + 1:
             new_domains.append(dom)
 
     # If the fixed values don't go that high, continue by adding values that increase
     # by u, yielding log(max_domain, u) levels
-    fixed_max_dom = fixed[-1]
+    fixed_max_dom = new_domains[-1]
     if fixed_max_dom < max_domain:
         new_level_n = ceil(log(max_domain / fixed_max_dom, u))
 
@@ -286,11 +313,13 @@ class RebalancedColumn(IdxColumn):
         fixed: list[int] = [2, 4, 5, 8, 12],
         **_,
     ) -> None:
-        self.grouping = make_grouping(counts, col.head)
+        self.common = col.common
+        self.grouping = make_grouping(counts, col.head, self.common)
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
-            domains = generate_domain_list(max_domain, u, fixed)
+            domains = generate_domain_list(max_domain, self.common, u, fixed)
+            print(domains)
 
             self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
 
