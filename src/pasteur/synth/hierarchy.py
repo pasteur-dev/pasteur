@@ -2,6 +2,7 @@ from itertools import combinations
 from math import ceil, log
 
 import numpy as np
+import pandas as pd
 
 from ..transform.attribute import IdxColumn, Level, LevelColumn, get_dtype
 
@@ -232,6 +233,15 @@ def make_grouping(counts: np.array, head: Level, common: int = 0) -> np.ndarray:
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
 
+    `counts` provides the class densities. It doesn't need to be normalized and
+    some of its values may be *negative*.
+
+    Reason: if `counts` is differentially private, then some values will have
+    negative probability after adding noise. If we clip to 0, then the mean added
+    value of noise will become positive, and large groups of small classes will have
+    their probability increase by `m*n` (where `m` is the noise scale, `n` the
+    number of groups).
+
     `common` is the number of values in the beginning of the domain are shared with other
     columns in the attribute. Those values will never be merged.
     This also means that the minimum domain of this column will be `common + 1`.
@@ -315,6 +325,7 @@ class RebalancedColumn(IdxColumn):
     ) -> None:
         self.common = col.common
         self.grouping = make_grouping(counts, col.head, self.common)
+        self.counts = counts
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
@@ -337,3 +348,24 @@ class RebalancedColumn(IdxColumn):
 
     def is_ordinal(self) -> bool:
         return False
+
+
+def rebalance_column(
+    col_data: pd.Series,
+    col: LevelColumn,
+    num_cols: int = 1,
+    ep: float | None = None,
+    gaussian: bool = False,
+    unbounded_dp: bool = False,
+    **kwargs,
+):
+    assert not gaussian, "Gaussian dp not supported yet"
+
+    counts = np.bincount(col_data, minlength=col.get_domain(0))
+
+    noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
+    noise = np.random.laplace(scale=noise_scale, size=counts.shape)
+    counts = counts.astype(np.float) + noise
+
+    assert isinstance(col, LevelColumn)
+    return RebalancedColumn(counts, col, **kwargs)

@@ -4,8 +4,6 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from pasteur.transform.attribute import LevelColumn
-
 from ..progress import piter, prange, process_in_parallel
 from ..transform import Attributes, get_dtype
 from .math import (
@@ -15,7 +13,6 @@ from .math import (
     calc_marginal_1way,
     expand_table,
 )
-from .hierarchy import RebalancedColumn
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +109,11 @@ def add_multiple_to_pset(s: tuple, x: list[int], h: list[int]):
 def greedy_bayes(
     table: pd.DataFrame,
     attrs: Attributes,
-    e1: float,
-    e2: float,
+    e1: float | None,
+    e2: float | None,
     theta: float,
     use_r: bool,
+    unbounded_dp: bool,
     random_init: bool,
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
@@ -393,22 +391,22 @@ def greedy_bayes(
         vals = np.array(vals)
         vals -= vals.max()
 
-        delta = d * sens_entropy(n) / e1
+        delta = d * sens_entropy(n) / (e1 if e1 is not None else 1)
         p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
-        if e1 > MAX_EPSILON:
+        if e1 > MAX_EPSILON or e1 is None:
             x1 = np.argmax(p)
         else:
             x1 = np.random.choice(range(d), size=1, p=p)[0]
 
     A = [a for a in range(d) if a != x1]
-    t = (n * e2) / (2 * d * theta)
+    t = (n * (e2 if e2 is not None else 1)) / ((1 if unbounded_dp else 2) * d * theta)
 
     # Allow for "unbounded" privacy budget without destroying the computer.
-    if e1 > MAX_EPSILON:
+    if e1 > MAX_EPSILON or e1 is None:
         logger.warn("Baking without DP (e1=inf).")
-    if t > n / 10 or e2 > MAX_EPSILON or t > MAX_T:
+    if t > n / 10 or e2 > MAX_EPSILON or e2 is None or t > MAX_T:
         t = min(n / 10, MAX_T)
         logger.warn(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
@@ -680,10 +678,3 @@ def sample_rows(
         attr_sampled_cols[x_attr] = x
 
     return out
-
-
-def rebalance_column(col_data: pd.Series, col: LevelColumn, ep: float, **kwargs):
-    # FIXME: add DP
-    counts = np.bincount(col_data, minlength=col.get_domain(0))
-    assert isinstance(col, LevelColumn)
-    return RebalancedColumn(counts, col, **kwargs)

@@ -29,6 +29,8 @@ class PrivBayesSynth(Synth):
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
+        rebalance_columns: bool = False,
+        unbounded_dp: bool = False,
         random_init: bool = False,
         **kwargs,
     ) -> None:
@@ -40,6 +42,8 @@ class PrivBayesSynth(Synth):
         self.use_r = use_r
         self.seed = seed
         self.random_init = random_init
+        self.unbounded_dp = unbounded_dp
+        self.rebalance = rebalance_columns
         self.kwargs = kwargs
 
     @make_deterministic
@@ -51,7 +55,8 @@ class PrivBayesSynth(Synth):
     ):
         from copy import copy
 
-        from .privbayes import greedy_bayes, rebalance_column
+        from .hierarchy import rebalance_column
+        from .privbayes import greedy_bayes
 
         assert len(data) == 1, "Only tabular data supported for now"
 
@@ -59,13 +64,26 @@ class PrivBayesSynth(Synth):
         table = data[table_name]
         table_attrs = attrs[table_name]
 
-        if self.ep is not None:
+        num_cols = table.shape[1]
+        if self.rebalance:
+            if self.ep:
+                logger.info(f"Rebalancing columns with e_p={self.ep}")
+            else:
+                logger.warn(
+                    f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+                )
+
             new_attrs = {}
             for name, attr in table_attrs.items():
                 cols = {}
                 for col_name, col in attr.cols.items():
                     cols[col_name] = rebalance_column(
-                        table[col_name], col, self.ep, **self.kwargs
+                        table[col_name],
+                        col,
+                        num_cols,
+                        self.ep,
+                        unbounded_dp=self.unbounded_dp,
+                        **self.kwargs,
                     )
 
                 new_attr = copy(attr)
@@ -81,6 +99,7 @@ class PrivBayesSynth(Synth):
             self.e2,
             self.theta,
             self.use_r,
+            self.unbounded_dp,
             self.random_init,
         )
 
@@ -102,7 +121,7 @@ class PrivBayesSynth(Synth):
 
         table = data[self.table_name]
         self.n = len(table)
-        noise = 2 * self.d / self.e2
+        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
