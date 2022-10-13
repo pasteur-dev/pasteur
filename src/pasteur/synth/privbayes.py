@@ -1,4 +1,5 @@
 import logging
+from itertools import combinations
 from typing import NamedTuple
 
 import numpy as np
@@ -155,8 +156,8 @@ def greedy_bayes(
         every time.
 
         Then shifts the group of `x` to be first so that `maximal_parent` can
-        calculate the partial domain. In addition to the tuples, returns
-        whether there is a node from the group of `x`."""
+        calculate the partial domain. The rest of the tuples are sorted based on
+        length, due to the higher complexity of calculating multi-domain attributes."""
         A_dict = {}
         for c in V:
             group = groups[c]
@@ -166,11 +167,15 @@ def greedy_bayes(
                 A_dict[groups[c]] = [c]
 
         x_group = A_dict.pop(groups[x], None)
-        A = tuple(tuple(group) for group in A_dict.values())
+        A = [tuple(group) for group in A_dict.values()]
+        A.sort(key=len, reverse=True)
+
         if x_group:
             A = (x_group, *A)
+        else:
+            A = tuple(A)
 
-        return A, x_group is not None
+        return A
 
     def maximal_parents(
         A: tuple[tuple[int]], tau: float, partial: bool = False
@@ -185,19 +190,21 @@ def greedy_bayes(
         if not A:
             return [EMPTY_PSET]
 
-        a = A[0]
-        a_n = len(a)
-        x = a[0]
-        cmn = common[x]
+        a_full = A[0]
+        cmn = common[a_full[0]]
 
         A = A[1:]
         S = []
+        U_global = set()
         U = set()
 
-        if a_n == 1:
-            # Use specific implementation for single variables
-            x = a[0]
-            for h in range(heights[x]):
+        # First do single combinations, they are simplified
+        not_first = False
+        for x in a_full:
+            U = set()
+            # Only the first variable can have a only common domain (last height)
+            # (all last heights are equivalent for the same attribute; skip to prevent bias)
+            for h in range(heights[x] - not_first):
                 # Find domain
                 l_dom = domain[x][h] - (cmn if partial else 0)
 
@@ -207,60 +214,59 @@ def greedy_bayes(
 
                 for z in maximal_parents(A, tau / l_dom):
                     if z not in U:
+                        U_global.add(z)
                         U.add(z)
                         S.append(add_to_pset(z, x, h))
+            not_first = True
 
-            for z in maximal_parents(A, tau):
-                if z not in U:
-                    S.append(z)
-        else:
-            # Compensating for multi-domain attrs is more complicated
-            curr_attrs = list(EMPTY_LIST)
-            act_attrs = list(EMPTY_ACTIVE)
-            has_combs = True
+        a_full_n = len(a_full)
+        if a_full_n > 1:
+            for l in range(2, a_full_n + 1):
+                for a in combinations(a_full, r=l):
+                    U = set()
 
-            while has_combs:
-                # Simple counter structure without iterators that will iterate over
-                # all attribute height combinations
-                for i in range(a_n):
-                    carry = curr_attrs[i] == heights[a[i]] - 1 - (i != 0)
-                    act_attrs[i] = not carry
+                    # Compensating for multi-domain attrs is more complicated
+                    curr_attrs = list(EMPTY_LIST)
+                    has_combs = True
 
-                    if carry:
-                        curr_attrs[i] = -1
-                        # Detect overflow and break
-                        # Placing check on with condition would make it run every time
-                        if i == a_n - 1:
-                            has_combs = False
-                    else:
-                        curr_attrs[i] += 1
-                        break
-
-                # Find domain
-                l_dom = 1
-                if has_combs:
-                    for i in range(a_n):
-                        h = curr_attrs[i]
-                        if h != -1:
-                            dom = domain[a[i]][h]
+                    while has_combs:
+                        # Find domain
+                        l_dom = 1
+                        for i in range(l):
+                            dom = domain[a[i]][curr_attrs[i]]
                             l_dom *= dom - cmn
-                    if not partial:
-                        l_dom += cmn
-                # print(curr_attrs[:a_n], l_dom)
+                        if not partial:
+                            l_dom += cmn
+                        # print(curr_attrs[:a_n], l_dom)
 
-                # Run check to skip recursion
-                if tau < l_dom:
-                    continue
+                        # Run check to skip recursion
+                        if tau > l_dom:
+                            for z in maximal_parents(A, tau / l_dom):
+                                if z not in U:
+                                    U_global.add(z)
+                                    U.add(z)
+                                    S.append(add_multiple_to_pset(z, a, curr_attrs))
 
-                # Original algorithm ends by running another loop which doesn't include x
-                # Conveniently, when i overflows and we run the last execution, curr_attrs
-                # will consist of -1, which is equivalent
-                act_frozen = tuple(act_attrs)
-                for z in maximal_parents(A, tau / l_dom):
-                    check = (act_frozen, z)
-                    if check not in U:
-                        U.add(check)
-                        S.append(add_multiple_to_pset(z, a, curr_attrs))
+                        # Simple counter structure without iterators that will iterate over
+                        # all attribute height combinations
+                        for i in range(l):
+                            # In multi-attr mode, none of the variables cah have
+                            # a common only domain (last height)
+                            if curr_attrs[i] < heights[a[i]] - 2:
+                                curr_attrs[i] += 1
+                                break
+                            else:
+                                curr_attrs[i] = 0
+                                # Detect overflow and break
+                                # Placing check on with condition would make it run every time
+                                if i == l - 1:
+                                    has_combs = False
+
+        # As in the default privbayes maximal_parents, add all combinations that don't include
+        # parents
+        for z in maximal_parents(A, tau):
+            if z not in U_global:
+                S.append(z)
 
         return S
 
@@ -421,10 +427,10 @@ def greedy_bayes(
 
         for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
             partial = groups[x] in V_groups
-            Vg, has_attr_parent = group_nodes(V, x)
+            Vg = group_nodes(V, x)
 
             new_tau = t / (domain[x][0] - (common[x] if partial else 0))
-            psets = maximal_parents(Vg, new_tau, partial and has_attr_parent)
+            psets = maximal_parents(Vg, new_tau, partial)
             for pset in psets:
                 O.append((x, partial, pset))
             if not psets:

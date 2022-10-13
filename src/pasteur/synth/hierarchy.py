@@ -361,11 +361,12 @@ def rebalance_column(
 ):
     assert not gaussian, "Gaussian dp not supported yet"
 
-    counts = np.bincount(col_data, minlength=col.get_domain(0))
+    counts = np.bincount(col_data, minlength=col.get_domain(0)).astype(np.float)
 
-    noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
-    noise = np.random.laplace(scale=noise_scale, size=counts.shape)
-    counts = counts.astype(np.float) + noise
+    if ep is not None:
+        noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
+        noise = np.random.laplace(scale=noise_scale, size=counts.shape)
+        counts = counts + noise
 
     assert isinstance(col, LevelColumn)
     return RebalancedColumn(counts, col, **kwargs)
