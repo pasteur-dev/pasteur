@@ -13,13 +13,13 @@ from .math import (
     calc_marginal,
     calc_marginal_1way,
     expand_table,
+    ZERO_FILL
 )
 
 logger = logging.getLogger(__name__)
 
 MAX_EPSILON = 1e3 - 10
 MAX_T = 1e5
-ZERO_FILL = 1e-24
 MAX_COLS = 128
 MAX_ATTR_COLS = 8
 

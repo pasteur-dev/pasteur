@@ -1,3 +1,4 @@
+import logging
 from itertools import combinations
 from math import ceil, log
 
@@ -5,6 +6,9 @@ import numpy as np
 import pandas as pd
 
 from ..transform.attribute import IdxColumn, Level, LevelColumn, get_dtype
+from .math import ZERO_FILL
+
+logger = logging.getLogger(__name__)
 
 
 def get_group_for_x(x: int, n: int) -> tuple[bool]:
@@ -342,12 +346,62 @@ class RebalancedColumn(IdxColumn):
     def get_mapping(self, height: int) -> np.array:
         return self.grouping[self.height_to_grouping[height], :]
 
+    def select_height(self, c: float) -> int:
+        domains = np.max(self.grouping, axis=1) + 1
+
+        count_list = []
+        for i in range(len(domains)):
+            d = domains[i]
+            count = np.zeros((d,))
+
+            for j in range(len(self.counts)):
+                count[self.grouping[i, j]] += self.counts[j]
+
+            count_list.append(count)
+
+        entropies = []
+        for count in count_list:
+            p = count / count.max() + ZERO_FILL
+            entropies.append(-np.sum(p * np.log2(p)))
+
+        entropies = np.array(entropies)
+        h = (1 + c/np.log2(domains))*entropies
+
+        return h.argmax()
+
     @property
     def height(self) -> int:
         return len(self.height_to_grouping)
 
     def is_ordinal(self) -> bool:
         return False
+
+    def upsample(self, column: np.ndarray, height: int, deterministic: bool = True):
+        if deterministic:
+            return super().upsample(column, height)
+
+        d = self.get_domain(height)
+        mapping = self.get_mapping(height)
+
+        # create reverse mapping
+        upsampled = np.empty_like(column)
+        for g in range(d):
+            mask = column == g
+            group_size = np.sum(mask)
+
+            group_mask = mapping == g
+            group_counts = self.counts[group_mask]
+            group_idx = np.argwhere(group_mask)[:, 0]
+            p = group_counts.clip(0)
+            p /= p.sum()
+            if np.any(np.isnan(p)):
+                logger.debug(f"Found na column during upsampling: {self.name}")
+                # Sampling uniformely instead of crashing
+                p = 1 / (len(p))
+
+            upsampled[mask] = np.random.choice(group_idx, p=p, size=(group_size,))
+
+        return upsampled
 
 
 def rebalance_column(

@@ -12,6 +12,7 @@ default:
       u: 1.3
       rebalance_columns: True
       unbounded_dp: True
+      random_init: False
 
     aim:
       dir: ${private_pgm}

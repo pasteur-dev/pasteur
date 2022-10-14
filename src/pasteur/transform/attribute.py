@@ -169,7 +169,7 @@ class IdxColumn(Column, ABC):
         pass
 
     @abstractmethod
-    def get_mapping(self, height: int) -> np.array:
+    def get_mapping(self, height: int) -> np.ndarray:
         """Returns a numpy array that associates discrete values with groups at
         the given height."""
         pass
@@ -183,6 +183,25 @@ class IdxColumn(Column, ABC):
         """Returns whether this column is ordinal, other than for the elements
         it shares in common with the other attributes."""
         return False
+
+    def downsample(self, column: np.ndarray, height: int):
+        return self.get_mapping(height)[column]
+
+    def upsample(self, column: np.ndarray, height: int, deterministic: bool = True):
+        assert (
+            deterministic
+        ), "Current column doesn't contain a histogram, can't upsample"
+
+        d = self.get_domain(height)
+        mapping = self.get_mapping(height)
+
+        # create reverse mapping
+        reverse_map = np.empty((d,), dtype=get_dtype(self.get_domain(0)))
+        for i in range(d):
+            c = (mapping == i).argmax()
+            reverse_map[i] = c
+
+        return reverse_map[column]
 
 
 class LevelColumn(IdxColumn):

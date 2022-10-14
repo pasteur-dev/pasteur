@@ -1,11 +1,11 @@
-from functools import reduce
-from itertools import chain
 from typing import NamedTuple
 
 import numpy as np
 import pandas as pd
 
-from ..transform import Attribute, Attributes, get_dtype
+from ..transform import Attributes, get_dtype
+
+ZERO_FILL = 1e-24
 
 
 class AttrSelector(NamedTuple):
