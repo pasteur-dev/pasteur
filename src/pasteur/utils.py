@@ -1,13 +1,24 @@
 from typing import TypeVar
 
 
-def _try_convert_to_numeric(value: any):
+def _try_convert_to_numeric(value: str):
     """Taken from kedro.framework.cli.utils"""
     try:
         value = float(value)
     except ValueError:
         return value
     return int(value) if value.is_integer() else value
+
+
+def _try_convert_primitive(value: any):
+    """Converts string value to integer/float/bool/None."""
+    if value == "True":
+        return True
+    if value == "False":
+        return False
+    if value == "None":
+        return None
+    return _try_convert_to_numeric(value)
 
 
 def _update_value_nested_dict(
@@ -39,7 +50,7 @@ def str_params_to_dict(params: list[str]):
             assert False
         value = item[1].strip()
         param_dict = _update_value_nested_dict(
-            param_dict, _try_convert_to_numeric(value), key.split(".")
+            param_dict, _try_convert_primitive(value), key.split(".")
         )
     return param_dict
 

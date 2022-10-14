@@ -332,6 +332,7 @@ class RebalancedColumn(IdxColumn):
         self.grouping = make_grouping(counts, col.head, self.common)
         self.counts = counts
         self.c = c
+        self.reshape_domain = reshape_domain
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
@@ -343,12 +344,14 @@ class RebalancedColumn(IdxColumn):
             self.height_to_grouping = list(range(len(self.grouping)))
 
     def get_domain(self, height: int) -> int:
-        return self.grouping[self.height_to_grouping[height], :].max() + 1
+        return int(self.grouping[self.height_to_grouping[height], :].max() + 1)
 
-    def get_mapping(self, height: int) -> np.array:
+    def get_mapping(self, height: int) -> np.ndarray:
         return self.grouping[self.height_to_grouping[height], :]
 
     def select_height(self) -> int:
+        assert not self.reshape_domain, "Fixme: selected_height function is not adjusted to the lowered domain list (neither should it)"
+
         if self.c is None:
             return 0
 
@@ -372,7 +375,7 @@ class RebalancedColumn(IdxColumn):
         entropies = np.array(entropies)
         h = (1 + self.c / np.log2(domains)) * entropies
 
-        return h.argmax()
+        return int(np.nanargmax(h))
 
     @property
     def height(self) -> int:

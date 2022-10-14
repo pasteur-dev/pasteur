@@ -55,9 +55,6 @@ class ExternalPythonSynth(Synth, ABC):
     ):
         self.attrs = attrs
 
-        if self.rebalance_columns:
-            from .hierarchy import rebalance_column
-
     def bake(
         self,
         data: dict[str, pd.DataFrame],
@@ -154,6 +151,7 @@ class ExternalPythonSynth(Synth, ABC):
                 proc = subprocess.Popen(
                     shlex.split(full_cmd),
                     text=True,
+                    bufsize=1,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     preexec_fn=preexec_function,
@@ -245,14 +243,17 @@ class AimSynth(ExternalPythonSynth):
         e: float = 1,
         delta: float | None = None,
         max_model_size: int = 80,
+        rebalance_columns: bool = False,
         seed: int | None = None,
-        **_,
+        **kwargs,
     ) -> None:
-        super().__init__(cmd="mechanisms/aim.py", **_)
+        super().__init__(cmd="mechanisms/aim.py", **kwargs)
         self.e = e
         self.delta = delta
         self.max_model_size = max_model_size
         self.seed = seed
+        self.rebalance_columns = rebalance_columns
+        self.kwargs = kwargs
 
     def _prepare_synthesis_data(
         self,
@@ -260,9 +261,18 @@ class AimSynth(ExternalPythonSynth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ) -> tuple[dict[str, Any] | list[Any], dict[str, tuple[str, Any]], dict[str, str]]:
+        import pandas as pd
+
         assert len(data) == 1
         self.table_name = next(iter(data))
         table = data[self.table_name]
+        table_attrs = attrs[self.table_name]
+
+        if self.rebalance_columns:
+            from .hierarchy import rebalance_attributes
+
+            table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
+        self.table_attrs = table_attrs
 
         n = len(table)
 
@@ -276,11 +286,14 @@ class AimSynth(ExternalPythonSynth):
         }
 
         domain = {}
-        for attr in attrs[self.table_name].values():
+        downsampled_table = pd.DataFrame(index=table.index)
+        for attr in table_attrs.values():
             for name, col in attr.cols.items():
-                domain[name] = col.get_domain(0)
+                h = col.select_height()
+                domain[name] = col.get_domain(h)
+                downsampled_table[name] = col.downsample(table[name], h)
 
-        data_in = {"dataset": ("csv", table), "domain": ("json", domain)}
+        data_in = {"dataset": ("csv", downsampled_table), "domain": ("json", domain)}
         data_out = {"save": "csv"}
 
         return params, data_in, data_out
@@ -290,7 +303,15 @@ class AimSynth(ExternalPythonSynth):
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         import pandas as pd
 
-        return {self.table_name: data["save"]}, {self.table_name: pd.DataFrame()}
+        downsampled_table = data["save"]
+        table = pd.DataFrame(index=downsampled_table.index)
+
+        for attr in self.table_attrs.values():
+            for name, col in attr.cols.items():
+                h = col.select_height()
+                table[name] = col.upsample(downsampled_table[name], h)
+
+        return {self.table_name: table}, {self.table_name: pd.DataFrame()}
 
 
 class PrivMrfSynth(ExternalPythonSynth):
@@ -332,11 +353,14 @@ class PrivMrfSynth(ExternalPythonSynth):
         self,
         e: float = 1.12,
         seed: int | None = None,
-        **_,
+        rebalance_columns: bool | None = None,
+        **kwargs,
     ) -> None:
-        super().__init__(cmd="pasteur.py", **_)
+        super().__init__(cmd="pasteur.py", **kwargs)
         self.e = e
         self.seed = seed
+        self.rebalance_columns = rebalance_columns
+        self.kwargs = kwargs
 
     def _prepare_synthesis_data(
         self,
@@ -344,27 +368,39 @@ class PrivMrfSynth(ExternalPythonSynth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+        import pandas as pd
+
         assert len(data) == 1
         self.table_name = next(iter(data))
         table = data[self.table_name]
+        table_attrs = attrs[self.table_name]
 
         params = ["{dataset}", "{domain}", "{out}", f"{self.e}"]
 
+        if self.rebalance_columns:
+            from .hierarchy import rebalance_attributes
+
+            table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
+
         col_names = []
         domain = {}
-        for attr in attrs[self.table_name].values():
+        downsampled_table = pd.DataFrame(index=table.index)
+        for attr in table_attrs.values():
             for name, col in attr.cols.items():
+                h = col.select_height()
                 domain[str(len(col_names))] = {
                     "type": "discrete",
-                    "domain": col.get_domain(0),
+                    "domain": col.get_domain(h),
                 }
                 col_names.append(name)
+                downsampled_table[name] = col.downsample(table[name], h)
 
         self.id = table.index.name
         self.col_names = col_names
+        self.table_attrs = table_attrs
 
         col_mapping = {name: i for i, name in enumerate(col_names)}
-        dataset = table.rename(columns=col_mapping)
+        dataset = downsampled_table.rename(columns=col_mapping)
 
         data_in = {"dataset": ("csv", dataset), "domain": ("json", domain)}
         data_out = {"out": "csv"}
@@ -377,7 +413,13 @@ class PrivMrfSynth(ExternalPythonSynth):
         import pandas as pd
 
         col_mapping = {str(i): name for i, name in enumerate(self.col_names)}
-        table = data["out"].rename(columns=col_mapping)
-        table.index.name = self.id
+        downsampled_table = data["out"].rename(columns=col_mapping)
 
+        table = pd.DataFrame(index=downsampled_table.index)
+        for attr in self.table_attrs.values():
+            for name, col in attr.cols.items():
+                h = col.select_height()
+                table[name] = col.upsample(downsampled_table[name], h)
+
+        table.index.name = self.id
         return {self.table_name: table}, {self.table_name: pd.DataFrame()}
