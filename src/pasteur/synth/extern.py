@@ -34,12 +34,14 @@ class ExternalPythonSynth(Synth, ABC):
         venv: str | None = None,
         dir: str | None = None,
         cmd: str | None = None,
+        rebalance_columns: bool = True,
         **_,
     ) -> None:
         super().__init__(**_)
         self.venv = venv
         self.dir = dir
         self.cmd = cmd
+        self.rebalance_columns = rebalance_columns
 
     @property
     def _logger(self):
@@ -52,6 +54,9 @@ class ExternalPythonSynth(Synth, ABC):
         ids: dict[str, pd.DataFrame],
     ):
         self.attrs = attrs
+
+        if self.rebalance_columns:
+            from .hierarchy import rebalance_column
 
     def bake(
         self,

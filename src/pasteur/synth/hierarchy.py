@@ -5,7 +5,7 @@ from math import ceil, log
 import numpy as np
 import pandas as pd
 
-from ..transform.attribute import IdxColumn, Level, LevelColumn, get_dtype
+from ..transform.attribute import Attributes, IdxColumn, Level, LevelColumn, get_dtype
 from .math import ZERO_FILL
 
 logger = logging.getLogger(__name__)
@@ -325,11 +325,13 @@ class RebalancedColumn(IdxColumn):
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
+        c: float | None = None,
         **_,
     ) -> None:
         self.common = col.common
         self.grouping = make_grouping(counts, col.head, self.common)
         self.counts = counts
+        self.c = c
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
@@ -346,7 +348,10 @@ class RebalancedColumn(IdxColumn):
     def get_mapping(self, height: int) -> np.array:
         return self.grouping[self.height_to_grouping[height], :]
 
-    def select_height(self, c: float) -> int:
+    def select_height(self) -> int:
+        if self.c is None:
+            return 0
+
         domains = np.max(self.grouping, axis=1) + 1
 
         count_list = []
@@ -365,7 +370,7 @@ class RebalancedColumn(IdxColumn):
             entropies.append(-np.sum(p * np.log2(p)))
 
         entropies = np.array(entropies)
-        h = (1 + c/np.log2(domains))*entropies
+        h = (1 + self.c / np.log2(domains)) * entropies
 
         return h.argmax()
 
@@ -377,6 +382,8 @@ class RebalancedColumn(IdxColumn):
         return False
 
     def upsample(self, column: np.ndarray, height: int, deterministic: bool = True):
+        if height == 0:
+            return column
         if deterministic:
             return super().upsample(column, height)
 
@@ -424,3 +431,37 @@ def rebalance_column(
 
     assert isinstance(col, LevelColumn)
     return RebalancedColumn(counts, col, **kwargs)
+
+
+def rebalance_attributes(
+    table: pd.DataFrame,
+    attrs: Attributes,
+    ep: float | None = None,
+    **kwargs,
+):
+    from copy import copy
+
+    if ep:
+        logger.info(f"Rebalancing columns with e_p={ep}")
+    else:
+        logger.warn(f"Rebalancing columns without using Differential Privacy (e_p=inf)")
+
+    num_cols = table.shape[1]
+
+    new_attrs = {}
+    for name, attr in attrs.items():
+        cols = {}
+        for col_name, col in attr.cols.items():
+            cols[col_name] = rebalance_column(
+                table[col_name],
+                col,
+                num_cols,
+                ep,
+                **kwargs,
+            )
+
+        new_attr = copy(attr)
+        new_attr.update_cols(cols)
+        new_attrs[name] = new_attr
+
+    return new_attrs

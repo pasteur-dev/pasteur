@@ -53,44 +53,22 @@ class PrivBayesSynth(Synth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        from copy import copy
-
-        from .hierarchy import rebalance_column
+        from .hierarchy import rebalance_attributes
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
         table_attrs = attrs[table_name]
 
-        num_cols = table.shape[1]
-        if not self.rebalance:
-            self.attrs = table_attrs
-            return
-
-        if self.ep:
-            logger.info(f"Rebalancing columns with e_p={self.ep}")
-        else:
-            logger.warn(
-                f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+        if self.rebalance:
+            self.attrs = rebalance_attributes(
+                table,
+                table_attrs,
+                self.ep,
+                unbounded_dp=self.unbounded_dp,
+                **self.kwargs,
             )
-
-        new_attrs = {}
-        for name, attr in table_attrs.items():
-            cols = {}
-            for col_name, col in attr.cols.items():
-                cols[col_name] = rebalance_column(
-                    table[col_name],
-                    col,
-                    num_cols,
-                    self.ep,
-                    unbounded_dp=self.unbounded_dp,
-                    **self.kwargs,
-                )
-
-            new_attr = copy(attr)
-            new_attr.update_cols(cols)
-            new_attrs[name] = new_attr
-
-            self.attrs = new_attrs
+        else:
+            self.attrs = table_attrs
 
     @make_deterministic
     def bake(

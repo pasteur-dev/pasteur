@@ -185,9 +185,14 @@ class IdxColumn(Column, ABC):
         return False
 
     def downsample(self, column: np.ndarray, height: int):
+        if height == 0:
+            return column
         return self.get_mapping(height)[column]
 
     def upsample(self, column: np.ndarray, height: int, deterministic: bool = True):
+        if height == 0:
+            return column
+
         assert (
             deterministic
         ), "Current column doesn't contain a histogram, can't upsample"
@@ -203,6 +208,8 @@ class IdxColumn(Column, ABC):
 
         return reverse_map[column]
 
+    def select_height(self) -> int:
+        return 0
 
 class LevelColumn(IdxColumn):
     """A specific type of IdxColumn, which contains a hierarchical attribute
