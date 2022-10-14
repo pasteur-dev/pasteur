@@ -36,9 +36,3 @@ tab_adult:
           metrics:
             y_log: True
         income: categorical
-
-  algs:
-    privbayes:
-      e1: 0.5
-      e2: 1.6
-      theta: 2

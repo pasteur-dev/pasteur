@@ -20,6 +20,7 @@ from kedro_mlflow.framework.hooks.utils import (
 from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
 
 from ...logging import MlflowHandler
+from ...perf import PerformanceTracker
 from ...utils import dict_to_flat_params, merge_dicts
 
 logger = logging.getLogger(__name__)
@@ -183,6 +184,10 @@ class CustomMlflowTrackingHook(MlflowHook):
         algs = params.pop("algs", {})
         params["alg._name"] = alg
         params["alg"] = merge_dicts(algs.get(alg, {}), params.pop("alg", {}))
+        # filter dir, venv
+        params["alg"] = {
+            k: v for k, v in params["alg"].items() if k not in ("venv", "dir")
+        }
         params["view"] = current_view
 
         # The rest of the parameters get flattened
@@ -216,6 +221,7 @@ class CustomMlflowTrackingHook(MlflowHook):
         catalog: DataCatalog,
     ):
         MlflowHandler.reset_all()
+        PerformanceTracker.log()
         return super().on_pipeline_error(error, run_params, pipeline, catalog)
 
     @hook_impl
@@ -223,4 +229,5 @@ class CustomMlflowTrackingHook(MlflowHook):
         self, run_params: dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
         MlflowHandler.reset_all()
+        PerformanceTracker.log()
         return super().after_pipeline_run(run_params, pipeline, catalog)

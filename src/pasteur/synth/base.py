@@ -95,6 +95,12 @@ class Synth(ABC):
 def synth_fit(
     cls: type[Synth], metadata: Metadata, **kwargs: pd.DataFrame | TableTransformer
 ):
+    from ..perf import PerformanceTracker
+
+    tracker = PerformanceTracker.get("synth")
+
+    tracker.ensemble("total", "bake", "fit", "sample")
+
     ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
     data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
     trns = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
@@ -104,13 +110,25 @@ def synth_fit(
 
     attrs = {n: t[cls.type].get_attributes() for n, t in trns.items()}
     model = cls(**args, seed=meta.seed)
+
+    tracker.start("bake")
     model.bake(attrs, data, ids)
+    tracker.stop("bake")
+
+    tracker.start("fit")
     model.fit(data, ids)
+    tracker.stop("fit")
     return model
 
 
 def synth_sample(model: Synth):
+    from ..perf import PerformanceTracker
+
+    tracker = PerformanceTracker.get("synth")
+
+    tracker.start("sample")
     data, ids = model.sample()
+    tracker.stop("sample")
 
     return {
         **{f"enc_{n}": d for n, d in data.items()},

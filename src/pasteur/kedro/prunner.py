@@ -13,6 +13,7 @@ from kedro.runner.runner import run_node
 from pluggy import PluginManager
 from rich import get_console
 
+from ..perf import PerformanceTracker
 from ..progress import (
     MULTIPROCESS_ENABLE,
     PBAR_MIN_PIPE_LEN,
@@ -56,10 +57,11 @@ def _disable_keyboard_interrupt():
 
 
 def _replace_logging(fun, *args, _q=None, **kwargs):
+
     if _q is not None:
         _replace_loggers_with_queue(_q)
     try:
-        return fun(*args, **kwargs)
+        return fun(*args, **kwargs), PerformanceTracker.get_trackers()
     except Exception as e:
         get_console().print_exception(**RICH_TRACEBACK_ARGS)
         logger.error(
@@ -247,7 +249,11 @@ class SimpleParallelRunner(ParallelRunner):
                                 )
                                 raise
                         else:
-                            node = future.result()
+                            node, trackers = future.result()
+                            # Merge performance tracking from the process
+                            # to the outside one.
+                            PerformanceTracker.merge_trackers(trackers)
+
                         done_nodes.add(node)
                     except Exception:
                         for future in futures:
