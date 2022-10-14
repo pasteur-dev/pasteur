@@ -207,10 +207,14 @@ class CustomMlflowTrackingHook(MlflowHook):
         mlflow.log_dict(run_params, f"_params/run.yml")
 
     @hook_impl
-    def before_node_run(
-        self, node: Node, catalog: DataCatalog, inputs: dict[str, Any], is_async: bool
-    ) -> None:
-        pass
+    def before_node_run(self, node: Node) -> None:
+        t = PerformanceTracker.get("nodes")
+        t.log_to_file()
+        t.start(node.name.split("(")[0])
+
+    @hook_impl
+    def after_node_run(self, node: Node):
+        PerformanceTracker.get("nodes").stop(node.name.split("(")[0])
 
     @hook_impl
     def on_pipeline_error(

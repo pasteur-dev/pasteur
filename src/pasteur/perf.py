@@ -48,6 +48,10 @@ class PerformanceTracker:
         self.starts: dict[str, int] = {}
         self.stops: dict[str, int] = {}
         self.ensembles: dict[str, list[int]] = {}
+        self._log_to_file = False
+
+    def log_to_file(self):
+        self._log_to_file = True
 
     def start(self, name: str):
         from time import time_ns
@@ -95,7 +99,7 @@ class PerformanceTracker:
     @staticmethod
     def merge_trackers(trackers: dict[str, "PerformanceTracker"]):
         for name, tracker in trackers.items():
-            PerformanceTracker.get_tracker(name).merge(tracker)
+            PerformanceTracker.get(name).merge(tracker)
 
     @staticmethod
     def is_multiprocess():
@@ -115,6 +119,7 @@ class PerformanceTracker:
     @staticmethod
     def log():
         import mlflow
+        from .metrics.mlflow import mlflow_log_as_str
 
         if not mlflow.active_run():
             return
@@ -122,9 +127,10 @@ class PerformanceTracker:
         multi = PerformanceTracker.is_multiprocess()
         mlflow.set_tag("multiprocess", str(multi))
 
+        file_perfs = {}
         for tracker_name, tracker in PerformanceTracker.get_trackers().items():
             for name, metric in tracker.get_log_dict().items():
-                metric_name = f"perf.{tracker_name}.{name}"
+                metric_name = f"{tracker_name}.{name}"
 
                 if metric < 0:
                     metric = -1
@@ -134,13 +140,20 @@ class PerformanceTracker:
                 else:
                     # convert to seconds
                     metric /= 10**9
-                mlflow.log_metric(metric_name, metric)
 
                 ms = (metric % 1) * 1000
                 seconds = metric % 60
                 minutes = (metric // 60) % 60
                 hours = metric // 3600
-                mlflow.set_tag(
-                    metric_name,
-                    f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}:{int(ms):03d}",
-                )
+                str_time = f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}:{int(ms):03d}"
+
+                file_perfs[metric_name] = str_time
+                if not tracker.log_to_file:
+                    mlflow.log_metric(f"perf.{metric_name}", metric)
+                    mlflow.set_tag(
+                        metric_name,
+                        str_time,
+                    )
+
+        file_txt = "\n".join(f"{k:65s} | {v}" for k, v in file_perfs.items())
+        mlflow_log_as_str("_perf", file_txt)
