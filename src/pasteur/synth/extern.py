@@ -45,13 +45,20 @@ class ExternalPythonSynth(Synth, ABC):
     def _logger(self):
         return logging.getLogger(f"extern.{self.name if self.name else 'ukn'}")
 
-    def bake(
+    def preprocess(
         self,
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
         self.attrs = attrs
+
+    def bake(
+        self,
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        pass
 
     def fit(self, data: dict[str, pd.DataFrame], ids: dict[str, pd.DataFrame]):
         import json

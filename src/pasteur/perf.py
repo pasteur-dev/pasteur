@@ -45,23 +45,26 @@ class PerformanceTracker:
     _trackers: dict[str, "PerformanceTracker"] = {}
 
     def __init__(self) -> None:
+        from time import time_ns
+
         self.starts: dict[str, int] = {}
         self.stops: dict[str, int] = {}
         self.ensembles: dict[str, list[int]] = {}
         self._log_to_file = False
+        self.gpu = False
+        self.time_ns = time_ns
 
     def log_to_file(self):
         self._log_to_file = True
 
-    def start(self, name: str):
-        from time import time_ns
+    def use_gpu(self):
+        self.gpu = True
 
-        self.starts[name] = time_ns()
+    def start(self, name: str):
+        self.starts[name] = self.time_ns()
 
     def stop(self, name: str):
-        from time import time_ns
-
-        self.stops[name] = time_ns()
+        self.stops[name] = self.time_ns()
 
     def ensemble(self, name: str, *names: str | list[str]):
         if len(names) == 1 and not isinstance(names[0], str):
@@ -126,10 +129,14 @@ class PerformanceTracker:
             return
 
         multi = PerformanceTracker.is_multiprocess()
-        mlflow.set_tag("multiprocess", str(multi))
+        mlflow.log_param("perf.multiprocess", str(multi))
 
         file_perfs = {}
+        json_perfs = {}
         for tracker_name, tracker in PerformanceTracker.get_trackers().items():
+            if not tracker._log_to_file:
+                mlflow.log_param(f"perf.{tracker_name}.gpu", tracker.gpu)
+
             for name, metric in tracker.get_log_dict().items():
                 metric_name = f"{tracker_name}.{name}"
 
@@ -149,12 +156,14 @@ class PerformanceTracker:
                 str_time = f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}:{int(ms):03d}"
 
                 file_perfs[metric_name] = str_time
+                json_perfs[metric_name] = metric
                 if not tracker._log_to_file:
-                    mlflow.log_metric(f"perf.{metric_name}", metric)
+                    # mlflow.log_metric(f"perf.{metric_name}", metric)
                     mlflow.set_tag(
                         f"perf.{metric_name}",
                         str_time,
                     )
 
         file_txt = "\n".join(f"{k:65s} | {v}" for k, v in file_perfs.items())
-        mlflow_log_as_str("_perf", file_txt)
+        mlflow.log_dict(json_perfs, "_perf/raw.json")
+        mlflow_log_as_str("_perf/text", file_txt)

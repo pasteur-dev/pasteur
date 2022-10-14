@@ -47,7 +47,7 @@ class PrivBayesSynth(Synth):
         self.kwargs = kwargs
 
     @make_deterministic
-    def bake(
+    def preprocess(
         self,
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
@@ -56,45 +56,59 @@ class PrivBayesSynth(Synth):
         from copy import copy
 
         from .hierarchy import rebalance_column
-        from .privbayes import greedy_bayes
-
-        assert len(data) == 1, "Only tabular data supported for now"
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
         table_attrs = attrs[table_name]
 
         num_cols = table.shape[1]
-        if self.rebalance:
-            if self.ep:
-                logger.info(f"Rebalancing columns with e_p={self.ep}")
-            else:
-                logger.warn(
-                    f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+        if not self.rebalance:
+            self.attrs = table_attrs
+            return
+
+        if self.ep:
+            logger.info(f"Rebalancing columns with e_p={self.ep}")
+        else:
+            logger.warn(
+                f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+            )
+
+        new_attrs = {}
+        for name, attr in table_attrs.items():
+            cols = {}
+            for col_name, col in attr.cols.items():
+                cols[col_name] = rebalance_column(
+                    table[col_name],
+                    col,
+                    num_cols,
+                    self.ep,
+                    unbounded_dp=self.unbounded_dp,
+                    **self.kwargs,
                 )
 
-            new_attrs = {}
-            for name, attr in table_attrs.items():
-                cols = {}
-                for col_name, col in attr.cols.items():
-                    cols[col_name] = rebalance_column(
-                        table[col_name],
-                        col,
-                        num_cols,
-                        self.ep,
-                        unbounded_dp=self.unbounded_dp,
-                        **self.kwargs,
-                    )
+            new_attr = copy(attr)
+            new_attr.update_cols(cols)
+            new_attrs[name] = new_attr
 
-                new_attr = copy(attr)
-                new_attr.update_cols(cols)
-                new_attrs[name] = new_attr
-            table_attrs = new_attrs
+            self.attrs = new_attrs
+
+    @make_deterministic
+    def bake(
+        self,
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        from .privbayes import greedy_bayes
+
+        assert len(data) == 1, "Only tabular data supported for now"
+
+        table_name = next(iter(data.keys()))
+        table = data[table_name]
 
         # Fit network
         nodes, t = greedy_bayes(
             table,
-            table_attrs,
+            self.attrs,
             self.e1,
             self.e2,
             self.theta,
@@ -107,7 +121,6 @@ class PrivBayesSynth(Synth):
         self.table_name = table_name
         self.d = len(table.keys())
         self.t = t
-        self.attrs = table_attrs
         self.nodes = nodes
         logger.info(self)
 

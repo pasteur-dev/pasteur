@@ -56,13 +56,22 @@ class Synth(ABC):
         pass
 
     @abstractmethod
-    def bake(
+    def preprocess(
         self,
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        """Bakes the transformer based on the data provided (such as creating and
+        """Runs any preprocessing required, such as domain reduction."""
+        pass
+
+    @abstractmethod
+    def bake(
+        self,
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
 
         Attributes provide context about the data columns, including hierarchical
@@ -99,7 +108,7 @@ def synth_fit(
 
     tracker = PerformanceTracker.get("synth")
 
-    tracker.ensemble("total", "bake", "fit", "sample")
+    tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
 
     ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
     data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
@@ -111,8 +120,15 @@ def synth_fit(
     attrs = {n: t[cls.type].get_attributes() for n, t in trns.items()}
     model = cls(**args, seed=meta.seed)
 
+    if cls.gpu:
+        tracker.use_gpu()
+
+    tracker.start("preprocess")
+    model.preprocess(attrs, data, ids)
+    tracker.stop("preprocess")
+
     tracker.start("bake")
-    model.bake(attrs, data, ids)
+    model.bake(data, ids)
     tracker.stop("bake")
 
     tracker.start("fit")
@@ -145,9 +161,16 @@ class IdentSynth(Synth):
     multimodal = True
     timeseries = True
 
-    def bake(
+    def preprocess(
         self,
         attrs: dict[str, Attributes],
+        data: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ):
+        pass
+
+    def bake(
+        self,
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
