@@ -88,6 +88,7 @@ class PerformanceTracker:
         return out
 
     def merge(self, tracker: "PerformanceTracker"):
+        self._log_to_file |= tracker._log_to_file
         self.starts.update(tracker.starts)
         self.stops.update(tracker.stops)
         self.ensembles.update(tracker.ensembles)
@@ -148,10 +149,10 @@ class PerformanceTracker:
                 str_time = f"{int(hours):02d}:{int(minutes):02d}:{int(seconds):02d}:{int(ms):03d}"
 
                 file_perfs[metric_name] = str_time
-                if not tracker.log_to_file:
+                if not tracker._log_to_file:
                     mlflow.log_metric(f"perf.{metric_name}", metric)
                     mlflow.set_tag(
-                        metric_name,
+                        f"perf.{metric_name}",
                         str_time,
                     )
 

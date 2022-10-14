@@ -1,5 +1,3 @@
-import mlflow
-
 from .holder import HistHolder, VizData
 from ..mlflow import gen_html_figure_container, load_matplotlib_style
 
@@ -7,6 +5,9 @@ _SAVE_HTML = True
 
 
 def mlflow_log_hists(holder: HistHolder, **data: VizData):
+    import mlflow
+    import matplotlib.pyplot as plt
+
     if not mlflow.active_run():
         return
     path_prefix = "histograms/"
@@ -27,3 +28,5 @@ def mlflow_log_hists(holder: HistHolder, **data: VizData):
                     mlflow.log_figure(v, f"{path_prefix}{name}_{i}_{n}.png")
         else:
             mlflow.log_figure(viz, f"{path_prefix}{name}.png")
+
+        plt.close(viz)

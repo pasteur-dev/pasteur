@@ -164,8 +164,8 @@ def color_dataframe(
 
     pt = (
         df.pivot(index=idx, columns=[*cols, split_col], values=vals)
-        .sort_index(0)
-        .sort_index(1)
+        .sort_index(axis=0)
+        .sort_index(axis=1)
     )
     pts = pt.style
 
@@ -198,8 +198,8 @@ def color_dataframe(
     df_ref = (
         df[df[split_col] == split_ref]
         .pivot(index=idx, columns=cols, values=vals)
-        .sort_index(0)
-        .sort_index(1)
+        .sort_index(axis=0)
+        .sort_index(axis=1)
     )
     splits = df[split_col].unique()
     for split in splits:
@@ -209,8 +209,8 @@ def color_dataframe(
         df_split = (
             df[df[split_col] == split]
             .pivot(index=idx, columns=cols, values=vals)
-            .sort_index(0)
-            .sort_index(1)
+            .sort_index(axis=0)
+            .sort_index(axis=1)
         )
         df_diff = df_split - df_ref
         if diff_reverse:
