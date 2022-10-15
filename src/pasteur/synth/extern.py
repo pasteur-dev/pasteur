@@ -151,7 +151,6 @@ class ExternalPythonSynth(Synth, ABC):
                 proc = subprocess.Popen(
                     shlex.split(full_cmd),
                     text=True,
-                    bufsize=1,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     preexec_fn=preexec_function,
@@ -245,6 +244,7 @@ class AimSynth(ExternalPythonSynth):
         max_model_size: int = 80,
         rebalance_columns: bool = False,
         seed: int | None = None,
+        deterministic_upsample: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(cmd="mechanisms/aim.py", **kwargs)
@@ -253,6 +253,7 @@ class AimSynth(ExternalPythonSynth):
         self.max_model_size = max_model_size
         self.seed = seed
         self.rebalance_columns = rebalance_columns
+        self.deterministic_upsample = deterministic_upsample
         self.kwargs = kwargs
 
     def _prepare_synthesis_data(
@@ -303,13 +304,16 @@ class AimSynth(ExternalPythonSynth):
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         import pandas as pd
 
-        downsampled_table = data["save"]
-        table = pd.DataFrame(index=downsampled_table.index)
+        if self.rebalance_columns:
+            downsampled_table = data["save"]
+            table = pd.DataFrame(index=downsampled_table.index)
 
-        for attr in self.table_attrs.values():
-            for name, col in attr.cols.items():
-                h = col.select_height()
-                table[name] = col.upsample(downsampled_table[name], h)
+            for attr in self.table_attrs.values():
+                for name, col in attr.cols.items():
+                    h = col.select_height()
+                    table[name] = col.upsample(downsampled_table[name], h, deterministic=self.deterministic_upsample)
+        else:
+            table = data["save"]
 
         return {self.table_name: table}, {self.table_name: pd.DataFrame()}
 
@@ -354,12 +358,14 @@ class PrivMrfSynth(ExternalPythonSynth):
         e: float = 1.12,
         seed: int | None = None,
         rebalance_columns: bool | None = None,
+        deterministic_upsample: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(cmd="pasteur.py", **kwargs)
         self.e = e
         self.seed = seed
         self.rebalance_columns = rebalance_columns
+        self.deterministic_upsample = deterministic_upsample
         self.kwargs = kwargs
 
     def _prepare_synthesis_data(
@@ -414,12 +420,15 @@ class PrivMrfSynth(ExternalPythonSynth):
 
         col_mapping = {str(i): name for i, name in enumerate(self.col_names)}
         downsampled_table = data["out"].rename(columns=col_mapping)
-
-        table = pd.DataFrame(index=downsampled_table.index)
-        for attr in self.table_attrs.values():
-            for name, col in attr.cols.items():
-                h = col.select_height()
-                table[name] = col.upsample(downsampled_table[name], h)
+        
+        if self.rebalance_columns:
+            table = pd.DataFrame(index=downsampled_table.index)
+            for attr in self.table_attrs.values():
+                for name, col in attr.cols.items():
+                    h = col.select_height()
+                    table[name] = col.upsample(downsampled_table[name], h, deterministic=self.deterministic_upsample)
+        else:
+            table = downsampled_table
 
         table.index.name = self.id
         return {self.table_name: table}, {self.table_name: pd.DataFrame()}

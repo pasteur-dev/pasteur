@@ -26,7 +26,9 @@ def mlflow_log_hists(holder: HistHolder, **data: VizData):
             else:
                 for i, (n, v) in enumerate(viz.items()):
                     mlflow.log_figure(v, f"{path_prefix}{name}_{i}_{n}.png")
+                
+            for v in viz.values():
+                plt.close(v)
         else:
             mlflow.log_figure(viz, f"{path_prefix}{name}.png")
-
-        plt.close(viz)
+            plt.close(viz)
