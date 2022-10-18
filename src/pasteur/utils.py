@@ -21,6 +21,10 @@ def _try_convert_primitive(value: any):
     return _try_convert_to_numeric(value)
 
 
+def _try_convert_eval(value: str, locals: dict[str, object]):
+    return eval(value, {}, locals)
+
+
 def _update_value_nested_dict(
     nested_dict: dict[str, any], value: any, walking_path: list[str]
 ) -> dict:
@@ -35,7 +39,7 @@ def _update_value_nested_dict(
     return nested_dict
 
 
-def str_params_to_dict(params: list[str]):
+def str_params_to_dict(params: list[str], locals: dict[str, any] = {}):
     """Converts a list of format ["a.b.c=5", "c=b"] to {a: {b: {c:5}}, c: 'b'}.
 
     Note the number conversion."""
@@ -50,7 +54,7 @@ def str_params_to_dict(params: list[str]):
             assert False
         value = item[1].strip()
         param_dict = _update_value_nested_dict(
-            param_dict, _try_convert_primitive(value), key.split(".")
+            param_dict, _try_convert_eval(value, locals), key.split(".")
         )
     return param_dict
 

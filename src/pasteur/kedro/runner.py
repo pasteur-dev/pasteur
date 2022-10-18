@@ -93,6 +93,11 @@ class SimpleSequentialRunner(AbstractRunner):
 
                     logger.error(f"Received KeyboardInterrupt, exiting...")
                     sys.excepthook = lambda *_: None
+
+                    if use_pbar:
+                        pbar.leave = False
+                        pbar.close()
+
                     raise Exception()
                 except Exception:
                     # self._suggest_resume_scenario(pipeline, done_nodes)
