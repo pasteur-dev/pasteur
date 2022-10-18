@@ -9,14 +9,9 @@ from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
-from kedro_mlflow.config.kedro_mlflow_config import (
-    KedroMlflowConfig,
-)
+from kedro_mlflow.config.kedro_mlflow_config import KedroMlflowConfig
 from kedro_mlflow.framework.hooks import MlflowHook
-from kedro_mlflow.framework.hooks.utils import (
-    _flatten_dict,
-    _generate_kedro_command,
-)
+from kedro_mlflow.framework.hooks.utils import _flatten_dict
 from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
 
 from ...logging import MlflowHandler
@@ -138,19 +133,6 @@ class CustomMlflowTrackingHook(MlflowHook):
         # add manually git sha for consistency with the journal
         # TODO : this does not take into account not committed files, so it
         # does not ensure reproducibility. Define what to do.
-
-        mlflow.set_tag(
-            "kedro_command",
-            _generate_kedro_command(
-                tags=run_params["tags"],
-                node_names=run_params["node_names"],
-                from_nodes=run_params["from_nodes"],
-                to_nodes=run_params["to_nodes"],
-                from_inputs=run_params["from_inputs"],
-                load_versions=run_params["load_versions"],
-                pipeline_name=run_params["pipeline_name"],
-            ),
-        )
 
         self.flatten = self.mlflow_config.tracking.params.dict_params.flatten
         self.recursive = self.mlflow_config.tracking.params.dict_params.recursive

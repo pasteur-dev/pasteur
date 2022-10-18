@@ -310,3 +310,6 @@ class SimpleParallelRunner(ParallelRunner):
 
                 sys.excepthook = lambda *_: None
                 raise Exception()
+
+    def __str__(self) -> str:
+        return f"<ParallelRunner {self.pipe_name} {self.params_str}>"

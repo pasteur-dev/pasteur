@@ -109,6 +109,8 @@ class SimpleSequentialRunner(AbstractRunner):
             if use_pbar and exec_index == len(nodes) - 1:
                 pbar.set_description(desc.replace("Executing", "Executed"))
 
+    def __str__(self) -> str:
+        return f"<SequentialRunner {self.pipe_name} {self.params_str}>"
 
 if MULTIPROCESS_ENABLE:
     from .prunner import SimpleParallelRunner
