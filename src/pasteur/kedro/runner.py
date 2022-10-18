@@ -88,6 +88,12 @@ class SimpleSequentialRunner(AbstractRunner):
                 try:
                     run_node(node, catalog, hook_manager, self._is_async, session_id)
                     done_nodes.add(node)
+                except KeyboardInterrupt:
+                    import sys
+
+                    logger.error(f"Received KeyboardInterrupt, exiting...")
+                    sys.excepthook = lambda *_: None
+                    raise Exception()
                 except Exception:
                     # self._suggest_resume_scenario(pipeline, done_nodes)
                     raise
@@ -111,6 +117,7 @@ class SimpleSequentialRunner(AbstractRunner):
 
     def __str__(self) -> str:
         return f"<SequentialRunner {self.pipe_name} {self.params_str}>"
+
 
 if MULTIPROCESS_ENABLE:
     from .prunner import SimpleParallelRunner
