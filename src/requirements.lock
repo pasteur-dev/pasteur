@@ -264,10 +264,7 @@ jupyterlab-widgets==3.0.3
 kedro==0.18.3
     # via
     #   -r /mnt/ext/projects/pasteur/src/requirements.txt
-    #   kedro-mlflow
     #   kedro-viz
-kedro-mlflow==0.11.4
-    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 kedro-viz==5.1.1
     # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 kiwisolver==1.4.4
@@ -293,7 +290,7 @@ mccabe==0.6.1
 mistune==2.0.4
     # via nbconvert
 mlflow==1.29.0
-    # via kedro-mlflow
+    # via -r /mnt/ext/projects/pasteur/src/requirements.txt
 mypy-extensions==0.4.3
     # via black
 nbclassic==0.4.4
@@ -343,7 +340,7 @@ numpy==1.23.3
     #   scikit-learn
     #   scipy
     #   xgboost
-oauthlib==3.2.1
+oauthlib==3.2.2
     # via databricks-cli
 opt-einsum==3.3.0
     # via jax
@@ -406,7 +403,7 @@ prompt-toolkit==3.0.31
     # via
     #   ipython
     #   jupyter-console
-protobuf==4.21.7
+protobuf==4.21.8
     # via mlflow
 psutil==5.9.2
     # via ipykernel
@@ -425,9 +422,7 @@ pycodestyle==2.7.0
 pycparser==2.21
     # via cffi
 pydantic==1.10.2
-    # via
-    #   fastapi
-    #   kedro-mlflow
+    # via fastapi
 pyflakes==2.3.1
     # via flake8
 pygments==2.13.0

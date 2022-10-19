@@ -82,6 +82,8 @@ def s(pipeline, iterator, hyperparameter, params):
     then `-h` can be used, which will both sweep and pass the variable as an
     override at the same time (it is equal to `-i val=<iterable> val=val`). """
 
+    import mlflow
+
     iterable_dict = str_params_to_dict(iterator)
     hyperparam_dict = str_params_to_dict(hyperparameter)
 

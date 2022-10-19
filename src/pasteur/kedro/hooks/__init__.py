@@ -1,4 +1,4 @@
 from .dataset import AddDatasetsForViewsHook
-from .mlflow import CustomMlflowTrackingHook
+from .mlflow import MlflowTrackingHook
 
-__all__ = ["AddDatasetsForViewsHook", "CustomMlflowTrackingHook"]
+__all__ = ["AddDatasetsForViewsHook", "MlflowTrackingHook"]

@@ -17,7 +17,7 @@ install(**RICH_TRACEBACK_ARGS)
 
 # Instantiated project hooks.
 # from iris_example.hooks import ProjectHooks
-from .kedro.hooks import CustomMlflowTrackingHook, AddDatasetsForViewsHook
+from .kedro.hooks import MlflowTrackingHook, AddDatasetsForViewsHook
 
 from .const import VIEWS, ALGS
 from .kedro.pipelines.main import (
@@ -39,7 +39,7 @@ HOOKS = (
         get_all_types(ALGS),
         get_msr_types(),
     ),
-    CustomMlflowTrackingHook(tables, ALGS),
+    MlflowTrackingHook(tables, ALGS),
 )
 
 # Installed plugins for which to disable hook auto-registration.

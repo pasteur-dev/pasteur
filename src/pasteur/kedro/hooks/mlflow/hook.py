@@ -9,19 +9,35 @@ from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
-from kedro_mlflow.config.kedro_mlflow_config import KedroMlflowConfig
-from kedro_mlflow.framework.hooks import MlflowHook
-from kedro_mlflow.framework.hooks.utils import _flatten_dict
-from kedro_mlflow.io.catalog.switch_catalog_logging import switch_catalog_logging
+from mlflow.entities import RunStatus
+from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
-from ...logging import MlflowHandler
-from ...perf import PerformanceTracker
-from ...utils import dict_to_flat_params, merge_dicts
+from ....logging import MlflowHandler
+from ....perf import PerformanceTracker
+from ....utils import dict_to_flat_params, merge_dicts
+from .config import KedroMlflowConfig
 
 logger = logging.getLogger(__name__)
 
 
-class CustomMlflowTrackingHook(MlflowHook):
+def _flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:
+    def expand(key, value):
+        if isinstance(value, dict):
+            new_value = (
+                _flatten_dict(value, recursive=recursive, sep=sep)
+                if recursive
+                else value
+            )
+            return [(f"{key}{sep}{k}", v) for k, v in new_value.items()]
+        else:
+            return [(f"{key}", value)]
+
+    items = [item for k, v in d.items() for item in expand(k, v)]
+
+    return dict(items)
+
+
+class MlflowTrackingHook:
     def __init__(
         self,
         datasets: dict[str, Collection[str]],
@@ -38,6 +54,30 @@ class CustomMlflowTrackingHook(MlflowHook):
     @property
     def _logger(self) -> logging.Logger:
         return logging.getLogger(__name__)
+
+    def _log_param(self, name: str, value: dict | int | bool | str) -> None:
+        str_value = str(value)
+        str_value_length = len(str_value)
+        if str_value_length <= MAX_PARAM_VAL_LENGTH:
+            return mlflow.log_param(name, value)
+        else:
+            if self.long_params_strategy == "fail":
+                raise ValueError(
+                    f"Parameter '{name}' length is {str_value_length}, "
+                    f"while mlflow forces it to be lower than '{MAX_PARAM_VAL_LENGTH}'. "
+                    "If you want to bypass it, try to change 'long_params_strategy' to"
+                    " 'tag' or 'truncate' in the 'mlflow.yml'configuration file."
+                )
+            elif self.long_params_strategy == "tag":
+                self._logger.warning(
+                    f"Parameter '{name}' (value length {str_value_length}) is set as a tag."
+                )
+                mlflow.set_tag(name, value)
+            elif self.long_params_strategy == "truncate":
+                self._logger.warning(
+                    f"Parameter '{name}' (value length {str_value_length}) is truncated to its {MAX_PARAM_VAL_LENGTH} first characters."
+                )
+                mlflow.log_param(name, str_value[0:MAX_PARAM_VAL_LENGTH])
 
     @hook_impl
     def after_context_created(
@@ -81,7 +121,6 @@ class CustomMlflowTrackingHook(MlflowHook):
             logger.info(
                 f"Disabled mlflow logging for blacklisted pipeline {pipeline_name}."
             )
-            switch_catalog_logging(catalog, False)
             return
 
         if "ingest" in pipeline_name:
@@ -100,7 +139,6 @@ class CustomMlflowTrackingHook(MlflowHook):
 
         # Exit if mlflow bit was set to false
         if not self._is_mlflow_enabled:
-            switch_catalog_logging(catalog, False)
             return
 
         # Setup global mlflow configuration with view as experiment name
@@ -206,14 +244,20 @@ class CustomMlflowTrackingHook(MlflowHook):
         pipeline: Pipeline,
         catalog: DataCatalog,
     ):
+        if not self._is_mlflow_enabled:
+            return
+
         MlflowHandler.reset_all()
         PerformanceTracker.log()
-        return super().on_pipeline_error(error, run_params, pipeline, catalog)
+        mlflow.end_run(RunStatus.to_string(RunStatus.FAILED))
 
     @hook_impl
     def after_pipeline_run(
         self, run_params: dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
     ) -> None:
+        if not self._is_mlflow_enabled:
+            return
+
         MlflowHandler.reset_all()
         PerformanceTracker.log()
-        return super().after_pipeline_run(run_params, pipeline, catalog)
+        mlflow.end_run()
