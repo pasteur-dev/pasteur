@@ -105,11 +105,6 @@ loggers:
         handlers: [debug, error]
         propagate: no
 
-    pasteur.kedro.hooks.mlflow:
-        level: NOTSET
-        handlers: [debug, error]
-        propagate: no
-
     dummy:
         level: NOTSET
         propagate: no

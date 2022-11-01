@@ -44,15 +44,6 @@ class ExperimentOptions(BaseModel):
         extra = "forbid"
 
 
-class RunOptions(BaseModel):
-    id: Optional[str] = None
-    name: Optional[str] = None
-    nested: StrictBool = True
-
-    class Config:
-        extra = "forbid"
-
-
 class DictParamsOptions(BaseModel):
     flatten: StrictBool = False
     recursive: StrictBool = True
@@ -74,7 +65,6 @@ class MlflowTrackingOptions(BaseModel):
     # mutable default is ok for pydantic : https://stackoverflow.com/questions/63793662/how-to-give-a-pydantic-list-field-a-default-value
     disable_tracking: DisableTrackingOptions = DisableTrackingOptions()
     experiment: ExperimentOptions = ExperimentOptions()
-    run: RunOptions = RunOptions()
     params: MlflowParamsOptions = MlflowParamsOptions()
 
     class Config:
@@ -119,15 +109,13 @@ class KedroMlflowConfig(BaseModel):
         # if it has already be set in export_credentials
         mlflow.set_tracking_uri(self.server.mlflow_tracking_uri)
 
-        self._set_experiment()
-
     def _export_credentials(self, context: KedroContext):
         conf_creds = context._get_config_credentials()
         mlflow_creds = conf_creds.get(self.server.credentials, {})
         for key, value in mlflow_creds.items():
             os.environ[key] = value
 
-    def _set_experiment(self):
+    def set_experiment(self):
         """Best effort to get the experiment associated
         to the configuration
 

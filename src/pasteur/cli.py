@@ -1,11 +1,14 @@
 from typing import Iterable
 import click
+import logging
 from kedro.framework.cli.project import project_group
 from kedro.framework.cli.utils import CONTEXT_SETTINGS
 from kedro.framework.session import KedroSession
 
 from .utils import str_params_to_dict
 from .kedro.runner import SimpleRunner
+
+logger = logging.getLogger(__name__)
 
 
 @click.group(context_settings=CONTEXT_SETTINGS, name=__file__)
@@ -73,26 +76,40 @@ def _process_iterables(iterables: dict[str, Iterable]):
 )
 def s(pipeline, iterator, hyperparameter, params):
     """Similar to p, s(weep) allows in addition a hyperparameter sweep.
-    
+
     By using `-i` an iterator can be defined (ex. `-i i="range(5)"`), which will
     make the pipeline run for each value of i. Then i can be used in expressions
     with other variables that are passed as arguments (ex. `j="0.2*i"`).
-    
+
     If an iterator is also a hyperparameter (ex. `-h e1="[0.1,0.2,0.3]"`)
     then `-h` can be used, which will both sweep and pass the variable as an
-    override at the same time (it is equal to `-i val=<iterable> val=val`). """
+    override at the same time (it is equal to `-i val=<iterable> val=val`)."""
 
-    import mlflow
+    from .kedro.hooks.mlflow import get_run_name, get_parent_name, check_run_done
 
     iterable_dict = str_params_to_dict(iterator)
     hyperparam_dict = str_params_to_dict(hyperparameter)
+
+    parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
+
+    mlflow_dict = {
+        "_mlflow_parent_name": parent_name,
+    }
 
     for vals in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = str_params_to_dict(params, vals)
         hyper_dict = {n: vals[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
 
-        with KedroSession.create(env=None, extra_params=vals) as session:
+        with KedroSession.create(env=None, extra_params=vals | mlflow_dict) as session:
+            session.load_context()
+
+            run_name = get_run_name(pipeline, vals)
+
+            if check_run_done(run_name, parent_name):
+                logger.info(f"Run '{run_name}' is complete, skipping...")
+                continue
+
             session.run(
                 tags=[],
                 runner=SimpleRunner(

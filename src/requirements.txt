@@ -32,4 +32,3 @@ xgboost
 
 jax
 jaxlib
-# private-pgm @ git+https://github.com/ryan112358/private-pgm.git

@@ -37,6 +37,44 @@ def _flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:
     return dict(items)
 
 
+def get_run_name(pipeline: str, params: dict[str]):
+    run_name = pipeline
+    for param, val in dict_to_flat_params(params).items():
+        if param.startswith("_"):
+            continue
+        run_name += f" {param}={val}"
+
+    return run_name
+
+
+def get_parent_name(
+    pipeline: str, hyperparams: list[str], iterators: list[str], params: list[str]
+):
+    hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
+    iter_str = "".join(map(lambda x: f" -i {x}", iterators))
+    param_str = "".join(map(lambda x: f" {x}", params))
+    return f"{pipeline}{hyper_str}{iter_str}{param_str}"
+
+
+def _sanitize_name(name: str):
+    # todo: properly escape
+    return name.replace('"', '\\"').replace("'", "\\'")
+
+
+def check_run_done(name: str, parent: str):
+    return (
+        len(
+            mlflow.search_runs(
+                search_all_experiments=True,
+                filter_string=f"tags.pasteur_id = '{_sanitize_name(name)}' and "
+                + f"tags.pasteur_pid = '{_sanitize_name(parent)}' and " \
+                    + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
+            )
+        )
+        > 1
+    )
+
+
 class MlflowTrackingHook:
     def __init__(
         self,
@@ -96,14 +134,12 @@ class MlflowTrackingHook:
             conf_mlflow_yml = {}
         mlflow_config = KedroMlflowConfig.parse_obj(conf_mlflow_yml)
 
-        # store in context for interactive use
-        # we use __setattr__ instead of context.mlflow because
-        # the class will become frozen in kedro>=0.19
-        context.__setattr__("mlflow", mlflow_config)
-
         self.mlflow_config = mlflow_config  # store for further reuse
-        self.params = context.params
-        self.base_location = self.params["base_location"]
+        self.mlflow_config.setup(context)
+
+        self.params = context.params.copy()
+        self.base_location = self.params.pop("base_location")
+        self.parent_name = self.params.pop("_mlflow_parent_name", None)
         self.context = context
 
     @hook_impl
@@ -144,7 +180,8 @@ class MlflowTrackingHook:
         # Setup global mlflow configuration with view as experiment name
         if self.mlflow_config.tracking.experiment.name == "Default":
             self.mlflow_config.tracking.experiment.name = current_view
-        self.mlflow_config.setup(self.context)
+
+        self.mlflow_config.set_experiment()
 
         # params for further for node logging
         self.flatten = self.mlflow_config.tracking.params.dict_params.flatten
@@ -154,18 +191,42 @@ class MlflowTrackingHook:
             self.mlflow_config.tracking.params.long_params_strategy
         )
 
-        run_name = self.mlflow_config.tracking.run.name
-        if not run_name:
-            run_name = run_params["pipeline_name"]
-            for param, val in dict_to_flat_params(run_params["extra_params"]).items():
-                run_name += f" {param}={val}"
+        run_name = get_run_name(run_params["pipeline_name"], run_params["extra_params"])
+
+        if self.parent_name:
+            query = f"tags.pasteur_id = '{_sanitize_name(self.parent_name)}' and tags.pasteur_parent = '1'"
+            parent_runs = mlflow.search_runs(
+                experiment_ids=[
+                    self.mlflow_config.tracking.experiment._experiment.experiment_id
+                ],
+                filter_string=query,
+            )
+
+            if len(parent_runs):
+                parent_run_id = parent_runs["run_id"][0]
+                logger.info(f"Nesting mlflow run under:\n{self.parent_name}")
+                mlflow.start_run(
+                    parent_run_id,
+                )
+            else:
+                logger.info(f"Creating mlflow parent run\n{self.parent_name}")
+                mlflow.start_run(
+                    run_name=self.parent_name,
+                    experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
+                )
+                mlflow.set_tag("pasteur_id", self.parent_name)
+                mlflow.set_tag("pasteur_parent", "1")
 
         mlflow.start_run(
-            run_id=self.mlflow_config.tracking.run.id,
             experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
             run_name=run_name,
-            nested=self.mlflow_config.tracking.run.nested,
+            nested=bool(self.parent_name),
         )
+        mlflow.set_tag("pasteur_id", run_name)
+
+        if self.parent_name:
+            mlflow.set_tag("pasteur_pid", self.parent_name)
+
         # Set tags only for run parameters that have values.
         mlflow.set_tags({k: v for k, v in run_params.items() if v})
         # add manually git sha for consistency with the journal
@@ -185,8 +246,6 @@ class MlflowTrackingHook:
         # the `default` namespace that sets a baseline of parameters
 
         override_params = deepcopy(self.params)
-        # Remove unwanted parameters
-        override_params.pop("base_location", {})
         # Remove all views
         for view in self.datasets:
             override_params.pop(view, {})
@@ -249,7 +308,8 @@ class MlflowTrackingHook:
 
         MlflowHandler.reset_all()
         PerformanceTracker.log()
-        mlflow.end_run(RunStatus.to_string(RunStatus.FAILED))
+        while mlflow.active_run():
+            mlflow.end_run(RunStatus.to_string(RunStatus.FAILED))
 
     @hook_impl
     def after_pipeline_run(
@@ -260,4 +320,5 @@ class MlflowTrackingHook:
 
         MlflowHandler.reset_all()
         PerformanceTracker.log()
-        mlflow.end_run()
+        while mlflow.active_run():
+            mlflow.end_run()
