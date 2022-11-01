@@ -67,12 +67,32 @@ def check_run_done(name: str, parent: str):
             mlflow.search_runs(
                 search_all_experiments=True,
                 filter_string=f"tags.pasteur_id = '{_sanitize_name(name)}' and "
-                + f"tags.pasteur_pid = '{_sanitize_name(parent)}' and " \
-                    + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
+                + f"tags.pasteur_pid = '{_sanitize_name(parent)}' and "
+                + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
             )
         )
         > 1
     )
+
+
+def remove_runs(parent: str):
+    """Removes runs with provided parent"""
+
+    # Delete children
+    runs = mlflow.search_runs(
+        search_all_experiments=True,
+        filter_string=f"tags.pasteur_pid = '{_sanitize_name(parent)}'",
+    )
+    for id in runs["run_id"]:
+        mlflow.delete_run(id)
+
+    # Delete parent
+    runs = mlflow.search_runs(
+        search_all_experiments=True,
+        filter_string=f"tags.pasteur_id = '{_sanitize_name(parent)}' and tags.pasteur_parent = '1'",
+    )
+    for id in runs["run_id"]:
+        mlflow.delete_run(id)
 
 
 class MlflowTrackingHook:
@@ -209,7 +229,7 @@ class MlflowTrackingHook:
                     parent_run_id,
                 )
             else:
-                logger.info(f"Creating mlflow parent run\n{self.parent_name}")
+                logger.info(f"Creating mlflow parent run:\n{self.parent_name}")
                 mlflow.start_run(
                     run_name=self.parent_name,
                     experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,

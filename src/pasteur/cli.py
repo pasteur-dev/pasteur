@@ -64,17 +64,17 @@ def _process_iterables(iterables: dict[str, Iterable]):
                 has_combs = True
                 break
 
-
 @project_group.command()
 @click.argument("pipeline", type=str, default=None)
 @click.option("--iterator", "-i", multiple=True)
 @click.option("--hyperparameter", "-h", multiple=True)
+@click.option('--clear-cache', "-c", is_flag=True)
 @click.argument(
     "params",
     nargs=-1,
     type=str,
 )
-def s(pipeline, iterator, hyperparameter, params):
+def s(pipeline, iterator, hyperparameter, params, clear_cache):
     """Similar to p, s(weep) allows in addition a hyperparameter sweep.
 
     By using `-i` an iterator can be defined (ex. `-i i="range(5)"`), which will
@@ -85,12 +85,18 @@ def s(pipeline, iterator, hyperparameter, params):
     then `-h` can be used, which will both sweep and pass the variable as an
     override at the same time (it is equal to `-i val=<iterable> val=val`)."""
 
-    from .kedro.hooks.mlflow import get_run_name, get_parent_name, check_run_done
+    from .kedro.hooks.mlflow import get_run_name, get_parent_name, check_run_done, remove_runs
+
+    parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
+    if clear_cache:
+        with KedroSession.create(env=None) as session:
+            session.load_context()
+            logger.info(f"Removing runs from mlflow with parent:\n{parent_name}")
+            remove_runs(parent_name)
+            
 
     iterable_dict = str_params_to_dict(iterator)
     hyperparam_dict = str_params_to_dict(hyperparameter)
-
-    parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
 
     mlflow_dict = {
         "_mlflow_parent_name": parent_name,
