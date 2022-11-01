@@ -91,7 +91,7 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
     if clear_cache:
         with KedroSession.create(env=None) as session:
             session.load_context()
-            logger.info(f"Removing runs from mlflow with parent:\n{parent_name}")
+            logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
             
 
@@ -113,7 +113,7 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
             run_name = get_run_name(pipeline, vals)
 
             if check_run_done(run_name, parent_name):
-                logger.info(f"Run '{run_name}' is complete, skipping...")
+                logger.warning(f"Run '{run_name}' is complete, skipping...")
                 continue
 
             session.run(

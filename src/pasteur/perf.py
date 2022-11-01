@@ -166,4 +166,4 @@ class PerformanceTracker:
 
         file_txt = "\n".join(f"{k:65s} | {v}" for k, v in file_perfs.items())
         # mlflow.log_dict(json_perfs, "_perf/raw.json")
-        mlflow_log_as_str("perf.html", file_txt)
+        mlflow_log_as_str("perf", file_txt)

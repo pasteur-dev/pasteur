@@ -1,4 +1,5 @@
 from io import BytesIO
+
 import pandas as pd
 from matplotlib.figure import Figure
 from pandas.io.formats.style import Styler
@@ -55,6 +56,7 @@ BASE_TXT_STYLE = """<style type="text/css">
 """
 
 UTF8_META = '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />'
+ARTIFACT_DIR = "_raw"
 
 
 def gen_html_figure_container(viz: dict[str, Figure]):
@@ -234,8 +236,25 @@ def color_dataframe(
 
 def mlflow_log_as_str(path: str, obj, font_size: str = "16px"):
     from html import escape
+
     import mlflow
 
     s = f"{UTF8_META}{BASE_TXT_STYLE % font_size}<pre>{escape(str(obj))}</pre>"
     if mlflow.active_run():
         mlflow.log_text(s, path + ".html")
+
+
+def mlflow_log_artifacts(*prefix: str, **args):
+    import pickle
+    from os.path import join
+    from tempfile import TemporaryDirectory
+
+    import mlflow
+
+    with TemporaryDirectory() as dir:
+        for name, val in args.items():
+            fn = join(dir, name + ".pkl")
+            with open(fn, "wb") as f:
+                pickle.dump(val, f)
+
+        mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
