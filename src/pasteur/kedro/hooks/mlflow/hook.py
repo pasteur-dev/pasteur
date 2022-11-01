@@ -71,7 +71,7 @@ def check_run_done(name: str, parent: str):
                 + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
             )
         )
-        > 1
+        > 0
     )
 
 
