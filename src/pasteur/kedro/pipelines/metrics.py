@@ -10,7 +10,9 @@ calc_chisquare, calc_kl, log_cs_mlflow, log_kl_mlflow = lazy_load(
     "...metrics.distr",
     ["calc_chisquare", "calc_kl", "log_cs_mlflow", "log_kl_mlflow"],
 )
-mlflow_log_as_str = lazy_load(__package__, "...metrics.mlflow", "mlflow_log_as_str")
+mlflow_log_as_str, mlflow_log_artifacts = lazy_load(
+    __package__, "...metrics.mlflow", ["mlflow_log_as_str", "mlflow_log_artifacts"]
+)
 create_fitted_hist_holder, mlflow_log_hists, project_hists_for_view = lazy_load(
     __package__,
     "...metrics.visual",
@@ -186,6 +188,21 @@ def _create_synth_log_pipeline(view: View, alg: str):
     )
 
 
+def _create_meta_log_pipeline(view: View, alg: str):
+    return pipeline(
+        [
+            node(
+                func=gen_closure(
+                    mlflow_log_artifacts, _fn="mlflow_log_metadata"
+                ),
+                inputs={"meta": f"{view}.metadata"},
+                outputs=None,
+                namespace=f"{view}.{alg}",
+            ),
+        ]
+    )
+
+
 def get_required_types():
     types = list({"idx", "num"}.union(model_get_required_types()))
     types.sort()
@@ -204,4 +221,5 @@ def create_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
         + _create_model_log_pipelines(view, alg, wrk_split, ref_split)
         + _create_visual_log_pipelines(view, alg, wrk_split, ref_split)
         + _create_synth_log_pipeline(view, alg)
+        + _create_meta_log_pipeline(view, alg)
     )

@@ -102,15 +102,18 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
         "_mlflow_parent_name": parent_name,
     }
 
-    for vals in _process_iterables(iterable_dict | hyperparam_dict):
-        param_dict = str_params_to_dict(params, vals)
-        hyper_dict = {n: vals[n] for n in hyperparam_dict}
+    runs = {}
+
+    for iters in _process_iterables(iterable_dict | hyperparam_dict):
+        param_dict = str_params_to_dict(params, iters)
+        hyper_dict = {n: iters[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
 
         with KedroSession.create(env=None, extra_params=vals | mlflow_dict) as session:
             session.load_context()
 
             run_name = get_run_name(pipeline, vals)
+            runs[run_name] = vals
 
             if check_run_done(run_name, parent_name):
                 logger.warning(f"Run '{run_name}' is complete, skipping...")
@@ -129,3 +132,5 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
                 load_versions={},
                 pipeline_name=pipeline,
             )
+
+    print(runs)

@@ -1,5 +1,5 @@
 import mlflow
-from mlflow.entities import RunStatus
+from mlflow.entities import Run, RunStatus
 
 from ...utils import dict_to_flat_params
 
@@ -56,19 +56,23 @@ def sanitize_name(name: str):
     return name.replace('"', '\\"').replace("'", "\\'")
 
 
-def check_run_done(name: str, parent: str):
-    return (
-        len(
-            mlflow.search_runs(
-                search_all_experiments=True,
-                filter_string=f"tags.pasteur_id = '{sanitize_name(name)}' and "
-                + f"tags.pasteur_pid = '{sanitize_name(parent)}' and "
-                + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
-            )
-        )
-        > 0
+def get_run_id(name: str, parent: str):
+    tmp = mlflow.search_runs(
+        search_all_experiments=True,
+        filter_string=f"tags.pasteur_id = '{sanitize_name(name)}' and "
+        + f"tags.pasteur_pid = '{sanitize_name(parent)}' and "
+        + f"attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'",
     )
+    if len(tmp):
+        return tmp["run_id"][0]
+    return None
 
+
+def check_run_done(name: str, parent: str):
+    return bool(get_run_id(name, parent))
+
+def get_run(name: str, parent: str) -> Run:
+    return mlflow.get_run(get_run_id(name, parent))
 
 def remove_runs(parent: str):
     """Removes runs with provided parent"""
