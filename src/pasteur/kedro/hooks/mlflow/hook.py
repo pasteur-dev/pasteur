@@ -36,6 +36,14 @@ def _flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:
 
     return dict(items)
 
+def _get_git_suffix():
+    try:
+        import git
+        repo = git.Repo(search_parent_directories=True)
+        sha = repo.head.object.hexsha
+        return f" (git:{sha[:8]})"
+    except:
+        return ""
 
 def get_run_name(pipeline: str, params: dict[str]):
     run_name = pipeline
@@ -44,7 +52,7 @@ def get_run_name(pipeline: str, params: dict[str]):
             continue
         run_name += f" {param}={val}"
 
-    return run_name
+    return run_name + _get_git_suffix()
 
 
 def get_parent_name(
@@ -53,7 +61,7 @@ def get_parent_name(
     hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
     iter_str = "".join(map(lambda x: f" -i {x}", iterators))
     param_str = "".join(map(lambda x: f" {x}", params))
-    return f"{pipeline}{hyper_str}{iter_str}{param_str}"
+    return f"{pipeline}{hyper_str}{iter_str}{param_str}{_get_git_suffix()}"
 
 
 def _sanitize_name(name: str):

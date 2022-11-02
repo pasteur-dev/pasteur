@@ -165,5 +165,6 @@ class PerformanceTracker:
                     )
 
         file_txt = "\n".join(f"{k:65s} | {v}" for k, v in file_perfs.items())
-        # mlflow.log_dict(json_perfs, "_perf/raw.json")
+        # FIXME: hardcoded var, should point to metrics dir
+        mlflow.log_dict(json_perfs, "_raw/perf.json")
         mlflow_log_as_str("perf", file_txt)
