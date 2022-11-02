@@ -3,10 +3,10 @@ tab_adult:
     table:
       primary_key: id
 
-      metrics:
-        model:
-          expand_table: True
-          targets: [income]
+      # metrics:
+        # model:
+        #   expand_table: True
+        #   targets: [income]
 
       fields:
         age: numerical

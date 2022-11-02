@@ -85,7 +85,7 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
     then `-h` can be used, which will both sweep and pass the variable as an
     override at the same time (it is equal to `-i val=<iterable> val=val`)."""
 
-    from .kedro.hooks.mlflow import get_run_name, get_parent_name, check_run_done, remove_runs
+    from .kedro.mlflow import get_run_name, get_parent_name, check_run_done, remove_runs
 
     parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
     if clear_cache:
