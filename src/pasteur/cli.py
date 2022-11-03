@@ -64,11 +64,12 @@ def _process_iterables(iterables: dict[str, Iterable]):
                 has_combs = True
                 break
 
+
 @project_group.command()
 @click.argument("pipeline", type=str, default=None)
 @click.option("--iterator", "-i", multiple=True)
 @click.option("--hyperparameter", "-h", multiple=True)
-@click.option('--clear-cache', "-c", is_flag=True)
+@click.option("--clear-cache", "-c", is_flag=True)
 @click.argument(
     "params",
     nargs=-1,
@@ -85,7 +86,13 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
     then `-h` can be used, which will both sweep and pass the variable as an
     override at the same time (it is equal to `-i val=<iterable> val=val`)."""
 
-    from .kedro.mlflow import get_run_name, get_parent_name, check_run_done, remove_runs
+    from .kedro.mlflow import (
+        get_run_name,
+        get_parent_name,
+        check_run_done,
+        remove_runs,
+        log_parent_run,
+    )
 
     parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
     if clear_cache:
@@ -93,7 +100,6 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
-            
 
     iterable_dict = str_params_to_dict(iterator)
     hyperparam_dict = str_params_to_dict(hyperparameter)
@@ -133,4 +139,6 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
                 pipeline_name=pipeline,
             )
 
-    print(runs)
+    with KedroSession.create(env=None, extra_params=vals | mlflow_dict) as session:
+        session.load_context()
+        log_parent_run(parent_name, runs)

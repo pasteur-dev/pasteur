@@ -94,6 +94,12 @@ class ColumnMeta:
 
     def is_id(self) -> bool:
         return self.type == "id"
+    
+    def __repr__(self) -> str:
+        return self.__dict__.__repr__()
+    
+    def __str__(self) -> str:
+        return self.__dict__.__str__()
 
 
 class TableModelMetrics(NamedTuple):
@@ -157,6 +163,12 @@ class TableMeta:
 
         diff_keys = meta_keys.difference(table_keys, {data.index.name})
         assert not diff_keys, "Columns missing from table: " + str(diff_keys)
+    
+    def __repr__(self) -> str:
+        return self.__dict__.__repr__()
+    
+    def __str__(self) -> str:
+        return self.__dict__.__str__()
 
 
 class DatasetMeta:
@@ -196,6 +208,12 @@ class DatasetMeta:
 
         for name, meta in self._tables.items():
             meta.check(data[name])
+    
+    def __repr__(self) -> str:
+        return self.__dict__.__repr__()
+    
+    def __str__(self) -> str:
+        return self.__dict__.__str__()
 
 
 class Metadata(DatasetMeta):
