@@ -43,12 +43,19 @@ def get_run_name(pipeline: str, params: dict[str]):
 
 
 def get_parent_name(
-    pipeline: str, hyperparams: list[str], iterators: list[str], params: list[str]
+    pipeline: str,
+    algs: list[str],
+    hyperparams: list[str],
+    iterators: list[str],
+    params: list[str],
 ):
+    algs_str = ""
+    if algs:
+        algs_str = " -a [" + ", ".join(algs) + "]"
     hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
     iter_str = "".join(map(lambda x: f" -i {x}", iterators))
     param_str = "".join(map(lambda x: f" {x}", params))
-    return f"{pipeline}{hyper_str}{iter_str}{param_str}{_get_git_suffix()}"
+    return f"{pipeline}{algs_str}{hyper_str}{iter_str}{param_str}{_get_git_suffix()}"
 
 
 def sanitize_name(name: str):
@@ -71,8 +78,10 @@ def get_run_id(name: str, parent: str):
 def check_run_done(name: str, parent: str):
     return bool(get_run_id(name, parent))
 
+
 def get_run(name: str, parent: str) -> Run:
     return mlflow.get_run(get_run_id(name, parent))
+
 
 def remove_runs(parent: str):
     """Removes runs with provided parent"""

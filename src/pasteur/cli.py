@@ -67,6 +67,7 @@ def _process_iterables(iterables: dict[str, Iterable]):
 
 @project_group.command()
 @click.argument("pipeline", type=str, default=None)
+@click.option("--alg", "-a", multiple=True)
 @click.option("--iterator", "-i", multiple=True)
 @click.option("--hyperparameter", "-h", multiple=True)
 @click.option("--clear-cache", "-c", is_flag=True)
@@ -75,7 +76,7 @@ def _process_iterables(iterables: dict[str, Iterable]):
     nargs=-1,
     type=str,
 )
-def s(pipeline, iterator, hyperparameter, params, clear_cache):
+def s(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     """Similar to p, s(weep) allows in addition a hyperparameter sweep.
 
     By using `-i` an iterator can be defined (ex. `-i i="range(5)"`), which will
@@ -84,7 +85,22 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
 
     If an iterator is also a hyperparameter (ex. `-h e1="[0.1,0.2,0.3]"`)
     then `-h` can be used, which will both sweep and pass the variable as an
-    override at the same time (it is equal to `-i val=<iterable> val=val`)."""
+    override at the same time (it is equal to `-i val=<iterable> val=val`).
+
+    If `alg` is provided, `pipeline` is treated as the sweep view and the algorithms
+    provided are sweeped. Example:
+    ```
+    s tab_adult -a privbayes -a aim
+    ```
+    runs the following for each parameter combination:
+    ```
+    tab_adult.ingest
+    tab_adult.aim.synth
+    tab_adult.privbayes.synth
+    ```
+
+    Ingest is ran for each parameter combination, so if a parameter override
+    changes the view it is honored."""
 
     from .kedro.mlflow import (
         get_run_name,
@@ -94,7 +110,7 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
         log_parent_run,
     )
 
-    parent_name = get_parent_name(pipeline, hyperparameter, iterator, params)
+    parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
     if clear_cache:
         with KedroSession.create(env=None) as session:
             session.load_context()
@@ -110,35 +126,47 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
 
     runs = {}
 
+    if alg:
+        view = pipeline
+        pipelines = {f"{view}.ingest": None, **{f"{view}.{a}.synth": a for a in alg}}
+    else:
+        pipelines = {pipeline: ""}
+
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
         extra_params = merge_params(vals | mlflow_dict)
 
-        with KedroSession.create(env=None, extra_params=extra_params) as session:
-            session.load_context()
+        for pipeline, alg in pipelines.items():
+            with KedroSession.create(env=None, extra_params=extra_params) as session:
+                session.load_context()
 
-            run_name = get_run_name(pipeline, vals)
-            runs[run_name] = vals
+                run_name = get_run_name(pipeline, vals)
+                if alg: 
+                    # if alg exists add its name
+                    runs[run_name] = {"_alg": alg, **vals}
+                elif alg is not None:
+                    # ingest pipeline has None and should be skipped from cross-eval
+                    runs[run_name] = vals
 
-            if check_run_done(run_name, parent_name):
-                logger.warning(f"Run '{run_name}' is complete, skipping...")
-                continue
+                if check_run_done(run_name, parent_name):
+                    logger.warning(f"Run '{run_name}' is complete, skipping...")
+                    continue
 
-            session.run(
-                tags=[],
-                runner=SimpleRunner(
-                    pipeline, " ".join(f"{n}={v}" for n, v in vals.items())
-                ),
-                node_names="",
-                from_nodes="",
-                to_nodes="",
-                from_inputs="",
-                to_outputs="",
-                load_versions={},
-                pipeline_name=pipeline,
-            )
+                session.run(
+                    tags=[],
+                    runner=SimpleRunner(
+                        pipeline, " ".join(f"{n}={v}" for n, v in vals.items())
+                    ),
+                    node_names="",
+                    from_nodes="",
+                    to_nodes="",
+                    from_inputs="",
+                    to_outputs="",
+                    load_versions={},
+                    pipeline_name=pipeline,
+                )
 
     with KedroSession.create(env=None) as session:
         session.load_context()

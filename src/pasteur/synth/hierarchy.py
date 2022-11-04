@@ -397,7 +397,7 @@ class RebalancedColumn(IdxColumn):
         upsampled = np.empty_like(column)
         for g in range(d):
             mask = column == g
-            group_size = np.sum(mask)
+            group_size = int(np.sum(mask))
 
             group_mask = mapping == g
             group_counts = self.counts[group_mask]

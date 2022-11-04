@@ -43,7 +43,10 @@ def get_run_artifacts(run: Run):
                 elif fn.endswith(".pkl"):
                     art = pickle.load(f)
 
-            no_ext = name[: name.rindex(".")] if name.index(".") else name
+            try:
+                no_ext = name[: name.rindex(".")]
+            except:
+                no_ext = name
             sub_dict[no_ext] = art
 
     return artifacts
@@ -78,7 +81,11 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
         )
 
         for name in run_params:
-            param_str = param[param.rindex(".") + 1:] if param.index(".") else param
+            try:
+                param_str = param[param.rindex(".") + 1:]
+            except:
+                param_str = param
+
             if param in bool_params:
                 s = param_str if run_params[name][param] else (" " * len(param_str))
             else:
