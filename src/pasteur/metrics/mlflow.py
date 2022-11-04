@@ -155,19 +155,22 @@ def color_dataframe(
     # column with value the key of the dict
     if isinstance(df, dict):
         dfs = [d.assign(**{split_col: n}) for n, d in df.items()]
+        splits = list(df.keys())
         df = pd.concat(dfs)
     else:
         df = df.copy()
+        splits = [split_ref]
+        df = df.assign(split_col=split_ref)
 
-    # Rename the split column so it's always first
-    old_ref = split_ref
-    split_ref = f".{split_ref}"
-    df.loc[df[split_col] == old_ref, split_col] = split_ref
-
+    # Pivot but do not sort split column
     pt = (
-        df.pivot(index=idx, columns=[*cols, split_col], values=vals)
-        .sort_index(axis=0)
-        .sort_index(axis=1)
+        pd.pivot_table(
+            df, index=idx, columns=[*cols, split_col], values=vals, sort=False
+        )
+        .sort_index(axis="rows")
+        .sort_index(
+            axis="columns", level=list(range(len(cols) + 1)), sort_remaining=False
+        )
     )
     pts = pt.style
 
@@ -194,38 +197,40 @@ def color_dataframe(
 
     # Apply background to non-ref columns
     # It is based in the difference between expected value to resulting value
-    # red = too low
+    # blue = too low
     # white = same, good
-    # white = too high
-    df_ref = (
-        df[df[split_col] == split_ref]
-        .pivot(index=idx, columns=cols, values=vals)
-        .sort_index(axis=0)
-        .sort_index(axis=1)
-    )
-    splits = df[split_col].unique()
+    # copper = too high
+
+    # Get difference of each split to ref column 
+    pt_ref = pd.pivot_table(df[df[split_col] == split_ref], index=idx, columns=cols, values=vals)
+    pt_diffs = {}
     for split in splits:
         if split == split_ref:
             continue
 
-        df_split = (
-            df[df[split_col] == split]
-            .pivot(index=idx, columns=cols, values=vals)
-            .sort_index(axis=0)
-            .sort_index(axis=1)
-        )
-        df_diff = df_split - df_ref
-        if diff_reverse:
-            df_diff = -df_diff
-        df_norm = df_diff / df_diff.abs().max(axis=0) / 2 + 0.5
+        pt_split = pd.pivot_table(df[df[split_col] == split], index=idx, columns=cols, values=vals)
 
+        pt_diff = pt_split - pt_ref
+        if diff_reverse:
+            pt_diff = -pt_diff
+        pt_diffs[split] = pt_diff
+
+    # Find max difference between all columns
+    pt_max = pd.concat(pt_diffs).abs().groupby(level=-1).max().max(axis="index")
+
+    # Apply styling based in difference
+    for split in splits:
+        if split == split_ref:
+            continue
+
+        pt_norm = pt_diffs[split] / pt_max / 2 + 0.5
         pts = pts.background_gradient(
             axis=None,
             subset=(
                 slice(None),
                 (*[slice(None) for _ in range(len(cols) + 1)], split),
             ),
-            gmap=df_norm.to_numpy(),
+            gmap=pt_norm.to_numpy(),
             vmin=0,
             vmax=1,
             cmap=cmap,

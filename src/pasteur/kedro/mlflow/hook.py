@@ -206,8 +206,9 @@ class MlflowTrackingHook:
         params.pop("tables", {})
         ratios = params.pop("ratios", {})
         algs = params.pop("algs", {})
+        alg_overrides = params.pop("alg", {})
         params["alg._name"] = alg
-        params["alg"] = merge_dicts(algs.get(alg, {}), params.pop("alg", {}))
+        params["alg"] = merge_dicts(algs.get(alg, {}), alg_overrides)
         # filter dir, venv
         params["alg"] = {
             k: v for k, v in params["alg"].items() if k not in ("venv", "dir")

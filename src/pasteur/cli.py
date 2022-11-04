@@ -5,7 +5,7 @@ from kedro.framework.cli.project import project_group
 from kedro.framework.cli.utils import CONTEXT_SETTINGS
 from kedro.framework.session import KedroSession
 
-from .utils import str_params_to_dict
+from .utils import eval_params, merge_params, str_params_to_dict
 from .kedro.runner import SimpleRunner
 
 logger = logging.getLogger(__name__)
@@ -101,8 +101,8 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
 
-    iterable_dict = str_params_to_dict(iterator)
-    hyperparam_dict = str_params_to_dict(hyperparameter)
+    iterable_dict = eval_params(iterator)
+    hyperparam_dict = eval_params(hyperparameter)
 
     mlflow_dict = {
         "_mlflow_parent_name": parent_name,
@@ -111,11 +111,12 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
     runs = {}
 
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
-        param_dict = str_params_to_dict(params, iters)
+        param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
+        extra_params = merge_params(vals | mlflow_dict)
 
-        with KedroSession.create(env=None, extra_params=vals | mlflow_dict) as session:
+        with KedroSession.create(env=None, extra_params=extra_params) as session:
             session.load_context()
 
             run_name = get_run_name(pipeline, vals)
@@ -139,6 +140,6 @@ def s(pipeline, iterator, hyperparameter, params, clear_cache):
                 pipeline_name=pipeline,
             )
 
-    with KedroSession.create(env=None, extra_params=vals | mlflow_dict) as session:
+    with KedroSession.create(env=None) as session:
         session.load_context()
         log_parent_run(parent_name, runs)

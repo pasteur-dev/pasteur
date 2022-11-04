@@ -5,8 +5,9 @@ from ..mlflow import color_dataframe, gen_html_table, mlflow_log_artifacts
 FONT_SIZE = "13px"
 
 
-def log_kl_mlflow(table: str, ref_name: str, **splits: pd.DataFrame):
-    mlflow_log_artifacts("metrics", "kl", table, **splits)
+def log_kl_mlflow(table: str, ref_name: str, log_artifacts: bool = True, **splits: pd.DataFrame):
+    if log_artifacts:
+        mlflow_log_artifacts("metrics", "kl", table, **splits)
 
     kl_formatters = {"kl_norm": {"precision": 3}}
     style = color_dataframe(
@@ -22,8 +23,9 @@ def log_kl_mlflow(table: str, ref_name: str, **splits: pd.DataFrame):
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
-def log_cs_mlflow(table: str, ref_name: str, **splits: pd.DataFrame):
-    mlflow_log_artifacts("metrics", "cs", table, **splits)
+def log_cs_mlflow(table: str, ref_name: str, log_artifacts: bool = True, **splits: pd.DataFrame):
+    if log_artifacts:
+        mlflow_log_artifacts("metrics", "cs", table, **splits)
 
     cs_formatters = {
         "X^2": {"precision": 3},

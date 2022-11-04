@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import TypeVar, Any
 
 
 def _try_convert_to_numeric(value: str):
@@ -56,6 +56,22 @@ def str_params_to_dict(params: list[str], locals: dict[str, any] = {}):
         param_dict = _update_value_nested_dict(
             param_dict, _try_convert_eval(value, locals), key.split(".")
         )
+    return param_dict
+
+
+def eval_params(params: list[str], locals: dict[str, any] = {}):
+    return {
+        name: _try_convert_eval(value, locals)
+        for name, value in map(lambda x: x.split("=", 1), params)
+    }
+
+
+def merge_params(params: dict[str, Any]):
+    param_dict = {}
+
+    for key, val in params.items():
+        param_dict = _update_value_nested_dict(param_dict, val, key.split("."))
+
     return param_dict
 
 

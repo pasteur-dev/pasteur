@@ -12,6 +12,7 @@ from .base import get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
 
+
 def get_run_artifacts(run: Run):
     artifact_dir = mlflow.artifacts.download_artifacts(
         run_id=run.info.run_id, artifact_path=ARTIFACT_DIR
@@ -42,7 +43,7 @@ def get_run_artifacts(run: Run):
                 elif fn.endswith(".pkl"):
                     art = pickle.load(f)
 
-            no_ext = name[: name.rindex(".")]
+            no_ext = name[: name.rindex(".")] if name.index(".") else name
             sub_dict[no_ext] = art
 
     return artifacts
@@ -77,16 +78,17 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
         )
 
         for name in run_params:
+            param_str = param[param.rindex(".") + 1:] if param.index(".") else param
             if param in bool_params:
-                s = param if run_params[name][param] else (" " * len(param))
+                s = param_str if run_params[name][param] else (" " * len(param_str))
             else:
                 val_str = str(run_params[name][param])
                 buffer = " " * (length - len(val_str))
 
                 if param in value_params:
-                    s = f"{buffer}{val_str}"
+                    s = f"{val_str}{buffer}"
                 else:
-                    s = f"{param}={buffer}{val_str}"
+                    s = f"{param_str}={val_str}{buffer}"
 
             str_params[name].append(s)
     return {name: " ".join(params) for name, params in str_params.items()}
@@ -94,12 +96,10 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
     from ...metrics.visual import mlflow_log_hists
+    from ...metrics.distr import log_cs_mlflow, log_kl_mlflow
 
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
-    parent_runs = mlflow.search_runs(
-        filter_string=query,
-        search_all_experiments=True
-    )
+    parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
     if len(parent_runs):
         parent_run_id = parent_runs["run_id"][0]
@@ -117,14 +117,23 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
 
     assert len(artifacts)
     ref_artifacts = next(iter(artifacts.values()))
-    visual = ref_artifacts["visual"]
     meta = ref_artifacts["meta"]
-    
+
+    # Visual
+    visual = ref_artifacts["visual"]
     holder = visual["holder"]
-    data = {
-        "wrk": visual["wrk"],
-        "ref": visual["ref"]
-    }
+    data = {"wrk": visual["wrk"], "ref": visual["ref"]}
     syn_data = {pretty[name]: art["visual"]["syn"] for name, art in artifacts.items()}
-    
+
     mlflow_log_hists(holder, log_artifacts=False, **data, **syn_data)
+
+    # Distributions
+    for method, fun in (("kl", log_kl_mlflow), ("cs", log_cs_mlflow)):
+        for table in meta.tables:
+            ref_split = ref_artifacts["metrics"][method][table]["ref"]
+            syn_splits = {
+                pretty[name]: art["metrics"][method][table]["syn"]
+                for name, art in artifacts.items()
+            }
+
+            fun(table, "ref", log_artifacts=False, ref=ref_split, **syn_splits)
