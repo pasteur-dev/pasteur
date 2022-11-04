@@ -59,7 +59,10 @@ def get_artifacts(runs: dict[str, Run]):
 def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     """Generates a run name based on parameters that are short for use in graphs.
 
-    All names have the same length.
+    Parameters of each run are lined up with each other and left-justified.
+    The resulting name is stripped to the right, to remove extra space at the end
+    if possible. Left spaces remain to maintain structure if the final name is
+    left-justified.
 
     Parameters that start with `_`, get priority and only have their value printed.
     Ex. `{"_alg": "privbayes", "e1": "abc"}` becomes `privbayes e_1: abc`.
@@ -98,7 +101,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
                     s = f"{param_str}={val_str}{buffer}"
 
             str_params[name].append(s)
-    return {name: " ".join(params) for name, params in str_params.items()}
+    return {name: " ".join(params).rstrip() for name, params in str_params.items()}
 
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):

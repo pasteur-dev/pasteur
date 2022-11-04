@@ -16,9 +16,10 @@ from ...logging import MlflowHandler
 from ...perf import PerformanceTracker
 from ...utils import merge_dicts
 from .config import KedroMlflowConfig
-from .base import sanitize_name,get_run_name, flatten_dict
+from .base import sanitize_name, get_run_name, flatten_dict, get_run_id
 
 logger = logging.getLogger(__name__)
+
 
 class MlflowTrackingHook:
     def __init__(
@@ -162,11 +163,19 @@ class MlflowTrackingHook:
                 mlflow.set_tag("pasteur_id", self.parent_name)
                 mlflow.set_tag("pasteur_parent", "1")
 
-        mlflow.start_run(
-            experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
-            run_name=run_name,
-            nested=bool(self.parent_name),
-        )
+        run_id = get_run_id(run_name, self.parent_name, finished=False)
+        if run_id:
+            logger.info("Resuming unfinished mlflow run.")
+            mlflow.start_run(
+                run_id=run_id,
+                nested=bool(self.parent_name),
+            )
+        else:
+            mlflow.start_run(
+                experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
+                run_name=run_name,
+                nested=bool(self.parent_name),
+            )
         mlflow.set_tag("pasteur_id", run_name)
 
         if self.parent_name:
