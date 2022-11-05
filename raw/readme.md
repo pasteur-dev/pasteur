@@ -3,7 +3,7 @@ The code of this repository requires input datasets to run.
 The datasets should be placed in this folder with a specific structure.
 This structure is outlined below.
 
-`download.py` can be used to download most datasets in this folder, provided the
+`kedro download` can be used to download most datasets in this folder, provided the
 user has access rights and for the ones that require them credentials.
 
 Running `tree` on this directory produces the following result:

@@ -143,7 +143,7 @@ def s(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                 session.load_context()
 
                 run_name = get_run_name(pipeline, vals)
-                if alg: 
+                if alg:
                     # if alg exists add its name
                     runs[run_name] = {"_alg": alg, **vals}
                 elif alg is not None:
@@ -171,3 +171,34 @@ def s(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     with KedroSession.create(env=None) as session:
         session.load_context()
         log_parent_run(parent_name, runs)
+
+
+@project_group.command()
+@click.option("--user", "-u", type=str, default=None)
+@click.option(
+    "--download-dir",
+    "-d",
+    type=str,
+    default=None,
+    help="Specify a different download dir. By default `raw_location` is used.",
+)
+@click.argument(
+    "datasets",
+    nargs=-1,
+    type=str,
+)
+def download(user: str | None, download_dir: str | None, datasets: list[str]):
+    from .dataset.download import main, get_description
+
+    # Setup logging and params with kedro
+    with KedroSession.create() as session:
+        ctx = session.load_context()
+
+        logger.info(get_description())
+        if not datasets:
+            return
+
+        download_dir = download_dir or ctx.params.get("raw_location", None)
+        assert download_dir, f"Download dir is empty"
+
+        main(download_dir, datasets, user)

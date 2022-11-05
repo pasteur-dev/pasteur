@@ -20,7 +20,6 @@ logs/**
 !logs/**/
 !data/**/readme.md
 !raw/**/readme.md
-!raw/**/download.py
 
 # also keep all .gitkeep files
 !.gitkeep

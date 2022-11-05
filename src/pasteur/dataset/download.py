@@ -1,8 +1,10 @@
-from urllib import request
-import argparse
 import os
 import subprocess
 from typing import NamedTuple
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class DS(NamedTuple):
@@ -33,15 +35,16 @@ datasets = {
 }
 
 
-def download_files(name: str, dir: str, files: dict[str, str]):
-    print(f"Downloading dataset {name} files iteratively.")
-    for name, url in files.items():
-        print(f"Downloading file {name}:\n{url}")
-        request.urlretrieve(url, os.path.join(dir, name))
+def download_files(name: str, dir: str, files: list[str]):
+    logger.info(f"Downloading dataset {name} files iteratively with wget.")
+    args = ["wget", "-m", "-np", "-nd", "-P", dir, *files]
+    subprocess.run(args)
 
 
-def download_index(name: str, download_dir: str, url_dir: str, username: str | None = None):
-    print(f"Downloading dataset {name} through its index listing and wget.")
+def download_index(
+    name: str, download_dir: str, url_dir: str, username: str | None = None
+):
+    logger.info(f"Downloading dataset {name} through its index listing and wget.")
     args = ["wget", "-m", "-np", "-nd", "-P", download_dir, url_dir]
     if username:
         args.extend(["--user", username, "--ask-password"])
@@ -51,17 +54,24 @@ def download_index(name: str, download_dir: str, url_dir: str, username: str | N
 def download_s3(name: str, download_dir: str, bucket: str):
     try:
         import boto3
+        from botocore import UNSIGNED
+        from botocore.client import Config
     except:
         assert False, "Specified dataset requires the aws package 'boto3'"
 
-    print(f"Downloading dataset {name} from s3 using boto3.")
-    s3 = boto3.resource("s3")
-    my_bucket = s3.Bucket(bucket)
+    logger.info(f"Downloading dataset {name} from s3 using boto3.")
+    s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
+    ds_bucket = s3.Bucket(bucket)
 
-    for s3_object in my_bucket.objects.all():
-        print(f"Downloading {s3_object.key}")
+    for s3_object in ds_bucket.objects.all():
         _, filename = os.path.split(s3_object.key)
-        my_bucket.download_file(s3_object.key, os.path.join(download_dir, filename))
+        fn = os.path.join(download_dir, filename)
+        if os.path.isfile(fn):
+            logger.info(f"File already downloaded, skipping: {filename}")
+            continue
+        
+        logger.info(f"Downloading {filename} ({s3_object.size / 1e6:.3f} mb)")
+        ds_bucket.download_file(s3_object.key, fn)
 
 
 def main(download_dir: str, names: list[str], username: str | None):
@@ -78,7 +88,7 @@ def main(download_dir: str, names: list[str], username: str | None):
         os.makedirs(save_path, exist_ok=True)
 
         if ds.credentials:
-            assert username, f"Dataset requires credentials, use --username <user>"
+            assert username, f"Dataset requires credentials, use --user <user>"
 
         if isinstance(ds.files, list):
             download_files(name, save_path, ds.files)
@@ -93,7 +103,7 @@ def main(download_dir: str, names: list[str], username: str | None):
 
 
 def get_description():
-    desc = "The following datasets are available: "
+    desc = "The following data stores are available:\n"
     ds_strs = []
     for name, ds in datasets.items():
         ds_str = name
@@ -101,33 +111,5 @@ def get_description():
             ds_str += f" ({ds.desc})"
         ds_strs.append(ds_str)
 
-    desc += ", ".join(ds_strs)
+    desc += "\n".join(ds_strs)
     return desc
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        "Pasteur dataset downloader", description=get_description()
-    )
-    parser.add_argument(
-        "-d",
-        "--download-dir",
-        help="The download dir of the datasets. Defaults to script dir.",
-        type=str,
-        default=os.path.dirname(os.path.realpath(__file__)),
-    )
-    parser.add_argument(
-        "-u",
-        "--username",
-        help="If downloading the files requires credentials, enter the username. You will be asked for the password",
-        type=str,
-        default=None,
-    )
-    parser.add_argument("datasets", nargs="+")
-    args = parser.parse_args()
-
-    try:
-        main(args.download_dir, args.datasets, args.username)
-    except:
-        parser.print_help()
-        raise
