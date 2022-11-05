@@ -188,6 +188,12 @@ def s(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     type=str,
 )
 def download(user: str | None, download_dir: str | None, datasets: list[str]):
+    """Downloads all Pasteur datasets from their creators, provided the user 
+    agrees to their access requirements, and has credentials, if required.
+    
+    Uses `wget` and `boto3` to download files.
+
+    Only downloads missing files, can be ran to verify dataset is downloaded correctly."""
     from .dataset.download import main, get_description
 
     # Setup logging and params with kedro

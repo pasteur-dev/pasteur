@@ -30,6 +30,12 @@ datasets = {
         True,
         "requires credentials from physionet.org",
     ),
+    "mimic_iv_ed": DS(
+        "https://physionet.org/files/mimic-iv-ed/2.0/",
+        "mimiciv_ed_2_0",
+        True,
+        "requires credentials from physionet.org",
+    ),
     # SDGym
     "sdgym": DS("s3:sdv-datasets", desc="requires boto3 package"),
 }
@@ -37,15 +43,25 @@ datasets = {
 
 def download_files(name: str, dir: str, files: list[str]):
     logger.info(f"Downloading dataset {name} files iteratively with wget.")
-    args = ["wget", "-m", "-np", "-nd", "-P", dir, *files]
-    subprocess.run(args)
+    args = ["wget", "-m", "-np", "-c", "-P", dir, *files]
+    assert False, "fixme: not tested"
+    # subprocess.run(args)
 
 
 def download_index(
     name: str, download_dir: str, url_dir: str, username: str | None = None
 ):
     logger.info(f"Downloading dataset {name} through its index listing and wget.")
-    args = ["wget", "-m", "-np", "-nd", "-P", download_dir, url_dir]
+    assert url_dir[-1] == "/", "Url dir should end with a `/`"
+
+    args = ["wget", "-m", "-np", "-nH", "-c", "-P", download_dir]
+
+    # We have to skip parent dirs manually
+    cut_dirs = len(url_dir.split("/")) - 4
+    if cut_dirs > 0:
+        args.append(f"--cut-dirs={cut_dirs}")
+    
+    args.append(url_dir)
     if username:
         args.extend(["--user", username, "--ask-password"])
     subprocess.run(args)
