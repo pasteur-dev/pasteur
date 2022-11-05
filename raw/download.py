@@ -1,0 +1,133 @@
+from urllib import request
+import argparse
+import os
+import subprocess
+from typing import NamedTuple
+
+
+class DS(NamedTuple):
+    files: str | list[str]
+    save_name: str | None = None
+    credentials: bool = False
+    desc: str | None = None
+
+
+datasets = {
+    # Open Datasets
+    "adult": DS("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/"),
+    # Physionet
+    "mimic_iv": DS(
+        "https://physionet.org/files/mimiciv/2.0/",
+        "mimiciv_2_0",
+        True,
+        "requires credentials from physionet.org",
+    ),
+    "eicu": DS(
+        "https://physionet.org/files/eicu-crd/2.0/",
+        "eicu_2_0",
+        True,
+        "requires credentials from physionet.org",
+    ),
+    # SDGym
+    "sdgym": DS("s3:sdv-datasets", desc="requires boto3 package"),
+}
+
+
+def download_files(name: str, dir: str, files: dict[str, str]):
+    print(f"Downloading dataset {name} files iteratively.")
+    for name, url in files.items():
+        print(f"Downloading file {name}:\n{url}")
+        request.urlretrieve(url, os.path.join(dir, name))
+
+
+def download_index(name: str, download_dir: str, url_dir: str, username: str | None = None):
+    print(f"Downloading dataset {name} through its index listing and wget.")
+    args = ["wget", "-m", "-np", "-nd", "-P", download_dir, url_dir]
+    if username:
+        args.extend(["--user", username, "--ask-password"])
+    subprocess.run(args)
+
+
+def download_s3(name: str, download_dir: str, bucket: str):
+    try:
+        import boto3
+    except:
+        assert False, "Specified dataset requires the aws package 'boto3'"
+
+    print(f"Downloading dataset {name} from s3 using boto3.")
+    s3 = boto3.resource("s3")
+    my_bucket = s3.Bucket(bucket)
+
+    for s3_object in my_bucket.objects.all():
+        print(f"Downloading {s3_object.key}")
+        _, filename = os.path.split(s3_object.key)
+        my_bucket.download_file(s3_object.key, os.path.join(download_dir, filename))
+
+
+def main(download_dir: str, names: list[str], username: str | None):
+    assert os.path.exists(
+        download_dir
+    ), f'Download path "{download_dir}" doesn\'t exist.'
+
+    for name in names:
+        assert name in datasets, f"Dataset {name} not found."
+        ds = datasets[name]
+
+        save_name = ds.save_name or name
+        save_path = os.path.join(download_dir, save_name)
+        os.makedirs(save_path, exist_ok=True)
+
+        if ds.credentials:
+            assert username, f"Dataset requires credentials, use --username <user>"
+
+        if isinstance(ds.files, list):
+            download_files(name, save_path, ds.files)
+        else:
+            assert isinstance(ds.files, str)
+            if ds.files.startswith("s3:"):
+                download_s3(name, save_path, ds.files.replace("s3:", ""))
+            else:
+                download_index(
+                    name, save_path, ds.files, username if ds.credentials else None
+                )
+
+
+def get_description():
+    desc = "The following datasets are available: "
+    ds_strs = []
+    for name, ds in datasets.items():
+        ds_str = name
+        if ds.desc:
+            ds_str += f" ({ds.desc})"
+        ds_strs.append(ds_str)
+
+    desc += ", ".join(ds_strs)
+    return desc
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        "Pasteur dataset downloader", description=get_description()
+    )
+    parser.add_argument(
+        "-d",
+        "--download-dir",
+        help="The download dir of the datasets. Defaults to script dir.",
+        type=str,
+        default=os.path.dirname(os.path.realpath(__file__)),
+    )
+    parser.add_argument(
+        "-u",
+        "--username",
+        help="If downloading the files requires credentials, enter the username. You will be asked for the password",
+        type=str,
+        default=None,
+    )
+    parser.add_argument("datasets", nargs="+")
+    args = parser.parse_args()
+
+    try:
+        main(args.download_dir, args.datasets, args.username)
+    except:
+        parser.print_help()
+        raise
