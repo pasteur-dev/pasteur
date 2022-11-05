@@ -85,7 +85,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
 
         for name in run_params:
             try:
-                param_str = param[param.rindex(".") + 1:]
+                param_str = param[param.rindex(".") + 1 :]
             except:
                 param_str = param
 
@@ -124,8 +124,20 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
     runs = {name: get_run(name, parent) for name in run_params}
     artifacts = get_artifacts(runs)
     pretty = prettify_run_names(run_params)
+    assert len(runs)
 
-    assert len(artifacts)
+    ref_params = next(iter(runs.values())).data.params
+
+    for name, val in ref_params.items():
+        for run in runs.values():
+            params = run.data.params
+            if not name in params or params[name] != val:
+                break
+        else:
+            # if we iterate over the whole loop else runs
+            # log param if it exists and its the same in all runs
+            mlflow.log_param(name, val)
+
     ref_artifacts = next(iter(artifacts.values()))
     meta = ref_artifacts["meta"]
 

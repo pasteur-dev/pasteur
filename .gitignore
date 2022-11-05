@@ -11,12 +11,16 @@ conf/**/*credentials*
 
 # ignore everything in the following folders
 data/**
+raw/**
 logs/**
 
 # except their sub-folders
 !data/**/
+!raw/**/
 !logs/**/
 !data/**/readme.md
+!raw/**/readme.md
+!raw/**/download.py
 
 # also keep all .gitkeep files
 !.gitkeep
