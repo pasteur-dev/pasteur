@@ -187,10 +187,16 @@ def s(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     nargs=-1,
     type=str,
 )
-def download(user: str | None, download_dir: str | None, datasets: list[str]):
-    """Downloads all Pasteur datasets from their creators, provided the user 
+@click.option(
+    "--accept",
+    "-a",
+    is_flag=True,
+    help="By passing this option, you accept to the terms of the data that will be downloaded. Pasteur doesn't provide or license any of the datasets.",
+)
+def download(user: str | None, download_dir: str | None, datasets: list[str], accept: bool = False):
+    """Downloads all Pasteur datasets from their creators, provided the user
     agrees to their access requirements, and has credentials, if required.
-    
+
     Uses `wget` and `boto3` to download files.
 
     Only downloads missing files, can be ran to verify dataset is downloaded correctly."""
@@ -207,4 +213,7 @@ def download(user: str | None, download_dir: str | None, datasets: list[str]):
         download_dir = download_dir or ctx.params.get("raw_location", None)
         assert download_dir, f"Download dir is empty"
 
-        main(download_dir, datasets, user)
+        if not accept:
+            logger.error("You have to accept to the license of the data stores you're about to download from (--accept/-a).")
+        else:
+            main(download_dir, datasets, user)

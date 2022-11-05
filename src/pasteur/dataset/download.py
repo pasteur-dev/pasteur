@@ -3,6 +3,7 @@ import subprocess
 from typing import NamedTuple
 
 import logging
+from .const import texas_list
 
 logger = logging.getLogger(__name__)
 
@@ -14,38 +15,47 @@ class DS(NamedTuple):
     desc: str | None = None
 
 
+physio = "requires credentials and license from https://physionet.org"
+
 datasets = {
     # Open Datasets
     "adult": DS("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/"),
+    # Texas, open with license
+    "texas": DS(
+        texas_list,
+        desc="license: https://www.dshs.texas.gov/THCIC/Hospitals/Download.shtm",
+    ),
     # Physionet
     "mimic_iv": DS(
-        "https://physionet.org/files/mimiciv/2.0/",
-        "mimiciv_2_0",
-        True,
-        "requires credentials from physionet.org",
+        "https://physionet.org/files/mimiciv/2.0/", "mimiciv_2_0", True, physio
     ),
-    "eicu": DS(
-        "https://physionet.org/files/eicu-crd/2.0/",
-        "eicu_2_0",
-        True,
-        "requires credentials from physionet.org",
-    ),
+    "eicu": DS("https://physionet.org/files/eicu-crd/2.0/", "eicu_2_0", True, physio),
     "mimic_iv_ed": DS(
         "https://physionet.org/files/mimic-iv-ed/2.0/",
         "mimiciv_ed_2_0",
         True,
-        "requires credentials from physionet.org",
+        physio,
     ),
     # SDGym
-    "sdgym": DS("s3:sdv-datasets", desc="requires boto3 package"),
+    "sdgym": DS("s3:sdv-datasets", desc="license MIT (not clear if that applies to data), requires boto3 package"),
 }
 
 
 def download_files(name: str, dir: str, files: list[str]):
+    if not files:
+        assert False, "Empty file list"
+
     logger.info(f"Downloading dataset {name} files iteratively with wget.")
-    args = ["wget", "-m", "-np", "-c", "-P", dir, *files]
-    assert False, "fixme: not tested"
-    # subprocess.run(args)
+    args = ["wget", "-m", "-np", "-nH", "-c", "-P", dir]
+
+    template_fn = files[0]
+    # We have to skip parent dirs manually
+    cut_dirs = len(template_fn.split("/")) - 4
+    if cut_dirs > 0:
+        args.append(f"--cut-dirs={cut_dirs}")
+
+    args.extend(files)
+    subprocess.run(args)
 
 
 def download_index(
@@ -60,7 +70,7 @@ def download_index(
     cut_dirs = len(url_dir.split("/")) - 4
     if cut_dirs > 0:
         args.append(f"--cut-dirs={cut_dirs}")
-    
+
     args.append(url_dir)
     if username:
         args.extend(["--user", username, "--ask-password"])
@@ -85,7 +95,7 @@ def download_s3(name: str, download_dir: str, bucket: str):
         if os.path.isfile(fn):
             logger.info(f"File already downloaded, skipping: {filename}")
             continue
-        
+
         logger.info(f"Downloading {filename} ({s3_object.size / 1e6:.3f} mb)")
         ds_bucket.download_file(s3_object.key, fn)
 
@@ -120,12 +130,6 @@ def main(download_dir: str, names: list[str], username: str | None):
 
 def get_description():
     desc = "The following data stores are available:\n"
-    ds_strs = []
     for name, ds in datasets.items():
-        ds_str = name
-        if ds.desc:
-            ds_str += f" ({ds.desc})"
-        ds_strs.append(ds_str)
-
-    desc += "\n".join(ds_strs)
+        desc += f"{name:15s}: {ds.desc or ''}\n"
     return desc
