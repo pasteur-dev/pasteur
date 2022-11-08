@@ -1,8 +1,8 @@
 from kedro.pipeline import node, pipeline
 
-from ...metrics.models import get_required_types as model_get_required_types
-from ...metrics.models import mlflow_log_model_results, node_calculate_model_scores
-from ...views.base import View
+from ...eval.models import get_required_types as model_get_required_types
+from ...eval.models import mlflow_log_model_results, node_calculate_model_scores
+from ...view import View
 from .utils import gen_closure, lazy_load
 
 calc_chisquare, calc_kl, log_cs_mlflow, log_kl_mlflow = lazy_load(

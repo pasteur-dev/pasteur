@@ -1,14 +1,15 @@
 from pathlib import Path
+
 from IPython import get_ipython
 from kedro.framework.context import KedroContext
 from kedro.framework.session.session import KedroSession
+from kedro.framework.startup import bootstrap_project
 from kedro.io.data_catalog import DataCatalog
 from kedro.pipeline import Pipeline
-from kedro.framework.startup import bootstrap_project
 
-from ..utils import str_params_to_dict, flat_params_to_dict
+from ..utils.parser import flat_params_to_dict, str_params_to_dict
+from ..utils.progress import PBAR_JUP_NCOLS
 from .runner import SimpleRunner
-from ..progress import PBAR_JUP_NCOLS
 
 # Removes lint errors from VS Code
 context: KedroContext = None
@@ -18,7 +19,7 @@ pipelines: dict[str, Pipeline] = None
 
 
 def _reconfigure_rich():
-    from rich import reconfigure, _console
+    from rich import _console, reconfigure
 
     _rich_console_args = {
         "width": PBAR_JUP_NCOLS,
@@ -84,8 +85,9 @@ def register_kedro():
     ipy.register_magic_function(_pipe_magic, "line", "pipe")
     ipy.register_magic_function(_pipe_magic, "line", "p")
 
-    from kedro.ipython import reload_kedro, _find_kedro_project
     import logging
+
+    from kedro.ipython import _find_kedro_project, reload_kedro
 
     # Disable path message
     logging.getLogger().handlers = []

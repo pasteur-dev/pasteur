@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from ...progress import process_in_parallel
 from ...transform import TableTransformer
+from ...utils.progress import process_in_parallel
 from .models import BaseModel, get_models, get_required_types
 
 

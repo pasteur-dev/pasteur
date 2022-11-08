@@ -17,7 +17,7 @@ with open("requirements.txt", encoding="utf-8") as f:
 setup(
     name="pasteur",
     version="0.1",
-    packages=find_packages(exclude=["tests"]),
+    packages=find_packages(exclude=["tests", "project"]),
     entry_points={"console_scripts": [entry_point]},
     install_requires=requires,
     extras_require={

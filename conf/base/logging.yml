@@ -23,7 +23,7 @@ handlers:
     # Logs the console view as the user would see it
     # Sans the loading bars
     user:
-        class: pasteur.logging.MlflowHandler
+        class: pasteur.utls.MlflowHandler
         name: user
 
         level: INFO
@@ -31,14 +31,14 @@ handlers:
 
     # Debug and error log the exact output of the console
     debug:
-        class: pasteur.logging.MlflowHandler
+        class: pasteur.utls.MlflowHandler
         name: debug
 
         level: DEBUG
         formatter: simple
 
     error:
-        class: pasteur.logging.MlflowHandler
+        class: pasteur.utls.MlflowHandler
         name: error
 
         level: ERROR

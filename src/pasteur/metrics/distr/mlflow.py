@@ -1,6 +1,6 @@
 import pandas as pd
 import mlflow
-from ..mlflow import color_dataframe, gen_html_table, mlflow_log_artifacts
+from ...utils.mlflow import color_dataframe, gen_html_table, mlflow_log_artifacts
 
 FONT_SIZE = "13px"
 

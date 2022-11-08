@@ -2,9 +2,9 @@ from typing import Dict
 
 from kedro.pipeline import Pipeline, pipeline
 
-from ...dataset import Dataset, get_datasets
-from ...synth import Synth, get_synth
-from ...views import View, get_views
+from ...dataset import Dataset
+from ...synth import Synth
+from ...view import View
 from .dataset import create_dataset_pipeline, create_keys_pipeline
 from .metrics import (
     get_required_types as metrics_get_required_types,
@@ -25,30 +25,6 @@ WRK_SPLIT = "wrk"
 REF_SPLIT = "ref"
 
 
-def _get_algs(names: list[str]) -> dict[str, type[Synth]]:
-    algs = get_synth()
-    if names:
-        return {n: algs[n] for n in names}
-    return algs
-
-
-def _get_views(names: list[str]) -> dict[str, View]:
-    views = get_views()
-    if names:
-        views = {n: views[n] for n in names}
-    return {n: v() for n, v in views.items()}
-
-
-def _get_datasets(views: dict[str, View]) -> dict[str, Dataset]:
-    names = list_unique([v.dataset for v in views.values()])
-    datasets = get_datasets()
-    return {n: datasets[n]() for n in names}
-
-
-def get_view_tables(names: list[str]):
-    return {n: v.tables for n, v in _get_views(names).items()}
-
-
 def get_msr_types():
     return metrics_get_required_types()
 
@@ -58,15 +34,7 @@ def _get_all_types(algs: dict[str, Synth]):
     return list_unique(alg_types, get_msr_types())
 
 
-def get_all_types(algs: list[str]):
-    return _get_all_types(_get_algs(algs))
-
-
-def generate_pipelines(
-    views: list[str] | None,
-    algs: list[str] | None,
-    default: str | None = "tab_adult.privbayes",
-) -> Dict[str, Pipeline]:
+def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
 
     If None is passed, all registered classes are included."""

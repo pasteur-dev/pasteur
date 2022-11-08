@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import Pipeline, node, pipeline
+from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .utils import gen_closure, get_params_closure

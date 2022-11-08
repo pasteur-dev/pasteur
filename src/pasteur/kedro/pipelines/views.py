@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import Pipeline, node, pipeline
+from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
@@ -12,7 +12,7 @@ from .utils import gen_closure
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ...views import View
+    from ...view import View
 
 
 def _create_metadata(view: str, params: dict):

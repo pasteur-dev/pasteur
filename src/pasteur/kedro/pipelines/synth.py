@@ -9,7 +9,7 @@ from ...synth import synth_fit, synth_sample
 from .utils import gen_closure
 
 if TYPE_CHECKING:
-    from ...views import View
+    from ...view import View
     from ...synth import Synth
 
 

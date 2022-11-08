@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from ..mlflow import mlflow_log_artifacts
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -10,14 +9,14 @@ if TYPE_CHECKING:
 def mlflow_log_model_results(name: str, res: pd.DataFrame):
     import mlflow
     import pandas as pd
-    from ..mlflow import gen_html_table
+    from ...utils.mlflow import gen_html_table, mlflow_log_artifacts
 
     if not mlflow.active_run():
         return
 
     if len(res) == 0:
         return
-    
+
     mlflow_log_artifacts("models", name=res)
 
     res = res.copy()

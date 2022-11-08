@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-from ...utils import find_subclasses
+from ...utils.parser import _find_subclasses as find_subclasses
 
 if TYPE_CHECKING:
     import pandas as pd

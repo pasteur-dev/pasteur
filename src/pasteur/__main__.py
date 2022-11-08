@@ -10,10 +10,10 @@ from kedro.framework.project import configure_project
 
 def _find_run_command(package_name):
     try:
-        project_cli = importlib.import_module(f"{package_name}.cli")
+        project_cli = importlib.import_module(f"{package_name}.kedro.cli")
         # fail gracefully if cli.py does not exist
     except ModuleNotFoundError as exc:
-        if f"{package_name}.cli" not in str(exc):
+        if f"{package_name}.kedro.cli" not in str(exc):
             raise
         plugins = load_entry_points("project")
         run = _find_run_command_in_plugins(plugins) if plugins else None
@@ -26,7 +26,7 @@ def _find_run_command(package_name):
         return run
     # fail badly if cli.py exists, but has no `cli` in it
     if not hasattr(project_cli, "cli"):
-        raise KedroCliError(f"Cannot load commands from {package_name}.cli")
+        raise KedroCliError(f"Cannot load commands from {package_name}.kedro.cli")
     return project_cli.run
 
 

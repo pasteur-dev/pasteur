@@ -1,5 +1,5 @@
 [tool.kedro]
-package_name = "pasteur"
+package_name = "project"
 project_name = "Pasteur"
 project_version = "0.18.3"
 

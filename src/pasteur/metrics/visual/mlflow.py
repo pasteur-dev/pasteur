@@ -1,16 +1,16 @@
-from .holder import HistHolder, VizData
-from ..mlflow import (
+from ...utils.mlflow import (
     gen_html_figure_container,
     load_matplotlib_style,
     mlflow_log_artifacts,
 )
+from .holder import HistHolder, VizData
 
 _SAVE_HTML = True
 
 
 def mlflow_log_hists(holder: HistHolder, log_artifacts: bool = True, **data: VizData):
-    import mlflow
     import matplotlib.pyplot as plt
+    import mlflow
 
     if not mlflow.active_run():
         return

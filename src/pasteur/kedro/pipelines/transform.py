@@ -8,56 +8,65 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 if TYPE_CHECKING:
     import pandas as pd
     from ...metadata import Metadata
-    from ...transform import TableTransformer
-    from ...views import View
+    from ...table import TableHandler
+    from ...transform import Transformer
+    from ...encode import Encoder
+    from ...view import View
 
 from .utils import gen_closure
 
 
 def _fit_table(
     name: str,
-    types: list[str],
+    transformers: dict[str, type[Transformer]],
+    encoders: dict[str, type[Transformer]],
     meta: Metadata,
     **tables: dict[str, pd.DataFrame],
 ):
-    from ...transform import TableTransformer
+    from ...table import TableHandler
 
-    t = TableTransformer(meta, name, types)
+    t = TableHandler(meta, name, encoders, transformers)
     tables, ids = t.fit_transform(tables)
     return t, ids
 
 
 def _transform_table(
-    transformer: TableTransformer,
+    handler: TableHandler,
     **tables: dict[str, pd.DataFrame],
 ):
-    ids = transformer.find_ids(tables)
-    return transformer.transform(tables, ids), ids
+    ids = handler.find_ids(tables)
+    return handler.transform(tables, ids), ids
 
 
 def _base_reverse_table(
-    transformer: TableTransformer,
+    handler: TableHandler,
     ids: pd.DataFrame,
     table: pd.DataFrame,
     **parents: dict[str, pd.DataFrame],
 ):
-    return transformer.reverse(table, ids, parents)
+    return handler.reverse(table, ids, parents)
 
 
-def _encode_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
-    return transformer[type].encode(table)
+def _encode_table(type: str, handler: TableHandler, table: pd.DataFrame):
+    return handler[type].encode(table)
 
 
-def _decode_table(type: str, transformer: TableTransformer, table: pd.DataFrame):
-    return transformer[type].decode(table)
+def _decode_table(type: str, handler: TableHandler, table: pd.DataFrame):
+    return handler[type].decode(table)
 
 
-def create_transformers_pipeline(view: View, types: list[str]):
+def create_transformers_pipeline(
+    view: View, transformers: dict[str, Transformer], encoders: dict[str, Encoder]
+):
     return pipeline(
         [
             node(
                 func=gen_closure(
-                    _fit_table, table, types, _fn=f"fit_transformer_to_{table}"
+                    _fit_table,
+                    table,
+                    transformers,
+                    encoders,
+                    _fn=f"fit_transformer_to_{table}",
                 ),
                 inputs={
                     "meta": f"{view}.metadata",

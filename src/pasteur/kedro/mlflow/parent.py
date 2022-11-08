@@ -7,7 +7,7 @@ from typing import Any
 import mlflow
 from mlflow.entities import Run
 
-from ...metrics.mlflow import ARTIFACT_DIR
+from ...utils.mlflow import ARTIFACT_DIR
 from .base import get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -105,8 +105,8 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
 
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
-    from ...metrics.visual import mlflow_log_hists
-    from ...metrics.distr import log_cs_mlflow, log_kl_mlflow
+    from ...eval.visual import mlflow_log_hists
+    from ...eval.distr import log_cs_mlflow, log_kl_mlflow
 
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
