@@ -6,7 +6,9 @@ from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
-from ...utils import get_params_for_pipe
+from ...utils.parser import get_params_for_pipe
+from .module import DatasetMeta as D
+from .module import PipelineMeta
 from .utils import gen_closure
 
 if TYPE_CHECKING:
@@ -25,40 +27,51 @@ def _check_tables(metadata: Metadata, **tables: dict[str, pd.DataFrame]):
 
 
 def create_view_pipeline(view: View):
-    return pipeline(
+    return PipelineMeta(
+        pipeline(
+            [
+                node(
+                    func=gen_closure(view.ingest, t, _fn=f"ingest_{t}"),
+                    inputs={dep: f"{view.dataset}.{dep}" for dep in view.deps[t]},
+                    namespace=f"{view}.view",
+                    outputs=f"{view}.view.{t}",
+                )
+                for t in view.tables
+            ]
+            + [
+                node(
+                    func=gen_closure(_check_tables, _fn="check_tables"),
+                    inputs={
+                        "metadata": f"{view}.metadata",
+                        **{t: f"{view}.view.{t}" for t in view.tables},
+                    },
+                    outputs=None,
+                    namespace=f"{view}.view",
+                )
+            ]
+        ),
         [
-            node(
-                func=gen_closure(view.ingest, t, _fn=f"ingest_{t}"),
-                inputs={dep: f"{view.dataset}.{dep}" for dep in view.deps[t]},
-                namespace=f"{view}.view",
-                outputs=f"{view}.view.{t}",
-            )
+            D("primary", f"{view}.view.{t}", ["views", "primary", view, t])
             for t in view.tables
-        ]
-        + [
-            node(
-                func=gen_closure(_check_tables, _fn="check_tables"),
-                inputs={
-                    "metadata": f"{view}.metadata",
-                    **{t: f"{view}.view.{t}" for t in view.tables},
-                },
-                outputs=None,
-                namespace=f"{view}.view",
-            )
-        ]
+        ],
     )
 
 
 def create_meta_pipeline(view: View):
-    return pipeline(
-        [
-            node(
-                func=gen_closure(_create_metadata, view.name, _fn="create_metadata"),
-                inputs="parameters",
-                outputs=f"{view}.metadata",
-                namespace=f"{view}",
-            )
-        ]
+    return PipelineMeta(
+        pipeline(
+            [
+                node(
+                    func=gen_closure(
+                        _create_metadata, view.name, _fn="create_metadata"
+                    ),
+                    inputs="parameters",
+                    outputs=f"{view}.metadata",
+                    namespace=f"{view}",
+                )
+            ]
+        ),
+        [D("metadata", f"{view}.metadata", ["views", "metadata", view])],
     )
 
 
@@ -81,7 +94,14 @@ def create_filter_pipeline(view: View, splits: list[str]):
             ]
         )
 
-    return modular_pipeline(
-        pipe=pipe,
-        namespace=view.name,
+    return PipelineMeta(
+        modular_pipeline(
+            pipe=pipe,
+            namespace=view.name,
+        ),
+        [
+            D("primary", f"{view}.{s}.{t}", ["views", "primary", f"{view}.{s}", t])
+            for t in tables
+            for s in splits
+        ],
     )

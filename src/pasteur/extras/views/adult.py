@@ -1,4 +1,4 @@
-from ...views import TabularView
+from ...view import TabularView
 from ..datasets import adult as _
 
 

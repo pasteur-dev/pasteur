@@ -4,12 +4,12 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from .base import Synth, make_deterministic
+from ...synth import Synth
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ..transform import Attributes
+    from ...transform import Attributes
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +270,7 @@ class AimSynth(ExternalPythonSynth):
         table_attrs = attrs[self.table_name]
 
         if self.rebalance_columns:
-            from .hierarchy import rebalance_attributes
+            from ...hierarchy import rebalance_attributes
 
             table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
         self.table_attrs = table_attrs
@@ -384,7 +384,7 @@ class PrivMrfSynth(ExternalPythonSynth):
         params = ["{dataset}", "{domain}", "{out}", f"{self.e}"]
 
         if self.rebalance_columns:
-            from .hierarchy import rebalance_attributes
+            from ...hierarchy import rebalance_attributes
 
             table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
 

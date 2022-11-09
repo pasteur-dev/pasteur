@@ -58,6 +58,9 @@ class Dataset:
         splits = self.keys(ratios, random_state, **tables)
         return {name: split for name, split in splits.items() if name in req_splits}
 
+    def __str__(self) -> str:
+        return self.name
+
 
 class TabularDataset(Dataset):
     deps = {"table": ["table"]}

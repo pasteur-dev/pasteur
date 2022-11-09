@@ -1,8 +1,10 @@
 from kedro.pipeline import node, pipeline
 
-from ...eval.models import get_required_types as model_get_required_types
-from ...eval.models import mlflow_log_model_results, node_calculate_model_scores
+from ...metrics.models import get_required_types as model_get_required_types
+from ...metrics.models import mlflow_log_model_results, node_calculate_model_scores
 from ...view import View
+from .module import DatasetMeta as D
+from .module import PipelineMeta
 from .utils import gen_closure, lazy_load
 
 calc_chisquare, calc_kl, log_cs_mlflow, log_kl_mlflow = lazy_load(
@@ -26,6 +28,7 @@ create_fitted_hist_holder, mlflow_log_hists, project_hists_for_view = lazy_load(
 
 def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
     calc_nodes = []
+    outputs = []
     for table in view.tables:
         in_tables = {}
         for type in model_get_required_types():
@@ -50,10 +53,19 @@ def _create_model_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
             ),
         ]
 
-    return pipeline(calc_nodes)
+        outputs.append(
+            D(
+                "measure",
+                f"{view}.{alg}.msr_mdl_{table}",
+                ["synth", "measure", "models", f"{view}.{alg}", table],
+                versioned=True,
+            )
+        )
+    return PipelineMeta(pipeline(calc_nodes), outputs)
 
 
 def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
+    outputs = []
     hist_nodes = []
     for table in view.tables:
         in_tables = {table: f"{view}.view.{table}" for table in view.tables}
@@ -69,6 +81,14 @@ def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
                 namespace=f"{view}.msr",
             )
         ]
+        outputs.append(
+            D(
+                None,  # TODO: fix circular dependency of this node layer
+                f"{view}.msr.hst_{table}",
+                ["views", "measure", "hist", f"{view}.holder", table],
+                type="pkl",
+            )
+        )
 
         for split in (wrk_split, ref_split):
             in_tables = {table: f"{view}.{split}.{table}" for table in view.tables}
@@ -84,14 +104,29 @@ def _create_visual_fit_pipelines(view: View, wrk_split: str, ref_split: str):
                     namespace=f"{view}.{split}",
                 ),
             ]
+            outputs.append(
+                D(
+                    "measure",
+                    f"{view}.{split}.msr_viz_{table}",
+                    [
+                        "views",
+                        "measure",
+                        "visual",
+                        f"{view}.{split}",
+                        table,
+                    ],
+                    type="pkl",
+                )
+            )
 
-    return pipeline(hist_nodes)
+    return PipelineMeta(pipeline(hist_nodes), outputs)
 
 
 def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
     in_tables = {table: f"{view}.{alg}.{table}" for table in view.tables}
 
     hist_nodes = []
+    outputs = []
     for table in view.tables:
         hist_nodes += [
             node(
@@ -116,14 +151,30 @@ def _create_visual_log_pipelines(view: View, alg: str, wrk_split: str, ref_split
                 namespace=f"{view}.{alg}",
             ),
         ]
+        outputs.append(
+            D(
+                "measure",
+                f"{view}.{alg}.msr_viz_{table}",
+                [
+                    "synth",
+                    "measure",
+                    "visual",
+                    f"{view}.{alg}",
+                    table,
+                ],
+                type="pkl",
+                versioned=True,
+            )
+        )
 
-    return pipeline(hist_nodes)
+    return PipelineMeta(pipeline(hist_nodes), outputs)
 
 
 def _create_distr_fit_pipelines(view: View, wrk_split: str, ref_split: str):
     # TODO: add support for expanded tables
 
     nodes = []
+    outputs = []
     for table in view.tables:
         for method, calc in [("cs", calc_chisquare), ("kl", calc_kl)]:
             nodes += [
@@ -138,11 +189,27 @@ def _create_distr_fit_pipelines(view: View, wrk_split: str, ref_split: str):
                 ),
             ]
 
-    return pipeline(nodes)
+            outputs += [
+                D(
+                    "measure",
+                    f"{view}.{ref_split}.msr_{method}_{table}",
+                    [
+                        "views",
+                        "measure",
+                        "distr",
+                        method,
+                        f"{view}.{ref_split}",
+                        table,
+                    ],
+                )
+            ]
+
+    return PipelineMeta(pipeline(nodes), outputs)
 
 
 def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split: str):
     nodes = []
+    outputs = []
     for table in view.tables:
         for method, calc in [("cs", calc_chisquare), ("kl", calc_kl)]:
             nodes += [
@@ -155,6 +222,21 @@ def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
                     outputs=f"{view}.{alg}.msr_{method}_{table}",
                     namespace=f"{view}.{alg}",
                 ),
+            ]
+            outputs += [
+                D(
+                    "measure",
+                    f"{view}.{alg}.msr_{method}_{table}",
+                    [
+                        "synth",
+                        "measure",
+                        "distr",
+                        method,
+                        f"{view}.{alg}",
+                        table,
+                    ],
+                    versioned=True
+                )
             ]
 
         for method, log in [("cs", log_cs_mlflow), ("kl", log_kl_mlflow)]:
@@ -170,7 +252,7 @@ def _create_distr_log_pipelines(view: View, alg: str, wrk_split: str, ref_split:
                 ),
             ]
 
-    return pipeline(nodes)
+    return PipelineMeta(pipeline(nodes), outputs)
 
 
 def _create_synth_log_pipeline(view: View, alg: str):
@@ -192,9 +274,7 @@ def _create_meta_log_pipeline(view: View, alg: str):
     return pipeline(
         [
             node(
-                func=gen_closure(
-                    mlflow_log_artifacts, _fn="mlflow_log_metadata"
-                ),
+                func=gen_closure(mlflow_log_artifacts, _fn="mlflow_log_metadata"),
                 inputs={"meta": f"{view}.metadata"},
                 outputs=None,
                 namespace=f"{view}.{alg}",

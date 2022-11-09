@@ -5,13 +5,17 @@ from typing import TYPE_CHECKING
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from .module import DatasetMeta as D
+from .module import PipelineMeta
 from .utils import gen_closure, get_params_closure
 
 if TYPE_CHECKING:
     from ...dataset import Dataset
 
 
-def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
+def create_dataset_pipeline(
+    dataset: Dataset, tables: list[str] | None = None
+) -> PipelineMeta:
 
     if tables is None:
         tables = dataset.tables
@@ -27,7 +31,13 @@ def create_dataset_pipeline(dataset: Dataset, tables: list[str] | None = None):
         ]
     )
 
-    return modular_pipeline(pipe=pipe, namespace=dataset.name)
+    return PipelineMeta(
+        modular_pipeline(pipe=pipe, namespace=dataset.name),
+        [
+            D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t])
+            for t in tables
+        ],
+    )
 
 
 def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
@@ -39,7 +49,7 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
     fun = get_params_closure(fun, view, "ratios", "random_state")
 
     req_tables = {t: f"in_{t}" for t in dataset.key_deps}
-    namespaced_tables = {f"in_{t}": f"{dataset.name}.raw@{t}" for t in dataset.key_deps}
+    namespaced_tables = {f"in_{t}": f"{dataset}.raw@{t}" for t in dataset.key_deps}
 
     pipe = pipeline(
         [
@@ -55,9 +65,15 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
         ]
     )
 
-    return modular_pipeline(
-        pipe=pipe,
-        namespace=view,
-        inputs=namespaced_tables,
-        parameters={"parameters": "parameters"},
+    return PipelineMeta(
+        modular_pipeline(
+            pipe=pipe,
+            namespace=view,
+            inputs=namespaced_tables,
+            parameters={"parameters": "parameters"},
+        ),
+        [
+            D("keys", f"{view}.keys.{s}", ["views", "keys", view, s])
+            for s in splits
+        ],
     )

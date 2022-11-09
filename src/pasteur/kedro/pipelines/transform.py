@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from .module import DatasetMeta as D
+from .module import PipelineMeta
+
 if TYPE_CHECKING:
     import pandas as pd
     from ...metadata import Metadata
@@ -31,34 +34,34 @@ def _fit_table(
 
 
 def _transform_table(
-    handler: TableHandler,
+    transformer: TableHandler,
     **tables: dict[str, pd.DataFrame],
 ):
-    ids = handler.find_ids(tables)
-    return handler.transform(tables, ids), ids
+    ids = transformer.find_ids(tables)
+    return transformer.transform(tables, ids), ids
 
 
 def _base_reverse_table(
-    handler: TableHandler,
+    transformer: TableHandler,
     ids: pd.DataFrame,
     table: pd.DataFrame,
     **parents: dict[str, pd.DataFrame],
 ):
-    return handler.reverse(table, ids, parents)
+    return transformer.reverse(table, ids, parents)
 
 
-def _encode_table(type: str, handler: TableHandler, table: pd.DataFrame):
-    return handler[type].encode(table)
+def _encode_table(type: str, transformer: TableHandler, table: pd.DataFrame):
+    return transformer[type].encode(table)
 
 
-def _decode_table(type: str, handler: TableHandler, table: pd.DataFrame):
-    return handler[type].decode(table)
+def _decode_table(type: str, transformer: TableHandler, table: pd.DataFrame):
+    return transformer[type].decode(table)
 
 
 def create_transformers_pipeline(
     view: View, transformers: dict[str, Transformer], encoders: dict[str, Encoder]
 ):
-    return pipeline(
+    pipe = pipeline(
         [
             node(
                 func=gen_closure(
@@ -79,11 +82,31 @@ def create_transformers_pipeline(
         ]
     )
 
+    outputs = [
+        D(
+            "transformers",
+            f"{view}.trn.{table}",
+            ["views", "transformer", view, table],
+            type="pkl",
+        )
+        for table in view.tables
+    ] + [
+        D(
+            "transformers",
+            f"{view}.trn.ids_{table}",
+            ["views", "ids", view, table],
+        )
+        for table in view.tables
+    ]
+
+    return PipelineMeta(pipe, outputs)
+
 
 def create_transform_pipeline(
     view: View, split: str, types: list[str], only_encode: bool = False
 ):
     table_nodes = []
+    outputs = []
 
     for t in view.tables:
         if not only_encode:
@@ -97,6 +120,20 @@ def create_transform_pipeline(
                     outputs=[f"bst_{t}", f"ids_{t}"],
                 ),
             ]
+            outputs.append(
+                D(
+                    "split_transformed",
+                    f"{view}.{split}.bst_{t}",
+                    ["views", "bst", f"{view}.{split}", t],
+                )
+            )
+            outputs.append(
+                D(
+                    "split_transformed",
+                    f"{view}.{split}.ids_{t}",
+                    ["views", "ids", f"{view}.{split}", t],
+                )
+            )
 
         for type in types:
             table_nodes += [
@@ -109,18 +146,28 @@ def create_transform_pipeline(
                     outputs=f"{type}_{t}",
                 )
             ]
+            outputs.append(
+                D(
+                    "split_encoded",
+                    f"{view}.{split}.{type}_{t}",
+                    ["views", type, f"{view}.{split}", t],
+                )
+            )
 
     inputs = {f"trn_{t}": f"{view}.trn.{t}" for t in view.tables}
 
-    return modular_pipeline(
+    pipe = modular_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
         inputs=inputs,
     )
 
+    return PipelineMeta(pipe, outputs)
+
 
 def create_reverse_pipeline(view: View, alg: str, type: str):
     decode_nodes = []
+    outputs = []
     for t in view.tables:
         decode_nodes += [
             node(
@@ -143,10 +190,27 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
             ),
         ]
 
-    return modular_pipeline(
+        outputs.append(
+            D(
+                "synth_decoded",
+                f"{view}.{alg}.bst_{t}",
+                ["synth", "bst", f"{view}.{alg}", t],
+                versioned=True,
+            )
+        )
+        outputs.append(
+            D(
+                "synth_reversed",
+                f"{view}.{alg}.{t}",
+                ["synth", "dec", f"{view}.{alg}", t],
+                versioned=True,
+            )
+        )
+
+    pipe = modular_pipeline(
         pipe=pipeline(decode_nodes),
         namespace=f"{view}.{alg}",
-        inputs={
-            **{f"trn_{t}": f"{view}.trn.{t}" for t in view.tables},
-        },
+        inputs={f"trn_{t}": f"{view}.trn.{t}" for t in view.tables},
     )
+
+    return PipelineMeta(pipe, outputs)

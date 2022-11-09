@@ -1,10 +1,10 @@
 from io import StringIO
 from logging import Handler, getLevelName
 from os import path
+from time import time
 from weakref import WeakSet
 
 import mlflow
-from time import time
 
 
 class MlflowHandler(Handler):

@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ...views import TabularView, View
+from ...view import TabularView, View
 from ..datasets import mimic as _
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:

@@ -5,21 +5,22 @@ from kedro.pipeline import Pipeline, pipeline
 from ...dataset import Dataset
 from ...synth import Synth
 from ...view import View
+from ...encode import Encoder
+from ...transform import Transformer
+from .module import get_module_dict, instantiate_dict
 from .dataset import create_dataset_pipeline, create_keys_pipeline
-from .metrics import (
-    get_required_types as metrics_get_required_types,
-    create_fit_pipelines as metrics_create_fit_pipelines,
-    create_log_pipelines as metrics_create_log_pipelines,
-)
+from .metrics import create_fit_pipelines as metrics_create_fit_pipelines
+from .metrics import create_log_pipelines as metrics_create_log_pipelines
+from .metrics import get_required_types as metrics_get_required_types
 from .synth import create_synth_pipeline
-from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
 from .transform import (
-    create_transformers_pipeline,
     create_reverse_pipeline,
     create_transform_pipeline,
+    create_transformers_pipeline,
 )
-
 from .utils import list_unique
+from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
+from .module import PipelineMeta
 
 WRK_SPLIT = "wrk"
 REF_SPLIT = "ref"
@@ -39,9 +40,15 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
 
     If None is passed, all registered classes are included."""
 
-    views = _get_views(views)
-    algs = _get_algs(algs)
-    datasets = _get_datasets(views)
+    datasets = instantiate_dict(get_module_dict(Dataset, modules))
+    views = instantiate_dict(get_module_dict(View, modules))
+    algs = get_module_dict(Synth, modules)
+
+    all_types = _get_all_types(algs)
+    encoders = {
+        k: v for k, v in get_module_dict(Encoder, modules).items() if k in all_types
+    }
+    transformers = get_module_dict(Transformer, modules)
 
     wrk_split = WRK_SPLIT
     ref_split = REF_SPLIT
@@ -65,7 +72,7 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
 
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
-            create_transformers_pipeline(view, all_types)
+            create_transformers_pipeline(view, transformers, encoders)
             + create_transform_pipeline(view, wrk_split, all_types)
             + create_transform_pipeline(view, ref_split, msr_types)
             + pipe_metrics_fit
@@ -113,10 +120,30 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
 
     # Hide extra pipes at the bottom of kedro viz
     # dictionaries are ordered
-    pipes = {}
+    pipes: dict[str, Pipeline | PipelineMeta] = {}
+    default = next(iter(main_pipes))
     pipes["__default__"] = main_pipes.get(default, extr_pipes.get(default, []))
     pipes.update(main_pipes)
     pipes["__misc_pipelines__"] = pipeline([])
     pipes.update(extr_pipes)
 
-    return pipes
+    # Split pipelines
+    pipelines = {k: v if isinstance(v, Pipeline) else v[0] for k, v in pipes.items()}
+
+    # Split outputs
+    outputs = {}
+    for name, meta in pipes.items():
+        if isinstance(meta, Pipeline):
+            continue
+        
+        # Check for incongruencies
+        pipe_out_names = meta.pipeline.all_outputs()
+        out_names = {out.name for out in meta.outputs}
+
+        diff = pipe_out_names.symmetric_difference(out_names)
+        assert not diff, f"Pipeline meta {name} has different outputs than what is stated in the pipeline:\n{diff}"
+
+        for out in meta.outputs:
+            outputs[out.name] = out
+
+    return pipelines, outputs

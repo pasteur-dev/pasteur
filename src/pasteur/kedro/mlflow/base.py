@@ -1,7 +1,7 @@
 import mlflow
 from mlflow.entities import Run, RunStatus
 
-from ...utils import dict_to_flat_params
+from ...utils.parser import dict_to_flat_params
 
 
 def flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:

@@ -2,7 +2,7 @@ from functools import partial
 from itertools import chain
 from typing import Callable, TypeVar
 
-from ...utils import get_params_for_pipe
+from ...utils.parser import get_params_for_pipe
 
 A = TypeVar("A")
 

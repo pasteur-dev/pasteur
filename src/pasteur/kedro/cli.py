@@ -10,6 +10,7 @@ from .runner import SimpleRunner
 logger = logging.getLogger(__name__)
 
 
+@click.command()
 @click.argument("pipeline", type=str, default=None)
 @click.argument(
     "params",
@@ -58,6 +59,7 @@ def _process_iterables(iterables: dict[str, Iterable]):
                 break
 
 
+@click.command()
 @click.argument("pipeline", type=str, default=None)
 @click.option("--alg", "-a", multiple=True)
 @click.option("--iterator", "-i", multiple=True)
@@ -164,7 +166,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         session.load_context()
         log_parent_run(parent_name, runs)
 
-
+@click.command()
 @click.option("--user", "-u", type=str, default=None)
 @click.option(
     "--download-dir",
@@ -221,11 +223,10 @@ def download(
 def cli():
     """Command line tools for manipulating a Kedro project."""
 
+cli.add_command(download)
+cli.add_command(pipe)
+cli.add_command(sweep)
 
-cli.command()(pipe)
-cli.command()(download)
-cli.command()(sweep)
-
-cli.command("p")(pipe).short_help = "Alias for p(ipe)"
-cli.command("dl")(download).short_help = "Alias for download"
-cli.command("s")(sweep).short_help = "Alias for s(weep)"
+cli.add_command(download, "dl")
+cli.add_command(pipe, "p")
+cli.add_command(sweep, "s")

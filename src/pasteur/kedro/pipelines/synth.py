@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, Pipeline as pipeline
+from kedro.pipeline import Pipeline as pipeline
+from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
+from .module import DatasetMeta as D
+from .module import PipelineMeta
 from .utils import gen_closure
 
 if TYPE_CHECKING:
-    from ...view import View
     from ...synth import Synth
+    from ...view import View
 
 
 def create_synth_pipeline(
@@ -53,7 +56,7 @@ def create_synth_pipeline(
         ]
     )
 
-    return modular_pipeline(
+    pipe = modular_pipeline(
         pipe=synth_pipe,
         namespace=f"{view}.{alg}",
         inputs={
@@ -63,3 +66,31 @@ def create_synth_pipeline(
             **{f"trn_{t}": f"{view}.trn.{t}" for t in tables},
         },
     )
+
+    outputs = [
+        D(
+            "synth_models",
+            f"{view}.{alg}.model",
+            ["synth", "models", f"{view}.{alg}"],
+            versioned=True,
+            type="pkl",
+        ),
+        *[
+            D(
+                "synth_output",
+                f"{view}.{alg}.enc_{t}",
+                ["synth", "enc", f"{view}.{alg}.{t}"],
+            )
+            for t in view.tables
+        ],
+        *[
+            D(
+                "synth_output",
+                f"{view}.{alg}.ids_{t}",
+                ["synth", "enc", f"{view}.{alg}.{t}"],
+            )
+            for t in view.tables
+        ],
+    ]
+
+    return PipelineMeta(pipe, outputs)

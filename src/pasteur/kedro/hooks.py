@@ -1,15 +1,17 @@
 import logging
-from typing import Any
 from os import path
+from typing import Any
 
+from kedro.extras.datasets.pandas import ParquetDataSet
+from kedro.extras.datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog, Version
-from kedro.extras.datasets.pandas import ParquetDataSet
-from kedro.extras.datasets.pickle import PickleDataSet
+
+from .mlflow.hook import MlflowTrackingHook
 
 
-class AddDatasetsForViewsHook:
+class PasteurHook:
     def __init__(
         self,
         tables: dict[str, list[str]],
