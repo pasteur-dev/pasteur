@@ -148,7 +148,8 @@ def create_transform_pipeline(
             ]
             outputs.append(
                 D(
-                    "split_encoded",
+                    # FIXME: Pass proper layer properly, don't infer
+                    "synth_reencoded" if only_encode else "split_encoded",
                     f"{view}.{split}.{type}_{t}",
                     ["views", type, f"{view}.{split}", t],
                 )

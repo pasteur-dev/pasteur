@@ -56,5 +56,5 @@ def get_module_dict(parent: type[A], modules: list[type]) -> dict[str, A]:
         out[module.name] = module
     return out
 
-def instantiate_dict(d: dict[str, type]):
+def instantiate_dict(d: dict[str, type[A]]) -> dict[str, A]:
     return {k: v() for k, v in d.items()}

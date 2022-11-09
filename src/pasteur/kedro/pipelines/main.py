@@ -193,4 +193,9 @@ def generate_pipelines(
         for out in meta.outputs:
             outputs[out.name] = out
 
-    return pipelines, list(outputs.values())
+    return (
+        pipelines,
+        list(outputs.values()),
+        [(d.folder_name, d.catalog_fn) for d in datasets.values() if d.catalog_fn],
+        [v.parameters_fn for v in views.values() if v.parameters_fn]
+    )

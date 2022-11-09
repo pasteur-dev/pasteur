@@ -1,15 +1,17 @@
 import logging
 from os import path
-from typing import Callable
+from typing import Any, Callable
 
-from kedro.framework.project import pipelines
+import yaml
 from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
+from kedro.framework.project import pipelines
 from kedro.io import DataCatalog, Version
 
 from ..pipelines import generate_pipelines
+from ..pipelines.main import NAME_LOCATION, RAW_LOCATION
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +28,31 @@ class PasteurHook:
     ) -> None:
         self.raw_location = context.params["raw_location"]
         self.base_location = context.params["base_location"]
+        self.context = context
 
         if callable(self.lazy_modules):
             self.modules = self.lazy_modules()
         else:
             self.modules = self.lazy_modules
 
-        self.pipelines, self.outputs = generate_pipelines(self.modules, context.params)
+        (
+            self.pipelines,
+            self.outputs,
+            self.catalog_fns,
+            self.parameter_fns,
+        ) = generate_pipelines(self.modules, context.params)
 
         # FIXME: clean this up
+        # Add pipelines
         pipelines._load_data()
         pipelines._content.update(self.pipelines)
+
+        # Add metadata
+        if self.parameter_fns:
+            orig_params = context._extra_params
+            context._extra_params = context.config_loader.get(*self.parameter_fns)
+            if orig_params:
+                context._extra_params.update(orig_params)
 
     def get_version(self, name: str, versioned: bool):
         load_version = (
@@ -81,6 +97,7 @@ class PasteurHook:
     def after_catalog_created(
         self,
         catalog: DataCatalog,
+        conf_creds: dict[str, Any],
         save_version: str,
         load_versions: dict[str, str],
     ) -> None:
@@ -100,6 +117,35 @@ class PasteurHook:
 
             catalog.layers = defaultdict(set)
 
+        # Add raw datasets from packaged datasets
+        # Just replace `${<folder_name>_location}` with raw/<folder_name> or that parameter
+        if self.catalog_fns:
+            params = self.context.params
+
+            for folder_name, catalog_fn in self.catalog_fns:
+                name = NAME_LOCATION.format(folder_name)
+                dir = params.get(name, path.join(params[RAW_LOCATION], folder_name))
+
+                with open(catalog_fn, "r") as f:
+                    data = f.read()
+
+                data = data.replace(f"${{{name}}}", dir)
+                conf = yaml.safe_load(data)
+
+                tmp_catalog = DataCatalog.from_config(
+                    conf,
+                    conf_creds,
+                    load_versions,
+                    save_version,
+                )
+                catalog.add_all(tmp_catalog._data_sets)
+                for layer, children in tmp_catalog.layers.items():
+                    catalog.layers[layer] = {
+                        *children,
+                        *catalog.layers.get(layer, set()),
+                    }
+
+        # Add pipeline outputs
         for d in self.outputs:
             match d.type:
                 case "pkl":
