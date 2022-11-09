@@ -3,7 +3,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from ..transform import Attributes, get_dtype
+from ...attribute import Attributes, get_dtype
 
 ZERO_FILL = 1e-24
 
@@ -55,7 +55,7 @@ def expand_table(
 
     domains = {}
     for attr in attrs.values():
-        for name, col in attr.cols.items():
+        for name, col in attr.vals.items():
             col_hier = []
             col_noncommon = []
             col_dom = []

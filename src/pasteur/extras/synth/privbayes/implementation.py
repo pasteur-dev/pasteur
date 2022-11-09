@@ -5,8 +5,9 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from ....progress import piter, prange, process_in_parallel
-from ....synth.math import (
+from ....attribute import Attributes, get_dtype
+from ....utils.progress import piter, prange, process_in_parallel
+from ..math import (
     ZERO_FILL,
     AttrSelector,
     AttrSelectors,
@@ -14,7 +15,6 @@ from ....synth.math import (
     calc_marginal_1way,
     expand_table,
 )
-from ....transform import Attributes, get_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ def greedy_bayes(
     domain = []  # col, height -> domain
     for i, (an, a) in enumerate(attrs.items()):
         group_names.append(an)
-        for n, c in a.cols.items():
+        for n, c in a.vals.items():
             col_names.append(n)
             groups.append(i)
             heights.append(c.height)
@@ -487,7 +487,7 @@ def print_tree(
         line_str = ""
         for p_name, attr_sel in p.items():
             p_str = f" {p_name}["
-            for col in attrs[p_name].cols:
+            for col in attrs[p_name].vals:
                 if col in attr_sel.cols:
                     p_str += str(attr_sel.cols[col])
                 else:
@@ -504,7 +504,7 @@ def print_tree(
         s += f"{line_str:57s}│"
 
     # Skip multi-col attr printing if there aren't any of them.
-    if not any(len(attr.cols) > 1 for attr in attrs.values()):
+    if not any(len(attr.vals) > 1 for attr in attrs.values()):
         s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
         return s
 
@@ -514,7 +514,7 @@ def print_tree(
     s += f"\n├{'─'*21}┼─────┼───────────{'─'*pset_len}┤"
 
     for name, attr in attrs.items():
-        cols = attr.cols
+        cols = attr.vals
         if len(cols) <= 1:
             continue
 
@@ -642,7 +642,7 @@ def sample_rows(
                 l_mul = 1
                 p_partial = partial and attr_name == x_attr
                 for i, (col_name, h) in enumerate(attr.cols.items()):
-                    col = attrs[attr_name].cols[col_name]
+                    col = attrs[attr_name].vals[col_name]
                     mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 

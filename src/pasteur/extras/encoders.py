@@ -12,6 +12,7 @@ class DiscretizationColumnTransformer:
 
     def fit(self, attr: NumValue, data: pd.Series) -> IdxValue:
         self.in_attr = attr
+        assert data.name
         self.col = data.name
 
         rng = (
@@ -19,6 +20,7 @@ class DiscretizationColumnTransformer:
             if attr.min is not None and attr.max is not None
             else None
         )
+        assert attr.bins is not None
         self.edges = np.histogram_bin_edges(data[~pd.isna(data)], attr.bins, rng)
         self.vals = (self.edges[:-1] + self.edges[1:]) / 2
 
@@ -56,7 +58,7 @@ class IdxEncoder(Encoder):
         self.transformers: dict[str, DiscretizationColumnTransformer] = {}
 
         cols = {}
-        for name, col_attr in attr.cols.items():
+        for name, col_attr in attr.vals.items():
             if isinstance(col_attr, NumValue):
                 t = DiscretizationColumnTransformer()
                 new_attr = t.fit(col_attr, data[name])
@@ -71,15 +73,15 @@ class IdxEncoder(Encoder):
                 cols[name] = col_attr
 
         self.attr = copy(attr)
-        self.attr.update_cols(cols)
+        self.attr.update_vals(cols)
         return self.attr
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
-        if len(self.attr.cols) == 0:
+        if len(self.attr.vals) == 0:
             return pd.DataFrame(index=data.index)
 
         out_cols = []
-        for name, col in self.attr.cols.items():
+        for name, col in self.attr.vals.items():
             t = self.transformers.get(name, None)
             if t:
                 out_cols.append(t.encode(data[name]))
@@ -90,7 +92,7 @@ class IdxEncoder(Encoder):
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         dec = pd.DataFrame(index=enc.index)
-        for n in self.attr.cols.keys():
+        for n in self.attr.vals.keys():
             t = self.transformers.get(n, None)
             if t:
                 dec[n] = t.decode(enc)
@@ -111,7 +113,7 @@ class NumEncoder(Encoder):
         for i in range(common):
             cols[f"{attr.name}_cmn_{i}"] = NumValue()
 
-        for name, col in attr.cols.items():
+        for name, col in attr.vals.items():
             if isinstance(col, NumValue):
                 cols[name] = col
             if isinstance(col, IdxValue):
@@ -123,12 +125,12 @@ class NumEncoder(Encoder):
                         cols[f"{name}_{i}"] = NumValue()
 
         self.attr = copy(attr)
-        self.attr.update_cols(cols)
+        self.attr.update_vals(cols)
         return self.attr
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         a = self.in_attr
-        if len(a.cols) == 0:
+        if len(a.vals) == 0:
             return pd.DataFrame(index=data.index)
         cols = []
 
@@ -138,7 +140,7 @@ class NumEncoder(Encoder):
         for i in range(a.common):
             cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}")
 
-            for name, col in a.cols.items():
+            for name, col in a.vals.items():
                 if isinstance(col, IdxValue):
                     cmn_col |= data[name] == i
                 if isinstance(col, NumValue) and only_has_na:
@@ -148,7 +150,7 @@ class NumEncoder(Encoder):
                     cmn_col |= pd.isna(data[name])
 
         # Add other columns
-        for name, col in a.cols.items():
+        for name, col in a.vals.items():
             if isinstance(col, NumValue):
                 cols.append(data[name])
             elif isinstance(col, IdxValue):

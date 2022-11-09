@@ -71,7 +71,7 @@ def create_meta_pipeline(view: View):
                 )
             ]
         ),
-        [D("metadata", f"{view}.metadata", ["views", "metadata", view])],
+        [D("metadata", f"{view}.metadata", ["views", "metadata", view], type="pkl")],
     )
 
 

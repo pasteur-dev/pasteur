@@ -13,7 +13,7 @@ calc_chisquare, calc_kl, log_cs_mlflow, log_kl_mlflow = lazy_load(
     ["calc_chisquare", "calc_kl", "log_cs_mlflow", "log_kl_mlflow"],
 )
 mlflow_log_as_str, mlflow_log_artifacts = lazy_load(
-    __package__, "...metrics.mlflow", ["mlflow_log_as_str", "mlflow_log_artifacts"]
+    __package__, "...utils.mlflow", ["mlflow_log_as_str", "mlflow_log_artifacts"]
 )
 create_fitted_hist_holder, mlflow_log_hists, project_hists_for_view = lazy_load(
     __package__,

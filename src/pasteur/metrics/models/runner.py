@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-from ...transform import TableTransformer
+from ...table import TableHandler
 from ...utils.progress import process_in_parallel
 from .models import BaseModel, get_models, get_required_types
 
@@ -41,7 +41,7 @@ def _enc_to_orig_cols(
     return out
 
 
-def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.DataFrame):
+def node_calculate_model_scores(transformer: TableHandler, **tables: pd.DataFrame):
     types = get_required_types()
     meta = transformer.meta
     table_name = transformer.name
@@ -53,7 +53,7 @@ def node_calculate_model_scores(transformer: TableTransformer, **tables: pd.Data
         sets[type] = {}
 
         attr = transformer[type].get_attributes()
-        cols = {n: list(a.cols.keys()) for n, a in attr.items()}
+        cols = {n: list(a.vals.keys()) for n, a in attr.items()}
         orig_to_enc_cols[type] = cols
 
     for arg_name, table in tables.items():

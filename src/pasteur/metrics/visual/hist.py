@@ -7,7 +7,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from ...metadata import ColumnMeta
-from ...utils import find_subclasses
+from ...utils.parser import _find_subclasses as find_subclasses
 
 A = TypeVar("A")
 

@@ -320,7 +320,7 @@ def generate_domain_list(
 class RebalancedValue(IdxValue):
     def __init__(
         self,
-        counts: np.array,
+        counts: np.ndarray,
         col: LevelValue,
         reshape_domain: bool = True,
         u: float = 1.3,
@@ -425,7 +425,7 @@ def rebalance_value(
 ):
     assert not gaussian, "Gaussian dp not supported yet"
 
-    counts = np.bincount(col_data, minlength=col.get_domain(0)).astype(np.float)
+    counts = np.bincount(col_data, minlength=col.get_domain(0)).astype(np.float32)
 
     if ep is not None:
         noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
@@ -454,7 +454,7 @@ def rebalance_attributes(
     new_attrs = {}
     for name, attr in attrs.items():
         cols = {}
-        for col_name, col in attr.cols.items():
+        for col_name, col in attr.vals.items():
             cols[col_name] = rebalance_value(
                 table[col_name],
                 col,
@@ -464,7 +464,7 @@ def rebalance_attributes(
             )
 
         new_attr = copy(attr)
-        new_attr.update_cols(cols)
+        new_attr.update_vals(cols)
         new_attrs[name] = new_attr
 
     return new_attrs

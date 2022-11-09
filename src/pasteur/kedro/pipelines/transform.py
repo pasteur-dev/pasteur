@@ -22,13 +22,13 @@ from .utils import gen_closure
 def _fit_table(
     name: str,
     transformers: dict[str, type[Transformer]],
-    encoders: dict[str, type[Transformer]],
+    encoders: dict[str, type[Encoder]],
     meta: Metadata,
-    **tables: dict[str, pd.DataFrame],
+    **tables: pd.DataFrame,
 ):
     from ...table import TableHandler
 
-    t = TableHandler(meta, name, encoders, transformers)
+    t = TableHandler(meta, name, transformers, encoders)
     tables, ids = t.fit_transform(tables)
     return t, ids
 

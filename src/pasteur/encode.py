@@ -21,11 +21,14 @@ class Encoder:
     name: str
     attr: Attribute
 
+    def __init__(self, **_) -> None:
+        pass
+
     def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()

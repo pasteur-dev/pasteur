@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
     from .attribute import Attributes
-    from .transform import TableTransformer
+    from .table import TableHandler
     from .metadata import Metadata
 
 import logging
@@ -103,9 +103,9 @@ class Synth(ABC):
 
 
 def synth_fit(
-    cls: type[Synth], metadata: Metadata, **kwargs: pd.DataFrame | TableTransformer
+    cls: type[Synth], metadata: Metadata, **kwargs: pd.DataFrame | TableHandler
 ):
-    from .utils import PerformanceTracker
+    from .utils.perf import PerformanceTracker
 
     tracker = PerformanceTracker.get("synth")
 
@@ -139,7 +139,7 @@ def synth_fit(
 
 
 def synth_sample(model: Synth):
-    from .utils import PerformanceTracker
+    from .utils.perf import PerformanceTracker
 
     tracker = PerformanceTracker.get("synth")
 

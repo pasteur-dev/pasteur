@@ -4,7 +4,7 @@ from scipy.stats import chisquare
 from scipy.special import rel_entr
 
 from functools import reduce
-from ...transform import get_dtype
+from ...attribute import get_dtype
 
 KL_ZERO_FILL = 1e-24
 

@@ -154,6 +154,8 @@ class TableTransformer:
                 else:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
+                
+            assert col.type in transformers, f"Column type {col.type} not in transformers:\n{list(transformers.keys())}"
 
             # Fit transformer
             if "main_param" in col.args:
@@ -317,13 +319,13 @@ class TableEncoder:
 
     encoders: dict[str, Encoder]
 
-    def __init__(self, encoder: Encoder, **kwargs) -> None:
+    def __init__(self, encoder: type[Encoder], **kwargs) -> None:
         self.kwargs = kwargs
         self._encoder_cls = encoder
-        self.transformers = {}
+        self.encoders = {}
 
     def fit(self, attrs: Attributes, data: pd.DataFrame | None = None) -> Attributes:
-        self.transformers = {}
+        self.encoders = {}
 
         for n, a in attrs.items():
             t = self._encoder_cls(**self.kwargs)
@@ -335,7 +337,7 @@ class TableEncoder:
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         cols = []
 
-        for t in self.transformers.values():
+        for t in self.encoders.values():
             cols.append(t.encode(data))
 
         return pd.concat(cols, axis=1)
@@ -343,14 +345,14 @@ class TableEncoder:
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         cols = []
 
-        for t in self.transformers.values():
+        for t in self.encoders.values():
             cols.append(t.decode(enc))
 
         return pd.concat(cols, axis=1)
 
     @property
     def attrs(self):
-        return {a.name: a for a in [t.attr for t in self.transformers.values()]}
+        return {a.name: a for a in [t.attr for t in self.encoders.values()]}
 
     def get_attributes(self):
         return self.attrs
@@ -373,7 +375,7 @@ class TableHandler:
         self.transformer = TableTransformer(self.ref, meta, name, transformers)
         self.fitted = False
 
-        self.encoders = {name: TableEncoder(encoder) for name, encoder in encoders}
+        self.encoders = {name: TableEncoder(encoder) for name, encoder in encoders.items()}
 
     def find_ids(self, tables: dict[str, pd.DataFrame]):
         return self.ref.find_foreign_ids(self.name, tables)
@@ -383,7 +385,7 @@ class TableHandler:
         tables: dict[str, pd.DataFrame] | pd.DataFrame,
         ids: pd.DataFrame | None = None,
     ):
-        return self.base.transform(tables, ids)
+        return self.transformer.transform(tables, ids)
 
     def reverse(
         self,
@@ -391,7 +393,7 @@ class TableHandler:
         ids: pd.DataFrame | None = None,
         parent_tables: dict[str, pd.DataFrame] = None,
     ):
-        return self.base.reverse(table, ids, parent_tables)
+        return self.transformer.reverse(table, ids, parent_tables)
 
     def fit_transform(
         self, tables: dict[str, pd.DataFrame], ids: pd.DataFrame | None = None
@@ -405,10 +407,10 @@ class TableHandler:
         else:
             ids = pd.DataFrame()
 
-        self.base.fit(tables, ids)
+        self.transformer.fit(tables, ids)
 
-        attrs = self.base.get_attributes()
-        table = self.base.transform(tables, ids)
+        attrs = self.transformer.get_attributes()
+        table = self.transformer.transform(tables, ids)
 
         for encoder in self.encoders.values():
             encoder.fit(attrs, table)
@@ -418,4 +420,4 @@ class TableHandler:
 
     def __getitem__(self, type):
         assert self.fitted
-        return self.transformers[type]
+        return self.encoders[type]

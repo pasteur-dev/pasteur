@@ -53,7 +53,7 @@ class PrivBayesSynth(Synth):
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
     ):
-        from ....synth.hierarchy import rebalance_attributes
+        from ....hierarchy import rebalance_attributes
 
         table_name = next(iter(data.keys()))
         table = data[table_name]
