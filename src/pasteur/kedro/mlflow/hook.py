@@ -1,13 +1,11 @@
 import logging
 from copy import deepcopy
-from typing import Any, Collection
+from typing import Any
 
 import mlflow
 from kedro.config import MissingConfigException
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
-from kedro.io import DataCatalog
-from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from mlflow.entities import RunStatus
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
@@ -84,9 +82,7 @@ class MlflowTrackingHook:
         self.context = context
 
     @hook_impl
-    def before_pipeline_run(
-        self, run_params: dict[str, Any], pipeline: Pipeline, catalog: DataCatalog
-    ) -> None:
+    def before_pipeline_run(self, run_params: dict[str, Any]) -> None:
 
         # Disable tracking for pipelines that don't meet criteria
         pipeline_name = run_params["pipeline_name"]

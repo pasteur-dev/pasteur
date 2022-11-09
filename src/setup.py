@@ -2,7 +2,10 @@ from setuptools import find_packages, setup
 
 entry_points = {
     "console_scripts": ["pasteur = pasteur.__main__:main"],
-    "kedro.hooks": ["pasteur = pasteur.kedro.hooks:hooks"],
+    "kedro.hooks": [
+        "pasteur = pasteur.kedro.hooks:pasteur",
+        "pasteur_mlflow = pasteur.kedro.hooks:mlflow",
+    ],
     "kedro.project_commands": ["pasteur = pasteur.cli:cli"],
 }
 

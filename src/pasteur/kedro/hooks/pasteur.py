@@ -1,7 +1,8 @@
 import logging
 from os import path
-from typing import Any
+from typing import Any, Callable
 
+from kedro.framework.project import pipelines
 from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
@@ -9,21 +10,33 @@ from kedro.framework.hooks import hook_impl
 from kedro.io import DataCatalog, Version
 
 from ..pipelines import generate_pipelines
-from ..utils import get_pasteur_modules
 
 logger = logging.getLogger("Pasteur")
 
 
 class PasteurHook:
-    def __init__(self, modules: list[type] | callable | None) -> None:
-        self.modules = modules
+    def __init__(self, modules: list[type] | Callable | None) -> None:
+        self.lazy_modules = modules
+        self.modules = None
 
     @hook_impl
     def after_context_created(
         self,
         context: KedroContext,
     ) -> None:
+        self.raw_location = context.params["raw_location"]
         self.base_location = context.params["base_location"]
+
+        if callable(self.lazy_modules):
+            self.modules = self.lazy_modules()
+        else:
+            self.modules = self.lazy_modules
+
+        self.pipelines, self.outputs = generate_pipelines(self.modules)
+    
+        # FIXME: clean this up
+        pipelines._load_data()
+        pipelines._content.update(self.pipelines)
 
     def get_version(self, name: str, versioned: bool):
         load_version = (
@@ -68,8 +81,6 @@ class PasteurHook:
     def after_catalog_created(
         self,
         catalog: DataCatalog,
-        conf_catalog: dict[str, Any],
-        conf_creds: dict[str, Any],
         save_version: str,
         load_versions: dict[str, str],
     ) -> None:
