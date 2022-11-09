@@ -1,6 +1,6 @@
 import logging
 from os import path
-from typing import Any, Callable
+from typing import Callable
 
 from kedro.framework.project import pipelines
 from kedro.extras.datasets.pandas import ParquetDataSet
@@ -11,7 +11,7 @@ from kedro.io import DataCatalog, Version
 
 from ..pipelines import generate_pipelines
 
-logger = logging.getLogger("Pasteur")
+logger = logging.getLogger(__name__)
 
 
 class PasteurHook:
@@ -32,8 +32,8 @@ class PasteurHook:
         else:
             self.modules = self.lazy_modules
 
-        self.pipelines, self.outputs = generate_pipelines(self.modules)
-    
+        self.pipelines, self.outputs = generate_pipelines(self.modules, context.params)
+
         # FIXME: clean this up
         pipelines._load_data()
         pipelines._content.update(self.pipelines)
@@ -94,3 +94,17 @@ class PasteurHook:
         self.catalog = catalog
         self.save_version = save_version
         self.load_versions = load_versions
+
+        if catalog.layers is None:
+            from collections import defaultdict
+
+            catalog.layers = defaultdict(set)
+
+        for d in self.outputs:
+            match d.type:
+                case "pkl":
+                    self.add_pkl(d.layer, d.name, d.str_path, d.versioned)
+                case "pq":
+                    self.add_set(d.layer, d.name, d.str_path, d.versioned)
+                case _:
+                    assert False, "Not implemented"

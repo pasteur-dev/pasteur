@@ -11,6 +11,10 @@ class DatasetMeta(NamedTuple):
     versioned: bool = False
     type: Literal["pkl", "pq"] = "pq"
 
+    @property
+    def str_path(self) -> tuple[str]:
+        return tuple(map(str, self.path))
+
 
 class PipelineMeta(NamedTuple):
     """ Retain pipeline behavior with addition but enable storing dataset metadata.

@@ -1,4 +1,5 @@
 from typing import Dict
+from os import path
 
 from kedro.pipeline import Pipeline, pipeline
 
@@ -20,10 +21,17 @@ from .transform import (
 )
 from .utils import list_unique
 from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
-from .module import PipelineMeta
+from .module import PipelineMeta, DatasetMeta
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 WRK_SPLIT = "wrk"
 REF_SPLIT = "ref"
+BASE_LOCATION = "base_location"
+RAW_LOCATION = "raw_location"
+NAME_LOCATION = "{}_location"
 
 
 def get_msr_types():
@@ -35,7 +43,34 @@ def _get_all_types(algs: dict[str, Synth]):
     return list_unique(alg_types, get_msr_types())
 
 
-def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
+def _is_downloaded(ds: Dataset, params: dict):
+    if not ds.folder_name:
+        return True
+
+    p = params.get(
+        NAME_LOCATION.format(ds.folder_name),
+        path.join(params[RAW_LOCATION], ds.folder_name),
+    )
+    if path.exists(p):
+        return True
+
+    logger.warn(f'Disabling dataset {ds}, path "{p}" doesn\'t exist.')
+    return False
+
+
+def _has_dataset(view: View, datasets: dict[str, Dataset]):
+    has = view.dataset in datasets
+
+    if has:
+        return True
+
+    logger.warn(f"Disabling {view}, missing dataset {view.dataset}.")
+    return False
+
+
+def generate_pipelines(
+    modules: list[type], params: dict
+) -> tuple[dict[str, Pipeline], list[DatasetMeta]]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
 
     If None is passed, all registered classes are included."""
@@ -43,6 +78,10 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
     datasets = instantiate_dict(get_module_dict(Dataset, modules))
     views = instantiate_dict(get_module_dict(View, modules))
     algs = get_module_dict(Synth, modules)
+
+    # Filter views and datasets
+    datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, params)}
+    views = {k: v for k, v in views.items() if _has_dataset(v, datasets)}
 
     all_types = _get_all_types(algs)
     encoders = {
@@ -121,8 +160,14 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
     # Hide extra pipes at the bottom of kedro viz
     # dictionaries are ordered
     pipes: dict[str, Pipeline | PipelineMeta] = {}
-    default = next(iter(main_pipes))
-    pipes["__default__"] = main_pipes.get(default, extr_pipes.get(default, []))
+    try:
+        default = next(iter(main_pipes))
+    except StopIteration:
+        # No pipelines
+        default = None
+    pipes["__default__"] = main_pipes.get(
+        default, extr_pipes.get(default, Pipeline([]))
+    )
     pipes.update(main_pipes)
     pipes["__misc_pipelines__"] = pipeline([])
     pipes.update(extr_pipes)
@@ -135,15 +180,17 @@ def generate_pipelines(modules: list[type]) -> Dict[str, Pipeline]:
     for name, meta in pipes.items():
         if isinstance(meta, Pipeline):
             continue
-        
+
         # Check for incongruencies
         pipe_out_names = meta.pipeline.all_outputs()
         out_names = {out.name for out in meta.outputs}
 
         diff = pipe_out_names.symmetric_difference(out_names)
-        assert not diff, f"Pipeline meta {name} has different outputs than what is stated in the pipeline:\n{diff}"
+        assert (
+            not diff
+        ), f"Pipeline meta {name} has different outputs than what is stated in the pipeline:\n{diff}"
 
         for out in meta.outputs:
             outputs[out.name] = out
 
-    return pipelines, outputs
+    return pipelines, list(outputs.values())
