@@ -1,7 +1,7 @@
 adult.raw@train: &adult_csv
   type: pandas.CSVDataSet
   layer: raw
-  filepath: ${raw_location}/adult/adult.data
+  filepath: ${adult_location}/adult.data
 
   load_args: &adult_load_args
     names:
@@ -43,13 +43,8 @@ adult.raw@train: &adult_csv
 
 adult.raw@test:
   <<: *adult_csv
-  filepath: ${raw_location}/adult/adult.test
+  filepath: ${adult_location}/adult.test
 
   load_args:
     <<: *adult_load_args
     skiprows: 1
-
-adult.table:
-  type: pandas.ParquetDataSet
-  layer: interim
-  filepath: ${base_location}/orig/interim/adult/table.pq

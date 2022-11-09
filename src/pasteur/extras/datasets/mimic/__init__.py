@@ -1,7 +1,7 @@
 import pandas as pd
 
-from ...dataset import Dataset, split_keys
-
+from ....dataset import Dataset, split_keys
+from ....utils import get_relative_fn
 
 class MimicDataset(Dataset):
     _mimic_tables_all = [
@@ -37,6 +37,9 @@ class MimicDataset(Dataset):
     name = "mimic"
     deps = {t: [t] for t in _mimic_tables_all}
     key_deps = ["core_patients"]
+
+    folder_name = "mimiciv_1_0"
+    catalog_fn = get_relative_fn("catalog.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]

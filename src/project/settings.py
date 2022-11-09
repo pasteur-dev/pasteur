@@ -16,29 +16,7 @@ logging.root.handlers = []
 install(**RICH_TRACEBACK_ARGS)
 
 # Instantiated project hooks.
-# from iris_example.hooks import ProjectHooks
-from pasteur.kedro.hooks import MlflowTrackingHook, PasteurHook
-
-VIEWS = []
-ALGS = []
-from pasteur.kedro.pipelines.main import (
-    WRK_SPLIT,
-    REF_SPLIT
-)
-
-tables = {}
-
-HOOKS = (
-    PasteurHook(
-        tables,
-        ALGS,
-        WRK_SPLIT,
-        REF_SPLIT,
-        [],
-        []
-    ),
-    MlflowTrackingHook(tables, ALGS),
-)
+HOOKS = ()
 
 # Installed plugins for which to disable hook auto-registration.
 DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow",)
@@ -70,3 +48,5 @@ CONFIG_LOADER_ARGS = {
 # Class that manages the Data Catalog.
 # from kedro.io import DataCatalog
 # DATA_CATALOG_CLASS = DataCatalog
+
+PASTEUR_MODULES = None

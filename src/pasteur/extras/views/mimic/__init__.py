@@ -1,7 +1,7 @@
 import pandas as pd
 
-from ...view import TabularView, View
-from ..datasets import mimic as _
+from ....view import TabularView, View
+from ....utils import get_relative_fn
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:
     # # Calculate rel patient date
@@ -41,6 +41,7 @@ class MimicMmCoreView(View):
         "admissions": ["patients"],
         "transfers": ["admissions"],
     }
+    parameters_fn = get_relative_fn("parameters.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         match name:
@@ -62,6 +63,7 @@ class MimicTabAdmissions(TabularView):
     deps = {
         "table": ["core_patients", "core_admissions"],
     }
+    parameters_fn = get_relative_fn("parameters.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         assert name == "table"

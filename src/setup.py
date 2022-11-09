@@ -1,7 +1,10 @@
 from setuptools import find_packages, setup
 
-entry_point = "pasteur = pasteur.__main__:main"
-
+entry_points = {
+    "console_scripts": ["pasteur = pasteur.__main__:main"],
+    "kedro.hooks": ["pasteur = pasteur.kedro.hooks:hooks"],
+    "kedro.project_commands": ["pasteur = pasteur.cli:cli"],
+}
 
 # get the dependencies and installs
 with open("requirements.txt", encoding="utf-8") as f:
@@ -18,7 +21,7 @@ setup(
     name="pasteur",
     version="0.1",
     packages=find_packages(exclude=["tests", "project"]),
-    entry_points={"console_scripts": [entry_point]},
+    entry_points=entry_points,
     install_requires=requires,
     extras_require={
         "docs": [

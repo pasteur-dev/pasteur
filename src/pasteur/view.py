@@ -43,12 +43,17 @@ class View:
 
     For decoding a particular view, it may be required to decode the tables in
     a particular order. `trn_deps` defines that order. It needs to be static,
-    so it can't be placed in `parameters.yml`"""
+    so it can't be placed in `parameters.yml`
+    
+    `parameters_fn`, if provided, will be used to load a parameters file with
+    defaults for the view (such as metadata). Useful for packaging.
+    Use `utils.get_relative_fn()` from datasets."""
 
     name: str = None
     dataset: str = None
     deps: dict[str, list[str]] = {}
     trn_deps: dict[str, list[str]] = {}
+    parameters_fn: str | None = None
     tabular: bool = False
 
     def __init__(self, **_) -> None:

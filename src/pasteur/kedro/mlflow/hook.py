@@ -22,13 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 class MlflowTrackingHook:
-    def __init__(
-        self,
-        datasets: dict[str, Collection[str]],
-        algs: Collection[str],
-    ):
-        self.datasets = datasets
-        self.algs = algs
+    def __init__(self):
+        self.datasets = []
 
         self.recursive = True
         self.sep = "."

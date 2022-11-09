@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     import pandas as pd
+
 
 
 class Dataset:
@@ -17,12 +19,24 @@ class Dataset:
 
     Then, it will produce tables in the following format: `<name>.<table>`.
 
-    @Warning: having a table named raw is not allowed. Both dependencies and name
-    have to be statically defined class variables."""
+    If `folder_name` is provided, Pasteur will then check that 
+    `#{<folder_name>_location}` has been provided and exists as a path.
+    If not, it will check that `${raw_location}/<folder_name>` exists.
+    If neither are the case, then the dataset will not be loaded and a warning will be logged.
+
+    If `catalog_fn` is provided, it will be loaded with the additional
+    parameter `#{<folder_name>_location}` (if `folder_name` has been provided
+    that can be used to substitute the relative paths.
+    Use `utils.get_relative_fn()` to specify configs. Useful for packaging.
+
+    @Warning: having a table named raw is not allowed."""
 
     name = None
     deps: dict[str, list[str]] = None
     key_deps: list[str] = None
+
+    folder_name: str | None = None
+    catalog_fn: str | None = None
 
     def __init__(self, **_) -> None:
         pass
@@ -41,12 +55,12 @@ class Dataset:
 
     def ingest(self, name, **tables: pd.DataFrame):
         """Creates the table <name> using the tables provided based on the dependencies."""
-        assert False, "Unimplemented"
+        raise NotImplemented()
 
     def keys(
         self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame
     ) -> dict[str, pd.DataFrame]:
-        assert False, "Unimplemented"
+        raise NotImplemented()
 
     def keys_filtered(
         self,
@@ -75,8 +89,9 @@ class TabularDataset(Dataset):
         return df
 
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        from .utils import split_keys
         import pandas as pd
+
+        from .utils import split_keys
 
         df = pd.concat([tables[name] for name in self.deps["table"]])
         df.index.name = "id"
@@ -91,10 +106,10 @@ def split_keys(
     Example: split = {"dev": 0.3, "wrk": 0.3}
     Returns {"dev": 0 col Dataframe, "wrk" 0 col Dataframe}
     """
-    import pandas as pd
-    import numpy as np
-
     from math import floor
+
+    import numpy as np
+    import pandas as pd
 
     if random_state is not None:
         np.random.seed(random_state)
@@ -138,4 +153,9 @@ def split_keys(
     return splits
 
 
-__all__ = ["Dataset", "TabularDataset", "split_keys"]
+__all__ = [
+    "Dataset",
+    "TabularDataset",
+    "split_keys",
+    "get_relative_fn",
+]
