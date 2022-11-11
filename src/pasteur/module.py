@@ -1,11 +1,15 @@
-from typing import TypeVar, Generic
+from collections import defaultdict
+from typing import Generic, TypeVar
 
 
 class Module:
     """A Pasteur module extends a base Module class (such as Synth) and defines a name.
 
-    Each base class, name combination registered in the system is considered unique.
+    Each base class, name combination registered in the system is considered unique*.
     Example: there should only be one registered Dataset named "adult".
+
+    *the exception to this is metrics, where the name corresponds to a column type
+    and there can be multiple visualizations for a certain column type.
     """
 
     name: str
@@ -54,9 +58,18 @@ def get_module_dict(parent: type[M], modules: list[Module]) -> dict[str, M]:
     out = {}
     for module in modules:
         if isinstance(module, parent):
+            assert (
+                module.name not in out
+            ), f'Module name "{module.name}" registered twice.'
             out[module.name] = module
     return out
 
 
-def instantiate_dict(d: dict[str, type[A]]) -> dict[str, A]:
-    return {k: v() for k, v in d.items()}
+def get_module_dict_multiple(parent: type[M], modules: list[Module]) -> dict[str, list[M]]:
+    """Same as `get_module_dict`, except for that it returns a list.
+    Multiple modules can use the same name."""
+    out = defaultdict(list)
+    for module in modules:
+        if isinstance(module, parent):
+            out[module.name].append(module)
+    return out

@@ -3,15 +3,6 @@ import pandas as pd
 from .attribute import Attribute
 from .module import ModuleClass, ModuleFactory
 
-"""This package contains encoders that receive input from transformers 
-encode it to fit certain models.
-
-One example is a one-hot, numerical encoder that adjusts the data to be
-suitable for a regression model.
-
-Model specific transformers have their own hyper-parameters and may be considered
-part of the model."""
-
 
 class EncoderFactory(ModuleFactory["Encoder"]):
     ...
