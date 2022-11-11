@@ -7,8 +7,8 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
 from ...utils.parser import get_params_for_pipe
-from .module import DatasetMeta as D
-from .module import PipelineMeta
+from .meta import DatasetMeta as D
+from .meta import PipelineMeta
 from .utils import gen_closure
 
 if TYPE_CHECKING:

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any
+
+from .module import Module
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
-
 def split_keys(
-    keys: pd.DataFrame, split: dict[str, any], random_state: int | None = None
-) -> tuple[pd.Series, pd.Series, pd.Series, pd.Series]:
+    keys: pd.DataFrame, split: dict[str, Any], random_state: int | None = None
+) -> dict[str, pd.DataFrame]:
     """Splits keys according to the split dictionary.
 
     Example: split = {"dev": 0.3, "wrk": 0.3}
@@ -46,24 +47,23 @@ def split_keys(
     assert sum(ns.values()) <= n_all, "Sizes exceed dataset size"
 
     # Sort and shuffle array for a consistent split every time
-    keys = np.sort(idx)
+    np_keys = np.sort(idx)
     np.random.shuffle(keys)
 
     # Split array into the required chunks
     splits = {}
     i = 0
     for name, n in ns.items():
-        split_keys = keys[i : i + n]
+        keys_split = np_keys[i : i + n]
         i += n
-        splits[name] = pd.DataFrame(index=split_keys)
+        splits[name] = pd.DataFrame(index=keys_split)
         if idx_name is not None:
             splits[name].index.name = idx_name
 
     return splits
 
 
-
-class Dataset:
+class Dataset(Module):
     """A class for a Dataset named <name> that creates a set of tables based on the
     provided dependencies.
 
@@ -75,7 +75,7 @@ class Dataset:
 
     Then, it will produce tables in the following format: `<name>.<table>`.
 
-    If `folder_name` is provided, Pasteur will then check that 
+    If `folder_name` is provided, Pasteur will then check that
     `#{<folder_name>_location}` has been provided and exists as a path.
     If not, it will check that `${raw_location}/<folder_name>` exists.
     If neither are the case, then the dataset will not be loaded and a warning will be logged.
@@ -87,9 +87,8 @@ class Dataset:
 
     @Warning: having a table named raw is not allowed."""
 
-    name = None
-    deps: dict[str, list[str]] = None
-    key_deps: list[str] = None
+    deps: dict[str, list[str]] = {}
+    key_deps: list[str] = []
 
     folder_name: str | None = None
     catalog_fn: str | None = None
@@ -101,9 +100,7 @@ class Dataset:
     def raw_tables(self):
         from functools import reduce
 
-        return list(
-            dict.fromkeys(reduce(lambda a, b: a + b, self.dependencies.values(), []))
-        )
+        return list(dict.fromkeys(reduce(lambda a, b: a + b, self.deps.values(), [])))
 
     @property
     def tables(self):
@@ -151,9 +148,9 @@ class TabularDataset(Dataset):
         df.index.name = "id"
         return split_keys(df, ratios, random_state)
 
+
 __all__ = [
     "Dataset",
     "TabularDataset",
     "split_keys",
-    "get_relative_fn",
 ]

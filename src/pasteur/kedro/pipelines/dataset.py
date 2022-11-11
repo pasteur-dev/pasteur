@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 from kedro.pipeline import node, pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from .module import DatasetMeta as D
-from .module import PipelineMeta
+from .meta import DatasetMeta as D
+from .meta import PipelineMeta
 from .utils import gen_closure, get_params_closure
 
 if TYPE_CHECKING:

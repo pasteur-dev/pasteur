@@ -1,9 +1,7 @@
-from typing import Collection
-
 import pandas as pd
 
-from .attribute import Attribute, Attributes
-from .metadata import Metadata
+from .attribute import Attribute
+from .module import ModuleClass, ModuleFactory
 
 """This package contains encoders that receive input from transformers 
 encode it to fit certain models.
@@ -15,16 +13,17 @@ Model specific transformers have their own hyper-parameters and may be considere
 part of the model."""
 
 
-class Encoder:
+class EncoderFactory(ModuleFactory["Encoder"]):
+    ...
+
+class Encoder(ModuleClass):
     """Encapsulates a special way to encode an Attribute."""
 
     name: str
     attr: Attribute
+    _factory = EncoderFactory
 
-    def __init__(self, **_) -> None:
-        pass
-
-    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
+    def fit(self, attr: Attribute, data: pd.DataFrame | None) -> Attribute:
         raise NotImplementedError()
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:

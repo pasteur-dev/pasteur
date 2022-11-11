@@ -4,9 +4,9 @@ from typing import Collection
 import pandas as pd
 
 from .attribute import Attribute, Attributes
-from .encode import Encoder
+from .encode import Encoder, EncoderFactory
 from .metadata import Metadata
-from .transform import RefTransformer, Transformer
+from .transform import RefTransformer, Transformer, TransformerFactory
 
 logger = logging.getLogger(__file__)
 
@@ -34,6 +34,7 @@ class ReferenceManager:
             if col.is_id():
                 if col.ref:
                     ref_table = col.ref.table
+                    assert ref_table
                     ref_col = col.ref.col
                     if not ref_col:
                         ref_col = self.meta[ref_table].primary_key
@@ -97,7 +98,7 @@ class TableTransformer:
         ref: ReferenceManager,
         meta: Metadata,
         name: str,
-        transformers: dict[str, type[Transformer]],
+        transformers: dict[str, TransformerFactory],
     ) -> None:
         self.ref = ref
         self.name = name
@@ -109,12 +110,9 @@ class TableTransformer:
 
     def fit(
         self,
-        tables: dict[str, pd.DataFrame] | pd.DataFrame,
+        tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
     ):
-        # Only load foreign keys if required by column
-        ids = None
-
         meta = self.meta[self.name]
         if isinstance(tables, dict):
             table = tables[self.name]
@@ -148,20 +146,24 @@ class TableTransformer:
             ref_col = None
             if col.ref:
                 f_table, f_col = col.ref.table, col.ref.col
+                assert f_col
                 if f_table:
+                    assert ids is not None
                     # Foreign column from another table
                     ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
                 else:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
-                
-            assert col.type in transformers, f"Column type {col.type} not in transformers:\n{list(transformers.keys())}"
+
+            assert (
+                col.type in transformers
+            ), f"Column type {col.type} not in transformers:\n{list(transformers.keys())}"
 
             # Fit transformer
             if "main_param" in col.args:
-                t = transformers[col.type](col.args["main_param"], **col.args)
+                t = transformers[col.type].build(col.args["main_param"], **col.args)
             else:
-                t = transformers[col.type](**col.args)
+                t = transformers[col.type].build(**col.args)
 
             if isinstance(t, RefTransformer) and ref_col is not None:
                 t.fit(table[name], ref_col)
@@ -173,7 +175,7 @@ class TableTransformer:
 
     def transform(
         self,
-        tables: dict[str, pd.DataFrame] | pd.DataFrame,
+        tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
     ):
         assert self.fitted
@@ -206,7 +208,9 @@ class TableTransformer:
             ref_col = None
             if col.ref:
                 f_table, f_col = col.ref.table, col.ref.col
+                assert f_col
                 if f_table:
+                    assert ids is not None
                     # Foreign column from another table
                     ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
                 else:
@@ -226,7 +230,7 @@ class TableTransformer:
         self,
         table: pd.DataFrame,
         ids: pd.DataFrame | None = None,
-        parent_tables: dict[str, pd.DataFrame] = None,
+        parent_tables: dict[str, pd.DataFrame] | None = None,
     ):
         # If there are no ids that reference a foreign table, the ids and
         # parent_table parameters can be set to None (ex. tabular data).
@@ -247,6 +251,7 @@ class TableTransformer:
             ref_col = None
             if col.ref is not None:
                 f_table, f_col = col.ref.table, col.ref.col
+                assert ids and parent_tables and f_col and f_table
                 assert (
                     f_table in parent_tables
                 ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
@@ -261,7 +266,7 @@ class TableTransformer:
 
         # Process columns with intra-table dependencies afterwards.
         # fix-me: assumes no nested dependencies within the same table
-        parent_cols = pd.concat(tts, axis=1)
+        parent_cols: pd.DataFrame = pd.concat(tts, axis=1)
         for name, col in meta.cols.items():
             if col.is_id() or col.ref is None:
                 # Columns with no dependencies have been processed
@@ -269,7 +274,8 @@ class TableTransformer:
             if col.ref is not None and col.ref.table is not None:
                 # Columns with inter-table dependencies have been processed
                 continue
-
+            
+            assert col.ref.col
             ref_col = parent_cols[col.ref.col]
             t = transformers[name]
             if isinstance(t, RefTransformer):
@@ -290,6 +296,7 @@ class TableTransformer:
                 continue
 
             if col.ref is not None:
+                assert col.ref.table and ids is not None
                 dec_table[name] = ids[col.ref.table]
             else:
                 dec_table[name] = 0
@@ -319,16 +326,16 @@ class TableEncoder:
 
     encoders: dict[str, Encoder]
 
-    def __init__(self, encoder: type[Encoder], **kwargs) -> None:
+    def __init__(self, encoder: EncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
-        self._encoder_cls = encoder
+        self._encoder_fr = encoder
         self.encoders = {}
 
     def fit(self, attrs: Attributes, data: pd.DataFrame | None = None) -> Attributes:
         self.encoders = {}
 
         for n, a in attrs.items():
-            t = self._encoder_cls(**self.kwargs)
+            t = self._encoder_fr.build(**self.kwargs)
             t.fit(a, data)
             self.encoders[n] = t
 
@@ -365,8 +372,8 @@ class TableHandler:
         self,
         meta: Metadata,
         name: str,
-        transformers: dict[str, type[Transformer]],
-        encoders: dict[str, type[Encoder]],
+        transformers: dict[str, TransformerFactory],
+        encoders: dict[str, EncoderFactory],
     ) -> None:
         self.name = name
         self.meta = meta
@@ -375,14 +382,16 @@ class TableHandler:
         self.transformer = TableTransformer(self.ref, meta, name, transformers)
         self.fitted = False
 
-        self.encoders = {name: TableEncoder(encoder) for name, encoder in encoders.items()}
+        self.encoders = {
+            name: TableEncoder(encoder) for name, encoder in encoders.items()
+        }
 
     def find_ids(self, tables: dict[str, pd.DataFrame]):
         return self.ref.find_foreign_ids(self.name, tables)
 
     def transform(
         self,
-        tables: dict[str, pd.DataFrame] | pd.DataFrame,
+        tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
     ):
         return self.transformer.transform(tables, ids)
@@ -391,7 +400,7 @@ class TableHandler:
         self,
         table: pd.DataFrame,
         ids: pd.DataFrame | None = None,
-        parent_tables: dict[str, pd.DataFrame] = None,
+        parent_tables: dict[str, pd.DataFrame] | None = None,
     ):
         return self.transformer.reverse(table, ids, parent_tables)
 

@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 import numpy as np
 from typing import Any, Literal, TypeVar
 from copy import copy
@@ -52,8 +51,8 @@ class Level(list[LI]):
     def get_domain(self, height: int):
         return len(self.get_groups(height))
 
-    def _get_groups_by_level(self, lvl: int, ofs: int = 0) -> list[list[int] | int]:
-        groups = []
+    def _get_groups_by_level(self, lvl: int, ofs: int = 0):
+        groups: list[list | int] = []
         for l in self:
             if isinstance(l, Level):
                 g, ofs = l._get_groups_by_level(lvl - 1, ofs)
@@ -67,7 +66,7 @@ class Level(list[LI]):
                 ofs += 1
         return groups, ofs
 
-    def get_groups(self, height: int) -> list[list[int] | int]:
+    def get_groups(self, height: int) -> list[list | int]:
         return self._get_groups_by_level(self.height - 1 - height)[0]
 
     def get_dict_mapping(self, height: int) -> dict[int, int]:
@@ -82,7 +81,7 @@ class Level(list[LI]):
 
         return mapping
 
-    def get_mapping(self, height: int) -> np.array:
+    def get_mapping(self, height: int) -> np.ndarray:
         domain = self.size
         a = np.ndarray((domain), dtype=get_dtype(domain))
 
@@ -161,17 +160,15 @@ class Value:
     common: int = 0
 
 
-class IdxValue(Value, ABC):
-    @abstractmethod
+class IdxValue(Value):
     def get_domain(self, height: int) -> int:
         """Returns the domain of the attribute in the given height."""
-        pass
+        raise NotImplementedError()
 
-    @abstractmethod
     def get_mapping(self, height: int) -> np.ndarray:
         """Returns a numpy array that associates discrete values with groups at
         the given height."""
-        pass
+        raise NotImplementedError()
 
     @property
     def height(self) -> int:
@@ -306,12 +303,13 @@ class NumValue(Value):
     def __repr__(self) -> str:
         return str(self)
 
+V = TypeVar("V", bound=Value)
 
 class Attribute:
     def __init__(
         self,
         name: str,
-        vals: dict[str, Value],
+        vals: dict[str, V],
         na: bool = False,
         ukn_val: bool = False,
     ) -> None:
@@ -322,7 +320,7 @@ class Attribute:
 
         self.update_vals(vals)
 
-    def update_vals(self, vals: dict[str, Value]):
+    def update_vals(self, vals: dict[str, V]):
         self.vals: dict[str, Value] = {}
         for name, val in vals.items():
             val = copy(val)
@@ -337,7 +335,7 @@ class Attribute:
         return str(self)
 
     def __getitem__(self, col: str) -> Value:
-        return self.cols[col]
+        return self.vals[col]
 
 
 Attributes = dict[str, Attribute]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple,overload
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -194,7 +194,15 @@ class DatasetMeta:
     def tables(self):
         return list(self._tables.keys())
 
-    def __getitem__(self, name) -> TableMeta | ColumnMeta:
+    @overload
+    def __getitem__(self, name: str) -> TableMeta:
+        ...
+    
+    @overload
+    def __getitem__(self, name: tuple[str, str]) -> ColumnMeta:
+        ...
+    
+    def __getitem__(self, name):
         if isinstance(name, tuple):
             return self._tables[name[0]][name[1]]
         return self._tables[name]

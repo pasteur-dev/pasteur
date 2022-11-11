@@ -1,14 +1,13 @@
 from typing import Dict
 from os import path
 
-from kedro.pipeline import Pipeline, pipeline
+from kedro.pipeline import Pipeline
 
 from ...dataset import Dataset
-from ...synth import Synth
+from ...synth import SynthFactory
 from ...view import View
-from ...encode import Encoder
-from ...transform import Transformer
-from .module import get_module_dict, instantiate_dict
+from ...encode import EncoderFactory
+from ...transform import TransformerFactory
 from .dataset import create_dataset_pipeline, create_keys_pipeline
 from .metrics import create_fit_pipelines as metrics_create_fit_pipelines
 from .metrics import create_log_pipelines as metrics_create_log_pipelines
@@ -21,7 +20,9 @@ from .transform import (
 )
 from .utils import list_unique
 from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
-from .module import PipelineMeta, DatasetMeta
+from .meta import PipelineMeta, DatasetMeta
+
+from ...module import Module, get_module_dict
 
 import logging
 
@@ -38,7 +39,7 @@ def get_msr_types():
     return metrics_get_required_types()
 
 
-def _get_all_types(algs: dict[str, Synth]):
+def _get_all_types(algs: dict[str, SynthFactory]):
     alg_types = [a.type for a in algs.values()]
     return list_unique(alg_types, get_msr_types())
 
@@ -69,15 +70,15 @@ def _has_dataset(view: View, datasets: dict[str, Dataset]):
 
 
 def generate_pipelines(
-    modules: list[type], params: dict
-) -> tuple[dict[str, Pipeline], list[DatasetMeta]]:
+    modules: list[Module], params: dict
+) -> tuple[dict[str, Pipeline], list[DatasetMeta], list[tuple[str | None, str]], list[str]]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
 
     If None is passed, all registered classes are included."""
 
-    datasets = instantiate_dict(get_module_dict(Dataset, modules))
-    views = instantiate_dict(get_module_dict(View, modules))
-    algs = get_module_dict(Synth, modules)
+    datasets = get_module_dict(Dataset, modules)
+    views = get_module_dict(View, modules)
+    algs = get_module_dict(SynthFactory, modules)
 
     # Filter views and datasets
     datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, params)}
@@ -85,9 +86,9 @@ def generate_pipelines(
 
     all_types = _get_all_types(algs)
     encoders = {
-        k: v for k, v in get_module_dict(Encoder, modules).items() if k in all_types
+        k: v for k, v in get_module_dict(EncoderFactory, modules).items() if k in all_types
     }
-    transformers = get_module_dict(Transformer, modules)
+    transformers = get_module_dict(TransformerFactory, modules)
 
     wrk_split = WRK_SPLIT
     ref_split = REF_SPLIT
@@ -169,7 +170,7 @@ def generate_pipelines(
         default, extr_pipes.get(default, Pipeline([]))
     )
     pipes.update(main_pipes)
-    pipes["__misc_pipelines__"] = pipeline([])
+    pipes["__misc_pipelines__"] = Pipeline([])
     pipes.update(extr_pipes)
 
     # Split pipelines
@@ -196,6 +197,6 @@ def generate_pipelines(
     return (
         pipelines,
         list(outputs.values()),
-        [(d.folder_name, d.catalog_fn) for d in datasets.values() if d.catalog_fn],
+        [(d.folder_name, d.catalog_fn) for d in datasets.values() if d.folder_name and d.catalog_fn],
         [v.parameters_fn for v in views.values() if v.parameters_fn]
     )

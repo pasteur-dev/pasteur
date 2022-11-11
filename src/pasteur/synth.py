@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pandas as pd
+import pandas as pd
 
+from .module import ModuleClass, ModuleFactory
+from .table import TableHandler
+
+if TYPE_CHECKING:
     from .attribute import Attributes
-    from .table import TableHandler
     from .metadata import Metadata
 
 import logging
@@ -44,8 +45,18 @@ def make_deterministic(obj_func):
     return wrapped
 
 
-class Synth(ABC):
-    name = None
+class SynthFactory(ModuleFactory["Synth"]):
+    def __init__(self, cls: type[Synth], *args, name: str | None = None, **_) -> None:
+        super().__init__(cls, *args, name=name, **_)
+        self.type = cls.type
+        self.tabular = cls.tabular
+        self.multimodal = cls.multimodal
+        self.timeseries = cls.timeseries
+        self.gpu = cls.gpu
+        self.parallel = cls.parallel
+
+
+class Synth(ModuleClass):
     type = "idx"
     tabular = True
     multimodal = False
@@ -53,10 +64,8 @@ class Synth(ABC):
     gpu = False
     parallel = False
 
-    def __init__(self, **_) -> None:
-        pass
+    _factory = SynthFactory
 
-    @abstractmethod
     def preprocess(
         self,
         attrs: dict[str, Attributes],
@@ -64,9 +73,8 @@ class Synth(ABC):
         ids: dict[str, pd.DataFrame],
     ):
         """Runs any preprocessing required, such as domain reduction."""
-        pass
+        raise NotImplementedError()
 
-    @abstractmethod
     def bake(
         self,
         data: dict[str, pd.DataFrame],
@@ -77,9 +85,8 @@ class Synth(ABC):
 
         Attributes provide context about the data columns, including hierarchical
         relationships, na vals, etc."""
-        pass
+        raise NotImplementedError()
 
-    @abstractmethod
     def fit(
         self,
         data: dict[str, pd.DataFrame],
@@ -88,9 +95,8 @@ class Synth(ABC):
         """Fits the model based on the provided data.
 
         Data and Ids are dictionaries containing the dataframes with the data."""
-        pass
+        raise NotImplementedError()
 
-    @abstractmethod
     def sample(
         self, n: int | None = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
@@ -99,11 +105,11 @@ class Synth(ABC):
         Optional `n` parameter sets how many rows should be sampled. Otherwise,
         the initial size of the dataset is sampled.
         Warning: not setting `n` technically violates DP for DP-aware algorithms."""
-        pass
+        raise NotImplementedError()
 
 
 def synth_fit(
-    cls: type[Synth], metadata: Metadata, **kwargs: pd.DataFrame | TableHandler
+    factory: SynthFactory, metadata: Metadata, **kwargs: pd.DataFrame | TableHandler
 ):
     from .utils.perf import PerformanceTracker
 
@@ -111,17 +117,29 @@ def synth_fit(
 
     tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
 
-    ids = {n[4:]: i for n, i in kwargs.items() if "ids_" in n}
-    data = {n[4:]: d for n, d in kwargs.items() if "enc_" in n}
-    trns = {n[4:]: t for n, t in kwargs.items() if "trn_" in n}
+    ids = {
+        n[4:]: i
+        for n, i in kwargs.items()
+        if "ids_" in n and isinstance(i, pd.DataFrame)
+    }
+    data = {
+        n[4:]: d
+        for n, d in kwargs.items()
+        if "enc_" in n and isinstance(d, pd.DataFrame)
+    }
+    trns = {
+        n[4:]: t
+        for n, t in kwargs.items()
+        if "trn_" in n and isinstance(t, TableHandler)
+    }
 
     meta = metadata
-    args = {**meta.algs.get(cls.name, {}), **meta.alg_override}
+    args = {**meta.algs.get(factory.name, {}), **meta.alg_override}
 
-    attrs = {n: t[cls.type].get_attributes() for n, t in trns.items()}
-    model = cls(**args, seed=meta.seed)
+    attrs = {n: t[factory.type].get_attributes() for n, t in trns.items()}
+    model = factory.build(**args, seed=meta.seed)
 
-    if cls.gpu:
+    if factory.gpu:
         tracker.use_gpu()
 
     tracker.start("preprocess")

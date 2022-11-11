@@ -1,5 +1,8 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
+from .module import Module
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -29,7 +32,7 @@ def filter_by_keys(
     return out
 
 
-class View:
+class View(Module):
     """A class for a View named <name> based on dataset <dataset> that creates
     a set of tables based on the provided dependencies, where here they are
     tables in the dataset provided.
@@ -44,13 +47,12 @@ class View:
     For decoding a particular view, it may be required to decode the tables in
     a particular order. `trn_deps` defines that order. It needs to be static,
     so it can't be placed in `parameters.yml`
-    
+
     `parameters_fn`, if provided, will be used to load a parameters file with
     defaults for the view (such as metadata). Useful for packaging.
     Use `utils.get_relative_fn()` from datasets."""
 
-    name: str = None
-    dataset: str = None
+    dataset: str
     deps: dict[str, list[str]] = {}
     trn_deps: dict[str, list[str]] = {}
     parameters_fn: str | None = None

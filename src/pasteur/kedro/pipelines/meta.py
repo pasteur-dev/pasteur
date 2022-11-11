@@ -1,8 +1,5 @@
 from kedro.pipeline import Pipeline
-from typing import TypeVar, NamedTuple, Literal, Any
-
-A = TypeVar("A")
-
+from typing import NamedTuple, Literal, Any
 
 class DatasetMeta(NamedTuple):
     layer: str
@@ -35,26 +32,3 @@ class PipelineMeta(NamedTuple):
     
     def __radd__(self, other):
         return self.__add__(other)
-
-
-def get_module_dict(parent: type[A], modules: list[type]) -> dict[str, A]:
-    """Filters the list `modules` for modules which extend"""
-    out = {}
-    for module in modules:
-        if not issubclass(module, parent):
-            continue
-
-        assert hasattr(
-            module, "name"
-        ), f"Module class attr {module.__name__}.name doesn't exist."
-        assert (
-            isinstance(module.name, str) and module.name
-        ), f"{module.__name__} is not str or is empty."
-        assert (
-            module.name not in out
-        ), "There are multiple modules of the same type with the same name."
-        out[module.name] = module
-    return out
-
-def instantiate_dict(d: dict[str, type[A]]) -> dict[str, A]:
-    return {k: v() for k, v in d.items()}

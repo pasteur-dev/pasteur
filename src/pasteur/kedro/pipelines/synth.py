@@ -7,34 +7,34 @@ from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
-from .module import DatasetMeta as D
-from .module import PipelineMeta
+from .meta import DatasetMeta as D
+from .meta import PipelineMeta
 from .utils import gen_closure
 
 if TYPE_CHECKING:
-    from ...synth import Synth
+    from ...synth import SynthFactory
     from ...view import View
 
 
 def create_synth_pipeline(
     view: View,
     split: str,
-    cls: type[Synth],
+    fr: SynthFactory,
 ):
-    alg = cls.name
-    type = cls.type
+    alg = fr.name
+    type = fr.type
     tables = view.tables
 
     tags = []
-    if cls.gpu:
+    if fr.gpu:
         tags.append("gpu")
-    if cls.parallel:
+    if fr.parallel:
         tags.append("parallel")
 
     synth_pipe = pipeline(
         [
             node(
-                func=gen_closure(synth_fit, cls),
+                func=gen_closure(synth_fit, fr),
                 inputs={
                     "metadata": "metadata",
                     **{f"trn_{t}": f"trn_{t}" for t in tables},

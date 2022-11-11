@@ -1,6 +1,7 @@
 import logging
 import pandas as pd
 
+from .module import ModuleClass, ModuleFactory
 from .attribute import Attribute
 
 logger = logging.getLogger(__name__)
@@ -16,9 +17,12 @@ Contains transformers that convert raw data into 2 types (with name suffix):
 """
 
 
-class Transformer:
-    name = "base"
-    "The name of the transformer, with which it's looked up in the dictionary."
+class TransformerFactory(ModuleFactory):
+    ...
+
+
+class Transformer(ModuleClass):
+    _factory = TransformerFactory
 
     deterministic = True
     "For a given output, the input is the same."
@@ -27,22 +31,24 @@ class Transformer:
     stateful = False
     "Transformer fits variables."
 
-    def __init__(self, **_):
-        self.attr: Attribute = None
+    attr: Attribute
 
-    def fit(self, data: pd.Series) -> Attribute:
+    def __init__(self, **_) -> None:
+        pass
+
+    def fit(self, data: pd.Series) -> Attribute | None:
         """Fits to the provided data"""
-        return self.attr
+        pass
 
     def fit_transform(self, data: pd.Series) -> pd.DataFrame:
         self.fit(data)
         return self.transform(data)
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()
 
 
 class RefTransformer(Transformer):
@@ -62,7 +68,7 @@ class RefTransformer(Transformer):
         self,
         data: pd.Series,
         ref: pd.Series | None = None,
-    ) -> Attribute:
+    ) -> Attribute | None:
         pass
 
     def fit_transform(
@@ -72,10 +78,10 @@ class RefTransformer(Transformer):
         return self.transform(data, ref)
 
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
-        assert 0, "Unimplemented"
+        raise NotImplementedError()
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have
         to be decoded first."""
-        assert 0, "Unimplemented"
+        raise NotImplementedError()

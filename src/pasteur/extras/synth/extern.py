@@ -9,7 +9,7 @@ from ...synth import Synth
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ...transform import Attributes
+    from ...attribute import Attributes, IdxValue
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,9 @@ class ExternalPythonSynth(Synth, ABC):
 
     def __init__(
         self,
+        cmd: str,
         venv: str | None = None,
         dir: str | None = None,
-        cmd: str | None = None,
         rebalance_columns: bool = True,
         **_,
     ) -> None:
@@ -90,6 +90,8 @@ class ExternalPythonSynth(Synth, ABC):
                         fn = path.join(dir, f"{name}.csv")
                         assert isinstance(data, pd.DataFrame)
                         data.to_csv(fn, **self._pg_args)
+                    case _:
+                        assert False, "Unknown type"
                 fns[name] = fn
 
             for name, type in data_out.items():
@@ -272,7 +274,9 @@ class AimSynth(ExternalPythonSynth):
         if self.rebalance_columns:
             from ...hierarchy import rebalance_attributes
 
-            table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
+            table_attrs = rebalance_attributes(
+                table, table_attrs, reshape_domain=False, **self.kwargs
+            )
         self.table_attrs = table_attrs
 
         n = len(table)
@@ -289,10 +293,11 @@ class AimSynth(ExternalPythonSynth):
         domain = {}
         downsampled_table = pd.DataFrame(index=table.index)
         for attr in table_attrs.values():
-            for name, col in attr.cols.items():
+            for name, col in attr.vals.items():
+                assert isinstance(col, IdxValue)
                 h = col.select_height()
                 domain[name] = col.get_domain(h)
-                downsampled_table[name] = col.downsample(table[name], h)
+                downsampled_table[name] = col.downsample(table[name].to_numpy(), h)
 
         data_in = {"dataset": ("csv", downsampled_table), "domain": ("json", domain)}
         data_out = {"save": "csv"}
@@ -309,9 +314,14 @@ class AimSynth(ExternalPythonSynth):
             table = pd.DataFrame(index=downsampled_table.index)
 
             for attr in self.table_attrs.values():
-                for name, col in attr.cols.items():
+                for name, col in attr.vals.items():
+                    assert isinstance(col, IdxValue)
                     h = col.select_height()
-                    table[name] = col.upsample(downsampled_table[name], h, deterministic=self.deterministic_upsample)
+                    table[name] = col.upsample(
+                        downsampled_table[name],
+                        h,
+                        deterministic=self.deterministic_upsample,
+                    )
         else:
             table = data["save"]
 
@@ -373,7 +383,7 @@ class PrivMrfSynth(ExternalPythonSynth):
         attrs: dict[str, Attributes],
         data: dict[str, pd.DataFrame],
         ids: dict[str, pd.DataFrame],
-    ) -> tuple[dict[str, Any], dict[str, tuple[str, Any]], dict[str, str]]:
+    ):
         import pandas as pd
 
         assert len(data) == 1
@@ -386,20 +396,23 @@ class PrivMrfSynth(ExternalPythonSynth):
         if self.rebalance_columns:
             from ...hierarchy import rebalance_attributes
 
-            table_attrs = rebalance_attributes(table, table_attrs, reshape_domain=False, **self.kwargs)
+            table_attrs = rebalance_attributes(
+                table, table_attrs, reshape_domain=False, **self.kwargs
+            )
 
         col_names = []
-        domain = {}
+        domain: dict[str, dict[str, Any]] = {}
         downsampled_table = pd.DataFrame(index=table.index)
         for attr in table_attrs.values():
-            for name, col in attr.cols.items():
+            for name, col in attr.vals.items():
+                assert isinstance(col, IdxValue)
                 h = col.select_height()
                 domain[str(len(col_names))] = {
                     "type": "discrete",
                     "domain": col.get_domain(h),
                 }
                 col_names.append(name)
-                downsampled_table[name] = col.downsample(table[name], h)
+                downsampled_table[name] = col.downsample(table[name].to_numpy(), h)
 
         self.id = table.index.name
         self.col_names = col_names
@@ -420,13 +433,18 @@ class PrivMrfSynth(ExternalPythonSynth):
 
         col_mapping = {str(i): name for i, name in enumerate(self.col_names)}
         downsampled_table = data["out"].rename(columns=col_mapping)
-        
+
         if self.rebalance_columns:
             table = pd.DataFrame(index=downsampled_table.index)
             for attr in self.table_attrs.values():
-                for name, col in attr.cols.items():
+                for name, col in attr.vals.items():
+                    assert isinstance(col, IdxValue)
                     h = col.select_height()
-                    table[name] = col.upsample(downsampled_table[name], h, deterministic=self.deterministic_upsample)
+                    table[name] = col.upsample(
+                        downsampled_table[name],
+                        h,
+                        deterministic=self.deterministic_upsample,
+                    )
         else:
             table = downsampled_table
 

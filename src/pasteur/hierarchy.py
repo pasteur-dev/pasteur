@@ -7,9 +7,12 @@ import pandas as pd
 
 from .attribute import Attributes, IdxValue, Level, LevelValue, get_dtype
 
+from typing import TypeVar
+
 logger = logging.getLogger(__name__)
 
 ZERO_FILL = 1e-24
+
 
 def get_group_for_x(x: int, n: int) -> tuple[bool]:
     """Returns a tuple `g` with length `n`, where `g[x]=True` and others `False`.
@@ -34,7 +37,7 @@ class CatNode(list):
     pass
 
 
-def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int = None) -> list:
+def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int | None = None) -> list:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
     replaced by bucket groups, with each bucket group containing the node it replaced.
@@ -59,7 +62,7 @@ def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int = None) -> li
 
 
 def get_group_size(
-    counts: list[float], g: tuple, group_sizes: dict[tuple, float] = {}
+    counts: np.ndarray, g: tuple, group_sizes: dict[tuple, float] = {}
 ) -> float:
     """Returns the sum of the sizes of the buckets included in tuple `g`.
 
@@ -77,14 +80,17 @@ def get_group_size(
     return s
 
 
-def print_group(counts: np.array, g: tuple) -> str:
+def print_group(counts: np.ndarray | None, g: tuple) -> str:
     """Converts the group into a string representation:
     `(False, False, True, True, False)` -> `(2,3)`"""
     s = "("
     for i, present in enumerate(g):
         if present:
             s += f"{i},"
-    return s[:-1] + "):" + str(counts, get_group_size(g))
+    base = s[:-1] + ")"
+    if counts:
+        return base + f":{get_group_size(counts, g)}"
+    return base
 
 
 def print_tree(node: list):
@@ -100,7 +106,7 @@ def print_tree(node: list):
         if isinstance(n, list):
             s += print_tree(n)
         else:
-            s += print_group(n)
+            s += print_group(None, n)
         s += ","
     s = s[:-1] + ("]" if isinstance(node, OrdNode) else "}")
     return s
@@ -142,7 +148,12 @@ def prune_tree(tree: list):
             prune_tree(child)
 
 
-def find_smallest_group(counts: np.array, parent: list):
+N = TypeVar("N", CatNode, OrdNode, tuple)
+
+
+def find_smallest_group(
+    counts: np.ndarray, parent: list[N]
+) -> tuple[list, tuple, tuple, float]:
     """Finds groups `a`, `b` which when combined form `c`, where `c` is the smallest
     group that can be formed by any two nodes in the tree, which are valid to merge.
 
@@ -155,9 +166,9 @@ def find_smallest_group(counts: np.array, parent: list):
     Children can either be lists (nodes), tuples (leafs, groups), or None
     (placeholders, common values, shouldn't be merged).
     """
-    s_node = None
-    s_a = None
-    s_b = None
+    s_node = []
+    s_a = ()
+    s_b = ()
     s_size = -1
 
     # First do a recursive pass
@@ -207,7 +218,7 @@ def find_smallest_group(counts: np.array, parent: list):
     return s_node, s_a, s_b, s_size
 
 
-def create_node_to_group_map(tree: list, grouping: np.array, ofs: int = 0):
+def create_node_to_group_map(tree: list, grouping: np.ndarray, ofs: int = 0):
     """Traverses `tree` and creates an array which maps nodes to groups such that:
 
     `arr[x] = y`, where `x` is the node and `y` is its group.
@@ -232,7 +243,7 @@ def create_node_to_group_map(tree: list, grouping: np.array, ofs: int = 0):
     return ofs
 
 
-def make_grouping(counts: np.array, head: Level, common: int = 0) -> np.ndarray:
+def make_grouping(counts: np.ndarray, head: Level, common: int = 0) -> np.ndarray:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
@@ -350,7 +361,9 @@ class RebalancedValue(IdxValue):
         return self.grouping[self.height_to_grouping[height], :]
 
     def select_height(self) -> int:
-        assert not self.reshape_domain, "Fixme: selected_height function is not adjusted to the lowered domain list (neither should it)"
+        assert (
+            not self.reshape_domain
+        ), "Fixme: selected_height function is not adjusted to the lowered domain list (neither should it)"
 
         if self.c is None:
             return 0
@@ -455,6 +468,7 @@ def rebalance_attributes(
     for name, attr in attrs.items():
         cols = {}
         for col_name, col in attr.vals.items():
+            assert isinstance(col, LevelValue)
             cols[col_name] = rebalance_value(
                 table[col_name],
                 col,

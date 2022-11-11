@@ -10,14 +10,16 @@ from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
 from kedro.io import DataCatalog, Version
 
+from ...module import Module
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, RAW_LOCATION
+
 
 logger = logging.getLogger(__name__)
 
 
 class PasteurHook:
-    def __init__(self, modules: list[type] | Callable | None) -> None:
+    def __init__(self, modules: list[Module] | Callable) -> None:
         self.lazy_modules = modules
         self.modules = None
 
@@ -72,7 +74,7 @@ class PasteurHook:
                     path_seg[-1] + ".pq",
                 ),
                 save_args=self.pq_save_args,
-                version=self.get_version(name, versioned),
+                version=self.get_version(name, versioned),  # type: ignore
             ),
         )
         if layer:
@@ -87,7 +89,7 @@ class PasteurHook:
                     *path_seg[:-1],
                     path_seg[-1] + ".pkl",
                 ),
-                version=self.get_version(name, versioned),
+                version=self.get_version(name, versioned),  # type: ignore
             ),
         )
         if layer:
@@ -124,12 +126,13 @@ class PasteurHook:
 
             for folder_name, catalog_fn in self.catalog_fns:
                 name = NAME_LOCATION.format(folder_name)
-                dir = params.get(name, path.join(params[RAW_LOCATION], folder_name))
 
                 with open(catalog_fn, "r") as f:
                     data = f.read()
 
-                data = data.replace(f"${{{name}}}", dir)
+                if folder_name:
+                    dir = params.get(name, path.join(params[RAW_LOCATION], folder_name))
+                    data = data.replace(f"${{{name}}}", dir)
                 conf = yaml.safe_load(data)
 
                 tmp_catalog = DataCatalog.from_config(

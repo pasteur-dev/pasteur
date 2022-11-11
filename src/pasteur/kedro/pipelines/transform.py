@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, pipeline
+from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
-from .module import DatasetMeta as D
-from .module import PipelineMeta
+from .meta import DatasetMeta as D
+from .meta import PipelineMeta
 
 if TYPE_CHECKING:
     import pandas as pd
     from ...metadata import Metadata
     from ...table import TableHandler
-    from ...transform import Transformer
-    from ...encode import Encoder
+    from ...transform import TransformerFactory
+    from ...encode import EncoderFactory
     from ...view import View
 
 from .utils import gen_closure
@@ -21,21 +21,21 @@ from .utils import gen_closure
 
 def _fit_table(
     name: str,
-    transformers: dict[str, type[Transformer]],
-    encoders: dict[str, type[Encoder]],
+    transformers: dict[str, TransformerFactory],
+    encoders: dict[str, EncoderFactory],
     meta: Metadata,
     **tables: pd.DataFrame,
 ):
     from ...table import TableHandler
 
     t = TableHandler(meta, name, transformers, encoders)
-    tables, ids = t.fit_transform(tables)
+    _, ids = t.fit_transform(tables)
     return t, ids
 
 
 def _transform_table(
     transformer: TableHandler,
-    **tables: dict[str, pd.DataFrame],
+    **tables: pd.DataFrame,
 ):
     ids = transformer.find_ids(tables)
     return transformer.transform(tables, ids), ids
@@ -45,7 +45,7 @@ def _base_reverse_table(
     transformer: TableHandler,
     ids: pd.DataFrame,
     table: pd.DataFrame,
-    **parents: dict[str, pd.DataFrame],
+    **parents: pd.DataFrame,
 ):
     return transformer.reverse(table, ids, parents)
 
@@ -59,7 +59,9 @@ def _decode_table(type: str, transformer: TableHandler, table: pd.DataFrame):
 
 
 def create_transformers_pipeline(
-    view: View, transformers: dict[str, Transformer], encoders: dict[str, Encoder]
+    view: View,
+    transformers: dict[str, TransformerFactory],
+    encoders: dict[str, EncoderFactory],
 ):
     pipe = pipeline(
         [

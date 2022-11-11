@@ -8,7 +8,7 @@ from ....synth import Synth, make_deterministic
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ....transform import Attributes
+    from ....attribute import Attributes
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class PrivBayesSynth(Synth):
 
     def __init__(
         self,
-        ep: float = None,
+        ep: float | None = None,
         e1: float = 0.3,
         e2: float = 0.7,
         theta: float = 4,
@@ -34,7 +34,6 @@ class PrivBayesSynth(Synth):
         random_init: bool = False,
         **kwargs,
     ) -> None:
-        super().__init__()
         self.ep = ep
         self.e1 = e1
         self.e2 = e2
@@ -120,7 +119,7 @@ class PrivBayesSynth(Synth):
 
     @make_deterministic
     def sample(
-        self, n: int = None
+        self, n: int | None = None
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         import pandas as pd
 
