@@ -14,12 +14,16 @@ from ...module import Module
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, RAW_LOCATION
 
-
 logger = logging.getLogger(__name__)
 
 
 class PasteurHook:
-    def __init__(self, modules: list[Module] | Callable) -> None:
+    def __init__(
+        self,
+        modules: list[Module]
+        | Callable[[Any], list[Module]]
+        | Callable[[], list[Module]],
+    ) -> None:
         self.lazy_modules = modules
         self.modules = None
 
@@ -33,7 +37,10 @@ class PasteurHook:
         self.context = context
 
         if callable(self.lazy_modules):
-            self.modules = self.lazy_modules()
+            try:
+                self.modules = self.lazy_modules(context)  # type: ignore
+            except Exception:
+                self.modules = self.lazy_modules()  # type: ignore
         else:
             self.modules = self.lazy_modules
 
