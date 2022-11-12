@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from .module import ModuleClass, ModuleFactory
-from .table import TableHandler
+from .table import TransformHolder
 
 if TYPE_CHECKING:
     from .attribute import Attributes
@@ -109,7 +109,7 @@ class Synth(ModuleClass):
 
 
 def synth_fit(
-    factory: SynthFactory, metadata: Metadata, **kwargs: pd.DataFrame | TableHandler
+    factory: SynthFactory, metadata: Metadata, **kwargs: pd.DataFrame | TransformHolder
 ):
     from .utils.perf import PerformanceTracker
 
@@ -130,7 +130,7 @@ def synth_fit(
     trns = {
         n[4:]: t
         for n, t in kwargs.items()
-        if "trn_" in n and isinstance(t, TableHandler)
+        if "trn_" in n and isinstance(t, TransformHolder)
     }
 
     meta = metadata

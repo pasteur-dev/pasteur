@@ -274,7 +274,7 @@ class TableTransformer:
             if col.ref is not None and col.ref.table is not None:
                 # Columns with inter-table dependencies have been processed
                 continue
-            
+
             assert col.ref.col
             ref_col = parent_cols[col.ref.col]
             t = transformers[name]
@@ -365,7 +365,7 @@ class TableEncoder:
         return self.attrs
 
 
-class TableHandler:
+class TransformHolder:
     """Handles transforming and encoding a table."""
 
     def __init__(
@@ -426,6 +426,10 @@ class TableHandler:
 
         self.fitted = True
         return table, ids
+
+    def get_attributes(self) -> dict[str, Attribute]:
+        return self.transformer.get_attributes()
+        
 
     def __getitem__(self, type):
         assert self.fitted

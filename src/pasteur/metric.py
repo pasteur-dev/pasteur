@@ -1,10 +1,12 @@
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 import pandas as pd
+from collections import defaultdict
 
 from .attribute import Attribute, Attributes
 from .metadata import ColumnMeta, TableMeta, Metadata
 from .module import ModuleClass, ModuleFactory
+from .table import TransformHolder
 
 import logging
 
@@ -24,6 +26,13 @@ logger = logging.getLogger(__name__)
 # For column metrics, the name of the metric corresponds to column type, for the rest
 # it corresponts to their name.
 
+""" encoding name to table attribute dict """
+PertypeAttributes = dict[str, Attributes]
+""" table name to table attribute dict """
+DatasetAttributes = dict[str, Attributes]
+""" encoding name to dataset attribute dict"""
+PertypeDatasetAttributes = dict[str, DatasetAttributes]
+
 
 class ColumnMetricFactory(ModuleFactory["ColumnMetric"]):
     ...
@@ -34,11 +43,19 @@ class RefColumnMetricFactory(ModuleFactory["RefColumnMetric"]):
 
 
 class TableMetricFactory(ModuleFactory["TableMetric"]):
-    ...
+    def __init__(
+        self, cls: type["TableMetric"], *args, name: str | None = None, **_
+    ) -> None:
+        super().__init__(cls, *args, name=name, **_)
+        self.encodings = cls.encodings
 
 
 class DatasetMetricFactory(ModuleFactory["DatasetMetric"]):
-    ...
+    def __init__(
+        self, cls: type["DatasetMetric"], *args, name: str | None = None, **_
+    ) -> None:
+        super().__init__(cls, *args, name=name, **_)
+        self.encodings = cls.encodings
 
 
 A = TypeVar("A")
@@ -48,22 +65,58 @@ class Metric(ModuleClass, Generic[A]):
     """Encapsulates a special way to visualize results."""
 
     def fit(self, *args, **kwargs):
+        """Fit is used to capture information about the table or column the metric
+        will process. It should be used to store information such as column value names,
+        which is common among different executions of the view."""
         raise NotImplementedError()
 
     def process(self, *args, **kwargs) -> A:
+        """Process is called with each set of data from the view (reference, work, synthetic).
+        It should capture data relevant to each metric but in a synopsis or compressed form,
+        that can be used to compute the metric for different algorithm/split combinations."""
         raise NotImplementedError()
 
-    def visualise(self, data: dict[str, A]):
+    def visualise(
+        self,
+        data: dict[str, A],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        """Visualise is called for dicts of runs that run within the same view.
+
+        It is expected to create detailed visualizations (such as tables, figures)
+        which utilize the structure of the view (columns etc.).
+
+        `comparison` is set to False when the method is run when executing a run and to true
+        when run to compare multiple runs. It can be used to provide different summaries
+
+        If required by the visualization, `wrk_set` and `ref_set` provide the names
+        of the synthesis source data (wrk) and reference data (ref) which can be used
+        as a reference."""
         raise NotImplementedError()
 
-    def summarize(self, data: dict[str, A]):
+    def summarize(
+        self,
+        data: dict[str, A],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        """Summarize is called for dicts of runs that are not necessarily from the same view.
+
+        It is expected to create detailed summary metrics for the run which are
+        dataset structure independent (such as avg KL, etc).
+
+        `comparison` is set to False when the method is run when executing a run and to true
+        when run to compare multiple runs. It can be used to provide different summaries"""
         raise NotImplementedError()
 
 
 class ColumnMetric(Metric[A], Generic[A]):
     _factory = ColumnMetricFactory
 
-    def fit(self, meta: ColumnMeta, data: pd.Series):
+    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         raise NotImplementedError()
 
     def process(self, data: pd.Series) -> A:
@@ -71,14 +124,51 @@ class ColumnMetric(Metric[A], Generic[A]):
 
 
 class RefColumnMetric(ColumnMetric[A], Generic[A]):
-    def fit(self, meta: ColumnMeta, data: pd.Series, ref: pd.Series | None = None):
+    def fit(
+        self,
+        table: str,
+        col: str,
+        meta: ColumnMeta,
+        data: pd.Series,
+        ref: pd.Series | None = None,
+    ):
         raise NotImplementedError()
 
     def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
         raise NotImplementedError()
 
 
-class ColumnMetricHolder:
+class TableMetric(Metric[A], Generic[A]):
+    _factory = TableMetricFactory
+    """None = raw, bst = base layer transform, list = return dict of str to type."""
+    encodings: list[str] | str | None
+
+    def fit(
+        self,
+        table: str,
+        attrs: dict[str, Attributes] | Attributes | TableMeta,
+        data: dict[str, pd.DataFrame] | pd.DataFrame,
+        ids: pd.DataFrame | None = None,
+        parents: dict[str, dict[str, pd.DataFrame]]
+        | dict[str, pd.DataFrame]
+        | pd.DataFrame
+        | None = None,
+    ):
+        raise NotImplementedError()
+
+    def process(
+        self,
+        data: pd.Series,
+        ids: pd.DataFrame | None = None,
+        parents: dict[str, dict[str, pd.DataFrame]]
+        | dict[str, pd.DataFrame]
+        | pd.DataFrame
+        | None = None,
+    ) -> A:
+        raise NotImplementedError()
+
+
+class ColumnMetricHolder(TableMetric[dict[str, list]]):
     def __init__(self, modules: dict[str, list[ColumnMetricFactory]]) -> None:
         self.modules = modules
         self.metrics: dict[str, list[ColumnMetric]] = {}
@@ -109,9 +199,9 @@ class ColumnMetricHolder:
                         ref_col = ids.join(parents[rtable][rcol], on=rtable)[rcol]
                     else:
                         ref_col = data[rcol]
-                    m.fit(col, data[name], ref_col)
+                    m.fit(table, name, col, data[name], ref_col)
                 else:
-                    m.fit(col, data[name])
+                    m.fit(table, name, col, data[name])
 
                 self.metrics[name].append(m)
 
@@ -148,44 +238,37 @@ class ColumnMetricHolder:
 
         return out
 
-    def visualise(self, data: dict[str, dict[str, list]]):
-        for name, metrics in self.metrics.items():
-            for i, metric in enumerate(metrics):
-                metric.visualise({n: d[name][i] for n, d in data.items()})
-
-    def summarize(self, data: dict[str, dict[str, list]]):
-        for name, metrics in self.metrics.items():
-            for i, metric in enumerate(metrics):
-                metric.visualise({n: d[name][i] for n, d in data.items()})
-
-
-class TableMetric(Metric[A], Generic[A]):
-    _factory = TableMetricFactory
-    """None = raw, bst = base layer transform, list = return dict of str to type."""
-    encodings: list[str] | str | None
-
-    def fit(
+    def visualise(
         self,
-        attrs: dict[str, Attributes] | Attributes | TableMeta,
-        data: dict[str, pd.DataFrame] | pd.DataFrame,
-        ids: pd.DataFrame | None = None,
-        parents: dict[str, dict[str, pd.DataFrame]]
-        | dict[str, pd.DataFrame]
-        | pd.DataFrame
-        | None = None,
+        data: dict[str, dict[str, list]],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
     ):
-        raise NotImplementedError()
+        for name, metrics in self.metrics.items():
+            for i, metric in enumerate(metrics):
+                metric.visualise(
+                    {n: d[name][i] for n, d in data.items()},
+                    comparison,
+                    wrk_set,
+                    ref_set,
+                )
 
-    def process(
+    def summarize(
         self,
-        data: pd.Series,
-        ids: pd.DataFrame | None = None,
-        parents: dict[str, dict[str, pd.DataFrame]]
-        | dict[str, pd.DataFrame]
-        | pd.DataFrame
-        | None = None,
-    ) -> A:
-        raise NotImplementedError()
+        data: dict[str, dict[str, list]],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        for name, metrics in self.metrics.items():
+            for i, metric in enumerate(metrics):
+                metric.visualise(
+                    {n: d[name][i] for n, d in data.items()},
+                    comparison,
+                    wrk_set,
+                    ref_set,
+                )
 
 
 class DatasetMetric(Metric[A], Generic[A]):
@@ -194,7 +277,7 @@ class DatasetMetric(Metric[A], Generic[A]):
 
     def fit(
         self,
-        attrs: dict[str, Attributes] | Attributes | Metadata,
+        attrs: dict[str, dict[str, Attributes]] | dict[str, Attributes] | Metadata,
         ids: dict[str, pd.DataFrame] | pd.DataFrame,
         tables: dict[str, dict[str, pd.DataFrame]]
         | dict[str, pd.DataFrame]
@@ -211,33 +294,169 @@ class DatasetMetric(Metric[A], Generic[A]):
         raise NotImplementedError()
 
 
+def _separate_tables(data: dict[str, A]) -> dict[str, dict[str, A]]:
+    """Receives a dict of tables with names prefixed with a split such as `tbl.`.
+    Splits on `.` and returns a dictionary of splits containing a dictionary of table."""
 
-def _separate_ids_tables(data: dict[str, pd.DataFrame]):
-    """Separates tables and ids from incoming kedro data. ID Dataframes should
-    start with `ids.` and table dataframes with `tbl.`"""
-    ids = {}
-    tables = {}
+    splits = defaultdict(dict)
 
     for in_name, d in data.items():
         split, name = in_name.split(".")
-        match split:
-            case "ids":
-                ids[name] = d
-            case "tbl":
-                tables[name] = d
+        splits[split][name] = d
 
-    return tables, ids
+    return splits
 
 
-def create_fitted_hist_holder(
-    name: str, meta: Metadata, ids: pd.DataFrame, **tables: pd.DataFrame
+def _separate_tables_2lvl(data: dict[str, A]) -> dict[str, dict[str, dict[str, A]]]:
+    splits: dict[str, dict[str, dict[str, A]]] = defaultdict(lambda: defaultdict(dict))
+
+    for in_name, d in data.items():
+        split, enc, name = in_name.split(".")
+        splits[split][enc][name] = d
+
+    return splits
+
+
+def fit_column_holder(
+    modules: dict[str, list[ColumnMetricFactory]],
+    name: str,
+    meta: Metadata,
+    **tables: pd.DataFrame,
 ):
-    holder = HistHolder(name, meta)
-    holder.fit(tables, ids)
+    splits = _separate_tables(tables)
+
+    ids = splits["ids"][name]
+    parents = dict(splits["tbl"])
+    table = parents.pop(name)
+
+    holder = ColumnMetricHolder(modules)
+    holder.fit(name, meta[name], table, ids, parents)
     return holder
 
 
-def project_hists_for_view(
-    holder: HistHolder, ids: pd.DataFrame, **tables: pd.DataFrame
+def fit_table_metric_no_encodings(
+    fs: TableMetricFactory,
+    name: str,
+    meta: Metadata,
+    data: pd.DataFrame,
+    ids: pd.DataFrame,
+    **tables: pd.DataFrame,
 ):
-    return holder.process(tables, ids)
+    assert not fs.encodings
+    module = fs.build()
+    module.fit(name, meta[name], data, ids, tables)
+    return module
+
+
+def fit_table_metric_1_encoding(
+    fs: TableMetricFactory,
+    name: str,
+    holder: TransformHolder,
+    data: pd.DataFrame,
+    ids: pd.DataFrame,
+    **tables: pd.DataFrame,
+):
+    assert fs.encodings and len(fs.encodings) == 1
+    enc = fs.encodings[0]
+    attrs = holder.get_attributes() if enc == "bst" else holder[enc].get_attributes()
+
+    module = fs.build()
+    module.fit(name, attrs, data, ids, tables)
+    return module
+
+
+def fit_table_metric_n_encodings(
+    fs: TableMetricFactory,
+    name: str,
+    holder: TransformHolder,
+    **tables: pd.DataFrame,
+):
+    enc = fs.encodings
+    assert enc and len(enc) > 1
+    attrs = {n: holder[n].get_attributes() for n in enc}
+    splits = _separate_tables(tables)
+
+    module = fs.build()
+    module.fit(
+        name, attrs, {t: splits[t][name] for t in enc}, splits["ids"][name], splits
+    )
+    return module
+
+
+def fit_dataset_metric_no_encodings(
+    fs: DatasetMetricFactory,
+    meta: Metadata,
+    **tables: pd.DataFrame,
+):
+    assert not fs.encodings
+    module = fs.build()
+    splits = _separate_tables(tables)
+    module.fit(meta, splits["ids"], splits["raw"])
+    return module
+
+
+def fit_dataset_metric_1_encoding(
+    fs: DatasetMetricFactory,
+    **tables: pd.DataFrame | TransformHolder,
+):
+    assert fs.encodings and len(fs.encodings) == 1
+    enc = fs.encodings[0]
+    splits = _separate_tables(tables)
+    attrs = {
+        n: h.get_attributes() if enc == "bst" else h[enc].get_attributes()
+        for n, h in cast(dict[str, TransformHolder], splits["trn"]).items()
+    }
+
+    ids = cast(dict[str, pd.DataFrame], splits["ids"])
+    data = cast(dict[str, pd.DataFrame], splits["raw"])
+
+    module = fs.build()
+    module.fit(attrs, ids, data)
+    return module
+
+
+def fit_dataset_metric_n_encodings(
+    fs: DatasetMetricFactory,
+    name: str,
+    **tables: pd.DataFrame | TransformHolder,
+):
+    enc = fs.encodings
+    assert enc and len(enc) > 1
+    splits = _separate_tables(tables)
+    trn = splits.pop("trn")
+    attrs = {
+        e: {
+            n: h.get_attributes() if e == "bst" else h[e].get_attributes()
+            for n, h in cast(dict[str, TransformHolder], trn).items()
+        }
+        for e in enc
+    }
+
+    ids = cast(dict[str, pd.DataFrame], splits.pop("ids"))
+    data = cast(dict[str, dict[str, pd.DataFrame]], splits)
+
+    module = fs.build()
+    module.fit(attrs, ids, data)
+    return module
+
+
+def viz_metric(
+    comparison: bool = False,
+    wrk_set: str = "wrk",
+    ref_set: str = "ref",
+    metric: Metric[A] | None = None,
+    **splits: A,
+):
+    assert metric
+    metric.visualise(splits, comparison, wrk_set, ref_set)
+
+
+def sum_metric(
+    comparison: bool = False,
+    wrk_set: str = "wrk",
+    ref_set: str = "ref",
+    metric: Metric[A] | None = None,
+    **splits: A,
+):
+    assert metric
+    metric.summarize(splits, comparison, wrk_set, ref_set)

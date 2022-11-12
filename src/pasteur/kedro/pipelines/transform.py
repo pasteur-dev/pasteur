@@ -11,7 +11,7 @@ from .meta import PipelineMeta
 if TYPE_CHECKING:
     import pandas as pd
     from ...metadata import Metadata
-    from ...table import TableHandler
+    from ...table import TransformHolder
     from ...transform import TransformerFactory
     from ...encode import EncoderFactory
     from ...view import View
@@ -26,15 +26,15 @@ def _fit_table(
     meta: Metadata,
     **tables: pd.DataFrame,
 ):
-    from ...table import TableHandler
+    from ...table import TransformHolder
 
-    t = TableHandler(meta, name, transformers, encoders)
+    t = TransformHolder(meta, name, transformers, encoders)
     _, ids = t.fit_transform(tables)
     return t, ids
 
 
 def _transform_table(
-    transformer: TableHandler,
+    transformer: TransformHolder,
     **tables: pd.DataFrame,
 ):
     ids = transformer.find_ids(tables)
@@ -42,7 +42,7 @@ def _transform_table(
 
 
 def _base_reverse_table(
-    transformer: TableHandler,
+    transformer: TransformHolder,
     ids: pd.DataFrame,
     table: pd.DataFrame,
     **parents: pd.DataFrame,
@@ -50,11 +50,11 @@ def _base_reverse_table(
     return transformer.reverse(table, ids, parents)
 
 
-def _encode_table(type: str, transformer: TableHandler, table: pd.DataFrame):
+def _encode_table(type: str, transformer: TransformHolder, table: pd.DataFrame):
     return transformer[type].encode(table)
 
 
-def _decode_table(type: str, transformer: TableHandler, table: pd.DataFrame):
+def _decode_table(type: str, transformer: TransformHolder, table: pd.DataFrame):
     return transformer[type].decode(table)
 
 
