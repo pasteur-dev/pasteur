@@ -28,6 +28,10 @@ class ModuleClass:
 
     @classmethod
     def get_factory(cls, *args, **kwargs):
+        """Returns a factory that registers this module to the system.
+
+        Any `*args` and `**kwargs` passed to this function will be saved and passed
+        to the module's `__init__()` method when calling `build()`."""
         return cls._factory(cls, *args, **kwargs)
 
 
@@ -38,16 +42,18 @@ class ModuleFactory(Module, Generic[A]):
     """Some modules (such as transformers) require multiple instances in the system. In this case,
     it's not possible to provide a module instance for them.
 
-    `BaseFactory` is used to provide a wrapper instance to that module class."""
+    `ModuleFactory` is used to provide a wrapper instance to that module class."""
 
-    def __init__(self, cls: type[A], *args, name: str | None = None, **_) -> None:
+    def __init__(self, cls: type[A], *args, name: str | None = None, **kwargs) -> None:
         self._cls = cls
         self.name = name or cls.name
+        self.args = args
+        self.kwargs = kwargs
 
     def build(self, *args, **kwargs):
         """Build is used to create the new instance. You can override this
         function to customize instance creation."""
-        return self._cls(*args, _from_factory=True, **kwargs)
+        return self._cls(*args, *self.args, _from_factory=True, **kwargs, **self.kwargs)
 
 
 M = TypeVar("M", bound=Module)
@@ -65,7 +71,9 @@ def get_module_dict(parent: type[M], modules: list[Module]) -> dict[str, M]:
     return out
 
 
-def get_module_dict_multiple(parent: type[M], modules: list[Module]) -> dict[str, list[M]]:
+def get_module_dict_multiple(
+    parent: type[M], modules: list[Module]
+) -> dict[str, list[M]]:
     """Same as `get_module_dict`, except for that it returns a list.
     Multiple modules can use the same name."""
     out = defaultdict(list)
