@@ -47,9 +47,9 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
         # Create node
         nodes += [
             node(
-                gen_closure(fit_dataset_metric),
+                gen_closure(fit_dataset_metric, _fn=f"fit_{name}"),
                 inputs=inputs,
-                outputs=[f"{view}.msr.ds_{name}"],
+                outputs=f"{view}.msr.ds_{name}",
                 namespace=f"{view}.msr",
             ),
         ]
@@ -90,20 +90,20 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
             # Create node
             nodes += [
                 node(
-                    gen_closure(fit_table_metric),
+                    gen_closure(fit_table_metric, fs, table, _fn=f"fit_{name}_{table}"),
                     inputs=inputs,
-                    outputs=[f"{view}.msr.tbl_{name}_{table}"],
+                    outputs=f"{view}.msr.tbl_{name}_{table}",
                     namespace=f"{view}.msr",
                 )
             ]
-            outputs += {
+            outputs += [
                 D(
                     "measure",
                     f"{view}.msr.tbl_{name}_{table}",
                     ["measure", "table", view, table, name, "metric"],
                     type="pkl",
                 )
-            }
+            ]
 
     # Column Metrics
     col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
@@ -120,9 +120,9 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
             # Create node
             nodes += [
                 node(
-                    gen_closure(fit_column_holder, col_modules, table),
+                    gen_closure(fit_column_holder, col_modules, table, _fn=f"fit_column_metrics_{table}"),
                     inputs=inputs,
-                    outputs=[f"{view}.msr.col_{table}"],
+                    outputs=f"{view}.msr.col_{table}",
                     namespace=f"{view}.msr",
                 )
             ]
@@ -173,9 +173,9 @@ def _create_process_pipeline(
         # Create node
         nodes += [
             node(
-                process_dataset_metric,
+                gen_closure(process_dataset_metric, _fn=f"process_{name}_{split}"),
                 inputs=inputs,
-                outputs=[f"{view}.{pkg}.ds_{name}_{suffix}"],
+                outputs=f"{view}.{pkg}.ds_{name}_{suffix}",
                 namespace=f"{view}.msr",
             ),
         ]
@@ -215,13 +215,15 @@ def _create_process_pipeline(
             # Create node
             nodes += [
                 node(
-                    process_table_metric,
+                    gen_closure(
+                        process_table_metric, _fn=f"process_{name}_{table}_{split}"
+                    ),
                     inputs=inputs,
-                    outputs=[f"{view}.{pkg}.tbl_{name}_{table}_{suffix}"],
+                    outputs=f"{view}.{pkg}.tbl_{name}_{table}_{suffix}",
                     namespace=f"{view}.{pkg}",
                 )
             ]
-            outputs += {
+            outputs += [
                 D(
                     "measure",
                     f"{view}.{pkg}.tbl_{name}_{table}_{suffix}",
@@ -229,7 +231,7 @@ def _create_process_pipeline(
                     type="pkl",
                     versioned=versioned,
                 )
-            }
+            ]
 
     # Column Metrics
     col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
@@ -246,9 +248,12 @@ def _create_process_pipeline(
             # Create node
             nodes += [
                 node(
-                    process_column_holder,
+                    gen_closure(
+                        process_column_holder,
+                        _fn=f"process_column_metrics_{table}_{split}",
+                    ),
                     inputs=inputs,
-                    outputs=[f"{view}.{pkg}.col_{table}_{suffix}"],
+                    outputs=f"{view}.{pkg}.col_{table}_{suffix}",
                     namespace=f"{view}.{pkg}",
                 )
             ]
@@ -286,14 +291,14 @@ def create_metrics_model_pipeline(
             for table in view.tables:
                 nodes += [
                     node(
-                        fn,
+                        gen_closure(fn, _fn=f"%s_columns_{table}"),
                         inputs={
                             "metric": f"{view}.msr.col_{table}",
                             "wrk": f"{view}.msr.col_{table}_{wrk_split}",
                             "ref": f"{view}.msr.col_{table}_{ref_split}",
                             "syn": f"{view}.{alg}.col_{table}_data",
                         },
-                        outputs=[],
+                        outputs=None,
                         namespace=f"{view}.{alg}",
                     )
                 ]
@@ -302,14 +307,14 @@ def create_metrics_model_pipeline(
             for table in view.tables:
                 nodes += [
                     node(
-                        fn,
+                        gen_closure(fn, _fn=f"%s_columns_{table}"),
                         inputs={
                             "metric": f"{view}.msr.tbl_{name}_{table}",
                             "wrk": f"{view}.msr.tbl_{name}_{table}_{wrk_split}",
                             "ref": f"{view}.msr.tbl_{name}_{table}_{ref_split}",
                             "syn": f"{view}.{alg}.tbl_{name}_{table}_data",
                         },
-                        outputs=[],
+                        outputs=None,
                         namespace=f"{view}.{alg}",
                     )
                 ]
@@ -317,14 +322,14 @@ def create_metrics_model_pipeline(
         for name in get_module_dict(DatasetMetricFactory, modules):
             nodes += [
                 node(
-                    fn,
+                    gen_closure(fn, _fn=f"%s_{name}"),
                     inputs={
                         "metric": f"{view}.msr.ds_{name}",
                         "wrk": f"{view}.msr.ds_{name}_{wrk_split}",
                         "ref": f"{view}.msr.ds_{name}_{ref_split}",
                         "syn": f"{view}.{alg}.ds_{name}_data",
                     },
-                    outputs=[],
+                    outputs=None,
                     namespace=f"{view}.{alg}",
                 )
             ]

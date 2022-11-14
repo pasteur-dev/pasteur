@@ -161,7 +161,7 @@ class Value:
 
 
 class IdxValue(Value):
-    def get_domain(self, height: int) -> int:
+    def get_domain(self, height: int = 0) -> int:
         """Returns the domain of the attribute in the given height."""
         raise NotImplementedError()
 
@@ -174,6 +174,10 @@ class IdxValue(Value):
     def height(self) -> int:
         """Returns the maximum height of this column."""
         return 0
+
+    @property
+    def domain(self):
+        return self.get_domain(0)
 
     def is_ordinal(self) -> bool:
         """Returns whether this column is ordinal, other than for the elements
@@ -206,6 +210,7 @@ class IdxValue(Value):
 
     def select_height(self) -> int:
         return 0
+
 
 class LevelValue(IdxValue):
     """A specific type of IdxColumn, which contains a hierarchical attribute
@@ -303,7 +308,9 @@ class NumValue(Value):
     def __repr__(self) -> str:
         return str(self)
 
+
 V = TypeVar("V", bound=Value)
+
 
 class Attribute:
     def __init__(

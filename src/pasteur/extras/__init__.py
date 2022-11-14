@@ -1,15 +1,17 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..module import Module
     from ..dataset import Dataset
+    from ..module import Module
+
     from ..view import View
+
 
 def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.adult import AdultDataset
     from .datasets.mimic import MimicDataset
-
     from .views.adult import TabAdultView
     from .views.mimic import MimicMmCoreView, MimicTabAdmissions
 
@@ -22,8 +24,10 @@ def get_recommended_datasets() -> list[Dataset | View]:
         MimicTabAdmissions(),
     ]
 
+
 def get_recommended_system_modules() -> list[Module]:
     from .encoders import IdxEncoder, NumEncoder
+    from .metrics.distr import ChiSquareMetric, KullbackLeiblerMetric
     from .synth.extern import AimSynth, PrivMrfSynth
     from .synth.privbayes import PrivBayesSynth
     from .transformers import (
@@ -52,7 +56,11 @@ def get_recommended_system_modules() -> list[Module]:
         PrivBayesSynth.get_factory(),
         AimSynth.get_factory(),
         PrivMrfSynth.get_factory(),
+        # Metrics
+        ChiSquareMetric.get_factory(),
+        KullbackLeiblerMetric.get_factory(),
     ]
+
 
 def get_recommended_modules() -> list[Module]:
     return get_recommended_datasets() + get_recommended_system_modules()

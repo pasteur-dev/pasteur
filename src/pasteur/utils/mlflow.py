@@ -167,7 +167,7 @@ def color_dataframe(
         pd.pivot_table(
             df, index=idx, columns=[*cols, split_col], values=vals, sort=False
         )
-        .sort_index(axis="rows")
+        .sort_index(axis="index")
         .sort_index(
             axis="columns", level=list(range(len(cols) + 1)), sort_remaining=False
         )

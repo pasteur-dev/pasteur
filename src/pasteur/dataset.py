@@ -48,7 +48,7 @@ def split_keys(
 
     # Sort and shuffle array for a consistent split every time
     np_keys = np.sort(idx)
-    np.random.shuffle(keys)
+    np.random.shuffle(np_keys)
 
     # Split array into the required chunks
     splits = {}
@@ -144,7 +144,7 @@ class TabularDataset(Dataset):
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
         import pandas as pd
 
-        df = pd.concat([tables[name] for name in self.deps["table"]])
+        df = pd.concat([tables[name] for name in self.deps["table"]]).reset_index(drop=True)
         df.index.name = "id"
         return split_keys(df, ratios, random_state)
 

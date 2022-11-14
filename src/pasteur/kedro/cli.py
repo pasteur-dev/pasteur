@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 import click
 from kedro.framework.session import KedroSession
@@ -22,7 +22,7 @@ def pipe(pipeline, params):
 
     param_dict = str_params_to_dict(params)
 
-    with KedroSession.create(env=None, extra_params=param_dict) as session:
+    with KedroSession.create(extra_params=param_dict) as session:
         session.run(
             tags=[],
             runner=SimpleRunner(pipeline, " ".join(params)),  # SequentialRunner(True),
@@ -37,7 +37,7 @@ def pipe(pipeline, params):
 
 
 def _process_iterables(iterables: dict[str, Iterable]):
-    null = object()
+    sentinel = object()
     iterator_dict = {n: iter(v) for n, v in iterables.items()}
     value_dict = {n: next(v, None) for n, v in iterator_dict.items()}
 
@@ -47,9 +47,9 @@ def _process_iterables(iterables: dict[str, Iterable]):
 
         has_combs = False
         for name, it in iterator_dict.items():
-            val = next(it, null)
+            val: Any = next(it, sentinel)
 
-            if val is null:
+            if val is sentinel:
                 new_it = iter(iterables[name])
                 iterator_dict[name] = new_it
                 value_dict[name] = next(new_it, None)
@@ -106,7 +106,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
 
     parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
     if clear_cache:
-        with KedroSession.create(env=None) as session:
+        with KedroSession.create() as session:
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
@@ -133,7 +133,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         extra_params = merge_params(vals | mlflow_dict)
 
         for pipeline, alg in pipelines.items():
-            with KedroSession.create(env=None, extra_params=extra_params) as session:
+            with KedroSession.create(extra_params=extra_params) as session:
                 session.load_context()
 
                 run_name = get_run_name(pipeline, vals)
@@ -162,9 +162,10 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                     pipeline_name=pipeline,
                 )
 
-    with KedroSession.create(env=None) as session:
-        session.load_context()
-        log_parent_run(parent_name, runs)
+    # with KedroSession.create(env=None) as session:
+    #     session.load_context()
+    #     log_parent_run(parent_name, runs)
+
 
 @click.command()
 @click.option("--user", "-u", type=str, default=None)
@@ -222,6 +223,7 @@ def download(
 @click.group(name="Pasteur")
 def cli():
     """Command line tools for manipulating a Kedro project."""
+
 
 cli.add_command(download)
 cli.add_command(pipe)

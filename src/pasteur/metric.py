@@ -87,7 +87,7 @@ class Metric(ModuleClass, Generic[A]):
         If required by the visualization, `wrk_set` and `ref_set` provide the names
         of the synthesis source data (wrk) and reference data (ref) which can be used
         as a reference."""
-        raise NotImplementedError()
+        ...
 
     def summarize(
         self,
@@ -103,7 +103,7 @@ class Metric(ModuleClass, Generic[A]):
 
         `comparison` is set to False when the method is run when executing a run and to true
         when run to compare multiple runs. It can be used to provide different summaries"""
-        raise NotImplementedError()
+        ...
 
 
 class ColumnMetric(Metric[A], Generic[A]):
@@ -307,7 +307,7 @@ def fit_column_holder(
     **tables: pd.DataFrame,
 ):
     holder = ColumnMetricHolder(modules)
-    holder.fit(name, meta, tables, ids)
+    holder.fit(table=name, meta=meta, tables=tables, ids=ids)
     return holder
 
 
@@ -319,7 +319,7 @@ def process_column_holder(
     splits = _separate_tables(tables)
     tables = dict(splits["raw"])
 
-    return holder.process(tables, ids)
+    return holder.process(tables=tables, ids=ids)
 
 
 def fit_table_metric(
@@ -342,7 +342,7 @@ def fit_table_metric(
     data = cast(dict[str, dict[str, pd.DataFrame]], splits)
 
     module = fs.build()
-    module.fit(name, meta, attrs, data, ids)
+    module.fit(table=name, meta=meta, attrs=attrs, tables=data, ids=ids)
     return module
 
 
@@ -351,7 +351,7 @@ def process_table_metric(
     ids: pd.DataFrame,
     **tables: pd.DataFrame,
 ):
-    return metric.process(_separate_tables(tables), ids)
+    return metric.process(tables=_separate_tables(tables), ids=ids)
 
 
 def fit_dataset_metric(
@@ -375,7 +375,7 @@ def fit_dataset_metric(
     data = cast(dict[str, dict[str, pd.DataFrame]], splits)
 
     module = fs.build()
-    module.fit(meta, attrs, data, ids)
+    module.fit(meta=meta, attrs=attrs, tables=data, ids=ids)
     return module
 
 
@@ -385,7 +385,7 @@ def process_dataset_metric(
 ):
     splits = _separate_tables(tables).copy()
     ids = splits.pop("ids")
-    return metric.process(splits, ids)
+    return metric.process(tables=splits, ids=ids)
 
 
 def viz_metric(
@@ -395,7 +395,9 @@ def viz_metric(
     ref_set: str = "ref",
     **splits: A,
 ):
-    metric.visualise(splits, comparison, wrk_set, ref_set)
+    metric.visualise(
+        data=splits, comparison=comparison, wrk_set=wrk_set, ref_set=ref_set
+    )
 
 
 def sum_metric(
@@ -405,4 +407,6 @@ def sum_metric(
     ref_set: str = "ref",
     **splits: A,
 ):
-    metric.summarize(splits, comparison, wrk_set, ref_set)
+    metric.summarize(
+        data=splits, comparison=comparison, wrk_set=wrk_set, ref_set=ref_set
+    )

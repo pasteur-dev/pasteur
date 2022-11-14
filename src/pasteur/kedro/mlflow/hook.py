@@ -78,7 +78,7 @@ class MlflowTrackingHook:
 
         self.params = context.params.copy()
         self.base_location = self.params.pop("base_location")
-        self.parent_name = self.params.pop("_mlflow_parent_name", None)
+        self.parent_name = self.params.pop("_mlflow_parent_name", "")
         self.context = context
 
     @hook_impl
@@ -106,6 +106,7 @@ class MlflowTrackingHook:
             self._logger.warn(
                 f"Pipeline name {pipeline_name} is not compatible with mlflow hook (<view>.<alg>.<misc>), disabling logging."
             )
+            return
         else:
             current_view = pipe_seg[0]
             alg = pipe_seg[1]
