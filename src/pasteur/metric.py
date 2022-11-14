@@ -3,8 +3,8 @@ from typing import Generic, TypeVar, cast
 import pandas as pd
 from collections import defaultdict
 
-from .attribute import Attribute, Attributes
-from .metadata import ColumnMeta, TableMeta, Metadata
+from .attribute import Attributes
+from .metadata import ColumnMeta, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
 
@@ -25,13 +25,6 @@ logger = logging.getLogger(__name__)
 
 # For column metrics, the name of the metric corresponds to column type, for the rest
 # it corresponts to their name.
-
-""" encoding name to table attribute dict """
-PertypeAttributes = dict[str, Attributes]
-""" table name to table attribute dict """
-DatasetAttributes = dict[str, Attributes]
-""" encoding name to dataset attribute dict"""
-PertypeDatasetAttributes = dict[str, DatasetAttributes]
 
 
 class ColumnMetricFactory(ModuleFactory["ColumnMetric"]):
@@ -138,37 +131,7 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
         raise NotImplementedError()
 
 
-class TableMetric(Metric[A], Generic[A]):
-    _factory = TableMetricFactory
-    """None = raw, bst = base layer transform, list = return dict of str to type."""
-    encodings: list[str] | str | None
-
-    def fit(
-        self,
-        table: str,
-        attrs: dict[str, Attributes] | Attributes | TableMeta,
-        data: dict[str, pd.DataFrame] | pd.DataFrame,
-        ids: pd.DataFrame | None = None,
-        parents: dict[str, dict[str, pd.DataFrame]]
-        | dict[str, pd.DataFrame]
-        | pd.DataFrame
-        | None = None,
-    ):
-        raise NotImplementedError()
-
-    def process(
-        self,
-        data: pd.Series,
-        ids: pd.DataFrame | None = None,
-        parents: dict[str, dict[str, pd.DataFrame]]
-        | dict[str, pd.DataFrame]
-        | pd.DataFrame
-        | None = None,
-    ) -> A:
-        raise NotImplementedError()
-
-
-class ColumnMetricHolder(TableMetric[dict[str, list]]):
+class ColumnMetricHolder(Metric[dict[str, list]]):
     def __init__(self, modules: dict[str, list[ColumnMetricFactory]]) -> None:
         self.modules = modules
         self.metrics: dict[str, list[ColumnMetric]] = {}
@@ -176,14 +139,14 @@ class ColumnMetricHolder(TableMetric[dict[str, list]]):
     def fit(
         self,
         table: str,
-        meta: TableMeta,
-        data: pd.DataFrame,
+        meta: Metadata,
+        tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
-        parents: dict[str, pd.DataFrame] | None = None,
     ):
         self.meta = meta
+        self.table = table
 
-        for name, col in meta.cols.items():
+        for name, col in meta[table].cols.items():
             if col.is_id():
                 continue
 
@@ -195,13 +158,13 @@ class ColumnMetricHolder(TableMetric[dict[str, list]]):
                     assert rcol and isinstance(m, RefColumnMetric)
 
                     if rtable:
-                        assert ids and parents and rtable in parents
-                        ref_col = ids.join(parents[rtable][rcol], on=rtable)[rcol]
+                        assert ids and rtable in tables
+                        ref_col = ids.join(tables[rtable][rcol], on=rtable)[rcol]
                     else:
-                        ref_col = data[rcol]
-                    m.fit(table, name, col, data[name], ref_col)
+                        ref_col = tables[table][rcol]
+                    m.fit(table, name, col, tables[table][name], ref_col)
                 else:
-                    m.fit(table, name, col, data[name])
+                    m.fit(table, name, col, tables[table][name])
 
                 self.metrics[name].append(m)
 
@@ -212,27 +175,26 @@ class ColumnMetricHolder(TableMetric[dict[str, list]]):
 
     def process(
         self,
-        data: pd.DataFrame,
+        tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
-        parents: dict[str, pd.DataFrame] | None = None,
     ) -> dict[str, list]:
         out = {}
         for name, metrics in self.metrics.items():
             out[name] = []
-            ref = self.meta[name].ref
+            ref = self.meta[self.name][name].ref
             for m in metrics:
                 if ref:
                     rtable, rcol = ref.table, ref.col
                     assert rcol and isinstance(m, RefColumnMetric)
 
                     if rtable:
-                        assert ids and parents and rtable in parents
-                        ref_col = ids.join(parents[rtable][rcol], on=rtable)[rcol]
+                        assert ids and rtable in tables
+                        ref_col = ids.join(tables[rtable][rcol], on=rtable)[rcol]
                     else:
-                        ref_col = data[rcol]
-                    a = m.process(data[name], ref_col)
+                        ref_col = tables[self.table][rcol]
+                    a = m.process(tables[self.table][name], ref_col)
                 else:
-                    a = m.process(data[name])
+                    a = m.process(tables[self.table][name])
 
                 out[name].append(a)
 
@@ -271,25 +233,45 @@ class ColumnMetricHolder(TableMetric[dict[str, list]]):
                 )
 
 
-class DatasetMetric(Metric[A], Generic[A]):
-    _factory = DatasetMetricFactory
-    encodings: list[str] | str | None
+class TableMetric(Metric[A], Generic[A]):
+    _factory = TableMetricFactory
+    encodings: list[str] = ["raw"]
 
     def fit(
         self,
-        attrs: dict[str, dict[str, Attributes]] | dict[str, Attributes] | Metadata,
-        ids: dict[str, pd.DataFrame] | pd.DataFrame,
-        tables: dict[str, dict[str, pd.DataFrame]]
-        | dict[str, pd.DataFrame]
-        | pd.DataFrame,
+        table: str,
+        meta: Metadata,
+        attrs: dict[str, dict[str, Attributes]],
+        tables: dict[str, dict[str, pd.DataFrame]],
+        ids: pd.DataFrame | None = None,
     ):
         raise NotImplementedError()
 
     def process(
         self,
-        data: pd.Series,
+        tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
-        **parents: dict[str, pd.DataFrame],
+    ) -> A:
+        raise NotImplementedError()
+
+
+class DatasetMetric(Metric[A], Generic[A]):
+    _factory = DatasetMetricFactory
+    encodings: list[str] = ["raw"]
+
+    def fit(
+        self,
+        meta: Metadata,
+        attrs: dict[str, dict[str, Attributes]],
+        tables: dict[str, dict[str, pd.DataFrame]],
+        ids: dict[str, pd.DataFrame] | pd.DataFrame,
+    ):
+        raise NotImplementedError()
+
+    def process(
+        self,
+        tables: dict[str, dict[str, pd.DataFrame]],
+        ids: dict[str, pd.DataFrame] | pd.DataFrame,
     ) -> A:
         raise NotImplementedError()
 
@@ -321,103 +303,61 @@ def fit_column_holder(
     modules: dict[str, list[ColumnMetricFactory]],
     name: str,
     meta: Metadata,
+    ids: pd.DataFrame,
     **tables: pd.DataFrame,
 ):
     splits = _separate_tables(tables)
-
-    ids = splits["ids"][name]
-    parents = dict(splits["tbl"])
-    table = parents.pop(name)
-
     holder = ColumnMetricHolder(modules)
-    holder.fit(name, meta[name], table, ids, parents)
+    holder.fit(name, meta, tables, ids)
     return holder
 
 
-def fit_table_metric_no_encodings(
-    fs: TableMetricFactory,
-    name: str,
-    meta: Metadata,
-    data: pd.DataFrame,
+def process_column_holder(
+    holder: ColumnMetricHolder,
     ids: pd.DataFrame,
     **tables: pd.DataFrame,
 ):
-    assert not fs.encodings
-    module = fs.build()
-    module.fit(name, meta[name], data, ids, tables)
-    return module
-
-
-def fit_table_metric_1_encoding(
-    fs: TableMetricFactory,
-    name: str,
-    holder: TransformHolder,
-    data: pd.DataFrame,
-    ids: pd.DataFrame,
-    **tables: pd.DataFrame,
-):
-    assert fs.encodings and len(fs.encodings) == 1
-    enc = fs.encodings[0]
-    attrs = holder.get_attributes() if enc == "bst" else holder[enc].get_attributes()
-
-    module = fs.build()
-    module.fit(name, attrs, data, ids, tables)
-    return module
-
-
-def fit_table_metric_n_encodings(
-    fs: TableMetricFactory,
-    name: str,
-    holder: TransformHolder,
-    **tables: pd.DataFrame,
-):
-    enc = fs.encodings
-    assert enc and len(enc) > 1
-    attrs = {n: holder[n].get_attributes() for n in enc}
     splits = _separate_tables(tables)
+    tables = dict(splits["raw"])
 
-    module = fs.build()
-    module.fit(
-        name, attrs, {t: splits[t][name] for t in enc}, splits["ids"][name], splits
-    )
-    return module
+    return holder.process(tables, ids)
 
 
-def fit_dataset_metric_no_encodings(
-    fs: DatasetMetricFactory,
+def fit_table_metric(
+    fs: TableMetricFactory,
+    name: str,
     meta: Metadata,
-    **tables: pd.DataFrame,
-):
-    assert not fs.encodings
-    module = fs.build()
-    splits = _separate_tables(tables)
-    module.fit(meta, splits["ids"], splits["raw"])
-    return module
-
-
-def fit_dataset_metric_1_encoding(
-    fs: DatasetMetricFactory,
+    ids: pd.DataFrame,
     **tables: pd.DataFrame | TransformHolder,
 ):
-    assert fs.encodings and len(fs.encodings) == 1
-    enc = fs.encodings[0]
-    splits = _separate_tables(tables)
+    enc = fs.encodings
+    splits = _separate_tables(tables).copy()
+    trn = splits.pop("trn")
     attrs = {
-        n: h.get_attributes() if enc == "bst" else h[enc].get_attributes()
-        for n, h in cast(dict[str, TransformHolder], splits["trn"]).items()
+        e: {
+            n: h.get_attributes() if e == "bst" else h[e].get_attributes()
+            for n, h in cast(dict[str, TransformHolder], trn).items()
+        }
+        for e in enc
     }
-
-    ids = cast(dict[str, pd.DataFrame], splits["ids"])
-    data = cast(dict[str, pd.DataFrame], splits["raw"])
+    data = cast(dict[str, dict[str, pd.DataFrame]], splits)
 
     module = fs.build()
-    module.fit(attrs, ids, data)
+    module.fit(name, meta, attrs, data, ids)
     return module
 
 
-def fit_dataset_metric_n_encodings(
+def process_table_metric(
+    metric: TableMetric,
+    ids: pd.DataFrame,
+    **tables: pd.DataFrame,
+):
+    return metric.process(_separate_tables(tables), ids)
+
+
+def fit_dataset_metric(
     fs: DatasetMetricFactory,
-    name: str,
+    meta: Metadata,
     **tables: pd.DataFrame | TransformHolder,
 ):
     enc = fs.encodings
@@ -436,8 +376,17 @@ def fit_dataset_metric_n_encodings(
     data = cast(dict[str, dict[str, pd.DataFrame]], splits)
 
     module = fs.build()
-    module.fit(attrs, ids, data)
+    module.fit(meta, attrs, data, ids)
     return module
+
+
+def process_dataset_metric(
+    metric: DatasetMetric,
+    **tables: pd.DataFrame,
+):
+    splits = _separate_tables(tables).copy()
+    ids = splits.pop("ids")
+    return metric.process(splits, ids)
 
 
 def viz_metric(
