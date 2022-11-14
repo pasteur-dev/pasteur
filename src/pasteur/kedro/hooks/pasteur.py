@@ -56,17 +56,18 @@ class PasteurHook:
         pipelines._load_data()
         pipelines._content.update(self.pipelines)
 
-        # Add metadata
-        if self.parameter_fns:
-            orig_params = context._extra_params
-            context._extra_params = context.config_loader.get(
-                *self.parameter_fns
-            ).copy()
-            # Add hidden dict for view names to strip params
-            if orig_params:
-                context._extra_params.update(orig_params)
+        # Add view metadata for loaded modules
+        orig_params = context._extra_params
+        context._extra_params = {}
 
-        context._extra_params = context._extra_params.copy()
+        for name, param_fn in self.parameter_fns.items():
+            context._extra_params[name] = context.config_loader.get(param_fn).copy()
+
+        # Restore original overrides
+        if orig_params:
+            context._extra_params.update(orig_params)
+
+        # Add hidden dict with views to remove their params in mlflow
         context._extra_params["_views"] = get_view_names(self.modules)
 
     def get_version(self, name: str, versioned: bool):

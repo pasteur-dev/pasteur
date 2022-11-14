@@ -74,7 +74,7 @@ def get_view_names(modules: list[Module]):
 def generate_pipelines(
     modules: list[Module], params: dict
 ) -> tuple[
-    dict[str, Pipeline], list[DatasetMeta], list[tuple[str | None, str]], list[str]
+    dict[str, Pipeline], list[DatasetMeta], list[tuple[str | None, str]], dict[str, str]
 ]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
 
@@ -210,5 +210,5 @@ def generate_pipelines(
             for d in datasets.values()
             if d.folder_name and d.catalog_fn
         ],
-        [v.parameters_fn for v in views.values() if v.parameters_fn],
+        {str(v): v.parameters_fn for v in views.values() if v.parameters_fn},
     )

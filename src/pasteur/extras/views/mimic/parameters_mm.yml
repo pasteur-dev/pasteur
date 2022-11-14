@@ -1,46 +1,45 @@
-mimic_mm_core:
-  tables:
-    patients:
-      primary_key: subject_id
-      fields:
-        subject_id: id
-        gender: categorical
-        # year_group: categorical
-        dod: date?:birth_year
-        birth_year: fixed|date
+tables:
+  patients:
+    primary_key: subject_id
+    fields:
+      subject_id: id
+      gender: categorical
+      # year_group: categorical
+      dod: date?:birth_year
+      birth_year: fixed|date
 
-    admissions:
-      primary_key: hadm_id
-      fields:
-        hadm_id: id
-        subject_id: id:patients.subject_id
-        admittime:
-          type: datetime
-          span: year.hour
-          ref:
-            table: patients
-            col: birth_year
-          max_len: 99
-          bins: 100
-        dischtime: datetime|day.hour:admittime
-        deathtime: datetime?|day.hour:admittime
-        admission_type: categorical
-        admission_location: categorical?
-        discharge_location: categorical?
-        insurance: categorical
-        language: categorical
-        marital_status: categorical?
-        ethnicity: categorical
-        # edregtime: datetime?|day.halfhour:admittime
-        # edouttime: datetime?|day.halfhour:admittime
-        hospital_expire_flag: categorical
+  admissions:
+    primary_key: hadm_id
+    fields:
+      hadm_id: id
+      subject_id: id:patients.subject_id
+      admittime:
+        type: datetime
+        span: year.hour
+        ref:
+          table: patients
+          col: birth_year
+        max_len: 99
+        bins: 100
+      dischtime: datetime|day.hour:admittime
+      deathtime: datetime?|day.hour:admittime
+      admission_type: categorical
+      admission_location: categorical?
+      discharge_location: categorical?
+      insurance: categorical
+      language: categorical
+      marital_status: categorical?
+      ethnicity: categorical
+      # edregtime: datetime?|day.halfhour:admittime
+      # edouttime: datetime?|day.halfhour:admittime
+      hospital_expire_flag: categorical
 
-    transfers:
-      primary_key: transfer_id
-      fields:
-        transfer_id: id
-        hadm_id: id:admissions.hadm_id
-        eventtype: categorical
-        careunit: categorical?
-        intime: datetime|day.hour:admissions.admittime
-        outtime: datetime?|day.hour:intime
+  transfers:
+    primary_key: transfer_id
+    fields:
+      transfer_id: id
+      hadm_id: id:admissions.hadm_id
+      eventtype: categorical
+      careunit: categorical?
+      intime: datetime|day.hour:admissions.admittime
+      outtime: datetime?|day.hour:intime
