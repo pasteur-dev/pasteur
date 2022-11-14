@@ -24,9 +24,9 @@ class gen_closure(partial):
         self = super().__new__(cls, func, *args, **keywords)
 
         if _fn:
-            self.__name__ = _fn.replace("%s", func.__name__)
+            self.__name__ = _fn.replace("%s", func.__name__)  # type: ignore
         else:
-            self.__name__ = func.__name__
+            self.__name__ = func.__name__  # type: ignore
 
         return self
 
@@ -48,7 +48,7 @@ def get_params_closure(fun: Callable, view: str, *arguments: str):
 def _lazy_execute(anchor: str, module: str, fun: str, *args, **kwargs):
     from importlib import import_module
 
-    module = import_module(module, anchor)
+    module = import_module(module, anchor)  # type: ignore
 
     return getattr(module, fun)(*args, **kwargs)
 

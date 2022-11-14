@@ -138,6 +138,9 @@ def create_transform_pipeline(
             )
 
         for type in types:
+            if type in ("bst", "raw"):
+                continue
+
             table_nodes += [
                 node(
                     func=gen_closure(_encode_table, type, _fn=f"encode_{t}"),
@@ -157,8 +160,11 @@ def create_transform_pipeline(
                 )
             )
 
-    inputs = {f"trn_{t}": f"{view}.trn.{t}" for t in view.tables}
 
+    if not table_nodes:
+        return PipelineMeta(pipeline([]), outputs)
+
+    inputs = {f"trn_{t}": f"{view}.trn.{t}" for t in view.tables}
     pipe = modular_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",

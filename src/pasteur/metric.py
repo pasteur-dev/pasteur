@@ -278,7 +278,7 @@ class DatasetMetric(Metric[A], Generic[A]):
 
 def _separate_tables(data: dict[str, A]) -> dict[str, dict[str, A]]:
     """Receives a dict of tables with names prefixed with a split such as `tbl.`.
-    Splits on `.` and returns a dictionary of splits containing a dictionary of table."""
+    Splits on `.` and returns a dictionary of splits containing a dictionary of tables."""
 
     splits = defaultdict(dict)
 
@@ -306,7 +306,6 @@ def fit_column_holder(
     ids: pd.DataFrame,
     **tables: pd.DataFrame,
 ):
-    splits = _separate_tables(tables)
     holder = ColumnMetricHolder(modules)
     holder.fit(name, meta, tables, ids)
     return holder
@@ -390,22 +389,20 @@ def process_dataset_metric(
 
 
 def viz_metric(
+    metric: Metric[A],
     comparison: bool = False,
     wrk_set: str = "wrk",
     ref_set: str = "ref",
-    metric: Metric[A] | None = None,
     **splits: A,
 ):
-    assert metric
     metric.visualise(splits, comparison, wrk_set, ref_set)
 
 
 def sum_metric(
+    metric: Metric[A],
     comparison: bool = False,
     wrk_set: str = "wrk",
     ref_set: str = "ref",
-    metric: Metric[A] | None = None,
     **splits: A,
 ):
-    assert metric
     metric.summarize(splits, comparison, wrk_set, ref_set)

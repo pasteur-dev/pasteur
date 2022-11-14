@@ -9,9 +9,11 @@ from ...view import View
 from ...encode import EncoderFactory
 from ...transform import TransformerFactory
 from .dataset import create_dataset_pipeline, create_keys_pipeline
-from .metrics import create_fit_pipelines as metrics_create_fit_pipelines
-from .metrics import create_log_pipelines as metrics_create_log_pipelines
-from .metrics import get_required_types as metrics_get_required_types
+from .metrics import (
+    create_metrics_ingest_pipeline,
+    create_metrics_model_pipeline,
+    get_metrics_types,
+)
 from .synth import create_synth_pipeline
 from .transform import (
     create_reverse_pipeline,
@@ -35,13 +37,9 @@ RAW_LOCATION = "raw_location"
 NAME_LOCATION = "{}_location"
 
 
-def get_msr_types():
-    return metrics_get_required_types()
-
-
-def _get_all_types(algs: dict[str, SynthFactory]):
+def _get_alg_types(algs: dict[str, SynthFactory]):
     alg_types = [a.type for a in algs.values()]
-    return list_unique(alg_types, get_msr_types())
+    return list_unique(alg_types)
 
 
 def _is_downloaded(ds: Dataset, params: dict):
@@ -71,7 +69,9 @@ def _has_dataset(view: View, datasets: dict[str, Dataset]):
 
 def generate_pipelines(
     modules: list[Module], params: dict
-) -> tuple[dict[str, Pipeline], list[DatasetMeta], list[tuple[str | None, str]], list[str]]:
+) -> tuple[
+    dict[str, Pipeline], list[DatasetMeta], list[tuple[str | None, str]], list[str]
+]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
 
     If None is passed, all registered classes are included."""
@@ -84,20 +84,22 @@ def generate_pipelines(
     datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, params)}
     views = {k: v for k, v in views.items() if _has_dataset(v, datasets)}
 
-    all_types = _get_all_types(algs)
+    # Wrk, ref splits are transformed to all types
+    # Synthetic data is transformed only to syn_types (as required by metrics currently)
+    alg_types = _get_alg_types(algs)
+    msr_types = get_metrics_types(modules)
+
+    all_types = list_unique(alg_types, msr_types)
     encoders = {
-        k: v for k, v in get_module_dict(EncoderFactory, modules).items() if k in all_types
+        k: v
+        for k, v in get_module_dict(EncoderFactory, modules).items()
+        if k in all_types
     }
     transformers = get_module_dict(TransformerFactory, modules)
 
     wrk_split = WRK_SPLIT
     ref_split = REF_SPLIT
     splits = list_unique([wrk_split, ref_split])
-
-    # Wrk, ref splits are transformed to all types
-    # Synthetic data is transformed only to syn_types (as required by metrics currently)
-    msr_types = get_msr_types()
-    all_types = _get_all_types(algs)
 
     # Store complete pipelines first for kedro viz (main vs extra pipelines)
     main_pipes = {}
@@ -108,7 +110,9 @@ def generate_pipelines(
         # To make debugging metrics easier, it's bundled with `.measure` pipelines
         # as well. That way, only `.measure` needs to run when changes are made
         # to fit functions
-        pipe_metrics_fit = metrics_create_fit_pipelines(view, wrk_split, ref_split)
+        pipe_metrics_fit = create_metrics_ingest_pipeline(
+            view, modules, wrk_split, ref_split
+        )
 
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
@@ -144,7 +148,7 @@ def generate_pipelines(
 
             pipe_measure = create_transform_pipeline(
                 view, alg, msr_types, only_encode=True
-            ) + metrics_create_log_pipelines(view, alg, wrk_split, ref_split)
+            ) + create_metrics_model_pipeline(view, alg, wrk_split, ref_split, modules)
 
             complete_pipe = pipe_ingest + pipe_synth + pipe_measure
 
@@ -197,6 +201,10 @@ def generate_pipelines(
     return (
         pipelines,
         list(outputs.values()),
-        [(d.folder_name, d.catalog_fn) for d in datasets.values() if d.folder_name and d.catalog_fn],
-        [v.parameters_fn for v in views.values() if v.parameters_fn]
+        [
+            (d.folder_name, d.catalog_fn)
+            for d in datasets.values()
+            if d.folder_name and d.catalog_fn
+        ],
+        [v.parameters_fn for v in views.values() if v.parameters_fn],
     )

@@ -3,7 +3,7 @@ from typing import Generic, TypeVar
 
 
 class Module:
-    """A Pasteur module extends a base Module class (such as Synth) and defines a name.
+    """A Pasteur module extends a base Module class (such as Datset) and defines a name.
 
     Each base class, name combination registered in the system is considered unique*.
     Example: there should only be one registered Dataset named "adult".
@@ -16,7 +16,8 @@ class Module:
 
 
 class ModuleClass:
-    """Modules which can not be instantiated extend from ModuleClass and define a Factory to act as their module"""
+    """Modules which need to be instantiated multiple times extend from ModuleClass and define
+    a Factory to act as their module"""
 
     name: str
     _factory: type["ModuleFactory"]
