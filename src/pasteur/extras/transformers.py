@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -42,7 +42,7 @@ class NumericalTransformer(Transformer):
         self.find_edges = find_edges
 
     def fit(self, data: pd.Series):
-        self.col = data.name
+        self.col = cast(str, data.name)
         self.dtype = data.dtype
         if self.min is None and self.find_edges:
             self.min = data.min()
@@ -91,13 +91,13 @@ class IdxTransformer(Transformer):
 
         self.mapping = {val: i + ofs for i, val in enumerate(vals)}
         self.vals = {i + ofs: val for i, val in enumerate(vals)}
-        self.col = data.name
+        self.col = cast(str, data.name)
         self.domain = ofs + len(vals)
         self.ofs = ofs
 
         self.type = data.dtype
         cls = OrdAttribute if self.ordinal else CatAttribute
-        self.attr = cls(data.name, vals, self.nullable, self.unknown_value)
+        self.attr = cls(cast(str, data.name), vals, self.nullable, self.unknown_value)
         return self.attr
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
@@ -171,7 +171,7 @@ class DateTransformer(RefTransformer):
         ref: pd.Series | None = None,
     ):
         self.ref = data.min() if ref is None else None
-        col = data.name
+        col = cast(str, data.name)  # type: ignore
         self.col = col
 
         # Generate constraints for columns
@@ -264,10 +264,10 @@ class DateTransformer(RefTransformer):
 
         if isinstance(rf, pd.Timestamp):
             rf_year = rf_dt.year
-            rf_day = iso_rf.weekday
+            rf_day = iso_rf.weekday  # type: ignore
         else:
             rf_year = rf_dt.year
-            rf_day = iso_rf["day"]
+            rf_day = iso_rf["day"]  # type: ignore
 
         ofs = 1 if self.nullable else 0
 
@@ -298,7 +298,7 @@ class DateTransformer(RefTransformer):
         if self.nullable:
             out = out.reindex(data.index, fill_value=0)
             # NAs were set as 0, change them to floats
-            out.loc[na_mask, f"{col}_{self.span}"] = np.nan
+            out.loc[na_mask, f"{col}_{self.span}"] = np.nan  # type: ignore
 
         return out
 
@@ -340,7 +340,7 @@ class DateTransformer(RefTransformer):
             rf_dt = rf
             rf_year = rf_dt.year
             iso_rf = rf.isocalendar()
-            rf_day = iso_rf.weekday
+            rf_day = iso_rf.weekday  # type: ignore
         else:
             rf_dt = rf.dt
             rf_year = rf_dt.year
@@ -370,8 +370,10 @@ class DateTransformer(RefTransformer):
                     (np.round(vals[f"{col}_day"]) - rf_day + 1).astype("int32"),
                     unit="days",
                 )
+            case _:
+                assert False, f"Unsupported span {self.span}"
 
-        return out.reindex(data.index, fill_value=pd.NaT).rename(self.col)
+        return out.reindex(data.index, fill_value=pd.NaT).rename(self.col)  # type: ignore
 
 
 class TimeTransformer(Transformer):
@@ -432,7 +434,7 @@ class TimeTransformer(Transformer):
         self.domain = lvl.size
 
         self.attr = Attribute(
-            data.name, {f"{data.name}_time": LevelValue(lvl)}, self.nullable
+            cast(str, data.name), {f"{data.name}_time": LevelValue(lvl)}, self.nullable
         )
         return self.attr
 
@@ -458,10 +460,10 @@ class TimeTransformer(Transformer):
                 pd.isna(date)
             ), f"NA values detected in non-NA field: {self.col}"
 
-        out = out.astype(get_dtype(self.domain))
+        out = out.astype(get_dtype(self.domain))  # type: ignore
         return pd.DataFrame({f"{self.col}_time": out})
 
-    def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
+    def reverse(self, data: pd.DataFrame) -> pd.DataFrame | pd.Series:
         span = self.span
         col = self.col
 
@@ -492,6 +494,8 @@ class TimeTransformer(Transformer):
                 hour = vals // 3600
                 min = (vals // 60) % 60
                 sec = vals % 60
+            case _:
+                assert False
 
         out = pd.to_datetime(
             {
@@ -501,13 +505,13 @@ class TimeTransformer(Transformer):
                 "hour": hour,
                 "minute": min,
                 "second": sec,
-            }
+            }  # type: ignore
         )
 
         if self.nullable:
             out_data = out
             out = pd.Series(pd.NaT, index=data.index, name=col)
-            out[~na_mask] = out_data
+            out[~na_mask] = out_data  # type: ignore
         else:
             out.name = col
 
@@ -530,12 +534,12 @@ class DatetimeTransformer(RefTransformer):
         self,
         data: pd.Series,
         ref: pd.Series | None = None,
-    ) -> dict[str, dict] | None:
-        self.col = data.name
+    ):
+        self.col = cast(str, data.name)
 
         cdt = self.dt.fit(data, ref)
         ctt = self.tt.fit(data)
-        self.attr = Attribute(self.col, cols={**cdt.cols, **ctt.cols}, na=self.nullable)
+        self.attr = Attribute(self.col, vals={**cdt.vals, **ctt.vals}, na=self.nullable)
         return self.attr
 
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
@@ -543,7 +547,7 @@ class DatetimeTransformer(RefTransformer):
         time_enc = self.tt.transform(data)
         return pd.concat([date_enc, time_enc], axis=1)
 
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame | pd.Series:
         date_dec = self.dt.reverse(data, ref)
         time_dec = self.tt.reverse(data)
 
@@ -574,7 +578,7 @@ class FixedValueTransformer(Transformer):
     stateful = True
 
     def __init__(
-        self, dtype: Literal["date", "int", "float"] = "date", value: any = None, **_
+        self, dtype: Literal["date", "int", "float"] = "date", value: Any = None, **_
     ) -> None:
         match dtype:
             case "date":
@@ -588,7 +592,7 @@ class FixedValueTransformer(Transformer):
     def fit(self, data: pd.Series):
         self.col = data.name
 
-        self.attr = Attribute(self.col, {})
+        self.attr = Attribute(cast(str, self.col), {})
         return self.attr
 
     def transform(self, data: pd.Series) -> pd.DataFrame:

@@ -15,7 +15,7 @@ class AdultDataset(TabularDataset):
     key_deps = ["train", "test"]
 
     folder_name = "adult"
-    catalog_fn = get_relative_fn("catalog.yml")
+    catalog = get_relative_fn("catalog.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         df = super().ingest(name, **tables)

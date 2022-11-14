@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .module import Module
 
@@ -55,7 +55,7 @@ class View(Module):
     dataset: str
     deps: dict[str, list[str]] = {}
     trn_deps: dict[str, list[str]] = {}
-    parameters_fn: str | None = None
+    parameters: dict[str, Any] | str | None = None
     tabular: bool = False
 
     def __init__(self, **_) -> None:

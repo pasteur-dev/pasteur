@@ -39,7 +39,7 @@ class MimicDataset(Dataset):
     key_deps = ["core_patients"]
 
     folder_name = "mimiciv_1_0"
-    catalog_fn = get_relative_fn("catalog.yml")
+    catalog = get_relative_fn("catalog.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]

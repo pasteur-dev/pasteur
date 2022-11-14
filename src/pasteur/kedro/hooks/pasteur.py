@@ -47,8 +47,8 @@ class PasteurHook:
         (
             self.pipelines,
             self.outputs,
-            self.catalog_fns,
-            self.parameter_fns,
+            self.catalogs,
+            self.parameters,
         ) = generate_pipelines(self.modules, context.params)
 
         # FIXME: clean this up
@@ -60,8 +60,15 @@ class PasteurHook:
         orig_params = context._extra_params
         context._extra_params = {}
 
-        for name, param_fn in self.parameter_fns.items():
-            context._extra_params[name] = context.config_loader.get(param_fn).copy()
+        for name, view_params in self.parameters.items():
+            # dict gets added straight away
+            if isinstance(view_params, dict):
+                context._extra_params[name] = view_params
+            # string is considered to point to a file
+            else:
+                context._extra_params[name] = context.config_loader.get(
+                    view_params
+                ).copy()
 
         # Restore original overrides
         if orig_params:
@@ -135,19 +142,24 @@ class PasteurHook:
 
         # Add raw datasets from packaged datasets
         # Just replace `${<folder_name>_location}` with raw/<folder_name> or that parameter
-        if self.catalog_fns:
+        if self.catalogs:
             params = self.context.params
 
-            for folder_name, catalog_fn in self.catalog_fns:
+            for folder_name, ds_catalog in self.catalogs:
                 name = NAME_LOCATION.format(folder_name)
 
-                with open(catalog_fn, "r") as f:
-                    data = f.read()
+                if isinstance(ds_catalog, str):
+                    with open(ds_catalog, "r") as f:
+                        data = f.read()
 
-                if folder_name:
-                    dir = params.get(name, path.join(params[RAW_LOCATION], folder_name))
-                    data = data.replace(f"${{{name}}}", dir)
-                conf = yaml.safe_load(data)
+                    if folder_name:
+                        dir = params.get(
+                            name, path.join(params[RAW_LOCATION], folder_name)
+                        )
+                        data = data.replace(f"${{{name}}}", dir)
+                    conf = yaml.safe_load(data)
+                else:
+                    conf = ds_catalog
 
                 tmp_catalog = DataCatalog.from_config(
                     conf,

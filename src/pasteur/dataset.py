@@ -80,10 +80,11 @@ class Dataset(Module):
     If not, it will check that `${raw_location}/<folder_name>` exists.
     If neither are the case, then the dataset will not be loaded and a warning will be logged.
 
-    If `catalog_fn` is provided, it will be loaded with the additional
+    If `catalog` is provided and is a string, it will be loaded with the additional
     parameter `#{<folder_name>_location}` (if `folder_name` has been provided
     that can be used to substitute the relative paths.
     Use `utils.get_relative_fn()` to specify configs. Useful for packaging.
+    If it's a dict, it will be loaded straight away.
 
     @Warning: having a table named raw is not allowed."""
 
@@ -91,7 +92,7 @@ class Dataset(Module):
     key_deps: list[str] = []
 
     folder_name: str | None = None
-    catalog_fn: str | None = None
+    catalog: dict[str, Any] | str | None = None
 
     def __init__(self, **_) -> None:
         pass
@@ -144,7 +145,9 @@ class TabularDataset(Dataset):
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
         import pandas as pd
 
-        df = pd.concat([tables[name] for name in self.deps["table"]]).reset_index(drop=True)
+        df = pd.concat([tables[name] for name in self.deps["table"]]).reset_index(
+            drop=True
+        )
         df.index.name = "id"
         return split_keys(df, ratios, random_state)
 
