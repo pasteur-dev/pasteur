@@ -13,6 +13,7 @@ from ...metric import (
     process_table_metric,
     viz_metric,
     sum_metric,
+    log_metric,
 )
 from ...module import Module, get_module_dict, get_module_dict_multiple
 from ...view import View
@@ -120,7 +121,12 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
             # Create node
             nodes += [
                 node(
-                    gen_closure(fit_column_holder, col_modules, table, _fn=f"fit_column_metrics_{table}"),
+                    gen_closure(
+                        fit_column_holder,
+                        col_modules,
+                        table,
+                        _fn=f"fit_column_metrics_{table}",
+                    ),
                     inputs=inputs,
                     outputs=f"{view}.msr.col_{table}",
                     namespace=f"{view}.msr",
@@ -285,7 +291,7 @@ def create_metrics_model_pipeline(
 ):
     nodes = []
 
-    for fn in (viz_metric, sum_metric):
+    for fn in (viz_metric, sum_metric, log_metric):
         col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
         if col_modules:
             for table in view.tables:

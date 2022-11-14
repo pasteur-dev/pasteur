@@ -21,8 +21,6 @@ logger = logging.getLogger(__name__)
 
 class MlflowTrackingHook:
     def __init__(self):
-        self.datasets = []
-
         self.recursive = True
         self.sep = "."
         self.long_parameters_strategy = "fail"
@@ -75,14 +73,13 @@ class MlflowTrackingHook:
 
         self.mlflow_config = mlflow_config  # store for further reuse
         self.mlflow_config.setup(context)
-
-        self.params = context.params.copy()
-        self.base_location = self.params.pop("base_location")
-        self.parent_name = self.params.pop("_mlflow_parent_name", "")
         self.context = context
 
     @hook_impl
     def before_pipeline_run(self, run_params: dict[str, Any]) -> None:
+        self.params = self.context.params.copy()
+        self.base_location = self.params.pop("base_location")
+        self.parent_name = self.params.pop("_mlflow_parent_name", "")
 
         # Disable tracking for pipelines that don't meet criteria
         pipeline_name = run_params["pipeline_name"]
@@ -141,7 +138,7 @@ class MlflowTrackingHook:
             )
 
             if len(parent_runs):
-                parent_run_id = parent_runs["run_id"][0]
+                parent_run_id = parent_runs["run_id"][0]  # type: ignore
                 logger.info(f"Nesting mlflow run under:\n{self.parent_name}")
                 mlflow.start_run(
                     parent_run_id,
@@ -191,10 +188,14 @@ class MlflowTrackingHook:
         # the `<view>` namespace that sets the parameters for the specific view
         # the `default` namespace that sets a baseline of parameters
 
-        override_params = deepcopy(self.params)
-        # Remove all views
-        for view in self.datasets:
-            override_params.pop(view, {})
+        override_params = self.params.copy()
+        if "_views" in override_params:
+            for view in override_params.pop("_views"):
+                override_params.pop(view, None)
+        else:
+            logger.warn(
+                '"_views" key not found in params, view parameters won\'t be stripped from mlflow params.'
+            )
 
         # Get default and view params
         default_params = deepcopy(self.params.get("default", {}))

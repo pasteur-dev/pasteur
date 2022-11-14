@@ -57,6 +57,8 @@ A = TypeVar("A")
 class Metric(ModuleClass, Generic[A]):
     """Encapsulates a special way to visualize results."""
 
+    type: str
+
     def fit(self, *args, **kwargs):
         """Fit is used to capture information about the table or column the metric
         will process. It should be used to store information such as column value names,
@@ -105,8 +107,14 @@ class Metric(ModuleClass, Generic[A]):
         when run to compare multiple runs. It can be used to provide different summaries"""
         ...
 
+    def unique_name(self) -> str:
+        """Provides a unique name for the metric which will be used for the system.
+        (currently saving artifacts)."""
+        return f"{self.type}_{self.name}"
+
 
 class ColumnMetric(Metric[A], Generic[A]):
+    type = "col"
     _factory = ColumnMetricFactory
 
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
@@ -132,7 +140,10 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
 
 
 class ColumnMetricHolder(Metric[dict[str, list]]):
+    type = "col"
+
     def __init__(self, modules: dict[str, list[ColumnMetricFactory]]) -> None:
+        self.table = ""
         self.modules = modules
         self.metrics: dict[str, list[ColumnMetric]] = {}
 
@@ -232,9 +243,14 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
                     ref_set,
                 )
 
+    def unique_name(self) -> str:
+        return f"{self.type}_{self.name}_{self.table}"
+
 
 class TableMetric(Metric[A], Generic[A]):
     _factory = TableMetricFactory
+    type = "tbl"
+    table: str
     encodings: list[str] = ["raw"]
 
     def fit(
@@ -254,9 +270,14 @@ class TableMetric(Metric[A], Generic[A]):
     ) -> A:
         raise NotImplementedError()
 
+    def unique_name(self) -> str:
+        return f"{self.type}_{self.name}_{self.table}"
+
 
 class DatasetMetric(Metric[A], Generic[A]):
     _factory = DatasetMetricFactory
+    type = "dst"
+    table: str
     encodings: list[str] = ["raw"]
 
     def fit(
@@ -410,3 +431,15 @@ def sum_metric(
     metric.summarize(
         data=splits, comparison=comparison, wrk_set=wrk_set, ref_set=ref_set
     )
+
+
+def log_metric(
+    metric: Metric[A],
+    comparison: bool = False,
+    wrk_set: str = "wrk",
+    ref_set: str = "ref",
+    **splits: A,
+):
+    from .utils.mlflow import mlflow_log_artifacts
+
+    mlflow_log_artifacts(metric.unique_name(), metric=metric, **splits)

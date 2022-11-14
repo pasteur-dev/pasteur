@@ -41,7 +41,7 @@ class MimicMmCoreView(View):
         "admissions": ["patients"],
         "transfers": ["admissions"],
     }
-    parameters_fn = get_relative_fn("parameters.yml")
+    parameters_fn = get_relative_fn("parameters_mm.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         match name:
@@ -63,7 +63,7 @@ class MimicTabAdmissions(TabularView):
     deps = {
         "table": ["core_patients", "core_admissions"],
     }
-    parameters_fn = get_relative_fn("parameters.yml")
+    parameters_fn = get_relative_fn("parameters_tab.yml")
 
     def ingest(self, name, **tables: pd.DataFrame):
         assert name == "table"

@@ -67,6 +67,10 @@ def _has_dataset(view: View, datasets: dict[str, Dataset]):
     return False
 
 
+def get_view_names(modules: list[Module]):
+    return list(get_module_dict(View, modules).keys())
+
+
 def generate_pipelines(
     modules: list[Module], params: dict
 ) -> tuple[

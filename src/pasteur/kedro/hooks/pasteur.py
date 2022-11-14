@@ -12,7 +12,7 @@ from kedro.io import DataCatalog, Version
 
 from ...module import Module
 from ..pipelines import generate_pipelines
-from ..pipelines.main import NAME_LOCATION, RAW_LOCATION
+from ..pipelines.main import NAME_LOCATION, RAW_LOCATION, get_view_names
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +59,15 @@ class PasteurHook:
         # Add metadata
         if self.parameter_fns:
             orig_params = context._extra_params
-            context._extra_params = context.config_loader.get(*self.parameter_fns)
+            context._extra_params = context.config_loader.get(
+                *self.parameter_fns
+            ).copy()
+            # Add hidden dict for view names to strip params
             if orig_params:
                 context._extra_params.update(orig_params)
+
+        context._extra_params = context._extra_params.copy()
+        context._extra_params["_views"] = get_view_names(self.modules)
 
     def get_version(self, name: str, versioned: bool):
         load_version = (
