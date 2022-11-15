@@ -162,9 +162,9 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                     pipeline_name=pipeline,
                 )
 
-    # with KedroSession.create(env=None) as session:
-    #     session.load_context()
-    #     log_parent_run(parent_name, runs)
+    with KedroSession.create() as session:
+        session.load_context()
+        log_parent_run(parent_name, runs)
 
 
 @click.command()

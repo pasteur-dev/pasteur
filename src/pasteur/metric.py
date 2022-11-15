@@ -443,4 +443,4 @@ def log_metric(
 ):
     from .utils.mlflow import mlflow_log_artifacts
 
-    mlflow_log_artifacts(metric.unique_name(), metric=metric, **splits)
+    mlflow_log_artifacts("metrics", metric.unique_name(), metric=metric, **splits)

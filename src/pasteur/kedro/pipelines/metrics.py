@@ -20,6 +20,20 @@ from ...view import View
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta
 from .utils import gen_closure
+from ...utils.mlflow import mlflow_log_artifacts
+
+
+def _log_metadata(view: View):
+    return pipeline(
+        [
+            node(
+                gen_closure(mlflow_log_artifacts, _fn=f"log_metadata"),
+                inputs={"meta": f"{view}.metadata"},
+                outputs=None,
+                namespace=str(view),
+            )
+        ]
+    )
 
 
 def _create_fit_pipeline(view: View, modules: list[Module], split: str):
@@ -280,7 +294,8 @@ def create_metrics_ingest_pipeline(
     view: View, modules: list[Module], wrk_split: str, ref_split: str
 ):
     return (
-        _create_fit_pipeline(view, modules, wrk_split)
+        _log_metadata(view)
+        + _create_fit_pipeline(view, modules, wrk_split)
         + _create_process_pipeline(view, modules, wrk_split)
         + _create_process_pipeline(view, modules, ref_split)
     )

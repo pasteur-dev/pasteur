@@ -43,7 +43,7 @@ def get_run_artifacts(run: Run):
                 elif fn.endswith(".pkl"):
                     art = pickle.load(f)
                 else:
-                    assert False
+                    continue
 
             try:
                 no_ext = name[: name.rindex(".")]
@@ -107,14 +107,11 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
 
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
-    from ...metrics.visual import mlflow_log_hists
-    from ...metrics.distr import log_cs_mlflow, log_kl_mlflow
-
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
     if len(parent_runs):
-        parent_run_id = parent_runs["run_id"][0]
+        parent_run_id = parent_runs["run_id"][0]  # type: ignore
         logger.info(f"Relaunching parent run for logging:\n{parent}")
         mlflow.start_run(
             parent_run_id,
@@ -141,23 +138,15 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
             mlflow.log_param(name, val)
 
     ref_artifacts = next(iter(artifacts.values()))
-    meta = ref_artifacts["meta"]
+    # meta = ref_artifacts["meta"]
 
-    # Visual
-    visual = ref_artifacts["visual"]
-    holder = visual["holder"]
-    data = {"wrk": visual["wrk"], "ref": visual["ref"]}
-    syn_data = {pretty[name]: art["visual"]["syn"] for name, art in artifacts.items()}
+    for name, folder in ref_artifacts["metrics"].items():
+        metric = folder["metric"]
+        # FIXME: remove wrk, ref hardcoding
+        splits = {"wrk": folder["wrk"], "ref": folder["ref"]}
 
-    mlflow_log_hists(holder, log_artifacts=False, **data, **syn_data)
+        for alg_name, artifact in artifacts.items():
+            splits[pretty[alg_name]] = artifact["metrics"][name]["syn"]
 
-    # Distributions
-    for method, fun in (("kl", log_kl_mlflow), ("cs", log_cs_mlflow)):
-        for table in meta.tables:
-            ref_split = ref_artifacts["metrics"][method][table]["ref"]
-            syn_splits = {
-                pretty[name]: art["metrics"][method][table]["syn"]
-                for name, art in artifacts.items()
-            }
-
-            fun(table, "ref", log_artifacts=False, ref=ref_split, **syn_splits)
+        metric.visualise(data=splits, comparison=True, wrk_set="wrk", ref_set="ref")
+        metric.summarize(data=splits, comparison=True, wrk_set="wrk", ref_set="ref")
