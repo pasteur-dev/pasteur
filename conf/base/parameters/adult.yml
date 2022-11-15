@@ -1,8 +1,8 @@
-# tab_adult:
-#   tables:
-#     table:
-#       metrics:
-#         model:
-#           expand_table: True
-#           targets: [income]
+tab_adult:
+  tables:
+    table:
+      metrics:
+        model:
+          expand_table: True
+          targets: [income]
 

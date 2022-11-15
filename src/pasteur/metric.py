@@ -37,17 +37,17 @@ class RefColumnMetricFactory(ModuleFactory["RefColumnMetric"]):
 
 class TableMetricFactory(ModuleFactory["TableMetric"]):
     def __init__(
-        self, cls: type["TableMetric"], *args, name: str | None = None, **_
+        self, cls: type["TableMetric"], *args, name: str | None = None, **kwargs
     ) -> None:
-        super().__init__(cls, *args, name=name, **_)
+        super().__init__(cls, *args, name=name, **kwargs)
         self.encodings = cls.encodings
 
 
 class DatasetMetricFactory(ModuleFactory["DatasetMetric"]):
     def __init__(
-        self, cls: type["DatasetMetric"], *args, name: str | None = None, **_
+        self, cls: type["DatasetMetric"], *args, name: str | None = None, **kwargs
     ) -> None:
-        super().__init__(cls, *args, name=name, **_)
+        super().__init__(cls, *args, name=name, **kwargs)
         self.encodings = cls.encodings
 
 

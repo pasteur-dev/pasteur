@@ -184,7 +184,7 @@ class DatasetMeta:
 
         self.alg_override = meta.get("alg", {})
         self.algs = meta.get("algs", {})
-        self.seed = meta.get("random_state", None)
+        self.seed: int | None = meta.get("random_state", None)
         self.random_state = self.seed
 
     def get_table(self, name):
