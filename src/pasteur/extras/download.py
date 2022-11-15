@@ -85,7 +85,7 @@ def download_s3(name: str, download_dir: str, bucket: str):
         import boto3
         from botocore import UNSIGNED
         from botocore.client import Config
-    except:
+    except Exception:
         assert False, "Specified dataset requires the aws package 'boto3'"
 
     logger.info(f"Downloading dataset {name} from s3 using boto3.")

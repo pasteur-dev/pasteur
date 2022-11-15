@@ -79,7 +79,7 @@ class IdxTransformer(Transformer):
         # Try to sort vals
         try:
             vals = sorted(vals)
-        except:
+        except Exception:
             assert not self.ordinal, "Ordinal Array is not sortable"
 
         vals = list(vals)

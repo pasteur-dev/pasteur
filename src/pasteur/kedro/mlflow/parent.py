@@ -42,10 +42,12 @@ def get_run_artifacts(run: Run):
                     art = json.load(f)
                 elif fn.endswith(".pkl"):
                     art = pickle.load(f)
+                else:
+                    assert False
 
             try:
                 no_ext = name[: name.rindex(".")]
-            except:
+            except Exception:
                 no_ext = name
             sub_dict[no_ext] = art
 
@@ -86,7 +88,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
         for name in run_params:
             try:
                 param_str = param[param.rindex(".") + 1 :]
-            except:
+            except Exception:
                 param_str = param
 
             if param in bool_params:

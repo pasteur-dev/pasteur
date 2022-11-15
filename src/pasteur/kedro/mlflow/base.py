@@ -28,7 +28,7 @@ def _get_git_suffix():
         repo = git.Repo(search_parent_directories=True)
         sha = repo.head.object.hexsha
         return f" (git:{sha[:8]})"
-    except:
+    except Exception:
         return ""
 
 

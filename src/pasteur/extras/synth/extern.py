@@ -169,7 +169,7 @@ class ExternalPythonSynth(Synth, ABC):
                     tout.join()
                 if terr:
                     terr.join()
-            except:
+            except Exception:
                 if proc and not proc.poll():
                     proc.terminate()
                 if tout:
