@@ -89,6 +89,7 @@ def calculate_model_scores(
     orig_to_enc_cols: dict[str, dict[str, list[str]]],
     wrk_set: str = "wrk",
     ref_set: str = "ref",
+    comparison: bool = False,
 ) -> pd.DataFrame:
     types = list(sets.keys())
     splits = list(next(iter(sets.values())))
@@ -148,9 +149,9 @@ def calculate_model_scores(
                         continue
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [f"{train_data}_train", f"{train_data}_test", "ref"]
-                    if train_data == "syn":
-                        eval_sets.extend(["wrk"])
+                    eval_sets = [f"{train_data}_train", f"{train_data}_test", ref_set]
+                    if train_data not in (ref_set, wrk_set):
+                        eval_sets.extend([wrk_set])
 
                     jobs.append(
                         {
@@ -180,7 +181,7 @@ def calculate_model_scores(
 
     all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
     wrk_scores = (
-        all_scores[all_scores["train_data"] == "wrk"]
+        all_scores[all_scores["train_data"] == wrk_set]
         .drop(columns=["syn_train", "syn_test", "train_data", "wrk"])
         .rename(
             columns={
@@ -191,10 +192,11 @@ def calculate_model_scores(
         )
     )
     alg_scores = (
-        all_scores[all_scores["train_data"] == "syn"]
-        .drop(columns=["wrk_train", "wrk_test", "train_data"])
+        all_scores[all_scores["train_data"] != wrk_set]
+        .drop(columns=["wrk_train", "wrk_test"])
         .rename(
             columns={
+                "train_data": "alg",
                 "syn_train": "synth_train",
                 "syn_test": "synth_test",
                 "wrk": "synth_test_orig",
@@ -207,6 +209,7 @@ def calculate_model_scores(
     # Reorder columns
     final_scores = final_scores[
         [
+            "alg",
             "model",
             "target",
             "orig_train",
@@ -218,22 +221,23 @@ def calculate_model_scores(
             "synth_test_orig",
         ]
     ]
-    return final_scores.set_index(["target", "model"])
+
+    if comparison:
+        return final_scores.set_index(["alg", "target", "model"])
+    return final_scores.drop(columns=["alg"]).set_index(["target", "model"])
 
 
 def mlflow_log_model_results(name: str, res: pd.DataFrame):
     import mlflow
     import pandas as pd
 
-    from ....utils.mlflow import gen_html_table, mlflow_log_artifacts
+    from ....utils.mlflow import gen_html_table
 
     if not mlflow.active_run():
         return
 
     if len(res) == 0:
         return
-
-    mlflow_log_artifacts("models", name=res)
 
     res = res.copy()
 
@@ -330,6 +334,14 @@ class ModelMetric(TableMetric[ModelData]):
                 sets[type][split_name] = tables[self.table]
 
         res = calculate_model_scores(
-            self.cls, self.random_state, 0.2, self.targets, sets, self.orig_to_enc_cols
+            self.cls,
+            self.random_state,
+            0.2,
+            self.targets,
+            sets,
+            self.orig_to_enc_cols,
+            wrk_set,
+            ref_set,
+            comparison,
         )
         mlflow_log_model_results(self.table, res)
