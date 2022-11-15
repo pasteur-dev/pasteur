@@ -27,7 +27,15 @@ def get_recommended_datasets() -> list[Dataset | View]:
 def get_recommended_system_modules() -> list[Module]:
     from .encoders import IdxEncoder, NumEncoder
     from .metrics.distr import ChiSquareMetric, KullbackLeiblerMetric
-    from .metrics.visual import NumericalHist
+    from .metrics.visual import (
+        CategoricalHist,
+        DateHist,
+        DatetimeHist,
+        FixedHist,
+        NumericalHist,
+        OrdinalHist,
+        TimeHist,
+    )
     from .synth.extern import AimSynth, PrivMrfSynth
     from .synth.privbayes import PrivBayesSynth
     from .transformers import (
@@ -60,6 +68,12 @@ def get_recommended_system_modules() -> list[Module]:
         ChiSquareMetric.get_factory(),
         KullbackLeiblerMetric.get_factory(),
         NumericalHist.get_factory(),
+        OrdinalHist.get_factory(),
+        CategoricalHist.get_factory(),
+        FixedHist.get_factory(),
+        DateHist.get_factory(),
+        TimeHist.get_factory(),
+        DatetimeHist.get_factory(),
     ]
 
 

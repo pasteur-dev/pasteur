@@ -8,6 +8,7 @@ from matplotlib.figure import Figure
 from ...metadata import ColumnMeta, Metadata
 from ...metric import ColumnMetric, RefColumnMetric
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
+from typing import NamedTuple
 
 A = TypeVar("A")
 
@@ -124,3 +125,354 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         )
 
         mlflow_log_hists(self.table, self.col, v)
+
+
+class CategoricalHist(ColumnMetric[np.ndarray]):
+    name = "categorical"
+
+    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+        self.meta = meta
+        self.table = table
+        self.col = col
+        self.cols = list(data.value_counts().sort_values(ascending=False).index)
+
+    def process(self, data: pd.Series):
+        return data.value_counts().reindex(self.cols, fill_value=0).to_numpy()
+
+    def visualise(
+        self,
+        data: dict[str, np.ndarray],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        load_matplotlib_style()
+        v = _gen_bar(
+            self.meta,
+            self.col.capitalize(),
+            self.cols,
+            data,
+        )
+        mlflow_log_hists(self.table, self.col, v)
+
+
+class OrdinalHist(CategoricalHist):
+    name = "ordinal"
+
+    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+        super().fit(table, col, meta, data)
+        self.cols = pd.Index(np.sort(data.unique()))
+
+
+class FixedHist(ColumnMetric[list]):
+    """Fixed values can not be visualised. Removes warning."""
+
+    name = "fixed"
+
+    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+        ...
+
+    def process(self, data: pd.Series) -> list:
+        return []
+
+
+class DateData(NamedTuple):
+    span: np.ndarray | None = None
+    weeks: np.ndarray | None = None
+    days: np.ndarray | None = None
+    na: np.ndarray | None = None
+
+
+class DateHist(RefColumnMetric[DateData]):
+    name = "date"
+
+    def fit(
+        self, table: str, col: str, meta: ColumnMeta, data: pd.Series, ref: pd.Series
+    ):
+        self.table = table
+        self.col = col
+
+        self.meta = meta
+        if "main_param" in meta.args:
+            self.span = meta.args["main_param"].split(".")[0]
+        elif "span" in meta.args:
+            self.span = meta.args["span"].split(".")[0]
+        else:
+            self.span = "year"
+
+        self.weeks53 = self.span == "year53"
+        if self.weeks53:
+            self.span = "year"
+
+        self.max_len = meta.args.get("max_len", None)
+        self.bin_n = meta.args.get("bins", 20)
+
+        if ref is None:
+            self.ref = data.min()
+        else:
+            self.ref = None
+
+        # Find histogram bin edges
+        if self.ref is None:
+            assert ref is not None
+            mask = ~pd.isna(data) & ~pd.isna(ref)
+            data = data[mask]
+            rf_dt = ref[mask].dt
+        else:
+            data = data[~pd.isna(data)]
+            rf_dt = self.ref
+
+        match self.span:
+            case "year":
+                segs = data.dt.year - rf_dt.year
+            case "week":
+                segs = (
+                    (data.dt.normalize() - rf_dt.normalize()).dt.days
+                    + rf_dt.day_of_week
+                ) // 7
+            case "day":
+                segs = (
+                    data.dt.normalize() - rf_dt.normalize()
+                ).dt.days + rf_dt.day_of_week
+            case _:
+                assert False, f"Span {self.span} not supported by DateHist"
+
+        segs = segs.astype("int16")
+        if self.max_len is None:
+            self.max_len = float(np.percentile(segs, 90))
+        if self.max_len < self.bin_n:
+            self.bin_n = int(self.max_len - 1)
+
+        self.bins = np.histogram_bin_edges(
+            segs, bins=self.bin_n, range=(0, self.max_len)
+        )
+        self.nullable = meta.args.get("nullable", False)
+
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
+        assert self.ref is not None or ref is not None
+
+        # Based on date transformer
+        if self.ref is None:
+            assert ref is not None
+            mask = ~pd.isna(data) & ~pd.isna(ref)
+            data = data[mask]
+            rf_dt = ref[mask].dt
+        else:
+            mask = ~pd.isna(data)
+            data = data[mask]
+            rf_dt = self.ref
+
+        iso = data.dt.isocalendar()
+        iso_rf = rf_dt.isocalendar()
+
+        if self.ref is not None:
+            rf_year = iso_rf.year
+            rf_day = iso_rf.weekday
+        else:
+            rf_year = iso_rf["year"]
+            rf_day = iso_rf["day"]
+
+        weeks = iso["week"].astype("int16") - 1
+        days = iso["day"].astype("int16") - 1
+
+        # Push week 53 to next year
+        if not self.weeks53:
+            m = weeks == 52
+            weeks[m] = 0
+
+        match self.span:
+            case "year":
+                span = iso["year"] - rf_year
+                if not self.weeks53:
+                    span[m] += 1  # type: ignore
+                span = np.histogram(span, bins=self.bins, density=True)[0]
+            case "week":
+                span = ((data.dt.normalize() - rf_dt.normalize()).dt.days + rf_day) // 7
+                span = np.histogram(span, bins=self.bins, density=True)[0]
+            case "day":
+                span = (data.dt.normalize() - rf_dt.normalize()).dt.days + rf_day
+                span = np.histogram(span, bins=self.bins, density=True)[0]
+            case _:
+                assert False, f"Span {self.span} not supported by DateHist"
+
+        weeks = (
+            weeks.value_counts()
+            .reindex(range(53 if self.weeks53 else 52), fill_value=0)
+            .to_numpy()
+        )
+        days = days.value_counts().reindex(range(7), fill_value=0).to_numpy()
+
+        na = None
+        if self.nullable:
+            non_na_rate = np.sum(mask) / len(mask)
+            na = np.array([non_na_rate, 1 - non_na_rate])
+
+        return DateData(span, weeks, days, na)
+
+    def _viz_days(self, data: dict[str, DateData]):
+        return _gen_bar(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Weekday",
+            cols=[
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            ],
+            counts={n: d.days for n, d in data.items() if d.days is not None},
+        )
+
+    def _viz_weeks(self, data: dict[str, DateData]):
+        bins = np.array(range(54 if self.weeks53 else 53)) - 0.5
+        return _gen_hist(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Season",
+            bins=bins,
+            heights={n: d.weeks for n, d in data.items() if d.weeks is not None},
+            xticks_x=[2, 15, 28, 41],
+            xticks_label=["Winter", "Spring", "Summer", "Autumn"],
+        )
+
+    def _viz_binned(self, data: dict[str, DateData]):
+        return _gen_hist(
+            self.meta,
+            f"{self.col.capitalize()} {self.span.capitalize()}s",
+            self.bins,
+            {n: d.span for n, d in data.items() if d.span is not None},
+        )
+
+    def _viz_na(self, data: dict[str, DateData]):
+        return _gen_bar(
+            self.meta,
+            f"{self.col.capitalize()} NA",
+            ["Val", "NA"],
+            {n: d.na for n, d in data.items() if d.na is not None},
+        )
+
+    def _visualise(self, data: dict[str, DateData]) -> dict[str, Figure]:
+        s = self.span
+        charts = {
+            f"n{s}s": self._viz_binned(data),
+            "weeks": self._viz_weeks(data),
+            "days": self._viz_days(data),
+        }
+        if self.nullable:
+            charts["na"] = self._viz_na(data)
+        return charts
+
+    def visualise(
+        self,
+        data: dict[str, DateData],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        load_matplotlib_style()
+        v = self._visualise(data)
+        mlflow_log_hists(self.table, self.col, v)
+
+
+class TimeHist(ColumnMetric[np.ndarray]):
+    name = "time"
+
+    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+        self.meta = meta
+        self.table = table
+        self.col = col
+
+        if "main_param" in meta.args:
+            self.span = meta.args["main_param"].split(".")[-1]
+        elif "span" in meta.args:
+            self.span = meta.args["span"].split(".")[-1]
+        else:
+            self.span = "halfhour"
+
+    def process(self, data: pd.Series):
+        data = data[~pd.isna(data)]
+        hours = data.dt.hour
+
+        if self.span == "hour":
+            seg_len = 24
+            segments = hours
+        else:
+            seg_len = 48
+            half_hours = data.dt.minute > 29
+            segments = 2 * hours + half_hours
+
+        return segments.value_counts().reindex(range(seg_len), fill_value=0).to_numpy()
+
+    def _visualise(self, data: dict[str, np.ndarray]) -> Figure:
+        if self.span == "hour":
+            seg_len = 24
+            mult = 1
+        else:
+            seg_len = 48
+            mult = 2
+
+        bins = np.array(range(seg_len + 1)) - 0.5
+        hours = [0, 3, 6, 9, 12, 15, 18, 21, 24]
+        tick_x = mult * np.array(hours)
+        tick_label = [f"{hour:02d}:00" for hour in hours]
+
+        return _gen_hist(
+            meta=self.meta,
+            title=f"{self.col.capitalize()} Time",
+            bins=bins,
+            heights=data,
+            xticks_x=tick_x,
+            xticks_label=tick_label,
+        )
+
+    def visualise(
+        self,
+        data: dict[str, np.ndarray],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        load_matplotlib_style()
+        v = self._visualise(data)
+        mlflow_log_hists(self.table, self.col, v)
+
+
+class DatetimeData(NamedTuple):
+    date: DateData
+    time: np.ndarray
+
+
+class DatetimeHist(RefColumnMetric[DatetimeData]):
+    name = "datetime"
+
+    def __init__(self, *args, _from_factory: bool = False, **kwargs) -> None:
+        super().__init__(*args, _from_factory=_from_factory, **kwargs)
+        self.date = DateHist(*args, _from_factory=_from_factory, **kwargs)
+        self.time = TimeHist(*args, _from_factory=_from_factory, **kwargs)
+
+    def fit(
+        self, table: str, col: str, meta: ColumnMeta, data: pd.Series, ref: pd.Series
+    ):
+        self.table = table
+        self.col = col
+        self.date.fit(table=table, col=col, meta=meta, data=data, ref=ref)
+        self.time.fit(table=table, col=col, meta=meta, data=data)
+
+    def process(self, data: pd.Series, ref: pd.Series | None = None):
+        date = self.date.process(data, ref)
+        time = self.time.process(data)
+        return DatetimeData(date, time)
+
+    def visualise(
+        self,
+        data: dict[str, DatetimeData],
+        comparison: bool = False,
+        wrk_set: str = "wrk",
+        ref_set: str = "ref",
+    ):
+        load_matplotlib_style()
+        date_fig = self.date._visualise({n: c.date for n, c in data.items()})
+        time_fig = self.time._visualise({n: c.time for n, c in data.items()})
+
+        mlflow_log_hists(self.table, self.col, {**date_fig, "time": time_fig})

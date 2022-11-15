@@ -222,10 +222,10 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
         for name, metrics in self.metrics.items():
             for i, metric in enumerate(metrics):
                 metric.visualise(
-                    {n: d[name][i] for n, d in data.items()},
-                    comparison,
-                    wrk_set,
-                    ref_set,
+                    data={n: d[name][i] for n, d in data.items()},
+                    comparison=comparison,
+                    wrk_set=wrk_set,
+                    ref_set=ref_set,
                 )
 
     def summarize(
@@ -238,10 +238,10 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
         for name, metrics in self.metrics.items():
             for i, metric in enumerate(metrics):
                 metric.visualise(
-                    {n: d[name][i] for n, d in data.items()},
-                    comparison,
-                    wrk_set,
-                    ref_set,
+                    data={n: d[name][i] for n, d in data.items()},
+                    comparison=comparison,
+                    wrk_set=wrk_set,
+                    ref_set=ref_set,
                 )
 
     def unique_name(self) -> str:
