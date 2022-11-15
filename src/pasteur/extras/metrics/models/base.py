@@ -66,7 +66,7 @@ def _calculate_score(
     sets: dict[str, dict[str, pd.DataFrame]],
     cls: type[BaseModel],
     train_set: str,
-    eval_sets: list[str],
+    eval_sets: dict[str, str],
     drop_x_cols: list[str],
     y_col: str,
     random_state: int,
@@ -77,7 +77,7 @@ def _calculate_score(
     model = cls(random_state=random_state)
     model.fit(x_sets[train_set], y_sets[train_set])
 
-    return {n: model.score(x_sets[n], y_sets[n]) for n in eval_sets}
+    return {n: model.score(x_sets[k], y_sets[k]) for k, n in eval_sets.items()}
 
 
 def calculate_model_scores(
@@ -149,9 +149,13 @@ def calculate_model_scores(
                         continue
                     train_set = f"{train_data}_train"
 
-                    eval_sets = [f"{train_data}_train", f"{train_data}_test", ref_set]
+                    eval_sets = {
+                        f"{train_data}_train": "train",
+                        f"{train_data}_test": "test",
+                        ref_set: ref_set,
+                    }
                     if train_data not in (ref_set, wrk_set):
-                        eval_sets.extend([wrk_set])
+                        eval_sets[wrk_set] = wrk_set
 
                     jobs.append(
                         {
@@ -182,27 +186,23 @@ def calculate_model_scores(
     all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
     wrk_scores = (
         all_scores[all_scores["train_data"] == wrk_set]
-        .drop(columns=["syn_train", "syn_test", "train_data", "wrk"])
+        .drop(columns=["train_data", "wrk"])
         .rename(
             columns={
-                "wrk_train": "orig_train",
-                "wrk_test": "orig_test",
+                "train": "orig_train",
+                "test": "orig_test",
                 "ref": "orig_test_real",
             }
         )
     )
-    alg_scores = (
-        all_scores[all_scores["train_data"] != wrk_set]
-        .drop(columns=["wrk_train", "wrk_test"])
-        .rename(
-            columns={
-                "train_data": "alg",
-                "syn_train": "synth_train",
-                "syn_test": "synth_test",
-                "wrk": "synth_test_orig",
-                "ref": "synth_test_real",
-            }
-        )
+    alg_scores = all_scores[all_scores["train_data"] != wrk_set].rename(
+        columns={
+            "train_data": "alg",
+            "train": "synth_train",
+            "test": "synth_test",
+            "wrk": "synth_test_orig",
+            "ref": "synth_test_real",
+        }
     )
 
     final_scores = alg_scores.merge(wrk_scores, on=["model", "target"])
