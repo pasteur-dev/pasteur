@@ -57,7 +57,7 @@ BASE_TXT_STYLE = """<style type="text/css">
 
 UTF8_META = '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />'
 ARTIFACT_DIR = "_raw"
-
+_SAVE_HTML = True
 
 def gen_html_figure_container(viz: dict[str, Figure]):
     import base64
@@ -180,7 +180,7 @@ def color_dataframe(
                 subset=(
                     slice(None),
                     (col, *[slice(None) for _ in range(len(cols) + 1)]),
-                ),
+                ), # type: ignore
                 **form,
             )
 
@@ -191,7 +191,7 @@ def color_dataframe(
             subset=(
                 slice(None),
                 (col, *[slice(None) for _ in range(len(cols))], split_ref),
-            ),
+            ),# type: ignore
             cmap=cmap_ref,
         )
 
@@ -229,7 +229,7 @@ def color_dataframe(
             subset=(
                 slice(None),
                 (*[slice(None) for _ in range(len(cols) + 1)], split),
-            ),
+            ),# type: ignore
             gmap=pt_norm.to_numpy(),
             vmin=0,
             vmax=1,
@@ -263,3 +263,29 @@ def mlflow_log_artifacts(*prefix: str, **args):
                 pickle.dump(val, f)
 
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
+
+def mlflow_log_hists(table: str, name: str, viz: Figure | dict[str, Figure]):
+    import matplotlib.pyplot as plt
+    import mlflow
+
+    if not mlflow.active_run():
+        return
+
+    path_prefix = "histograms/"
+    if table != "table":
+        path_prefix += f"{table}/"
+
+    name = name.lower()
+    if isinstance(viz, dict):
+        if _SAVE_HTML:
+            html = gen_html_figure_container(viz)
+            mlflow.log_text(html, f"{path_prefix}{name}.html")
+        else:
+            for i, (n, v) in enumerate(viz.items()):
+                mlflow.log_figure(v, f"{path_prefix}{name}_{i}_{n}.png")
+
+        for v in viz.values():
+            plt.close(v)
+    else:
+        mlflow.log_figure(viz, f"{path_prefix}{name}.png")
+        plt.close(viz)

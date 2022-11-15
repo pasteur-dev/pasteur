@@ -132,14 +132,14 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
                     namespace=f"{view}.msr",
                 )
             ]
-            outputs += {
+            outputs += [
                 D(
                     "measure",
                     f"{view}.msr.col_{table}",
                     ["measure", "column", view, table, "metric"],
                     type="pkl",
                 )
-            }
+            ]
 
     return PipelineMeta(pipeline(nodes), outputs)
 
@@ -263,7 +263,7 @@ def _create_process_pipeline(
                     namespace=f"{view}.{pkg}",
                 )
             ]
-            outputs += {
+            outputs += [
                 D(
                     "measure",
                     f"{view}.{pkg}.col_{table}_{suffix}",
@@ -271,7 +271,7 @@ def _create_process_pipeline(
                     type="pkl",
                     versioned=versioned,
                 )
-            }
+            ]
 
     return PipelineMeta(pipeline(nodes), outputs)
 
@@ -349,7 +349,7 @@ def get_metrics_types(modules: list[Module]):
     types: set[str] = set()
 
     if len(get_module_dict_multiple(ColumnMetricFactory, modules)):
-        types.add("all")
+        types.add("raw")
 
     for fs in get_module_dict(DatasetMetricFactory, modules).values():
         types.update(fs.encodings)

@@ -140,6 +140,7 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
 
 
 class ColumnMetricHolder(Metric[dict[str, list]]):
+    name = "holder"
     type = "col"
 
     def __init__(self, modules: dict[str, list[ColumnMetricFactory]]) -> None:
@@ -192,7 +193,7 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
         out = {}
         for name, metrics in self.metrics.items():
             out[name] = []
-            ref = self.meta[self.name][name].ref
+            ref = self.meta[self.table][name].ref
             for m in metrics:
                 if ref:
                     rtable, rcol = ref.table, ref.col
@@ -328,7 +329,7 @@ def fit_column_holder(
     **tables: pd.DataFrame,
 ):
     holder = ColumnMetricHolder(modules)
-    holder.fit(table=name, meta=meta, tables=tables, ids=ids)
+    holder.fit(table=name, meta=meta, tables=_separate_tables(tables)["raw"], ids=ids)
     return holder
 
 

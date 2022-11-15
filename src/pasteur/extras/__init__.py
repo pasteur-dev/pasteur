@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ..dataset import Dataset
     from ..module import Module
-
     from ..view import View
 
 
@@ -28,6 +27,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
 def get_recommended_system_modules() -> list[Module]:
     from .encoders import IdxEncoder, NumEncoder
     from .metrics.distr import ChiSquareMetric, KullbackLeiblerMetric
+    from .metrics.visual import NumericalHist
     from .synth.extern import AimSynth, PrivMrfSynth
     from .synth.privbayes import PrivBayesSynth
     from .transformers import (
@@ -59,6 +59,7 @@ def get_recommended_system_modules() -> list[Module]:
         # Metrics
         ChiSquareMetric.get_factory(),
         KullbackLeiblerMetric.get_factory(),
+        NumericalHist.get_factory(),
     ]
 
 
