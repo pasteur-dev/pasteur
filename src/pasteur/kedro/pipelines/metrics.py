@@ -313,7 +313,7 @@ def create_metrics_model_pipeline(
             for table in view.tables:
                 nodes += [
                     node(
-                        gen_closure(fn, _fn=f"%s_columns_{table}"),
+                        gen_closure(fn, _fn=f"%s_{name}_{table}"),
                         inputs={
                             "metric": f"{view}.msr.tbl_{name}_{table}",
                             "wrk": f"{view}.msr.tbl_{name}_{table}_{wrk_split}",
