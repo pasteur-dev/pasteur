@@ -3,9 +3,7 @@ disable_existing_loggers: False
 formatters:
     simple:
         format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    json_formatter:
-        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        class: pythonjsonlogger.jsonlogger.JsonFormatter
+    
 
 handlers:
     rich:
