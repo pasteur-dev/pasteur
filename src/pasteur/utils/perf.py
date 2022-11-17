@@ -68,8 +68,8 @@ class PerformanceTracker:
 
     def ensemble(self, name: str, *names: str | list[str]):
         if len(names) == 1 and not isinstance(names[0], str):
-            names = names[0]
-        self.ensembles[name] = names
+            names = names[0]  # type: ignore
+        self.ensembles[name] = names  # type: ignore
 
     def get_log_dict(self):
         out = {}

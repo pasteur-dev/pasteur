@@ -59,6 +59,7 @@ UTF8_META = '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" 
 ARTIFACT_DIR = "_raw"
 _SAVE_HTML = True
 
+
 def gen_html_figure_container(viz: dict[str, Figure]):
     import base64
 
@@ -180,7 +181,7 @@ def color_dataframe(
                 subset=(
                     slice(None),
                     (col, *[slice(None) for _ in range(len(cols) + 1)]),
-                ), # type: ignore
+                ),  # type: ignore
                 **form,
             )
 
@@ -191,7 +192,7 @@ def color_dataframe(
             subset=(
                 slice(None),
                 (col, *[slice(None) for _ in range(len(cols))], split_ref),
-            ),# type: ignore
+            ),  # type: ignore
             cmap=cmap_ref,
         )
 
@@ -201,14 +202,18 @@ def color_dataframe(
     # white = same, good
     # copper = too high
 
-    # Get difference of each split to ref column 
-    pt_ref = pd.pivot_table(df[df[split_col] == split_ref], index=idx, columns=cols, values=vals)
+    # Get difference of each split to ref column
+    pt_ref = pd.pivot_table(
+        df[df[split_col] == split_ref], index=idx, columns=cols, values=vals
+    )
     pt_diffs = {}
     for split in splits:
         if split == split_ref:
             continue
 
-        pt_split = pd.pivot_table(df[df[split_col] == split], index=idx, columns=cols, values=vals)
+        pt_split = pd.pivot_table(
+            df[df[split_col] == split], index=idx, columns=cols, values=vals
+        )
 
         pt_diff = pt_split - pt_ref
         if diff_reverse:
@@ -229,7 +234,7 @@ def color_dataframe(
             subset=(
                 slice(None),
                 (*[slice(None) for _ in range(len(cols) + 1)], split),
-            ),# type: ignore
+            ),  # type: ignore
             gmap=pt_norm.to_numpy(),
             vmin=0,
             vmax=1,
@@ -264,6 +269,7 @@ def mlflow_log_artifacts(*prefix: str, **args):
 
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
 
+
 def mlflow_log_hists(table: str, name: str, viz: Figure | dict[str, Figure]):
     import matplotlib.pyplot as plt
     import mlflow
@@ -289,3 +295,30 @@ def mlflow_log_hists(table: str, name: str, viz: Figure | dict[str, Figure]):
     else:
         mlflow.log_figure(viz, f"{path_prefix}{name}.png")
         plt.close(viz)
+
+
+def mlflow_log_perf(**runs: dict[str, float]):
+    import mlflow
+
+    df = pd.DataFrame(runs).reset_index(names="node")
+    node_obj = df["node"].str.split(".")
+
+    node_type = node_obj.apply(lambda x: x[0])
+    node_view = node_obj.apply(lambda x: x[1] if x[0] == "nodes" else pd.NA)  # type: ignore
+    node_pkg = node_obj.apply(lambda x: x[2] if x[0] == "nodes" and len(x) == 4 else pd.NA)  # type: ignore
+    node_fun = node_obj.apply(
+        lambda x: (x[3] if len(x) == 4 else x[2]) if x[0] == "nodes" else x[1]
+    )
+    node_df = pd.concat(
+        {"node": node_type, "view": node_view, "package": node_pkg, "fun": node_fun},
+        axis=1,
+    )
+
+    time_df = df.drop(columns=["node"]).applymap(
+        lambda x: f"{int(x // 3600):02d}:{int((x // 60) % 60):02d}:{int(x % 60):02d}.{int((x % 1) * 1000):03d}"
+    )
+    perf_df = pd.concat([node_df, time_df], axis=1).set_index(
+        ["node", "view", "package", "fun"]
+    )
+
+    mlflow.log_text(gen_html_table(perf_df), "perf.html")

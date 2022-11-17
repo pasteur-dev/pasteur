@@ -7,7 +7,7 @@ from typing import Any
 import mlflow
 from mlflow.entities import Run
 
-from ...utils.mlflow import ARTIFACT_DIR
+from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf
 from .base import get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,9 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
 
     ref_artifacts = next(iter(artifacts.values()))
     # meta = ref_artifacts["meta"]
+
+    perfs = {pretty[n]: a["perf"] for n, a in artifacts.items()}
+    mlflow_log_perf(**perfs)
 
     for name, folder in ref_artifacts["metrics"].items():
         metric = folder["metric"]
