@@ -1,4 +1,5 @@
 import logging
+from functools import cache
 from os import path
 from typing import Any, Callable
 
@@ -26,19 +27,25 @@ class PasteurHook:
     ) -> None:
         self.lazy_modules = modules
         self.modules = None
+        self._param_hash = None
+        self._module_id = None
 
-    @hook_impl
-    def after_context_created(
-        self,
-        context: KedroContext,
-    ) -> None:
-        self.raw_location = context.params["raw_location"]
-        self.base_location = context.params["base_location"]
-        self.context = context
+    def update_data(self):
+        params = self.context.params
+        _param_hash = hash(str(params))
+        _module_id = id(self.lazy_modules)
+
+        if _param_hash == self._param_hash and _module_id == self._module_id:
+            # SKip computation, params and modules are the same
+            logger.debug("Using cached pipelines")
+            return
+
+        self._param_hash = _param_hash
+        self._module_id = _module_id
 
         if callable(self.lazy_modules):
             try:
-                self.modules = self.lazy_modules(context)  # type: ignore
+                self.modules = self.lazy_modules(params)  # type: ignore
             except Exception:
                 self.modules = self.lazy_modules()  # type: ignore
         else:
@@ -49,7 +56,18 @@ class PasteurHook:
             self.outputs,
             self.catalogs,
             self.parameters,
-        ) = generate_pipelines(self.modules, context.params)
+        ) = generate_pipelines(self.modules, params)
+
+    @hook_impl
+    def after_context_created(
+        self,
+        context: KedroContext,
+    ) -> None:
+        self.raw_location = context.params["raw_location"]
+        self.base_location = context.params["base_location"]
+        self.context = context
+
+        self.update_data()
 
         # FIXME: clean this up
         # Add pipelines
