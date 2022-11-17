@@ -71,6 +71,7 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
 
     def process(
         self,
+        split: int,
         tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
     ):
@@ -152,6 +153,7 @@ class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
 
     def process(
         self,
+        split: int,
         tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
     ):

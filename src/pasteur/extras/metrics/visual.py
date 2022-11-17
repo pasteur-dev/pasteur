@@ -105,7 +105,7 @@ class NumericalHist(ColumnMetric[np.ndarray]):
 
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
-    def process(self, data: pd.Series):
+    def process(self, split: int, data: pd.Series):
         return np.histogram(data, self.bins, density=True)[0]
 
     def visualise(
@@ -136,7 +136,7 @@ class CategoricalHist(ColumnMetric[np.ndarray]):
         self.col = col
         self.cols = list(data.value_counts().sort_values(ascending=False).index)
 
-    def process(self, data: pd.Series):
+    def process(self, split: int, data: pd.Series):
         return data.value_counts().reindex(self.cols, fill_value=0).to_numpy()
 
     def visualise(
@@ -172,7 +172,7 @@ class FixedHist(ColumnMetric[list]):
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         ...
 
-    def process(self, data: pd.Series) -> list:
+    def process(self, split: int, data: pd.Series) -> list:
         return []
 
 
@@ -248,7 +248,7 @@ class DateHist(RefColumnMetric[DateData]):
         )
         self.nullable = meta.args.get("nullable", False)
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
+    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None) -> DateData:
         assert self.ref is not None or ref is not None
 
         # Based on date transformer
@@ -390,7 +390,7 @@ class TimeHist(ColumnMetric[np.ndarray]):
         else:
             self.span = "halfhour"
 
-    def process(self, data: pd.Series):
+    def process(self, split: int, data: pd.Series):
         data = data[~pd.isna(data)]
         hours = data.dt.hour
 
@@ -459,9 +459,9 @@ class DatetimeHist(RefColumnMetric[DatetimeData]):
         self.date.fit(table=table, col=col, meta=meta, data=data, ref=ref)
         self.time.fit(table=table, col=col, meta=meta, data=data)
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None):
-        date = self.date.process(data, ref)
-        time = self.time.process(data)
+    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None):
+        date = self.date.process(split, data, ref)
+        time = self.time.process(split, data)
         return DatetimeData(date, time)
 
     def visualise(

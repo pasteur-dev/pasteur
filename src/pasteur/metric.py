@@ -7,7 +7,7 @@ from .attribute import Attributes
 from .metadata import ColumnMeta, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
-
+from typing import Literal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,10 @@ A = TypeVar("A")
 class Metric(ModuleClass, Generic[A]):
     """Encapsulates a special way to visualize results."""
 
+    WRK_SPLIT = 1
+    REF_SPLIT = 2
+    SYN_SPLIT = 3
+
     type: str
 
     def fit(self, *args, **kwargs):
@@ -65,7 +69,7 @@ class Metric(ModuleClass, Generic[A]):
         which is common among different executions of the view."""
         raise NotImplementedError()
 
-    def process(self, *args, **kwargs) -> A:
+    def process(self, split: int, *args, **kwargs) -> A:
         """Process is called with each set of data from the view (reference, work, synthetic).
         It should capture data relevant to each metric but in a synopsis or compressed form,
         that can be used to compute the metric for different algorithm/split combinations."""
@@ -120,7 +124,7 @@ class ColumnMetric(Metric[A], Generic[A]):
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         raise NotImplementedError()
 
-    def process(self, data: pd.Series) -> A:
+    def process(self, split: int, data: pd.Series) -> A:
         raise NotImplementedError()
 
 
@@ -135,7 +139,7 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
     ):
         raise NotImplementedError()
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
+    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None) -> A:
         raise NotImplementedError()
 
 
@@ -187,6 +191,7 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
 
     def process(
         self,
+        split: int,
         tables: dict[str, pd.DataFrame],
         ids: pd.DataFrame | None = None,
     ) -> dict[str, list]:
@@ -204,9 +209,9 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
                         ref_col = ids.join(tables[rtable][rcol], on=rtable)[rcol]
                     else:
                         ref_col = tables[self.table][rcol]
-                    a = m.process(tables[self.table][name], ref_col)
+                    a = m.process(split, tables[self.table][name], ref_col)
                 else:
-                    a = m.process(tables[self.table][name])
+                    a = m.process(split, tables[self.table][name])
 
                 out[name].append(a)
 
@@ -266,6 +271,7 @@ class TableMetric(Metric[A], Generic[A]):
 
     def process(
         self,
+        split: int,
         tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
     ) -> A:
@@ -334,6 +340,7 @@ def fit_column_holder(
 
 
 def process_column_holder(
+    split: int,
     holder: ColumnMetricHolder,
     ids: pd.DataFrame,
     **tables: pd.DataFrame,
@@ -341,7 +348,7 @@ def process_column_holder(
     splits = _separate_tables(tables)
     tables = dict(splits["raw"])
 
-    return holder.process(tables=tables, ids=ids)
+    return holder.process(split=split, tables=tables, ids=ids)
 
 
 def fit_table_metric(
@@ -369,11 +376,12 @@ def fit_table_metric(
 
 
 def process_table_metric(
+    split: int,
     metric: TableMetric,
     ids: pd.DataFrame,
     **tables: pd.DataFrame,
 ):
-    return metric.process(tables=_separate_tables(tables), ids=ids)
+    return metric.process(split=split, tables=_separate_tables(tables), ids=ids)
 
 
 def fit_dataset_metric(

@@ -223,7 +223,7 @@ def calculate_model_scores(
     ]
 
     if comparison:
-        return final_scores.set_index(["alg", "target", "model"])
+        return final_scores.set_index(["target", "model", "alg"])
     return final_scores.drop(columns=["alg"]).set_index(["target", "model"])
 
 
@@ -309,6 +309,7 @@ class ModelMetric(TableMetric[ModelData]):
 
     def process(
         self,
+        split: int,
         tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
     ):

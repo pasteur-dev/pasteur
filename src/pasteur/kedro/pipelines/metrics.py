@@ -4,23 +4,24 @@ from kedro.pipeline import node
 from ...metric import (
     ColumnMetricFactory,
     DatasetMetricFactory,
+    Metric,
     TableMetricFactory,
     fit_column_holder,
     fit_dataset_metric,
     fit_table_metric,
+    log_metric,
     process_column_holder,
     process_dataset_metric,
     process_table_metric,
-    viz_metric,
     sum_metric,
-    log_metric,
+    viz_metric,
 )
 from ...module import Module, get_module_dict, get_module_dict_multiple
+from ...utils.mlflow import mlflow_log_artifacts
 from ...view import View
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta
 from .utils import gen_closure
-from ...utils.mlflow import mlflow_log_artifacts
 
 
 def _log_metadata(view: View):
@@ -159,12 +160,12 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
 
 
 def _create_process_pipeline(
-    view: View, modules: list[Module], split: str, is_alg: bool = False
+    view: View, modules: list[Module], split: str, split_type: int = 1
 ):
     nodes = []
     outputs = []
 
-    if is_alg:
+    if split_type == Metric.SYN_SPLIT:
         versioned = True
         pkg = split
         suffix = "data"
@@ -193,7 +194,11 @@ def _create_process_pipeline(
         # Create node
         nodes += [
             node(
-                gen_closure(process_dataset_metric, _fn=f"process_{name}_{split}"),
+                gen_closure(
+                    process_dataset_metric,
+                    split=split_type,
+                    _fn=f"process_{name}_{split}",
+                ),
                 inputs=inputs,
                 outputs=f"{view}.{pkg}.ds_{name}_{suffix}",
                 namespace=f"{view}.msr",
@@ -236,7 +241,9 @@ def _create_process_pipeline(
             nodes += [
                 node(
                     gen_closure(
-                        process_table_metric, _fn=f"process_{name}_{table}_{split}"
+                        process_table_metric,
+                        split=split_type,
+                        _fn=f"process_{name}_{table}_{split}",
                     ),
                     inputs=inputs,
                     outputs=f"{view}.{pkg}.tbl_{name}_{table}_{suffix}",
@@ -270,6 +277,7 @@ def _create_process_pipeline(
                 node(
                     gen_closure(
                         process_column_holder,
+                        split=split_type,
                         _fn=f"process_column_metrics_{table}_{split}",
                     ),
                     inputs=inputs,
@@ -296,8 +304,8 @@ def create_metrics_ingest_pipeline(
     return (
         _log_metadata(view)
         + _create_fit_pipeline(view, modules, wrk_split)
-        + _create_process_pipeline(view, modules, wrk_split)
-        + _create_process_pipeline(view, modules, ref_split)
+        + _create_process_pipeline(view, modules, wrk_split, Metric.WRK_SPLIT)
+        + _create_process_pipeline(view, modules, ref_split, Metric.REF_SPLIT)
     )
 
 
@@ -356,7 +364,7 @@ def create_metrics_model_pipeline(
             ]
 
     return PipelineMeta(pipeline(nodes), []) + _create_process_pipeline(
-        view, modules, alg, is_alg=True
+        view, modules, alg, Metric.SYN_SPLIT
     )
 
 
