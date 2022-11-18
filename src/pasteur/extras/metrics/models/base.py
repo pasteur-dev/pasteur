@@ -9,6 +9,8 @@ from ....metadata import Metadata
 from ....metric import TableMetric, TableMetricFactory
 from ....utils.progress import process_in_parallel
 
+from typing import NamedTuple
+
 
 class BaseModel:
     name: str
@@ -37,7 +39,7 @@ def _get_model_types(cls: tuple[type[BaseModel]]):
 
 
 def _fit_model(
-    sets: dict[str, pd.DataFrame],
+    train: dict[str, pd.DataFrame],
     cls: type[BaseModel],
     drop_x_cols: list[str],
     y_col: str,
@@ -45,96 +47,79 @@ def _fit_model(
 ):
     model = cls(random_state=random_state)
     model.fit(
-        sets[cls.x_trn_type].drop(columns=drop_x_cols), sets[cls.y_trn_type][[y_col]]
+        train[cls.x_trn_type].drop(columns=drop_x_cols), train[cls.y_trn_type][[y_col]]
     )
     return model
 
 
+class TrainedModel(NamedTuple):
+    name: str
+    y_col: str
+    model: BaseModel
+
+
+class ModelData(NamedTuple):
+    models: list[TrainedModel] | None
+    train: dict[str, pd.DataFrame]
+    test: dict[str, pd.DataFrame] | None
+
+
 def _score_model(
-    sets: dict[str, dict[str, pd.DataFrame]],
+    train: dict[str, dict[str, pd.DataFrame]],
+    test: dict[str, dict[str, pd.DataFrame]],
+    wrk: dict[str, pd.DataFrame],
+    ref: dict[str, pd.DataFrame],
     model: BaseModel,
     drop_x_cols: list[str],
     y_col: str,
+    split: str,
+    test_wrk: bool,
 ):
-    eval_sets = list(sets[model.x_trn_type].keys())
-    x_sets = {n: sets[model.x_trn_type][n].drop(columns=drop_x_cols) for n in eval_sets}
-    y_sets = {n: sets[model.y_trn_type][n][[y_col]] for n in eval_sets}
-    return {n: model.score(x_sets[n], y_sets[n]) for n in eval_sets}
+    sets = {
+        "train": train[split],
+        "test": test[split],
+        "ref": ref,
+    }
+    if test_wrk:
+        sets["wrk"] = wrk
+    x_sets = {n: s[model.x_trn_type].drop(columns=drop_x_cols) for n, s in sets.items()}
+    y_sets = {n: s[model.y_trn_type][[y_col]] for n, s in sets.items()}
+    return {n: model.score(x_sets[n], y_sets[n]) for n in sets}
 
 
-def _calculate_score(
-    sets: dict[str, dict[str, pd.DataFrame]],
-    cls: type[BaseModel],
-    train_set: str,
-    eval_sets: dict[str, str],
-    drop_x_cols: list[str],
-    y_col: str,
-    random_state: int,
-):
-    x_sets = {n: sets[cls.x_trn_type][n].drop(columns=drop_x_cols) for n in eval_sets}
-    y_sets = {n: sets[cls.y_trn_type][n][[y_col]] for n in eval_sets}
-
-    model = cls(random_state=random_state)
-    model.fit(x_sets[train_set], y_sets[train_set])
-
-    return {n: model.score(x_sets[k], y_sets[k]) for k, n in eval_sets.items()}
-
-
-def calculate_model_scores(
-    models: tuple[type[BaseModel]],
+def train_models(
+    name: str,
+    test_cols: dict[str, str],
+    data: dict[str, dict[str, pd.DataFrame]],
+    ids: pd.DataFrame | None,
+    classes: tuple[type[BaseModel]],
     random_state: int | None,
     ratio: float,
-    test_cols: dict[str, str],
-    sets: dict[str, dict[str, pd.DataFrame]],
     orig_to_enc_cols: dict[str, dict[str, list[str]]],
-    wrk_set: str = "wrk",
-    ref_set: str = "ref",
-    comparison: bool = False,
-) -> pd.DataFrame:
-    types = list(sets.keys())
-    splits = list(next(iter(sets.values())))
-    new_sets = {t: {} for t in types}
+):
+    train = {}
+    test = {}
+
+    index = next(iter(data.values()))[name].index
+    train_idx, test_idx = train_test_split(
+        index,
+        test_size=ratio,
+        random_state=random_state if random_state else None,
+    )
 
     # Create train, test sets, and remove index from dataframes.
-    for i, train_data in enumerate(splits):
-        if train_data == ref_set:
-            continue
-        index = sets[types[0]][train_data].index
+    for type, tables in data.items():
+        # TODO: expand tables
+        train[type] = tables[name].loc[train_idx].sort_index().reset_index(drop=True)
+        test[type] = tables[name].loc[test_idx].sort_index().reset_index(drop=True)
 
-        train_idx, test_idx = train_test_split(
-            index,
-            test_size=ratio,
-            random_state=(random_state + i) if random_state else None,
-        )
-
-        for t in types:
-            new_sets[t][f"{train_data}_train"] = (
-                sets[t][train_data].loc[train_idx].sort_index().reset_index(drop=True)
-            )
-            new_sets[t][f"{train_data}_test"] = (
-                sets[t][train_data].loc[test_idx].sort_index().reset_index(drop=True)
-            )
-
-    for t in types:
-        for s in (wrk_set, ref_set):
-            # Sort and nuke the index to avoid issues with sklearn drawing from
-            # dataframes that are sorted differently
-            new_sets[t][s] = sets[t][s].sort_index().reset_index(drop=True)
-
-    # # TODO: Recheck this speeds up the calculations and works
-    # for t in new_sets:
-    #     for s in new_sets[t]:
-    #         if t == "num":
-    #             new_sets[t][s] = new_sets[t][s].astype("float16")
-    #         elif t == "idx":
-    #             new_sets[t][s] = new_sets[t][s].astype("uint16")
-
-    base_args = {"sets": new_sets}
+    base_args = {"train": train}
     jobs = []
     job_info = []
     i = 0
-    for cls in models:
-        if cls.size_limit is not None and cls.size_limit < len(sets[types[0]]["wrk"]):
+    for cls in classes:
+        # TODO: Handle work and synth set with diff lengths hitting size limit differently
+        if cls.size_limit is not None and cls.size_limit < len(index):
             continue
 
         for orig_col, col_type in test_cols.items():
@@ -144,44 +129,93 @@ def calculate_model_scores(
 
             drop_x_cols = orig_to_enc_cols[cls.x_trn_type][orig_col]
             for y_col in orig_to_enc_cols[cls.y_trn_type][orig_col]:
-                for train_data in splits:
-                    if train_data == ref_set:
-                        continue
-                    train_set = f"{train_data}_train"
-
-                    eval_sets = {
-                        f"{train_data}_train": "train",
-                        f"{train_data}_test": "test",
-                        ref_set: ref_set,
+                jobs.append(
+                    {
+                        "cls": cls,
+                        "drop_x_cols": drop_x_cols,
+                        "y_col": y_col,
+                        "random_state": (random_state + i) if random_state else None,
                     }
-                    if train_data not in (ref_set, wrk_set):
-                        eval_sets[wrk_set] = wrk_set
+                )
+                job_info.append((cls.name, y_col))
+                i += 1
 
+    models = process_in_parallel(
+        _fit_model, jobs, base_args, 1, "Fitting models to data"
+    )
+
+    trained_models = []
+    for (name, y_col), model in zip(job_info, models):
+        trained_models.append(TrainedModel(name, y_col, model))
+
+    return ModelData(trained_models, train, test)
+
+
+def score_models(
+    splits: dict[str, ModelData],
+    test_cols: dict[str, str],
+    orig_to_enc_cols: dict[str, dict[str, list[str]]],
+    wrk_set: str = "wrk",
+    ref_set: str = "ref",
+    comparison: bool = False,
+) -> pd.DataFrame:
+
+    # Create train/test sets for splits
+    wrk = splits[wrk_set]
+    ref = splits[ref_set]
+    train = {}
+    test = {}
+    for name, split in splits.items():
+        train[name] = split.train
+        test[name] = split.test
+
+    # Create work set which combines work train and test
+    assert wrk.test is not None
+    wrk_data = {}
+    for split in wrk.train:
+        wrk_data[split] = pd.concat([wrk.train[split], wrk.test[split]])
+    ref_data = ref.train
+
+    base_args = {"wrk": wrk_data, "ref": ref_data, "train": train, "test": test}
+    jobs = []
+    job_info = []
+
+    # Add work
+    for split_name, split in splits.items():
+        if split_name == ref_set:
+            continue
+        assert split.models
+
+        for (name, y_col, model) in split.models:
+            if model.size_limit is not None and model.size_limit < len(
+                next(iter(wrk_data.values()))
+            ):
+                continue
+
+            for orig_col, col_type in test_cols.items():
+                # Filter, say, categorical columns from regression models.
+                if model.y_col_types is not None and col_type not in model.y_col_types:
+                    continue
+
+                drop_x_cols = orig_to_enc_cols[model.x_trn_type][orig_col]
+                for y_col in orig_to_enc_cols[model.y_trn_type][orig_col]:
                     jobs.append(
                         {
-                            "cls": cls,
-                            "train_set": train_set,
-                            "eval_sets": eval_sets,
+                            "model": model,
                             "drop_x_cols": drop_x_cols,
                             "y_col": y_col,
-                            "random_state": (random_state + i)
-                            if random_state
-                            else None,
+                            "split": split_name,
+                            "test_wrk": split_name != wrk_set,
                         }
                     )
                     job_info.append(
                         {
-                            "model": cls.name,
-                            "train_data": train_data,
+                            "model": name,
+                            "train_data": split_name,
                             "target": y_col,
                         }
                     )
-
-                    i += 1
-
-    scores = process_in_parallel(
-        _calculate_score, jobs, base_args, 1, "Fitting models to data"
-    )
+    scores = process_in_parallel(_score_model, jobs, base_args, 1, "Scoring models")
 
     all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
     wrk_scores = (
@@ -260,9 +294,6 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
     # mlflow.log_text(res.to_csv(), f"logs/_raw/models/{name}.csv")
 
 
-ModelData = tuple[dict[str, dict[str, pd.DataFrame]], pd.DataFrame | None] | tuple
-
-
 class ModelMetricFactory(TableMetricFactory):
     def __init__(
         self,
@@ -313,9 +344,23 @@ class ModelMetric(TableMetric[ModelData]):
         tables: dict[str, dict[str, pd.DataFrame]],
         ids: pd.DataFrame | None = None,
     ):
-        if self.targets:
-            return (tables, ids)
-        return ()
+        if not self.targets:
+            return ModelData(None, {}, None)
+
+        if split == self.REF_SPLIT:
+            return ModelData(
+                None, {name: split[self.table] for name, split in tables.items()}, None
+            )
+        return train_models(
+            self.table,
+            self.targets,
+            tables,
+            ids,
+            self.cls,
+            self.random_state,
+            0.2,
+            self.orig_to_enc_cols,
+        )
 
     def visualise(
         self,
@@ -326,23 +371,8 @@ class ModelMetric(TableMetric[ModelData]):
     ):
         if not self.targets:
             return
-        sets = {}
-        for split_name, split in data.items():
-            for type, tables in split[0].items():
-                if type not in sets:
-                    sets[type] = {}
-                # TODO: Add table expansion
-                sets[type][split_name] = tables[self.table]
 
-        res = calculate_model_scores(
-            self.cls,
-            self.random_state,
-            0.2,
-            self.targets,
-            sets,
-            self.orig_to_enc_cols,
-            wrk_set,
-            ref_set,
-            comparison,
+        res = score_models(
+            data, self.targets, self.orig_to_enc_cols, wrk_set, ref_set, comparison
         )
         mlflow_log_model_results(self.table, res)

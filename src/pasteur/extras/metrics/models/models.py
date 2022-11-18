@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
 from .base import BaseModel
 
 if TYPE_CHECKING:
@@ -17,22 +18,41 @@ class XGBoostlassifierModel(BaseModel):
         self.num_round = num_round
 
     def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+        from tempfile import TemporaryDirectory
+
         import numpy as np
         import xgboost as xgb
 
         dtrain = xgb.DMatrix(x, label=y)
-        self._bst = xgb.train(
+        _bst = xgb.train(
             {"objective": "multi:softmax", "num_class": np.max(y.to_numpy()) + 1},
             dtrain,
             self.num_round,
         )
 
+        # XGB doesn't like pickling
+        with TemporaryDirectory("_xgb") as dir:
+            fn = f"{dir}/xgb.txt"
+            _bst.save_model(fn)
+            with open(fn, "rb") as f:
+                self._bst = f.read()
+
     def score(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
         import numpy as np
         import xgboost as xgb
+        from tempfile import TemporaryDirectory
+
+        # XGB doesn't like pickling, not a good solution
+        with TemporaryDirectory("_xgb") as dir:
+            fn = f"{dir}/xgb.txt"
+            with open(fn, "wb") as f:
+                f.write(self._bst)
+            
+            _bst = xgb.Booster()
+            _bst.load_model(fn)
 
         deval = xgb.DMatrix(x, label=y)
-        return float(np.mean(self._bst.predict(deval) == y.to_numpy().T))
+        return float(np.mean(_bst.predict(deval) == y.to_numpy().T))
 
 
 # class LightGBMClassifierModel(BaseModel):
