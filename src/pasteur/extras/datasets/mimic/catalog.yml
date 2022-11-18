@@ -5,7 +5,7 @@ _mimic_in_csv: &mimic_csv
 
 mimic.raw@core_patients:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/core/patients.csv.gz
+  filepath: ${location}/core/patients.csv.gz
   load_args:
     index_col: subject_id
     parse_dates: [dod]
@@ -15,7 +15,7 @@ mimic.raw@core_patients:
 
 mimic.raw@core_transfers:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/core/transfers.csv.gz
+  filepath: ${location}/core/transfers.csv.gz
   load_args:
     index_col: transfer_id
     parse_dates: [intime, outtime]
@@ -27,7 +27,7 @@ mimic.raw@core_transfers:
 
 mimic.raw@core_admissions:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/core/admissions.csv.gz
+  filepath: ${location}/core/admissions.csv.gz
   load_args:
     index_col: hadm_id
     parse_dates: [admittime, dischtime, deathtime, edregtime, edouttime]
@@ -42,31 +42,31 @@ mimic.raw@core_admissions:
 
 mimic.raw@hosp_d_hcpcs:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/d_hcpcs.csv.gz
+  filepath: ${location}/hosp/d_hcpcs.csv.gz
   load_args:
     index_col: code
 
 mimic.raw@hosp_d_icd_diagnoses:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/d_icd_diagnoses.csv.gz
+  filepath: ${location}/hosp/d_icd_diagnoses.csv.gz
   load_args:
     index_col: icd_code
 
 mimic.raw@hosp_d_icd_procedures:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/d_icd_procedures.csv.gz
+  filepath: ${location}/hosp/d_icd_procedures.csv.gz
   load_args:
     index_col: icd_code
 
 mimic.raw@hosp_d_labitems:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/d_labitems.csv.gz
+  filepath: ${location}/hosp/d_labitems.csv.gz
   load_args:
     index_col: itemid
 
 mimic.raw@hosp_diagnoses_icd:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/diagnoses_icd.csv.gz
+  filepath: ${location}/hosp/diagnoses_icd.csv.gz
   load_args:
     dtype:
       subject_id: int32
@@ -74,7 +74,7 @@ mimic.raw@hosp_diagnoses_icd:
 
 mimic.raw@hosp_drgcodes:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/drgcodes.csv.gz
+  filepath: ${location}/hosp/drgcodes.csv.gz
   load_args:
     dtype:
       subject_id: int32
@@ -85,7 +85,7 @@ mimic.raw@hosp_drgcodes:
 
 mimic.raw@hosp_emar:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/emar.csv.gz
+  filepath: ${location}/hosp/emar.csv.gz
   load_args:
     parse_dates: [scheduletime, storetime, charttime]
     dtype:
@@ -95,7 +95,7 @@ mimic.raw@hosp_emar:
 
 mimic.raw@hosp_emar_detail:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/emar_detail.csv.gz
+  filepath: ${location}/hosp/emar_detail.csv.gz
   load_args:
     # engine: c
     # nrows: 10000000
@@ -136,7 +136,7 @@ mimic.raw@hosp_emar_detail:
 
 mimic.raw@hosp_hcpcsevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/hcpcsevents.csv.gz
+  filepath: ${location}/hosp/hcpcsevents.csv.gz
   load_args:
     parse_dates: [chartdate]
     dtype:
@@ -147,7 +147,7 @@ mimic.raw@hosp_hcpcsevents:
 
 mimic.raw@hosp_labevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/labevents.csv.gz
+  filepath: ${location}/hosp/labevents.csv.gz
   load_args:
     index_col: labevent_id
     parse_dates: [storetime, charttime]
@@ -167,7 +167,7 @@ mimic.raw@hosp_labevents:
 
 mimic.raw@hosp_microbiologyevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/microbiologyevents.csv.gz
+  filepath: ${location}/hosp/microbiologyevents.csv.gz
   load_args:
     index_col: microevent_id
     parse_dates: [chartdate, charttime, storedate, storetime]
@@ -185,7 +185,7 @@ mimic.raw@hosp_microbiologyevents:
 
 mimic.raw@hosp_pharmacy:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/pharmacy.csv.gz
+  filepath: ${location}/hosp/pharmacy.csv.gz
   load_args:
     parse_dates: [starttime, stoptime, entertime, verifiedtime, expirationdate]
     dtype:
@@ -198,7 +198,7 @@ mimic.raw@hosp_pharmacy:
 
 mimic.raw@hosp_poe:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/poe.csv.gz
+  filepath: ${location}/hosp/poe.csv.gz
   load_args:
     index_col: poe_id
     parse_dates: [ordertime]
@@ -212,7 +212,7 @@ mimic.raw@hosp_poe:
 
 mimic.raw@hosp_poe_detail:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/poe_detail.csv.gz
+  filepath: ${location}/hosp/poe_detail.csv.gz
   load_args:
     index_col: poe_id
     dtype:
@@ -222,7 +222,7 @@ mimic.raw@hosp_poe_detail:
 
 mimic.raw@hosp_prescriptions:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/prescriptions.csv.gz
+  filepath: ${location}/hosp/prescriptions.csv.gz
   load_args:
     parse_dates: [starttime, stoptime]
     dtype:
@@ -239,7 +239,7 @@ mimic.raw@hosp_prescriptions:
 
 mimic.raw@hosp_procedures_icd:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/procedures_icd.csv.gz
+  filepath: ${location}/hosp/procedures_icd.csv.gz
   load_args:
     parse_dates: [chartdate]
     dtype:
@@ -250,7 +250,7 @@ mimic.raw@hosp_procedures_icd:
 
 mimic.raw@hosp_services:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/hosp/services.csv.gz
+  filepath: ${location}/hosp/services.csv.gz
   load_args:
     parse_dates: [transfertime]
     dtype:
@@ -261,7 +261,7 @@ mimic.raw@hosp_services:
 
 mimic.raw@icu_chartevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/chartevents.csv
+  filepath: ${location}/icu/chartevents.csv
   load_args:
     parse_dates: [charttime, storetime]
     dtype:
@@ -276,7 +276,7 @@ mimic.raw@icu_chartevents:
 
 mimic.raw@icu_datetimeevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/datetimeevents.csv.gz
+  filepath: ${location}/icu/datetimeevents.csv.gz
   load_args:
     parse_dates: [charttime, storetime, value]
     dtype:
@@ -289,7 +289,7 @@ mimic.raw@icu_datetimeevents:
 
 mimic.raw@icu_d_items:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/d_items.csv.gz
+  filepath: ${location}/icu/d_items.csv.gz
   load_args:
     index_col: itemid
     dtype:
@@ -297,7 +297,7 @@ mimic.raw@icu_d_items:
 
 mimic.raw@icu_icustays:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/icustays.csv.gz
+  filepath: ${location}/icu/icustays.csv.gz
   load_args:
     index_col: stay_id
     parse_dates: [intime, outtime]
@@ -310,7 +310,7 @@ mimic.raw@icu_icustays:
 
 mimic.raw@icu_inputevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/inputevents.csv.gz
+  filepath: ${location}/icu/inputevents.csv.gz
   load_args:
     parse_dates: [starttime, endtime, storetime] #, comments_date]
     dtype:
@@ -333,7 +333,7 @@ mimic.raw@icu_inputevents:
 
 mimic.raw@icu_outputevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/outputevents.csv.gz
+  filepath: ${location}/icu/outputevents.csv.gz
   load_args:
     parse_dates: [charttime, storetime]
     dtype:
@@ -345,7 +345,7 @@ mimic.raw@icu_outputevents:
 
 mimic.raw@icu_procedureevents:
   <<: *mimic_csv
-  filepath: ${mimiciv_1_0_location}/icu/procedureevents.csv.gz
+  filepath: ${location}/icu/procedureevents.csv.gz
   load_args:
     parse_dates: [starttime, endtime, storetime, comments_date]
     dtype:

@@ -4,6 +4,7 @@ from os import path
 from typing import Any, Callable
 
 import yaml
+from kedro.io.memory_dataset import MemoryDataSet
 from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
@@ -13,7 +14,7 @@ from kedro.io import DataCatalog, Version
 
 from ...module import Module
 from ..pipelines import generate_pipelines
-from ..pipelines.main import NAME_LOCATION, RAW_LOCATION, get_view_names
+from ..pipelines.main import NAME_LOCATION, BASE_LOCATION, RAW_LOCATION, get_view_names
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,7 @@ class PasteurHook:
             context._extra_params.update(orig_params)
 
         # Add hidden dict with views to remove their params in mlflow
+        assert self.modules
         context._extra_params["_views"] = get_view_names(self.modules)
 
     def get_version(self, name: str, versioned: bool):
@@ -134,6 +136,14 @@ class PasteurHook:
         if layer:
             self.catalog.layers[layer].add(name)
 
+    def add_mem(self, layer, name):
+        self.catalog.add(
+            name,
+            MemoryDataSet(),
+        )
+        if layer:
+            self.catalog.layers[layer].add(name)
+
     @hook_impl
     def after_catalog_created(
         self,
@@ -171,10 +181,15 @@ class PasteurHook:
                         data = f.read()
 
                     if folder_name:
-                        dir = params.get(
-                            name, path.join(params[RAW_LOCATION], folder_name)
+                        raw_dir = params.get(
+                            name, path.join(self.raw_location, folder_name)
                         )
-                        data = data.replace(f"${{{name}}}", dir)
+                        data = data.replace(f"${{location}}", raw_dir)
+
+                        data = data.replace(
+                            f"${{bootstrap}}",
+                            path.join(self.base_location, "bootstrap", folder_name),
+                        )
                     conf = yaml.safe_load(data)
                 else:
                     conf = ds_catalog
@@ -199,5 +214,7 @@ class PasteurHook:
                     self.add_pkl(d.layer, d.name, d.str_path, d.versioned)
                 case "pq":
                     self.add_set(d.layer, d.name, d.str_path, d.versioned)
+                case "mem":
+                    self.add_mem(d.layer, d.name)
                 case _:
                     assert False, "Not implemented"

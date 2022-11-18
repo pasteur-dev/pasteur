@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, pipeline
+from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .meta import DatasetMeta as D
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ...dataset import Dataset
 
 
+
 def create_dataset_pipeline(
     dataset: Dataset, tables: list[str] | None = None
 ) -> PipelineMeta:
@@ -20,18 +21,25 @@ def create_dataset_pipeline(
     if tables is None:
         tables = dataset.tables
 
+    if dataset.bootstrap:
+        bt = {"_bootstrap": f"{dataset}._bootstrap"}
+    else:
+        bt = {}
+
     pipe = pipeline(
         [
             node(
-                func=gen_closure(dataset.ingest, t, _fn=f"ingest_{t}"),
-                inputs={dep: f"raw@{dep}" for dep in dataset.deps[t]},
+                func=gen_closure(
+                    dataset.ingest, t, _fn=f"ingest_{t}", _eat=["_bootstrap"]
+                ),
+                inputs={**{dep: f"raw@{dep}" for dep in dataset.deps[t]}, **bt},
                 outputs=t,
             )
             for t in tables
         ]
     )
 
-    return PipelineMeta(
+    pipe_ingest =  PipelineMeta(
         modular_pipeline(pipe=pipe, namespace=dataset.name),
         [
             D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t])
@@ -39,8 +47,25 @@ def create_dataset_pipeline(
         ],
     )
 
+    if not dataset.bootstrap:
+        return pipe_ingest
 
-def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
+    # Add node for bootstrap
+    return pipe_ingest + PipelineMeta(
+        pipeline(
+            [
+                node(
+                    dataset.bootstrap,
+                    inputs=None,
+                    outputs=[f"{dataset}._bootstrap"],
+                    namespace=str(dataset),
+                )
+            ]
+        ),
+        [D("interim", f"{dataset}._bootstrap", path=[], type="mem")],
+    )
+
+def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
     fun = (
         gen_closure(dataset.keys_filtered, splits, _fn="gen_keys")
         if splits
@@ -72,8 +97,5 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str] | None):
             inputs=namespaced_tables,
             parameters={"parameters": "parameters"},
         ),
-        [
-            D("keys", f"{view}.keys.{s}", ["views", "keys", view, s])
-            for s in splits
-        ],
+        [D("keys", f"{view}.keys.{s}", ["views", "keys", view, s]) for s in splits],
     )

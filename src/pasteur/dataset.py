@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
 
@@ -80,11 +80,18 @@ class Dataset(Module):
     If not, it will check that `${raw_location}/<folder_name>` exists.
     If neither are the case, then the dataset will not be loaded and a warning will be logged.
 
-    If `catalog` is provided and is a string, it will be loaded with the additional
-    parameter `#{<folder_name>_location}` (if `folder_name` has been provided
+    If `catalog` is provided and is a path, it will be loaded with replacing
+    `#{location}` with the location of the dataset (if `folder_name` has been provided
     that can be used to substitute the relative paths.
-    Use `utils.get_relative_fn()` to specify configs. Useful for packaging.
+    Use `utils.get_relative_fn()` to specify the path. Useful for packaging.
     If it's a dict, it will be loaded straight away.
+    `#{bootstrap}` will also be provided for defining intermediary datasets not
+    present in the original download.
+
+    For compressed datasets or ones that require preprocessing, `bootstrap can be
+    implemented as a callable which receives 2 strings, one for the base location
+    of the dataset (based on folder name), and one for a reserved intermediary
+    directory.
 
     @Warning: having a table named raw is not allowed."""
 
@@ -93,6 +100,7 @@ class Dataset(Module):
 
     folder_name: str | None = None
     catalog: dict[str, Any] | str | None = None
+    bootstrap: Callable[[str, str], None] | None = None
 
     def __init__(self, **_) -> None:
         pass

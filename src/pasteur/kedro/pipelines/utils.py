@@ -18,9 +18,21 @@ class gen_closure(partial):
 
     The closure retains the original function name. If desired, it can
     be renamed using the `_fn` parameter. If fn contains `%s`, it will be
-    replaced with the function name"""
+    replaced with the function name.
 
-    def __new__(cls, func, /, *args, _fn: str | None = None, **keywords):
+    The `_eat` parameter can be used to consume keyword arguments passed to the
+    child function. Ex. if `_eat=["bob"]`, passing `bob=safd` will have no effect
+    on the bound function."""
+
+    def __new__(
+        cls,
+        func,
+        /,
+        *args,
+        _fn: str | None = None,
+        _eat: list[str] | None = None,
+        **keywords,
+    ):
         self = super().__new__(cls, func, *args, **keywords)
 
         if _fn:
@@ -28,7 +40,16 @@ class gen_closure(partial):
         else:
             self.__name__ = func.__name__  # type: ignore
 
+        self.eat = _eat  # type: ignore
         return self
+
+    def __call__(self, /, *args, **keywords):
+        kw = keywords.copy()
+        if self.eat:  # type: ignore
+            for e in self.eat:  # type: ignore
+                kw.pop(e, None)
+        keywords = {**self.keywords, **kw}
+        return self.func(*self.args, *args, **keywords)
 
 
 def _params_closure(

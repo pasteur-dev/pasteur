@@ -1,7 +1,7 @@
 adult.raw@train: &adult_csv
   type: pandas.CSVDataSet
   layer: raw
-  filepath: ${adult_location}/adult.data
+  filepath: ${location}/adult.data
 
   load_args: &adult_load_args
     names:
@@ -43,7 +43,7 @@ adult.raw@train: &adult_csv
 
 adult.raw@test:
   <<: *adult_csv
-  filepath: ${adult_location}/adult.test
+  filepath: ${location}/adult.test
 
   load_args:
     <<: *adult_load_args
