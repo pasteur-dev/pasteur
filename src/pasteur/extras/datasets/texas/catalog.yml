@@ -1,0 +1,11 @@
+_texas_in_csv: &texas_csv
+  type: pandas.CSVDataSet
+  layer: raw
+  filepath: ""
+
+  load_args:
+    delimiter: "\t"
+
+texas.raw@pudf_1q2006:
+  <<: *texas_csv
+  filepath: ${bootstrap}/PUDF-1Q2006-tab-delimited

@@ -1,6 +1,6 @@
 from functools import partial
 from itertools import chain
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Any
 
 from ...utils.parser import get_params_for_pipe
 
@@ -22,7 +22,9 @@ class gen_closure(partial):
 
     The `_eat` parameter can be used to consume keyword arguments passed to the
     child function. Ex. if `_eat=["bob"]`, passing `bob=safd` will have no effect
-    on the bound function."""
+    on the bound function.
+
+    The `_return` parameter can override what the function returns."""
 
     def __new__(
         cls,
@@ -31,6 +33,7 @@ class gen_closure(partial):
         *args,
         _fn: str | None = None,
         _eat: list[str] | None = None,
+        _return: Any | None = None,
         **keywords,
     ):
         self = super().__new__(cls, func, *args, **keywords)
@@ -40,16 +43,20 @@ class gen_closure(partial):
         else:
             self.__name__ = func.__name__  # type: ignore
 
-        self.eat = _eat  # type: ignore
+        self._eat = _eat  # type: ignore
+        self._return = _return  # type: ignore
         return self
 
     def __call__(self, /, *args, **keywords):
         kw = keywords.copy()
-        if self.eat:  # type: ignore
-            for e in self.eat:  # type: ignore
+        if self._eat:  # type: ignore
+            for e in self._eat:  # type: ignore
                 kw.pop(e, None)
         keywords = {**self.keywords, **kw}
-        return self.func(*self.args, *args, **keywords)
+        val = self.func(*self.args, *args, **keywords)
+        if self._return is not None:  # type: ignore
+            return self._return  # type: ignore
+        return val
 
 
 def _params_closure(

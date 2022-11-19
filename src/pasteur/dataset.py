@@ -88,7 +88,7 @@ class Dataset(Module):
     `#{bootstrap}` will also be provided for defining intermediary datasets not
     present in the original download.
 
-    For compressed datasets or ones that require preprocessing, `bootstrap can be
+    For compressed datasets or ones that require preprocessing, `bootstrap` can be
     implemented as a callable which receives 2 strings, one for the base location
     of the dataset (based on folder name), and one for a reserved intermediary
     directory.

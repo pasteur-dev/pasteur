@@ -11,13 +11,17 @@ if TYPE_CHECKING:
 def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.adult import AdultDataset
     from .datasets.mimic import MimicDataset
+    from .datasets.texas import TexasDataset
     from .views.adult import TabAdultView
     from .views.mimic import MimicMmCoreView, MimicTabAdmissions
+    from .views.texas import TabTexasView
 
     return [
         # Views and Datasets
         AdultDataset(),
         MimicDataset(),
+        TexasDataset(),
+        TabTexasView(),
         TabAdultView(),
         # MimicMmCoreView,
         MimicTabAdmissions(),

@@ -1,6 +1,6 @@
 """
 Generated from `https://www.dshs.texas.gov/THCIC/Hospitals/Download.shtm`
-with regex `Data\/([\w-]+?tab(?:-delimited)?)`
+with regex `Data\\/([\\w-]+?tab(?:-delimited)?)`
 substituting to `"https://www.dshs.texas.gov/thcic/hospitals/Data/$1",\n`
 """
 texas_list = [

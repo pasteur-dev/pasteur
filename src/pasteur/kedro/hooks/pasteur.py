@@ -14,7 +14,7 @@ from kedro.io import DataCatalog, Version
 
 from ...module import Module
 from ..pipelines import generate_pipelines
-from ..pipelines.main import NAME_LOCATION, BASE_LOCATION, RAW_LOCATION, get_view_names
+from ..pipelines.main import NAME_LOCATION, get_view_names
 
 logger = logging.getLogger(__name__)
 
@@ -76,26 +76,30 @@ class PasteurHook:
         pipelines._content.update(self.pipelines)
 
         # Add view metadata for loaded modules
-        orig_params = context._extra_params
-        context._extra_params = {}
-
+        extra_params = {}
         for name, view_params in self.parameters.items():
             # dict gets added straight away
             if isinstance(view_params, dict):
-                context._extra_params[name] = view_params
+                extra_params[name] = view_params
             # string is considered to point to a file
             else:
-                context._extra_params[name] = context.config_loader.get(
-                    view_params
-                ).copy()
+                extra_params[name] = context.config_loader.get(view_params).copy()
 
-        # Restore original overrides
-        if orig_params:
-            context._extra_params.update(orig_params)
+        for folder_name, _ in self.catalogs:
+            extra_params[NAME_LOCATION.format(folder_name)] = path.join(
+                self.raw_location, folder_name
+            )
 
         # Add hidden dict with views to remove their params in mlflow
         assert self.modules
-        context._extra_params["_views"] = get_view_names(self.modules)
+        extra_params["_views"] = get_view_names(self.modules)
+
+        # Restore original overrides
+        if context._extra_params:
+            extra_params.update(context._extra_params)
+
+        # Apply overrides
+        context._extra_params = extra_params
 
     def get_version(self, name: str, versioned: bool):
         load_version = (

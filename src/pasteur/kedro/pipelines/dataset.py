@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from ...dataset import Dataset
 
 
-
 def create_dataset_pipeline(
     dataset: Dataset, tables: list[str] | None = None
 ) -> PipelineMeta:
@@ -21,25 +20,18 @@ def create_dataset_pipeline(
     if tables is None:
         tables = dataset.tables
 
-    if dataset.bootstrap:
-        bt = {"_bootstrap": f"{dataset}._bootstrap"}
-    else:
-        bt = {}
-
     pipe = pipeline(
         [
             node(
-                func=gen_closure(
-                    dataset.ingest, t, _fn=f"ingest_{t}", _eat=["_bootstrap"]
-                ),
-                inputs={**{dep: f"raw@{dep}" for dep in dataset.deps[t]}, **bt},
+                func=gen_closure(dataset.ingest, t, _fn=f"ingest_{t}"),
+                inputs={dep: f"raw@{dep}" for dep in dataset.deps[t]},
                 outputs=t,
             )
             for t in tables
         ]
     )
 
-    pipe_ingest =  PipelineMeta(
+    return PipelineMeta(
         modular_pipeline(pipe=pipe, namespace=dataset.name),
         [
             D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t])
@@ -47,23 +39,6 @@ def create_dataset_pipeline(
         ],
     )
 
-    if not dataset.bootstrap:
-        return pipe_ingest
-
-    # Add node for bootstrap
-    return pipe_ingest + PipelineMeta(
-        pipeline(
-            [
-                node(
-                    dataset.bootstrap,
-                    inputs=None,
-                    outputs=[f"{dataset}._bootstrap"],
-                    namespace=str(dataset),
-                )
-            ]
-        ),
-        [D("interim", f"{dataset}._bootstrap", path=[], type="mem")],
-    )
 
 def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
     fun = (
