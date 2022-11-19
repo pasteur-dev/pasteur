@@ -220,11 +220,62 @@ def download(
             main(download_dir, datasets, user)
 
 
+@click.command()
+@click.argument(
+    "datasets",
+    nargs=-1,
+    type=str,
+)
+def bootstrap(
+    datasets: tuple[str],
+):
+    """Preprocesses downloaded datasets which require it so they can be loaded by kedro."""
+    from os import path
+
+    from ..dataset import Dataset
+    from ..module import get_module_dict
+    from ..kedro.pipelines.main import NAME_LOCATION
+    from ..utils.progress import logging_redirect_pbar
+
+    # Setup logging and params with kedro
+    with KedroSession.create() as session:
+        ctx = session.load_context()
+
+        dataset_modules = get_module_dict(Dataset, ctx.pasteur.modules)  # type: ignore
+
+        if not datasets:
+            datasets = tuple(dataset_modules)
+
+        for dataset in datasets:
+            if dataset not in dataset_modules:
+                logger.error(f"Module for dataset `{dataset}` not currently loaded.")
+                return
+
+        params = ctx.params
+        raw_location = params["raw_location"]
+        base_location = params["base_location"]
+
+        with logging_redirect_pbar():
+            for name in datasets:
+                ds = dataset_modules[name]
+                if not ds.bootstrap:
+                    continue
+                assert (
+                    ds.folder_name
+                ), "Folder name for a dataset shouldn't be null when bootstrap is supplied."
+
+                ds_raw_location = params.get(NAME_LOCATION.format(ds.folder_name), path.join(raw_location, ds.folder_name))
+                bootstrap_location = path.join(base_location, "bootstrap", ds.folder_name)  # type: ignore
+                logger.info(f"Initializing dataset \"{name}\" in:\n{bootstrap_location}")
+                ds.bootstrap(ds_raw_location, bootstrap_location)
+
+
 @click.group(name="Pasteur")
 def cli():
     """Command line tools for manipulating a Kedro project."""
 
 
+cli.add_command(bootstrap)
 cli.add_command(download)
 cli.add_command(pipe)
 cli.add_command(sweep)

@@ -85,11 +85,6 @@ class PasteurHook:
             else:
                 extra_params[name] = context.config_loader.get(view_params).copy()
 
-        for folder_name, _ in self.catalogs:
-            extra_params[NAME_LOCATION.format(folder_name)] = path.join(
-                self.raw_location, folder_name
-            )
-
         # Add hidden dict with views to remove their params in mlflow
         assert self.modules
         extra_params["_views"] = get_view_names(self.modules)
@@ -100,6 +95,8 @@ class PasteurHook:
 
         # Apply overrides
         context._extra_params = extra_params
+
+        setattr(context, "pasteur", self)
 
     def get_version(self, name: str, versioned: bool):
         load_version = (

@@ -1,8 +1,12 @@
+import logging
+
 import pandas as pd
 
 from ....dataset import Dataset, split_keys
 from ....utils import get_relative_fn
+from ....utils.progress import piter
 
+logger = logging.getLogger(__name__)
 
 class TexasDataset(Dataset):
     name = "texas"
@@ -13,8 +17,17 @@ class TexasDataset(Dataset):
     catalog = get_relative_fn("catalog.yml")
 
     def bootstrap(self, location: str, bootstrap: str):
-        print(location, bootstrap)
-        assert False
+        import os
+        from zipfile import ZipFile
+
+        os.makedirs(bootstrap, exist_ok=True)
+        for fn in piter(os.listdir(location), leave=False):
+            if not (fn.endswith("_tab") or fn.endswith("-tab-delimited")):
+                continue
+
+            with ZipFile(os.path.join(location, fn), "r") as zf:
+                logger.info(f"Extracting {fn}...")
+                zf.extractall(bootstrap)
 
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]
