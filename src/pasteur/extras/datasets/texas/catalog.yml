@@ -1,471 +1,71 @@
-_texas_in_csv: &texas_csv
-  type: pandas.CSVDataSet
+_texas_base: &texas_base
+  type: pasteur.kedro.dataset.PatternDataSet
   layer: raw
-  filepath: ""
+  path: ${bootstrap}
 
-  load_args:
-    delimiter: "\t"
+  replace_format: "{year}q{q}"
 
-_texas_base_old: &texas_base_old
-  <<: *texas_csv
+  dataset:
+    type: pandas.CSVDataSet
+    load_args:
+      delimiter: "\t"
 
-_texas_charges_old: &texas_charges_old
-  <<: *texas_csv
+texas.raw@charges:
+  <<: *texas_base
+  pattern: _charges
+  replace_pattern: charges(?P<q>\d)q(?P<year>\d\d\d\d)
 
-_texas_facility: &texas_facility
-  <<: *texas_csv
+  dataset:
+    type: pandas.CSVDataSet
+    load_args:
+      delimiter: "\t"
+      header: 0
+      index_col: False
+      names:
+        - record_id
+        - revenue_code
+        - hcpcs_qualifier
+        - hcpcs_procedure_code
+        - modifier_1
+        - modifier_2
+        - modifier_3
+        - modifier_4
+        - unit_measurement_code
+        - units_of_service
+        - unit_rate
+        - chrgs_line_item
+        - chrgs_non_cov
+      dtype:
+        record_id: int64
+        revenue_code: category
+        hcpcs_qualifier: category
+        hcpcs_procedure_code: category
+        modifier_1: category
+        modifier_2: category
+        modifier_3: category
+        modifier_4: category
+        unit_measurement_code: category
+        units_of_service: category
+        unit_rate: category
+        chrgs_line_item: category
+        chrgs_non_cov: category
 
-_texas_base1: &texas_base1
-  <<: *texas_csv
+texas.raw@base:
+  <<: *texas_base
+  pattern: base\dq
+  replace_pattern: base(?P<q>\d)q(?P<year>\d\d\d\d)
 
-_texas_base2: &texas_base2
-  <<: *texas_csv
+texas.raw@base1:
+  <<: *texas_base
+  pattern: _base1_
+  replace_pattern: base1_(?P<q>\d)q(?P<year>\d\d\d\d)
 
-_texas_charges: &texas_charges
-  <<: *texas_csv
+texas.raw@base2:
+  <<: *texas_base
+  pattern: _base2_
+  replace_pattern: base2_(?P<q>\d)q(?P<year>\d\d\d\d)
 
-texas.raw@base_2006q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base1q2006_tab.txt
-texas.raw@base_2006q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base2q2006_tab.txt
-texas.raw@base_2006q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base3q2006_tab.txt
-texas.raw@base_2006q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base4q2006_tab.txt
-
-texas.raw@base_2007q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base1q2007_tab.txt
-texas.raw@base_2007q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base2q2007_tab.txt
-texas.raw@base_2007q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base3q2007_tab.txt
-texas.raw@base_2007q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base4q2007_tab.txt
-
-texas.raw@base_2008q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base1q2008_tab.txt
-texas.raw@base_2008q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base2q2008_tab.txt
-texas.raw@base_2008q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base3q2008_tab.txt
-texas.raw@base_2008q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base4q2008_tab.txt
-
-texas.raw@base_2009q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base1q2009_tab.txt
-texas.raw@base_2009q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base2q2009_tab.txt
-texas.raw@base_2009q3:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/texas/PUDF3Q2009Tab-delimited_2017/PUDF_base3q2009_tab.txt"
-texas.raw@base_2009q4:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/texas/PUDF4Q2009tab-delimited-2017/PUDF_base4q2009_tab.txt"
-
-texas.raw@base_2010q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base1q2010_tab.txt
-texas.raw@base_2010q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base2q2010_tab.txt
-texas.raw@base_2010q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_base3q2010_tab.txt
-texas.raw@base_2010q4:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/PUDF4Q2010tab-delimited/PUDF_base4q2010_tab.txt"
-
-texas.raw@charges_2006q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges1q2006_tab.txt
-texas.raw@charges_2006q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges2q2006_tab.txt
-texas.raw@charges_2006q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges3q2006_tab.txt
-texas.raw@charges_2006q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges4q2006_tab.txt
-
-texas.raw@charges_2007q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges1q2007_tab.txt
-texas.raw@charges_2007q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges2q2007_tab.txt
-texas.raw@charges_2007q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges3q2007_tab.txt
-texas.raw@charges_2007q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges4q2007_tab.txt
-
-texas.raw@charges_2008q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges1q2008_tab.txt
-texas.raw@charges_2008q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges2q2008_tab.txt
-texas.raw@charges_2008q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges3q2008_tab.txt
-texas.raw@charges_2008q4:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges4q2008_tab.txt
-
-texas.raw@charges_2009q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges1q2009_tab.txt
-texas.raw@charges_2009q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges2q2009_tab.txt
-texas.raw@charges_2009q3:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/PUDF 3Q2009 Tab-delimited_2017/PUDF_charges3q2009_tab.txt"
-texas.raw@charges_2009q4:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/texas/PUDF 4Q2009 tab-delimited-2017/PUDF_charges4q2009_tab.txt"
-
-texas.raw@charges_2010q1:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges1q2010_tab.txt
-texas.raw@charges_2010q2:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges2q2010_tab.txt
-texas.raw@charges_2010q3:
-  <<: *texas_base_old
-  filepath: ${bootstrap}/PUDF_charges3q2010_tab.txt
-texas.raw@charges_2010q4:
-  <<: *texas_base_old
-  filepath: "${bootstrap}/PUDF 4Q2010 tab-delimited/PUDF_charges4q2010_tab.txt"
-
-texas.raw@facility_2011q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2011_tab.txt
-texas.raw@facility_2011q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2011_tab.txt
-texas.raw@facility_2011q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2011_tab.txt
-texas.raw@facility_2011q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2011_tab.txt
-
-texas.raw@facility_2012q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2012_tab.txt
-texas.raw@facility_2012q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2012_tab.txt
-texas.raw@facility_2012q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2012_tab.txt
-texas.raw@facility_2012q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2012_tab.txt
-
-texas.raw@facility_2013q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2013_tab.txt
-texas.raw@facility_2013q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2013_tab.txt
-texas.raw@facility_2013q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2013_tab.txt
-texas.raw@facility_2013q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2013_tab.txt
-
-texas.raw@facility_2014q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2014_tab.txt
-texas.raw@facility_2014q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2014_tab.txt
-texas.raw@facility_2014q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2014_tab.txt
-texas.raw@facility_2014q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2014_tab.txt
-
-texas.raw@facility_2015q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2015_tab.txt
-texas.raw@facility_2015q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2015_tab.txt
-texas.raw@facility_2015q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2015_tab.txt
-texas.raw@facility_2015q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2015_tab.txt
-
-texas.raw@facility_2016q1:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type1q2016_tab.txt
-texas.raw@facility_2016q2:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type2q2016_tab.txt
-texas.raw@facility_2016q3:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type3q2016_tab.txt
-texas.raw@facility_2016q4:
-  <<: *texas_facility
-  filepath: ${bootstrap}/Facility_type4q2016_tab.txt
-
-
-texas.raw@base1_2011q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2011_tab.txt
-texas.raw@base1_2011q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2011_tab.txt
-texas.raw@base1_2011q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2011_tab.txt
-texas.raw@base1_2011q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2011_tab.txt
-
-texas.raw@base1_2012q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2012_tab.txt
-texas.raw@base1_2012q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2012_tab.txt
-texas.raw@base1_2012q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2012_tab.txt
-texas.raw@base1_2012q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2012_tab.txt
-
-texas.raw@base1_2013q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2013_tab.txt
-texas.raw@base1_2013q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2013_tab.txt
-texas.raw@base1_2013q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2013_tab.txt
-texas.raw@base1_2013q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2013_tab.txt
-
-texas.raw@base1_2014q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2014_tab.txt
-texas.raw@base1_2014q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2014_tab.txt
-texas.raw@base1_2014q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2014_tab.txt
-texas.raw@base1_2014q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2014_tab.txt
-
-texas.raw@base1_2015q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2015_tab.txt
-texas.raw@base1_2015q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2015_tab.txt
-texas.raw@base1_2015q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2015_tab.txt
-texas.raw@base1_2015q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2015_tab.txt
-
-texas.raw@base1_2016q1:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_1q2016_tab.txt
-texas.raw@base1_2016q2:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_2q2016_tab.txt
-texas.raw@base1_2016q3:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_3q2016_tab.txt
-texas.raw@base1_2016q4:
-  <<: *texas_base1
-  filepath: ${bootstrap}/PUDF_base1_4q2016_tab.txt
-
-
-texas.raw@base2_2011q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2011_tab.txt
-texas.raw@base2_2011q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2011_tab.txt
-texas.raw@base2_2011q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2011_tab.txt
-texas.raw@base2_2011q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2011_tab.txt
-
-texas.raw@base2_2012q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2012_tab.txt
-texas.raw@base2_2012q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2012_tab.txt
-texas.raw@base2_2012q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2012_tab.txt
-texas.raw@base2_2012q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2012_tab.txt
-
-texas.raw@base2_2013q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2013_tab.txt
-texas.raw@base2_2013q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2013_tab.txt
-texas.raw@base2_2013q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2013_tab.txt
-texas.raw@base2_2013q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2013_tab.txt
-
-texas.raw@base2_2014q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2014_tab.txt
-texas.raw@base2_2014q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2014_tab.txt
-texas.raw@base2_2014q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2014_tab.txt
-texas.raw@base2_2014q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2014_tab.txt
-
-texas.raw@base2_2015q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2015_tab.txt
-texas.raw@base2_2015q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2015_tab.txt
-texas.raw@base2_2015q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2015_tab.txt
-texas.raw@base2_2015q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2015_tab.txt
-
-texas.raw@base2_2016q1:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_1q2016_tab.txt
-texas.raw@base2_2016q2:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_2q2016_tab.txt
-texas.raw@base2_2016q3:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_3q2016_tab.txt
-texas.raw@base2_2016q4:
-  <<: *texas_base2
-  filepath: ${bootstrap}/PUDF_base2_4q2016_tab.txt
-
-
-texas.raw@charges_2011q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2011_tab.txt
-texas.raw@charges_2011q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2011_tab.txt
-texas.raw@charges_2011q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2011_tab.txt
-texas.raw@charges_2011q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2011_tab.txt
-
-texas.raw@charges_2012q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2012_tab.txt
-texas.raw@charges_2012q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2012_tab.txt
-texas.raw@charges_2012q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2012_tab.txt
-texas.raw@charges_2012q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2012_tab.txt
-
-texas.raw@charges_2013q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2013_tab.txt
-texas.raw@charges_2013q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2013_tab.txt
-texas.raw@charges_2013q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2013_tab.txt
-texas.raw@charges_2013q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2013_tab.txt
-
-texas.raw@charges_2014q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2014_tab.txt
-texas.raw@charges_2014q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2014_tab.txt
-texas.raw@charges_2014q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2014_tab.txt
-texas.raw@charges_2014q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2014_tab.txt
-
-texas.raw@charges_2015q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2015_tab.txt
-texas.raw@charges_2015q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2015_tab.txt
-texas.raw@charges_2015q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2015_tab.txt
-texas.raw@charges_2015q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2015_tab.txt
-
-texas.raw@charges_2016q1:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges1q2016_tab.txt
-texas.raw@charges_2016q2:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges2q2016_tab.txt
-texas.raw@charges_2016q3:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges3q2016_tab.txt
-texas.raw@charges_2016q4:
-  <<: *texas_charges
-  filepath: ${bootstrap}/PUDF_charges4q2016_tab.txt
-
+texas.raw@facility:
+  <<: *texas_base
+  pattern: Facility_type
+  replace_pattern: type(?P<q>\d)q(?P<year>\d\d\d\d)
