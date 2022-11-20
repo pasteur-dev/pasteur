@@ -12,10 +12,10 @@ from ..utils.progress import PBAR_JUP_NCOLS
 from .runner import SimpleRunner
 
 # Removes lint errors from VS Code
-context: KedroContext = None
-catalog: DataCatalog = None
-session: KedroSession = None
-pipelines: dict[str, Pipeline] = None
+context: KedroContext = None  # type: ignore
+catalog: DataCatalog = None  # type: ignore
+session: KedroSession = None  # type: ignore
+pipelines: dict[str, Pipeline] = None  # type: ignore
 
 
 def _reconfigure_rich():
@@ -30,7 +30,7 @@ def _reconfigure_rich():
 
     # Disable html rendering when using jupyter
     # force_jupyter=False messes with pretty print
-    _console_check_buffer = _console._check_buffer
+    _console_check_buffer = _console._check_buffer  # type: ignore
 
     def non_html_check_buffer(self):
         tmp = self.is_jupyter
@@ -38,15 +38,15 @@ def _reconfigure_rich():
         _console_check_buffer.__get__(self)()
         self.is_jupyter = tmp
 
-    _console._check_buffer = non_html_check_buffer.__get__(_console)
+    _console._check_buffer = non_html_check_buffer.__get__(_console)  # type: ignore
 
 
 def _pipe(pipe: str, params_str: str, params: dict):
-    project_path = get_ipython().ev("session")._project_path
+    project_path = get_ipython().ev("session")._project_path  # type: ignore
 
     metadata = bootstrap_project(project_path)
     session = KedroSession.create(
-        metadata.package_name, project_path, env=None, extra_params=params
+        metadata.package_name, project_path, extra_params=params
     )
     _reconfigure_rich()
     session.run(
@@ -55,7 +55,7 @@ def _pipe(pipe: str, params_str: str, params: dict):
     )
 
 
-def pipe(name: str, params: dict = None):
+def pipe(name: str, params: dict | None = None):
     params = params or {}
     params_dict = flat_params_to_dict(params)
     params_str = ""
@@ -82,8 +82,8 @@ def _pipe_magic(line):
 
 def register_kedro():
     ipy = get_ipython()
-    ipy.register_magic_function(_pipe_magic, "line", "pipe")
-    ipy.register_magic_function(_pipe_magic, "line", "p")
+    ipy.register_magic_function(_pipe_magic, "line", "pipe")  # type: ignore
+    ipy.register_magic_function(_pipe_magic, "line", "p")  # type: ignore
 
     import logging
 
@@ -92,7 +92,7 @@ def register_kedro():
     # Disable path message
     logging.getLogger().handlers = []
     _reconfigure_rich()
-    reload_kedro(_find_kedro_project(Path.cwd()))
+    reload_kedro(_find_kedro_project(Path.cwd()))  # type: ignore
     _reconfigure_rich()
 
 
