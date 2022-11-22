@@ -1,7 +1,7 @@
-from ....view import TabularView
+from ....view import View
 from ....utils import get_relative_fn
 
-class TabTexasView(TabularView):
+class TabTexasView(View):
     name = "tab_texas"
     dataset = "texas"
     # parameters = get_relative_fn("parameters.yml")

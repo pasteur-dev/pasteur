@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, pipeline
+from kedro.pipeline import Pipeline as pipeline
+from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
@@ -22,7 +23,7 @@ def _create_metadata(view: str, params: dict):
     return Metadata(meta_dict)
 
 
-def _check_tables(metadata: Metadata, **tables: dict[str, pd.DataFrame]):
+def _check_tables(metadata: Metadata, **tables: pd.DataFrame):
     metadata.check(tables)
 
 
@@ -48,7 +49,8 @@ def create_view_pipeline(view: View):
                     outputs=None,
                     namespace=f"{view}.view",
                 )
-            ]
+            ],
+            tags=["view"],
         ),
         [
             D("primary", f"{view}.view.{t}", ["views", "primary", view, t])
@@ -69,7 +71,8 @@ def create_meta_pipeline(view: View):
                     outputs=f"{view}.metadata",
                     namespace=f"{view}",
                 )
-            ]
+            ],
+            tags=["view"],
         ),
         [D("metadata", f"{view}.metadata", ["views", "metadata", view], type="pkl")],
     )
@@ -78,25 +81,23 @@ def create_meta_pipeline(view: View):
 def create_filter_pipeline(view: View, splits: list[str]):
     tables = view.tables
 
-    pipe = pipeline([])
+    nodes = []
     for split in splits:
-        pipe += pipeline(
-            [
-                node(
-                    func=gen_closure(view.filter, _fn=f"filter_{split}"),
-                    inputs={
-                        "keys": f"keys.{split}",
-                        **{t: f"view.{t}" for t in tables},
-                    },
-                    outputs={t: f"{split}.{t}" for t in tables},
-                    namespace=split,
-                )
-            ]
+        nodes.append(
+            node(
+                func=gen_closure(view.filter, _fn=f"filter_{split}"),
+                inputs={
+                    "keys": f"keys.{split}",
+                    **{t: f"view.{t}" for t in tables},
+                },
+                outputs={t: f"{split}.{t}" for t in tables},
+                namespace=split,
+            )
         )
 
     return PipelineMeta(
         modular_pipeline(
-            pipe=pipe,
+            pipe=pipeline(nodes, tags=["view"]),
             namespace=view.name,
         ),
         [

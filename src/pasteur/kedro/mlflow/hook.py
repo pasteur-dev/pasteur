@@ -101,7 +101,8 @@ class MlflowTrackingHook:
         if len(pipe_seg) < 2:
             self._is_mlflow_enabled = False
             self._logger.warn(
-                f"Pipeline name {pipeline_name} is not compatible with mlflow hook (<view>.<alg>.<misc>), disabling logging."
+                "Running ingest dataset/view pipeline, disabling mlflow"
+                # f"Pipeline name {pipeline_name} is not compatible with mlflow hook (<view>.<alg>.<misc>), disabling logging."
             )
             return
         else:

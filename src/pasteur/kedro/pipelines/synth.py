@@ -8,7 +8,7 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta
+from .meta import PipelineMeta, TAGS_SYNTH
 from .utils import gen_closure
 
 if TYPE_CHECKING:
@@ -65,6 +65,7 @@ def create_synth_pipeline(
             **{f"in_ids_{t}": f"{view}.{split}.ids_{t}" for t in tables},
             **{f"trn_{t}": f"{view}.trn.{t}" for t in tables},
         },
+        tags=TAGS_SYNTH
     )
 
     outputs = [

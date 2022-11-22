@@ -6,11 +6,21 @@ from ....dataset import Dataset, split_keys
 from ....utils import get_relative_fn
 from ....utils.progress import piter
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ....kedro.dataset import PatternDataSet
+
 logger = logging.getLogger(__name__)
+
 
 class TexasDataset(Dataset):
     name = "texas"
-    deps = {"table": ["pudf_1q2006"]}  # {t: [t] for t in []}
+    deps = {
+        "base": ["base", "base1", "base2"],
+        "facility": ["facility", "base"],
+        "charges": ["charges"],
+    }
     key_deps = ["pudf_1q2006"]
 
     folder_name = "texas"

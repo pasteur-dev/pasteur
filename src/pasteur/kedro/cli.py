@@ -17,14 +17,53 @@ logger = logging.getLogger(__name__)
     nargs=-1,
     type=str,
 )
-def pipe(pipeline, params):
+@click.option(
+    "--all",
+    is_flag=True,
+    help="Also runs dataset ingestion, which is skipped by default.",
+)
+@click.option(
+    "--synth", is_flag=True, help="Skips running split ingestion, only runs synthesis."
+)
+@click.option(
+    "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
+)
+def pipe(pipeline, params, all, synth, metrics):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
+
+    from .pipelines.meta import (
+        TAG_CHANGES_HYPERPARAMETER,
+        TAG_CHANGES_PER_ALGORITHM,
+        TAG_METRICS,
+    )
+
+    assert sum([all, synth, metrics]) <= 1
 
     param_dict = str_params_to_dict(params)
 
     with KedroSession.create(extra_params=param_dict) as session:
+        if "ingest" in pipeline:
+            logger.debug("Skipping tags for ingest pipeline.")
+            tags = []
+        if all:
+            logger.info("Nodes for ingesting the dataset will be run.")
+            tags = []
+        elif synth:
+            logger.warn(
+                "Skipping ingest nodes which are affected by hyperparameters, results may be invalid."
+            )
+            tags = [TAG_CHANGES_PER_ALGORITHM]
+        elif metrics:
+            logger.warn("Only running metrics nodes.")
+            tags = [TAG_METRICS]
+        else:
+            logger.debug(
+                "Skipping dataset ingestion. In case of error, run the pipeline with the name of the dataset."
+            )
+            tags = [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
+
         session.run(
-            tags=[],
+            tags=tags,
             runner=SimpleRunner(pipeline, " ".join(params)),  # SequentialRunner(True),
             node_names="",
             from_nodes="",
@@ -88,10 +127,11 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     ```
     runs the following for each parameter combination:
     ```
-    tab_adult.ingest
-    tab_adult.aim.synth
-    tab_adult.privbayes.synth
+    tab_adult.aim
+    tab_adult.privbayes
     ```
+    Where the first algorithm runs for all nodes that are affected by hyperparameters,
+    ie executing preprocessing.
 
     Ingest is ran for each parameter combination, so if a parameter override
     changes the view it is honored."""
@@ -103,36 +143,49 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         log_parent_run,
         remove_runs,
     )
+    from .pipelines.meta import TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM
 
+    # Create pipelines
+    if alg:
+        view = pipeline
+        pipelines_tags = [
+            (
+                f"{view}.{alg[0]}",
+                [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
+            ),
+            *[(f"{view}.{a}", [TAG_CHANGES_PER_ALGORITHM]) for a in alg[1:]],
+        ]
+    elif "ingest" in pipeline:
+        pipelines_tags = [(pipeline, [])]
+    else:
+        pipelines_tags = [
+            (pipeline, [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM])
+        ]
+
+    # Configure iterators
+    iterable_dict = eval_params(iterator)
+    hyperparam_dict = eval_params(hyperparameter)
+
+    # Configure parent
     parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
+    mlflow_dict = {
+        "_mlflow_parent_name": parent_name,
+    }
+
     if clear_cache:
         with KedroSession.create() as session:
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
 
-    iterable_dict = eval_params(iterator)
-    hyperparam_dict = eval_params(hyperparameter)
-
-    mlflow_dict = {
-        "_mlflow_parent_name": parent_name,
-    }
-
     runs = {}
-
-    if alg:
-        view = pipeline
-        pipelines = {f"{view}.ingest": None, **{f"{view}.{a}.synth": a for a in alg}}
-    else:
-        pipelines = {pipeline: ""}
-
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
         extra_params = merge_params(vals | mlflow_dict)
 
-        for pipeline, alg in pipelines.items():
+        for pipeline, tags in pipelines_tags:
             with KedroSession.create(extra_params=extra_params) as session:
                 session.load_context()
 
@@ -149,7 +202,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                     continue
 
                 session.run(
-                    tags=[],
+                    tags=tags,
                     runner=SimpleRunner(
                         pipeline, " ".join(f"{n}={v}" for n, v in vals.items())
                     ),
@@ -161,6 +214,10 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                     load_versions={},
                     pipeline_name=pipeline,
                 )
+
+    if len(runs) <= 1:
+        logger.info("Only 1 run executed, skipping summary.")
+        return
 
     with KedroSession.create() as session:
         session.load_context()
@@ -233,8 +290,8 @@ def bootstrap(
     from os import path
 
     from ..dataset import Dataset
-    from ..module import get_module_dict
     from ..kedro.pipelines.main import NAME_LOCATION
+    from ..module import get_module_dict
     from ..utils.progress import logging_redirect_pbar
 
     # Setup logging and params with kedro
@@ -264,9 +321,12 @@ def bootstrap(
                     ds.folder_name
                 ), "Folder name for a dataset shouldn't be null when bootstrap is supplied."
 
-                ds_raw_location = params.get(NAME_LOCATION.format(ds.folder_name), path.join(raw_location, ds.folder_name))
+                ds_raw_location = params.get(
+                    NAME_LOCATION.format(ds.folder_name),
+                    path.join(raw_location, ds.folder_name),
+                )
                 bootstrap_location = path.join(base_location, "bootstrap", ds.folder_name)  # type: ignore
-                logger.info(f"Initializing dataset \"{name}\" in:\n{bootstrap_location}")
+                logger.info(f'Initializing dataset "{name}" in:\n{bootstrap_location}')
                 ds.bootstrap(ds_raw_location, bootstrap_location)
 
 

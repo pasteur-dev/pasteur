@@ -6,7 +6,7 @@ from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta
+from .meta import PipelineMeta, TAGS_TRANSFORM, TAGS_REVERSE, TAGS_RETRANSFORM
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -81,7 +81,8 @@ def create_transformers_pipeline(
                 namespace=f"{view}.trn",
             )
             for table in view.tables
-        ]
+        ],
+        tags=TAGS_TRANSFORM,
     )
 
     outputs = [
@@ -105,13 +106,13 @@ def create_transformers_pipeline(
 
 
 def create_transform_pipeline(
-    view: View, split: str, types: list[str], only_encode: bool = False
+    view: View, split: str, types: list[str], retransform: bool = False,
 ):
     table_nodes = []
     outputs = []
 
     for t in view.tables:
-        if not only_encode:
+        if not retransform:
             table_nodes += [
                 node(
                     func=gen_closure(_transform_table, _fn=f"transform_{t}"),
@@ -154,12 +155,11 @@ def create_transform_pipeline(
             outputs.append(
                 D(
                     # FIXME: Pass proper layer properly, don't infer
-                    "synth_reencoded" if only_encode else "split_encoded",
+                    "synth_reencoded" if retransform else "split_encoded",
                     f"{view}.{split}.{type}_{t}",
                     ["views", type, f"{view}.{split}", t],
                 )
             )
-
 
     if not table_nodes:
         return PipelineMeta(pipeline([]), outputs)
@@ -169,6 +169,7 @@ def create_transform_pipeline(
         pipe=pipeline(table_nodes),
         namespace=f"{view}.{split}",
         inputs=inputs,
+        tags=TAGS_RETRANSFORM if retransform else TAGS_TRANSFORM
     )
 
     return PipelineMeta(pipe, outputs)
@@ -220,6 +221,7 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
         pipe=pipeline(decode_nodes),
         namespace=f"{view}.{alg}",
         inputs={f"trn_{t}": f"{view}.trn.{t}" for t in view.tables},
+        tags=TAGS_REVERSE,
     )
 
     return PipelineMeta(pipe, outputs)

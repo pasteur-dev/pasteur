@@ -6,12 +6,11 @@ from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta
+from .meta import PipelineMeta, TAGS_DATASET
 from .utils import gen_closure, get_params_closure
 
 if TYPE_CHECKING:
     from ...dataset import Dataset
-
 
 def create_dataset_pipeline(
     dataset: Dataset, tables: list[str] | None = None
@@ -26,6 +25,7 @@ def create_dataset_pipeline(
                 func=gen_closure(dataset.ingest, t, _fn=f"ingest_{t}"),
                 inputs={dep: f"raw@{dep}" for dep in dataset.deps[t]},
                 outputs=t,
+                tags=TAGS_DATASET
             )
             for t in tables
         ]
@@ -61,6 +61,7 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
                 },
                 namespace="keys",
                 outputs={s: f"keys.{s}" for s in splits},
+                tags=TAGS_DATASET
             )
         ]
     )
@@ -70,7 +71,7 @@ def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
             pipe=pipe,
             namespace=view,
             inputs=namespaced_tables,
-            parameters={"parameters": "parameters"},
+            parameters={"parameters": "parameters"}
         ),
         [D("keys", f"{view}.keys.{s}", ["views", "keys", view, s]) for s in splits],
     )

@@ -112,6 +112,10 @@ def generate_pipelines(
     main_pipes = {}
     extr_pipes = {}
 
+    # Add dataset pipelines
+    for name, dataset in datasets.items():
+        extr_pipes[f"{name}.ingest"] = create_dataset_pipeline(dataset)
+
     for name, view in views.items():
         # Metrics fit pipeline is part of ingest
         # To make debugging metrics easier, it's bundled with `.measure` pipelines
@@ -133,9 +137,10 @@ def generate_pipelines(
         # Fixme: can cause issues with some parameters
         pipe_meta = create_meta_pipeline(view)
 
+        pipe_ds_ingest = create_dataset_pipeline(datasets[view.dataset], view.dataset_tables)
+
         pipe_ingest = (
-            create_dataset_pipeline(datasets[view.dataset], view.dataset_tables)
-            + create_keys_pipeline(datasets[view.dataset], name, splits)
+            create_keys_pipeline(datasets[view.dataset], name, splits)
             + create_view_pipeline(view)
             + pipe_meta
             + create_filter_pipeline(view, splits)
@@ -143,8 +148,7 @@ def generate_pipelines(
         )
 
         # `<view>.<alg>` pipelines run all steps required for synthetic data
-        # Steps that are view specific (common for all algs) can be run with
-        # <view>.ingest, `<view>.<alg>.synth pipelines can be run after that
+        # Steps that are view specific (common for all algs) can be run with `<vuew>`
         extr_pipes[f"{name}.ingest"] = pipe_ingest
 
         # Algorithm pipeline
@@ -154,20 +158,16 @@ def generate_pipelines(
             ) + create_reverse_pipeline(view, alg, cls.type)
 
             pipe_measure = create_transform_pipeline(
-                view, alg, msr_types, only_encode=True
+                view, alg, msr_types, retransform=True
             ) + create_metrics_model_pipeline(view, alg, wrk_split, ref_split, modules)
 
-            complete_pipe = pipe_ingest + pipe_synth + pipe_measure
+            complete_pipe = pipe_ds_ingest + pipe_ingest + pipe_synth + pipe_measure
 
             if "ident" in alg:
                 # Hide ident pipelines
                 extr_pipes[f"{name}.{alg}"] = complete_pipe
             else:
                 main_pipes[f"{name}.{alg}"] = complete_pipe
-            extr_pipes[f"{name}.{alg}.synth"] = pipe_synth + pipe_measure + pipe_meta
-            extr_pipes[f"{name}.{alg}.measure"] = (
-                pipe_metrics_fit + pipe_measure + pipe_meta
-            )
 
     # Hide extra pipes at the bottom of kedro viz
     # dictionaries are ordered

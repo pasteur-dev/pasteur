@@ -23,6 +23,7 @@ from .meta import DatasetMeta as D
 from .meta import PipelineMeta
 from .utils import gen_closure
 
+from .meta import TAGS_METRICS_INGEST, TAGS_METRICS_LOG
 
 def _log_metadata(view: View):
     return pipeline(
@@ -33,7 +34,7 @@ def _log_metadata(view: View):
                 outputs=None,
                 namespace=str(view),
             )
-        ]
+        ], tags=TAGS_METRICS_INGEST
     )
 
 
@@ -156,7 +157,7 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
                 )
             ]
 
-    return PipelineMeta(pipeline(nodes), outputs)
+    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_INGEST), outputs)
 
 
 def _create_process_pipeline(
@@ -170,11 +171,13 @@ def _create_process_pipeline(
         pkg = split
         suffix = "data"
         out_dir = ["synth", "measure"]
+        tags = TAGS_METRICS_LOG
     else:
         versioned = False
         pkg = "msr"
         suffix = split
         out_dir = ["measure"]
+        tags = TAGS_METRICS_INGEST
 
     # Dataset Metrics
     for name, fs in get_module_dict(DatasetMetricFactory, modules).items():
@@ -295,7 +298,7 @@ def _create_process_pipeline(
                 )
             ]
 
-    return PipelineMeta(pipeline(nodes), outputs)
+    return PipelineMeta(pipeline(nodes, tags=tags), outputs)
 
 
 def create_metrics_ingest_pipeline(
@@ -363,7 +366,7 @@ def create_metrics_model_pipeline(
                 )
             ]
 
-    return PipelineMeta(pipeline(nodes), []) + _create_process_pipeline(
+    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_LOG), []) + _create_process_pipeline(
         view, modules, alg, Metric.SYN_SPLIT
     )
 
