@@ -1,18 +1,17 @@
 import logging
-from functools import cache
 from os import path
 from typing import Any, Callable
 
 import yaml
-from kedro.io.memory_dataset import MemoryDataSet
-from kedro.extras.datasets.pandas import ParquetDataSet
 from kedro.extras.datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
 from kedro.io import DataCatalog, Version
+from kedro.io.memory_dataset import MemoryDataSet
 
 from ...module import Module
+from ..dataset import FragmentedParquetDataset
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
@@ -109,7 +108,7 @@ class PasteurHook:
     def add_set(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
             name,
-            ParquetDataSet(
+            FragmentedParquetDataset(
                 path.join(
                     self.base_location,
                     *path_seg[:-1],

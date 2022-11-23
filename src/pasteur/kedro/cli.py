@@ -45,7 +45,7 @@ def pipe(pipeline, params, all, synth, metrics):
         if "ingest" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
             tags = []
-        if all:
+        elif all:
             logger.info("Nodes for ingesting the dataset will be run.")
             tags = []
         elif synth:

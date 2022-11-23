@@ -62,7 +62,7 @@ texas.raw@base:
       header: 0
       index_col: record_id
       names:
-        - discharge_qtr
+        - discharge
         - thcic_id
         - provider_name
         - fac_teaching_ind
@@ -95,7 +95,7 @@ texas.raw@base:
         - private_amount
         - semi_private_amount
         - ward_amount
-        - ice_amount
+        - icu_amount
         - ccu_amount
         - other_amount
         - pharm_amount
@@ -307,18 +307,18 @@ texas.raw@base:
         - value_amount_11
         - value_code_12
         - value_amount_12
-        - hcfa_mdc
+        - ms_mdc
         - apr_mdc
-        - hcfa_drg
+        - ms_drg
         - apr_drg
         - risk_mortality
         - illness_severity
-        - attending_phys_unif_id
-        - operating_phys_unif_id
+        - attending_physician_unif_id
+        - operating_physician_unif_id
         - cert_status
         - record_id
       dtype:
-        discharge_qtr: category
+        discharge: category
         thcic_id: int32
         provider_name: category
         fac_teaching_ind: category
@@ -351,7 +351,7 @@ texas.raw@base:
         private_amount: float32
         semi_private_amount: float32
         ward_amount: float32
-        ice_amount: float32
+        icu_amount: float32
         ccu_amount: float32
         other_amount: float32
         pharm_amount: float32
@@ -563,14 +563,14 @@ texas.raw@base:
         value_amount_11: float32
         value_code_12: category
         value_amount_12: float32
-        hcfa_mdc: category
+        ms_mdc: category
         apr_mdc: category
-        hcfa_drg: category
+        ms_drg: category
         apr_drg: category
         risk_mortality: category
         illness_severity: category
-        attending_phys_unif_id: category
-        operating_phys_unif_id: category
+        attending_physician_unif_id: category
+        operating_physician_unif_id: category
         cert_status: category
         record_id: int64
 
@@ -987,7 +987,7 @@ texas.raw@base2:
     load_args:
       delimiter: "\t"
       header: 0
-      index_col: False
+      index_col: record_id
       na_values:
         - '>999'
       names:
