@@ -1,13 +1,11 @@
 import logging
+from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
 from ....dataset import Dataset, split_keys
-from ....utils import get_relative_fn, gen_closure
+from ....utils import gen_closure, get_relative_fn
 from ....utils.progress import piter
-from typing import Callable
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ....kedro.dataset import PatternDataSet
@@ -16,61 +14,76 @@ logger = logging.getLogger(__name__)
 
 LazyFrame = dict[str, Callable[..., pd.DataFrame]]
 
-def ingest_base(base: LazyFrame, base1: LazyFrame, base2: LazyFrame) -> LazyFrame:
-    import pandas as pd
 
+def _process_old(load: Callable):
+    chunk = load()
+
+    # Process new spec units
+    spec_unit = chunk["spec_unit"].astype(str)
+    get_spec_idx = (
+        lambda i: spec_unit.str.slice(i, i + 1).replace("", pd.NA).astype("category")
+    )
+    spec_units = pd.DataFrame({f"spec_unit_{i + 1}": get_spec_idx(i) for i in range(5)})
+
+    # Drop denormalized facility columns
+    return chunk.drop(
+        columns=[
+            "fac_acute_care_ind",
+            "fac_long_term_ac_ind",
+            "fac_other_ltc_ind",
+            "fac_peds_ind",
+            "fac_psych_ind",
+            "fac_rehab_ind",
+            "fac_snf_ind",
+            "fac_teaching_ind",
+            "spec_unit",
+        ]
+    ).join(spec_units)
+
+
+def _process_new(load1: Callable, load2: Callable):
+    chunk1 = load1()
+    chunk2 = load2()
+
+    return chunk1.drop(
+        columns=[
+            "filler_space",
+            "apr_grouper_error_code",
+            "apr_grouper_version_nbr",
+            "ms_grouper_error_code",
+            "ms_grouper_version_nbr",
+        ]
+    ).join(chunk2.drop(columns=["filler_space"]))
+
+
+def _ingest_base(
+    base: LazyFrame, base1: LazyFrame, base1_v2: LazyFrame, base2: LazyFrame
+) -> LazyFrame:
     old_pids = list(base.keys())
-    new_pids = list(base1.keys())
-    assert set(base2.keys()) == set(new_pids), "There's a missmatch of base2 and base1 files."
+    new_pids1 = list(base1.keys())
+    new_pids2 = list(base1_v2.keys())
+    assert set(base2.keys()) == set(new_pids1).union(
+        new_pids2
+    ), "There's a missmatch of base2 and base1 files."
 
-    def process_old(pid: str):
-        chunk = base[pid]()
-
-        # Process new spec units
-        spec_unit = chunk["spec_unit"].astype(str)
-        get_spec_idx = lambda i: spec_unit.str.slice(i, i + 1).replace("", pd.NA).astype("category")
-        spec_units = pd.DataFrame({f"spec_unit_{i + 1}": get_spec_idx(i) for i in range(5)})
-
-        # Drop denormalized facility columns
-        return chunk.drop(columns=[
-            'fac_acute_care_ind',
-            'fac_long_term_ac_ind',
-            'fac_other_ltc_ind',
-            'fac_peds_ind',
-            'fac_psych_ind',
-            'fac_rehab_ind',
-            'fac_snf_ind',
-            'fac_teaching_ind',
-            "spec_unit"
-        ]).join(spec_units)
-
-    def process_new(pid: str):
-        chunk1 = base1[pid]()
-        chunk2 = base2[pid]()
-
-        return chunk1.drop(
-            columns=[
-                "filler_space",
-                "apr_grouper_error_code",
-                "apr_grouper_version_nbr",
-                "ms_grouper_error_code",
-                "ms_grouper_version_nbr",
-            ]
-        ).join(chunk2.drop(columns=["filler_space"]))
-    
     return {
-        **{pid: gen_closure(process_old, pid) for pid in old_pids},
-        **{pid: gen_closure(process_new, pid) for pid in new_pids}
+        **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids},
+        **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
+        **{
+            pid: gen_closure(_process_new, base1_v2[pid], base2[pid])
+            for pid in new_pids2
+        },
     }
+
 
 class TexasDataset(Dataset):
     name = "texas"
     deps = {
-        "base": ["base", "base1", "base2"],
+        "base": ["base", "base1", "base1_v2", "base2"],
         "facility": ["facility", "base"],
         "charges": ["charges"],
     }
-    key_deps = ["base", "base1", "base2"]
+    key_deps = ["base", "base2"]
 
     folder_name = "texas"
     catalog = get_relative_fn("catalog.yml")
@@ -90,7 +103,7 @@ class TexasDataset(Dataset):
 
     def ingest(self, name: str, **tables: LazyFrame):
         if name == "base":
-            return ingest_base(**tables)
+            return _ingest_base(**tables)
         return pd.DataFrame()
 
     def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):

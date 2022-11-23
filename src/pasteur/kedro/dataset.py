@@ -8,6 +8,13 @@ from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import DataSetError, get_filepath_str
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
+from ..utils.progress import process_in_parallel
+from typing import Callable
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class PatternDataSet(PartitionedDataSet):
     """Adds pattern support to Partitioned Dataset"""
@@ -59,35 +66,72 @@ class PatternDataSet(PartitionedDataSet):
         return self._replace_format.format(*m.groups(), **m.groupdict())
 
 
+def parallel_save_worker(
+    pid: str,
+    path: str,
+    chunk: Callable[..., pd.DataFrame] | pd.DataFrame,
+    protocol,
+    fs,
+    save_args,
+):
+    logging.debug(f"Saving chunk {pid}...")
+
+    if callable(chunk):
+        chunk = chunk()
+
+    if protocol == "file":
+        with fs.open(path, mode="wb") as fs_file:
+            chunk.to_parquet(fs_file, **save_args)
+    else:
+        bytes_buffer = BytesIO()
+        chunk.to_parquet(bytes_buffer, **save_args)
+
+        with fs.open(path, mode="wb") as fs_file:
+            fs_file.write(bytes_buffer.getvalue())
+
+
 class FragmentedParquetDataset(ParquetDataSet):
     """Modified kedro parquet dataset that allows for lazy saving to multiple
     parquet files.
-    
+
     Used to prevent consuming 2x RAM when ingesting data from CSVs.
     Each csv is saved to its own parquet file and then parquet loads the directory
-    automatically on `_load()`."""
+    automatically on `_load()`.
+
+    Saving chunks runs in parallel."""
 
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
 
         if isinstance(data, pd.DataFrame):
             return self._save_no_buff(save_path, data)
-        
+
         if callable(data):
             return self._save_no_buff(save_path, data())
-        
+
         if not isinstance(data, dict):
-            raise DataSetError(f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes, callables")
+            raise DataSetError(
+                f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes, callables"
+            )
 
         if self._fs.exists(save_path):
             self._fs.rm(save_path, recursive=True)
-        
+
+        base_args = {
+            "protocol": self._protocol,
+            "fs": self._fs,
+            "save_args": self._save_args,
+        }
+        jobs = []
         for pid, partition_data in sorted(data.items()):
-            if callable(partition_data):
-                partition_data = partition_data()
-            
-            chunk_save_path = os.path.join(save_path, pid if pid.endswith(".pq") else pid + ".pq")
-            self._save_no_buff(chunk_save_path, partition_data)
+            chunk_save_path = os.path.join(
+                save_path, pid if pid.endswith(".pq") else pid + ".pq"
+            )
+            jobs.append({"pid": pid, "path": chunk_save_path, "chunk": partition_data})
+
+        process_in_parallel(
+            parallel_save_worker, jobs, base_args, 1, f"Saving parquet chunks"
+        )
 
         self._invalidate_cache()
 
@@ -101,4 +145,3 @@ class FragmentedParquetDataset(ParquetDataSet):
 
             with self._fs.open(save_path, mode="wb") as fs_file:
                 fs_file.write(bytes_buffer.getvalue())
-        

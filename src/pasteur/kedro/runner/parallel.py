@@ -84,7 +84,9 @@ class SimpleParallelRunner(ParallelRunner):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        super().__init__(is_async=True)
+        super().__init__(
+            is_async=False
+        )  # True creates problems with saving partitioned datasets.
 
     @property
     def _logger(self):
