@@ -1,17 +1,18 @@
+import logging
 import os
 import re
 from io import BytesIO
-from pathlib import Path
+from typing import Callable
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow.parquet as pq
 from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import DataSetError, get_filepath_str
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
 from ..utils.progress import process_in_parallel
-from typing import Callable
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,22 @@ class FragmentedParquetDataset(ParquetDataSet):
     automatically on `_load()`.
 
     Saving chunks runs in parallel."""
+
+    def _load(self) -> pd.DataFrame:
+        load_path = get_filepath_str(self._get_load_path(), self._protocol)
+
+        if not self._fs.isdir(load_path):
+            return self._load_from_pandas()
+        
+        # Create complete schema using dataset
+        data = pq.ParquetDataset(
+            load_path, filesystem=self._fs, use_legacy_dataset=False
+        )
+        table = data.read_pandas(**self._load_args)
+        # Try to avoid double allocation
+        return table.to_pandas(split_blocks=True, self_destruct=True)
+
+
 
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)

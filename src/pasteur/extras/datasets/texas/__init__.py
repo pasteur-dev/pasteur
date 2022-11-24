@@ -5,10 +5,7 @@ import pandas as pd
 
 from ....dataset import Dataset, split_keys
 from ....utils import gen_closure, get_relative_fn
-from ....utils.progress import piter
-
-if TYPE_CHECKING:
-    from ....kedro.dataset import PatternDataSet
+from ....utils.progress import piter, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +42,7 @@ def _process_new(load1: Callable, load2: Callable):
     chunk1 = load1()
     chunk2 = load2()
 
-    return chunk1.drop(
+    chunk1 = chunk1.drop(
         columns=[
             "filler_space",
             "apr_grouper_error_code",
@@ -53,7 +50,47 @@ def _process_new(load1: Callable, load2: Callable):
             "ms_grouper_error_code",
             "ms_grouper_version_nbr",
         ]
-    ).join(chunk2.drop(columns=["filler_space"]))
+    )
+
+    # Drop the extra columns from the v1 base1
+    # if "cert_status" in chunk1:
+    #     chunk1.drop(
+    #         columns=[
+    #             "cert_status",
+    #             "oth_icd9_code_1",
+    #             "oth_icd9_code_10",
+    #             "oth_icd9_code_11",
+    #             "oth_icd9_code_12",
+    #             "oth_icd9_code_13",
+    #             "oth_icd9_code_14",
+    #             "oth_icd9_code_15",
+    #             "oth_icd9_code_16",
+    #             "oth_icd9_code_17",
+    #             "oth_icd9_code_18",
+    #             "oth_icd9_code_19",
+    #             "oth_icd9_code_2",
+    #             "oth_icd9_code_20",
+    #             "oth_icd9_code_21",
+    #             "oth_icd9_code_22",
+    #             "oth_icd9_code_23",
+    #             "oth_icd9_code_24",
+    #             "oth_icd9_code_3",
+    #             "oth_icd9_code_4",
+    #             "oth_icd9_code_5",
+    #             "oth_icd9_code_6",
+    #             "oth_icd9_code_7",
+    #             "oth_icd9_code_8",
+    #             "oth_icd9_code_9",
+    #             "poa_provider_indicator",
+    #             "princ_diag_code",
+    #         ]
+    #     )
+
+    return chunk1.join(chunk2.drop(columns=["filler_space"]))
+
+
+def ingest_worker(pid: str, fun: Callable[..., pd.DataFrame]):
+    return (pid, fun())
 
 
 def _ingest_base(
@@ -66,6 +103,28 @@ def _ingest_base(
         new_pids2
     ), "There's a missmatch of base2 and base1 files."
 
+    # jobs = [
+    #     *[
+    #         {"pid": pid, "fun": gen_closure(_process_old, base[pid])}
+    #         for pid in old_pids
+    #     ],
+    #     *[
+    #         {"pid": pid, "fun": gen_closure(_process_new, base1[pid], base2[pid])}
+    #         for pid in new_pids1
+    #     ],
+    #     *[
+    #         {"pid": pid, "fun": gen_closure(_process_new, base1_v2[pid], base2[pid])}
+    #         for pid in new_pids2
+    #     ],
+    # ]
+
+    # return {
+    #     pid: data
+    #     for pid, data in process_in_parallel(
+    #         ingest_worker, jobs, {}, 1, "Ingesting chunks"
+    #     )
+    # }
+
     return {
         **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids},
         **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
@@ -74,6 +133,7 @@ def _ingest_base(
             for pid in new_pids2
         },
     }
+
 
 
 class TexasDataset(Dataset):

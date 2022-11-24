@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import contextmanager
 from os import cpu_count, environ
-from typing import Callable, TextIO, TypeVar
+from typing import Callable, TextIO, TypeVar, Any
 
 from tqdm import tqdm, trange
 from tqdm.contrib.concurrent import process_map
@@ -100,7 +100,7 @@ X = TypeVar("X")
 def process_in_parallel(
     fun: Callable[..., X],
     per_call_args: list[dict],
-    base_args: dict[str, any] | None = None,
+    base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 100,
     desc: str | None = None,
 ) -> list[X]:

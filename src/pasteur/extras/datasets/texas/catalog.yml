@@ -61,6 +61,8 @@ texas.raw@base:
       delimiter: "\t"
       header: 0
       index_col: record_id
+      na_values:
+        - ">999"
       names:
         - discharge
         - thcic_id
@@ -81,7 +83,7 @@ texas.raw@base:
         - pat_state
         - pat_zip
         - pat_country
-        - county
+        - pat_county
         - public_health_region
         - admit_weekday
         - length_of_stay
@@ -337,7 +339,7 @@ texas.raw@base:
         pat_state: category
         pat_zip: category
         pat_country: category
-        county: category
+        pat_county: category
         public_health_region: category
         admit_weekday: category
         length_of_stay: category
@@ -378,12 +380,12 @@ texas.raw@base:
         organ_amount: float32
         esrd_amount: float32
         clinic_amount: float32
-        total_charges: category
-        total_non_cov_charges: category
-        total_charges_accomm: category
-        total_non_cov_charges_accomm: category
-        total_charges_ancil: category
-        total_non_cov_charges_ancil: category
+        total_charges: float32
+        total_non_cov_charges: float32
+        total_charges_accomm: float32
+        total_non_cov_charges_accomm: float32
+        total_charges_ancil: float32
+        total_non_cov_charges_ancil: float32
         admitting_diagnosis: category
         princ_diag_code: category
         oth_diag_code_1: category
@@ -504,29 +506,29 @@ texas.raw@base:
         condition_code_7: category
         condition_code_8: category
         occur_code_1: category
-        occur_day_1: category
+        occur_day_1: Int16
         occur_code_2: category
-        occur_day_2: category
+        occur_day_2: Int16
         occur_code_3: category
-        occur_day_3: category
+        occur_day_3: Int16
         occur_code_4: category
-        occur_day_4: category
+        occur_day_4: Int16
         occur_code_5: category
-        occur_day_5: category
+        occur_day_5: Int16
         occur_code_6: category
-        occur_day_6: category
+        occur_day_6: Int16
         occur_code_7: category
-        occur_day_7: category
+        occur_day_7: Int16
         occur_code_8: category
-        occur_day_8: category
+        occur_day_8: Int16
         occur_code_9: category
-        occur_day_9: category
+        occur_day_9: Int16
         occur_code_10: category
-        occur_day_10: category
+        occur_day_10: Int16
         occur_code_11: category
-        occur_day_11: category
+        occur_day_11: Int16
         occur_code_12: category
-        occur_day_12: category
+        occur_day_12: Int16
         occur_span_code_1: category
         occur_span_from_1: category
         occur_span_thru_1: category
@@ -576,7 +578,7 @@ texas.raw@base:
 
 texas.raw@base1:
   <<: *texas_base
-  pattern: _base1_\dq201[1234]
+  pattern: _base1_(?:\dq201[1234]|[123]q2015)
   replace_pattern: base1_(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
@@ -600,7 +602,7 @@ texas.raw@base1:
         - pat_state
         - pat_zip
         - pat_country
-        - county
+        - pat_county
         - public_health_region
         - pat_status
         - sex_code
@@ -795,7 +797,7 @@ texas.raw@base1:
         pat_state: category
         pat_zip: category
         pat_country: category
-        county: category
+        pat_county: category
         public_health_region: category
         pat_status: category
         sex_code: category
@@ -970,15 +972,15 @@ texas.raw@base1:
         illness_severity: category
         apr_grouper_version_nbr: category
         apr_grouper_error_code: category
-        attending_physician_unif_id: object
-        operating_physician_unif_id: object
+        attending_physician_unif_id: category
+        operating_physician_unif_id: category
         encounter_indicator: category
         cert_status: category
         filler_space: category
 
 texas.raw@base1_v2:
   <<: *texas_base
-  pattern: _base1_\dq201[56]
+  pattern: _base1_(?:\dq2016|4q2015)
   replace_pattern: base1_(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
@@ -1171,7 +1173,7 @@ texas.raw@base1_v2:
         pat_state: category
         pat_zip: category
         pat_country: category
-        county: category
+        pat_county: category
         public_health_region: category
         pat_status: category
         sex_code: category
@@ -1320,10 +1322,9 @@ texas.raw@base1_v2:
         illness_severity: category
         apr_grouper_version_nbr: category
         apr_grouper_error_code: category
-        attending_physician_unif_id: object
-        operating_physician_unif_id: object
+        attending_physician_unif_id: category
+        operating_physician_unif_id: category
         encounter_indicator: category
-        cert_status: category
         filler_space: category
 
 texas.raw@base2:
@@ -1525,21 +1526,21 @@ texas.raw@base2:
         value_code_4: category
         value_amount_4: float32
         value_code_5: category
-        value_amount_5: category
+        value_amount_5: float32
         value_code_6: category
-        value_amount_6: category
+        value_amount_6: float32
         value_code_7: category
-        value_amount_7: category
+        value_amount_7: float32
         value_code_8: category
-        value_amount_8: category
+        value_amount_8: float32
         value_code_9: category
-        value_amount_9: category
+        value_amount_9: float32
         value_code_10: category
-        value_amount_10: category
+        value_amount_10: float32
         value_code_11: category
-        value_amount_11: category
+        value_amount_11: float32
         value_code_12: category
-        value_amount_12: category
+        value_amount_12: float32
         filler_space: category
 
 texas.raw@facility:
