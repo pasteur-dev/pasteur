@@ -21,6 +21,8 @@ texas.raw@charges:
       delimiter: "\t"
       header: 0
       index_col: False
+      na_values:
+        - "."
       names:
         - record_id
         - revenue_code
@@ -45,10 +47,10 @@ texas.raw@charges:
         modifier_3: category
         modifier_4: category
         unit_measurement_code: category
-        units_of_service: category
-        unit_rate: category
-        chrgs_line_item: category
-        chrgs_non_cov: category
+        units_of_service: Int32
+        unit_rate: float32
+        chrgs_line_item: float32
+        chrgs_non_cov: float32
 
 texas.raw@base:
   <<: *texas_base

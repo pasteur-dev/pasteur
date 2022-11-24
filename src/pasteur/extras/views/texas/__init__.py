@@ -6,14 +6,14 @@ class TabTexasView(View):
     dataset = "texas"
     tabular = True
 
-    pid_pattern = "20(?:06|07|11|15)"
+    pid_pattern = "" #"20(?:06|07|11|15)"
 
     deps = {"table": ["charges"]}
     parameters = get_relative_fn("./parameters.yml")
 
     def ingest(self, name, charges):
         import re
-        return {pid: fun for pid, fun in charges if re.search(self.pid_pattern, pid)}
+        return {pid: fun for pid, fun in charges.items() if re.search(self.pid_pattern, pid)}
 
     
     

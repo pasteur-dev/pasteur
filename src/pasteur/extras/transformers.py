@@ -103,7 +103,7 @@ class IdxTransformer(Transformer):
     def transform(self, data: pd.Series) -> pd.DataFrame:
         mapping = self.mapping
         type = get_dtype(self.domain)
-        out_col = data.replace(mapping)
+        out_col = data.map(mapping)
 
         # Handle categorical columns without blowing them up to full blown columns
         if is_categorical_dtype(out_col):
@@ -113,14 +113,20 @@ class IdxTransformer(Transformer):
         if self.nullable:
             out_col = out_col.fillna(0)
         else:
-            assert not np.any(data.isna()), "Nullable col has nullable values"
+            assert not np.any(data.isna()), f"Nullable '{self.col}' has nullable values"
 
         if self.unknown_value is not None:
             out_col = out_col.where(
                 data.isin(mapping.keys()) | data.isna(), 1 if self.nullable else 0
             )
         else:
-            assert np.all(data.isin(mapping.keys()) | data.isna())
+            assert np.all(
+                data.isin(mapping.keys()) | data.isna()
+            ), f"Uknown values found in '{self.col}', but no unknown value provided."
+
+        # Remove old categories to change dtype
+        if is_categorical_dtype(out_col):
+            out_col = out_col.cat.set_categories(range(self.domain))
 
         return pd.DataFrame(out_col.astype(type))
 
@@ -547,7 +553,9 @@ class DatetimeTransformer(RefTransformer):
         time_enc = self.tt.transform(data)
         return pd.concat([date_enc, time_enc], axis=1)
 
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame | pd.Series:
+    def reverse(
+        self, data: pd.DataFrame, ref: pd.Series | None = None
+    ) -> pd.DataFrame | pd.Series:
         date_dec = self.dt.reverse(data, ref)
         time_dec = self.tt.reverse(data)
 

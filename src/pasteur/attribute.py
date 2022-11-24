@@ -42,6 +42,8 @@ class Level(list[LI]):
 
     @property
     def height(self) -> int:
+        if not self:
+            return 0
         return max(lvl.height if isinstance(lvl, Level) else 0 for lvl in self) + 1
 
     @property

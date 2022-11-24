@@ -1,11 +1,11 @@
 import logging
-from typing import Collection
 
 import pandas as pd
 
 from .attribute import Attribute, Attributes
 from .encode import Encoder, EncoderFactory
 from .metadata import Metadata
+from .module import Module, get_module_dict
 from .transform import RefTransformer, Transformer, TransformerFactory
 
 logger = logging.getLogger(__file__)
@@ -372,11 +372,20 @@ class TransformHolder:
         self,
         meta: Metadata,
         name: str,
-        transformers: dict[str, TransformerFactory],
-        encoders: dict[str, EncoderFactory],
+        transformers: dict[str, TransformerFactory] | None = None,
+        encoders: dict[str, EncoderFactory] | None = None,
+        modules: list[Module] | None = None,
     ) -> None:
         self.name = name
         self.meta = meta
+
+        if modules:
+            transformers = get_module_dict(TransformerFactory, modules)
+            encoders = get_module_dict(EncoderFactory, modules)
+        else:
+            assert (
+                transformers and encoders
+            ), "Either modules or transformers and encoders should be provided."
 
         self.ref = ReferenceManager(meta, name)
         self.transformer = TableTransformer(self.ref, meta, name, transformers)
@@ -429,7 +438,6 @@ class TransformHolder:
 
     def get_attributes(self) -> dict[str, Attribute]:
         return self.transformer.get_attributes()
-        
 
     def __getitem__(self, type):
         assert self.fitted

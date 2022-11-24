@@ -51,7 +51,7 @@ def create_view_pipeline(view: View):
                     namespace=f"{view}.view",
                 )
             ],
-            tags=["view"],
+            tags=TAGS_VIEW,
         ),
         [
             D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type ="ppq")
@@ -73,7 +73,7 @@ def create_meta_pipeline(view: View):
                     namespace=f"{view}",
                 )
             ],
-            tags=["view"],
+            tags=TAGS_VIEW_SPLIT,
         ),
         [D("metadata", f"{view}.metadata", ["views", "metadata", view], type="pkl")],
     )
@@ -110,7 +110,7 @@ def create_keys_pipeline(view: View, splits: list[str]):
                 },
                 namespace=f"{view}.keys",
                 outputs={s: f"{view}.keys.{s}" for s in splits},
-                tags=TAGS_VIEW,
+                tags=TAGS_VIEW_SPLIT,
             )
         ]
     )
