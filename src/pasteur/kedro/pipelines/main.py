@@ -1,14 +1,17 @@
-from typing import Dict
+import logging
 from os import path
+from typing import Dict
 
 from kedro.pipeline import Pipeline
 
 from ...dataset import Dataset
-from ...synth import SynthFactory
-from ...view import View
 from ...encode import EncoderFactory
+from ...module import Module, get_module_dict
+from ...synth import SynthFactory
 from ...transform import TransformerFactory
-from .dataset import create_dataset_pipeline, create_keys_pipeline
+from ...view import View
+from .dataset import create_dataset_pipeline
+from .meta import DatasetMeta, PipelineMeta
 from .metrics import (
     create_metrics_ingest_pipeline,
     create_metrics_model_pipeline,
@@ -18,15 +21,15 @@ from .synth import create_synth_pipeline
 from .transform import (
     create_reverse_pipeline,
     create_transform_pipeline,
-    create_transformers_pipeline,
+    create_transformer_pipeline,
 )
 from .utils import list_unique
-from .views import create_filter_pipeline, create_meta_pipeline, create_view_pipeline
-from .meta import PipelineMeta, DatasetMeta
-
-from ...module import Module, get_module_dict
-
-import logging
+from .views import (
+    create_filter_pipeline,
+    create_keys_pipeline,
+    create_meta_pipeline,
+    create_view_pipeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -127,8 +130,12 @@ def generate_pipelines(
 
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
-            create_transformers_pipeline(view, transformers, encoders)
-            + create_transform_pipeline(view, wrk_split, all_types)
+            create_transformer_pipeline(view, transformers, encoders, wrk_split)
+            + create_transform_pipeline(
+                view,
+                wrk_split,
+                all_types,
+            )
             + create_transform_pipeline(view, ref_split, msr_types)
             + pipe_metrics_fit
         )
@@ -137,10 +144,12 @@ def generate_pipelines(
         # Fixme: can cause issues with some parameters
         pipe_meta = create_meta_pipeline(view)
 
-        pipe_ds_ingest = create_dataset_pipeline(datasets[view.dataset], view.dataset_tables)
+        pipe_ds_ingest = create_dataset_pipeline(
+            datasets[view.dataset], view.dataset_tables
+        )
 
         pipe_ingest = (
-            create_keys_pipeline(datasets[view.dataset], name, splits)
+            create_keys_pipeline(view, splits)
             + create_view_pipeline(view)
             + pipe_meta
             + create_filter_pipeline(view, splits)

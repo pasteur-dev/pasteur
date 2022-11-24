@@ -12,6 +12,7 @@ from .utils import gen_closure, get_params_closure
 if TYPE_CHECKING:
     from ...dataset import Dataset
 
+
 def create_dataset_pipeline(
     dataset: Dataset, tables: list[str] | None = None
 ) -> PipelineMeta:
@@ -25,53 +26,35 @@ def create_dataset_pipeline(
                 func=gen_closure(dataset.ingest, t, _fn=f"ingest_{t}"),
                 inputs={dep: f"raw@{dep}" for dep in dataset.deps[t]},
                 outputs=t,
-                tags=TAGS_DATASET
+                tags=TAGS_DATASET,
             )
             for t in tables
         ]
     )
 
-    return PipelineMeta(
+    meta_tables = PipelineMeta(
         modular_pipeline(pipe=pipe, namespace=dataset.name),
         [
-            D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t])
+            D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t], type="ppq")
             for t in tables
         ],
     )
 
-
-def create_keys_pipeline(dataset: Dataset, view: str, splits: list[str]):
-    fun = (
-        gen_closure(dataset.keys_filtered, splits, _fn="gen_keys")
-        if splits
-        else dataset.keys
-    )
-    fun = get_params_closure(fun, view, "ratios", "random_state")
-
-    req_tables = {t: f"in_{t}" for t in dataset.key_deps}
-    namespaced_tables = {f"in_{t}": f"{dataset}.raw@{t}" for t in dataset.key_deps}
-
     pipe = pipeline(
         [
             node(
-                func=fun,
-                inputs={
-                    "params": "parameters",
-                    **req_tables,
-                },
+                func=gen_closure(dataset.keys, _fn="gen_keys"),
+                inputs={dep: f"{dataset}.{dep}" for dep in dataset.key_deps},
                 namespace="keys",
-                outputs={s: f"keys.{s}" for s in splits},
-                tags=TAGS_DATASET
+                outputs=f"{dataset}.keys",
+                tags=TAGS_DATASET,
             )
         ]
     )
 
-    return PipelineMeta(
-        modular_pipeline(
-            pipe=pipe,
-            namespace=view,
-            inputs=namespaced_tables,
-            parameters={"parameters": "parameters"}
-        ),
-        [D("keys", f"{view}.keys.{s}", ["views", "keys", view, s]) for s in splits],
+    meta_keys = PipelineMeta(
+        pipe,
+        [D("keys", f"{dataset}.keys", ["orig", "keys", dataset])],
     )
+
+    return meta_tables + meta_keys

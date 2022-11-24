@@ -2,17 +2,16 @@ import logging
 import os
 import re
 from io import BytesIO
-from typing import Callable
+from typing import Callable, Any
 
 import pandas as pd
-import pyarrow as pa
-import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
-from kedro.io.core import DataSetError, get_filepath_str
+from kedro.io.core import DataSetError, get_filepath_str, PROTOCOL_DELIMITER
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
 from ..utils.progress import process_in_parallel
+from ..utils import gen_closure, LazyFrame
 
 logger = logging.getLogger(__name__)
 
@@ -91,22 +90,61 @@ def parallel_save_worker(
             fs_file.write(bytes_buffer.getvalue())
 
 
+def load_worker(path: str, protocol: str, storage_options, load_args):
+    if protocol == "file":
+        # file:// protocol seems to misbehave on Windows
+        # (<urlopen error file not on local host>),
+        # so we don't join that back to the filepath;
+        # storage_options also don't work with local paths
+        return pd.read_parquet(path, **load_args)
+
+    load_path = f"{protocol}{PROTOCOL_DELIMITER}{path}"
+    return pd.read_parquet(load_path, storage_options=storage_options, **load_args)
+
+
 class FragmentedParquetDataset(ParquetDataSet):
-    """Modified kedro parquet dataset that allows for lazy saving to multiple
-    parquet files.
+    """Modified kedro parquet dataset that acts similarly to a partitioned dataset.
 
-    Used to prevent consuming 2x RAM when ingesting data from CSVs.
-    Each csv is saved to its own parquet file and then parquet loads the directory
-    automatically on `_load()`.
+    `save()` data can be a table, a callable, or a dictionary combination of both.
 
-    Saving chunks runs in parallel."""
+    If its a table or a callable, this class acts exactly as ParquetDataSet.
+    If its a dictionary, each callable function is called and saved in parallel
+    in a different parquet file, making the provided path a directory.
 
-    def _load(self) -> pd.DataFrame:
+    `load()` merges all parquet files into one table and returns a DataFrame.
+    It also uses optimisations to avoid double memory allocation as much as possible.
+
+    if `partition_load` is set to true and `save()` was called with a dictionary,
+    `load()` returns an equivalent dictionary of callables.
+
+    The partitioned form of `load()` is used for datasets, where their size might
+    be larger than the available RAM, making them ingestable in machines with little
+    RAM. Then, when the views are split, the non partitioned form of `load()` is
+    used, merging the chunks. Provided that an appropriate ratio is chosen for the
+    splits, the combined chunks will be tractable for the provided RAM.
+
+    Out-of-core learning is experimental in most algorithms, so providing it for the
+    whole framework provides little utility for now."""
+
+    def __init__(
+        self,
+        filepath: str,
+        load_args=None,
+        save_args=None,
+        version=None,
+        credentials=None,
+        fs_args=None,
+        partition_load: bool = False,
+    ) -> None:
+        super().__init__(filepath, load_args, save_args, version, credentials, fs_args)  # type: ignore
+        self.partition_load = partition_load
+
+    def _load_merged(self) -> pd.DataFrame:
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
 
         if not self._fs.isdir(load_path):
             return self._load_from_pandas()
-        
+
         # Create complete schema using dataset
         data = pq.ParquetDataset(
             load_path, filesystem=self._fs, use_legacy_dataset=False
@@ -115,7 +153,30 @@ class FragmentedParquetDataset(ParquetDataSet):
         # Try to avoid double allocation
         return table.to_pandas(split_blocks=True, self_destruct=True)
 
+    def _load_partitioned(self) -> LazyFrame | pd.DataFrame:
+        load_path = get_filepath_str(self._get_load_path(), self._protocol)
 
+        if not self._fs.isdir(load_path):
+            return self._load_from_pandas()
+
+        partitions = {}
+        for fn in self._fs.listdir(load_path):
+            partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
+            partition_data = gen_closure(
+                load_worker,
+                fn["name"],
+                self._protocol,
+                self._storage_options,
+                self._load_args,
+            )
+            partitions[partition_id] = partition_data
+
+        return partitions
+
+    def _load(self) -> pd.DataFrame | LazyFrame:
+        if self.partition_load:
+            return self._load_partitioned()
+        return self._load_merged()
 
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
@@ -128,7 +189,7 @@ class FragmentedParquetDataset(ParquetDataSet):
 
         if not isinstance(data, dict):
             raise DataSetError(
-                f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes, callables"
+                f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes and callables, not {type[data]}."
             )
 
         if self._fs.exists(save_path):

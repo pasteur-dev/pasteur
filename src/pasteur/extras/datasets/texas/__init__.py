@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Callable
 
 import pandas as pd
 
-from ....dataset import Dataset, split_keys
+from ....dataset import Dataset
 from ....utils import gen_closure, get_relative_fn
 from ....utils.progress import piter, process_in_parallel
 
@@ -166,5 +166,5 @@ class TexasDataset(Dataset):
             return _ingest_base(**tables)
         return pd.DataFrame()
 
-    def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        return split_keys(tables[""], ratios, random_state)
+    def keys(self, **tables: pd.DataFrame):
+        return 

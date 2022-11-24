@@ -1,6 +1,6 @@
 import pandas as pd
 
-from ....dataset import Dataset, split_keys
+from ....dataset import Dataset
 from ....utils import get_relative_fn
 
 class MimicDataset(Dataset):
@@ -44,5 +44,5 @@ class MimicDataset(Dataset):
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]
 
-    def keys(self, ratios: dict[str, float], random_state: int, **tables: pd.DataFrame):
-        return split_keys(tables["core_patients"], ratios, random_state)
+    def keys(self, **tables: pd.DataFrame):
+        return tables["core_patients"][[]]

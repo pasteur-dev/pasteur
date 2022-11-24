@@ -7,7 +7,7 @@ class DatasetMeta(NamedTuple):
     name: str
     path: list[Any]  # todo: fix any memory leaks that occur with this
     versioned: bool = False
-    type: Literal["pkl", "pq", "mem"] = "pq"
+    type: Literal["pkl", "ppq", "pq", "mem"] = "pq"
 
     @property
     def str_path(self) -> tuple[str]:

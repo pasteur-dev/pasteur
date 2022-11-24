@@ -1,8 +1,15 @@
+from __future__ import annotations
+
 from functools import partial
 from itertools import chain
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 A = TypeVar("A")
+
+LazyFrame = dict[str, Callable[..., "pd.DataFrame"] | "pd.DataFrame"]
 
 
 def get_relative_fn(fn: str):

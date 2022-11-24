@@ -8,9 +8,10 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
 from ...utils.parser import get_params_for_pipe
+from .meta import TAGS_VIEW, TAGS_VIEW_SPLIT
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta
-from .utils import gen_closure
+from .utils import gen_closure, get_params_closure
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -78,6 +79,48 @@ def create_meta_pipeline(view: View):
     )
 
 
+def _filter_keys(
+    view: View,
+    req_splits: list[str] | None,
+    ratios: dict[str, float],
+    random_state: int,
+    keys: pd.DataFrame,
+):
+    splits = view.split_keys(keys, ratios, random_state)
+    if not req_splits:
+        return splits
+    return {name: split for name, split in splits.items() if name in req_splits}
+
+
+def create_keys_pipeline(view: View, splits: list[str]):
+    fun = get_params_closure(
+        gen_closure(_filter_keys, view, splits, _fn="split_keys"),
+        str(view),
+        "ratios",
+        "random_state",
+    )
+
+    pipe = pipeline(
+        [
+            node(
+                func=fun,
+                inputs={
+                    "params": "parameters",
+                    "keys": f"{view.dataset}.keys",
+                },
+                namespace=f"{view}.keys",
+                outputs={s: f"{view}.keys.{s}" for s in splits},
+                tags=TAGS_VIEW,
+            )
+        ]
+    )
+
+    return PipelineMeta(
+        pipe,
+        [D("keys", f"{view}.keys.{s}", ["views", "keys", view, s]) for s in splits],
+    )
+
+
 def create_filter_pipeline(view: View, splits: list[str]):
     tables = view.tables
 
@@ -85,7 +128,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
     for split in splits:
         nodes.append(
             node(
-                func=gen_closure(view.filter, _fn=f"filter_{split}"),
+                func=gen_closure(view.filter_tables, _fn=f"filter_{split}"),
                 inputs={
                     "keys": f"keys.{split}",
                     **{t: f"view.{t}" for t in tables},
@@ -101,7 +144,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
             namespace=view.name,
         ),
         [
-            D("primary", f"{view}.{s}.{t}", ["views", "primary", f"{view}.{s}", t])
+            D("splits", f"{view}.{s}.{t}", ["views", "primary", f"{view}.{s}", t])
             for t in tables
             for s in splits
         ],

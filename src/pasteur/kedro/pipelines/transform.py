@@ -29,8 +29,8 @@ def _fit_table(
     from ...table import TransformHolder
 
     t = TransformHolder(meta, name, transformers, encoders)
-    _, ids = t.fit_transform(tables)
-    return t, ids
+    t.fit_transform(tables)
+    return t
 
 
 def _transform_table(
@@ -58,55 +58,50 @@ def _decode_table(type: str, transformer: TransformHolder, table: pd.DataFrame):
     return transformer[type].decode(table)
 
 
-def create_transformers_pipeline(
+def create_transformer_pipeline(
     view: View,
     transformers: dict[str, TransformerFactory],
     encoders: dict[str, EncoderFactory],
+    split: str,
 ):
-    pipe = pipeline(
-        [
-            node(
-                func=gen_closure(
-                    _fit_table,
-                    table,
-                    transformers,
-                    encoders,
-                    _fn=f"fit_transformer_to_{table}",
-                ),
-                inputs={
-                    "meta": f"{view}.metadata",
-                    **{t: f"{view}.view.{t}" for t in view.tables},
-                },
-                outputs=[f"{view}.trn.{table}", f"{view}.trn.ids_{table}"],
-                namespace=f"{view}.trn",
-            )
-            for table in view.tables
-        ],
-        tags=TAGS_TRANSFORM,
-    )
-
-    outputs = [
-        D(
-            "transformers",
-            f"{view}.trn.{table}",
-            ["views", "transformer", view, table],
-            type="pkl",
+    nodes = [
+        node(
+            func=gen_closure(
+                _fit_table,
+                t,
+                transformers,
+                encoders,
+                _fn=f"fit_transformer_to_{t}",
+            ),
+            inputs={
+                "meta": f"{view}.metadata",
+                **{t: f"{view}.{split}.{t}" for t in view.tables},
+            },
+            outputs=f"{view}.trn.{t}",
+            namespace=f"{view}.trn",
         )
-        for table in view.tables
-    ] + [
-        D(
-            "transformers",
-            f"{view}.trn.ids_{table}",
-            ["views", "ids", view, table],
-        )
-        for table in view.tables
+        for t in view.tables
     ]
 
-    return PipelineMeta(pipe, outputs)
+    return PipelineMeta(
+        pipeline(nodes, tags=TAGS_TRANSFORM),
+        [
+            D(
+                "transformers",
+                f"{view}.trn.{t}",
+                ["views", "trn", view, t],
+                type="pkl"
+            )
+            for t in view.tables
+        ],
+    )
 
 
 def create_transform_pipeline(
-    view: View, split: str, types: list[str], retransform: bool = False,
+    view: View,
+    split: str,
+    types: list[str],
+    retransform: bool = False,
 ):
     table_nodes = []
     outputs = []
@@ -117,12 +112,13 @@ def create_transform_pipeline(
                 node(
                     func=gen_closure(_transform_table, _fn=f"transform_{t}"),
                     inputs={
-                        "transformer": f"trn_{t}",
-                        **{t: t for t in view.tables},
+                        "transformer": f"{view}.trn.{t}",
+                        **{t: f"{view}.{split}.{t}" for t in view.tables},
                     },
-                    outputs=[f"bst_{t}", f"ids_{t}"],
+                    outputs=[f"{view}.{split}.bst_{t}", f"{view}.{split}.ids_{t}"],
                 ),
             ]
+
             outputs.append(
                 D(
                     "split_transformed",
@@ -146,10 +142,10 @@ def create_transform_pipeline(
                 node(
                     func=gen_closure(_encode_table, type, _fn=f"encode_{t}"),
                     inputs={
-                        "transformer": f"trn_{t}",
-                        "table": f"bst_{t}",
+                        "transformer": f"{view}.trn.{t}",
+                        "table": f"{view}.{split}.bst_{t}",
                     },
-                    outputs=f"{type}_{t}",
+                    outputs=f"{view}.{split}.{type}_{t}",
                 )
             ]
             outputs.append(
@@ -164,15 +160,10 @@ def create_transform_pipeline(
     if not table_nodes:
         return PipelineMeta(pipeline([]), outputs)
 
-    inputs = {f"trn_{t}": f"{view}.trn.{t}" for t in view.tables}
-    pipe = modular_pipeline(
-        pipe=pipeline(table_nodes),
-        namespace=f"{view}.{split}",
-        inputs=inputs,
-        tags=TAGS_RETRANSFORM if retransform else TAGS_TRANSFORM
+    return PipelineMeta(
+        pipeline(table_nodes, tags=TAGS_RETRANSFORM if retransform else TAGS_TRANSFORM),
+        outputs,
     )
-
-    return PipelineMeta(pipe, outputs)
 
 
 def create_reverse_pipeline(view: View, alg: str, type: str):

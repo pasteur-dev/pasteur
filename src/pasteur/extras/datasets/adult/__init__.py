@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 class AdultDataset(TabularDataset):
     name = "adult"
     deps = {"table": ["train", "test"]}
-    key_deps = ["train", "test"]
 
     folder_name = "adult"
     catalog = get_relative_fn("catalog.yml")
