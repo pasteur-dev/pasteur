@@ -54,7 +54,7 @@ def create_view_pipeline(view: View):
             tags=["view"],
         ),
         [
-            D("primary", f"{view}.view.{t}", ["views", "primary", view, t])
+            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type ="ppq")
             for t in view.tables
         ],
     )
@@ -135,6 +135,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
                 },
                 outputs={t: f"{split}.{t}" for t in tables},
                 namespace=split,
+                tags=TAGS_VIEW_SPLIT
             )
         )
 

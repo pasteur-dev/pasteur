@@ -196,7 +196,7 @@ def generate_pipelines(
     # Split pipelines
     pipelines = {k: v if isinstance(v, Pipeline) else v[0] for k, v in pipes.items()}
 
-    # Split outputs
+    # Split outputs and run checks
     outputs = {}
     for name, meta in pipes.items():
         if isinstance(meta, Pipeline):
@@ -210,6 +210,10 @@ def generate_pipelines(
         assert (
             not diff
         ), f"Pipeline meta {name} has different outputs than what is stated in the pipeline:\n{diff}"
+
+        # Check all nodes have tags
+        for node in meta.pipeline.nodes:
+            assert node.tags, f"Node {node.name} doesn't have tags."
 
         for out in meta.outputs:
             outputs[out.name] = out

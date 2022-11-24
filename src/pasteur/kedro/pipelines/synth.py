@@ -8,7 +8,7 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta, TAGS_SYNTH
+from .meta import PipelineMeta, TAGS_SYNTH, TAG_GPU, TAG_PARALLEL
 from .utils import gen_closure
 
 if TYPE_CHECKING:
@@ -27,9 +27,9 @@ def create_synth_pipeline(
 
     tags = []
     if fr.gpu:
-        tags.append("gpu")
+        tags.append(TAG_GPU)
     if fr.parallel:
-        tags.append("parallel")
+        tags.append(TAG_PARALLEL)
 
     synth_pipe = pipeline(
         [

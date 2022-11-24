@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple,overload
+from typing import TYPE_CHECKING, NamedTuple, overload
 
 if TYPE_CHECKING:
     import pandas as pd
+    from .utils import LazyFrame
 
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +158,14 @@ class TableMeta:
     def __getitem__(self, col) -> ColumnMeta:
         return self._columns[col]
 
-    def check(self, data: pd.DataFrame):
+    def check(self, data: pd.DataFrame | LazyFrame):
+        import pandas as pd
+
+        if not isinstance(data, pd.DataFrame):
+            # data = list(data.values())[0]()
+            fun = list(data.values())[0]
+            data = fun() if callable(fun) else fun
+
         """Run a key check to ensure metadata and table have the same keys"""
         table_keys = set(data.keys())
         meta_keys = set(self._columns.keys())

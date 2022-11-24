@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from os import cpu_count, environ
 from typing import Callable, TextIO, TypeVar, Any
 
-from tqdm import tqdm, trange
+from tqdm.asyncio import tqdm, trange
 from tqdm.contrib.concurrent import process_map
 from tqdm.std import tqdm as std_tqdm
 
@@ -103,6 +103,7 @@ def process_in_parallel(
     base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 100,
     desc: str | None = None,
+    max_workers: int | None = None
 ) -> list[X]:
     """Processes arguments in parallel using python's multiprocessing and prints progress bar.
 
@@ -133,6 +134,7 @@ def process_in_parallel(
         desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
         leave=False,
         tqdm_class=tqdm,
+        max_workers=min(cpu_count(), max_workers) if max_workers else None,
         **get_tqdm_args(),
     )
     out = []

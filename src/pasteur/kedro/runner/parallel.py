@@ -227,12 +227,15 @@ class SimpleParallelRunner(ParallelRunner):
                     non_parallel = set()
                     for future in futures:
                         future.cancel()
+                    pool.shutdown()
 
                 for future in chain(done, non_parallel):
                     try:
                         # Run non-parallel nodes in the same process
                         if isinstance(future, Node):
                             node = future
+                            if use_pbar:
+                                pbar.set_description(f"Executing {node.name.split('(')[0]}")
                             try:
                                 run_node(
                                     node,

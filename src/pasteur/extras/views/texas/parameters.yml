@@ -1,0 +1,22 @@
+tables:
+  table:
+    primary_key: charge_id
+    fields:
+      charge_id: id
+      record_id: id
+      revenue_code: categorical?
+      hcpcs_qualifier: categorical?
+      hcpcs_procedure_code: categorical?
+      modifier_1: categorical?
+      modifier_2: categorical?
+      modifier_3: categorical?
+      modifier_4: categorical?
+      unit_measurement_code: categorical?
+      units_of_service: categorical?
+      unit_rate: categorical?
+      chrgs_line_item: categorical?
+      chrgs_non_cov: categorical?
+
+ratios:
+  wrk: 0.01
+  ref: 0.0025

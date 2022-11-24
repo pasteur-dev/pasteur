@@ -2,7 +2,7 @@ import logging
 import os
 import re
 from io import BytesIO
-from typing import Callable, Any
+from typing import Callable
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -79,15 +79,20 @@ def parallel_save_worker(
     if callable(chunk):
         chunk = chunk()
 
+    mem = chunk.memory_usage().sum()
+
     if protocol == "file":
         with fs.open(path, mode="wb") as fs_file:
             chunk.to_parquet(fs_file, **save_args)
+        
     else:
         bytes_buffer = BytesIO()
         chunk.to_parquet(bytes_buffer, **save_args)
 
         with fs.open(path, mode="wb") as fs_file:
             fs_file.write(bytes_buffer.getvalue())
+    
+    return mem
 
 
 def load_worker(path: str, protocol: str, storage_options, load_args):
@@ -174,6 +179,9 @@ class FragmentedParquetDataset(ParquetDataSet):
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
 
+        if self._fs.exists(save_path):
+            self._fs.rm(save_path, recursive=True)
+
         if isinstance(data, pd.DataFrame):
             return self._save_no_buff(save_path, data)
 
@@ -184,9 +192,6 @@ class FragmentedParquetDataset(ParquetDataSet):
             raise DataSetError(
                 f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes and callables, not {type[data]}."
             )
-
-        if self._fs.exists(save_path):
-            self._fs.rm(save_path, recursive=True)
 
         base_args = {
             "protocol": self._protocol,
@@ -200,8 +205,20 @@ class FragmentedParquetDataset(ParquetDataSet):
             )
             jobs.append({"pid": pid, "path": chunk_save_path, "chunk": partition_data})
 
+        if not jobs:
+            return
+        
+        import psutil
+
+        MULTIPLIER = 10
+        batch_mem = parallel_save_worker(**jobs[0], **base_args)
+        total_mem = psutil.virtual_memory().total
+        max_workers = int(total_mem / batch_mem / MULTIPLIER)
+
+        logger.info(f"Batch size: {batch_mem / 1e9:.3f}GB, total RAM: {total_mem / 1e9:.3f}GB. Using up to {max_workers} workers.")
+
         process_in_parallel(
-            parallel_save_worker, jobs, base_args, 1, f"Saving parquet chunks"
+            parallel_save_worker, jobs[1:], base_args, 1, f"Saving parquet chunks", max_workers=max_workers
         )
 
         self._invalidate_cache()

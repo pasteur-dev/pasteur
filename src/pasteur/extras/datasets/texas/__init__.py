@@ -75,8 +75,18 @@ def _ingest_base(
     }
 
 
+def _ingest_facility(facility: LazyFrame):
+    return pd.concat([fac() for fac in facility.values()]).drop_duplicates()
+
+
 def _ingest_keys(fun: Callable[..., pd.DataFrame]):
     return fun()[[]]
+
+
+def _add_id(id: str, fun: Callable[..., pd.DataFrame] | pd.DataFrame):
+    chunk = fun() if callable(fun) else fun
+    chunk.index.name = id
+    return chunk
 
 
 class TexasDataset(Dataset):
@@ -105,9 +115,18 @@ class TexasDataset(Dataset):
                 zf.extractall(bootstrap)
 
     def ingest(self, name: str, **tables: LazyFrame):
-        if name == "base":
-            return _ingest_base(**tables)
-        return pd.DataFrame()
+        match (name):
+            case "base":
+                return _ingest_base(**tables)
+            case "charges":
+                return {
+                    pid: gen_closure(_add_id, "charge_id", fun)
+                    for pid, fun in tables["charges"].items()
+                }
+            case "facility":
+                return _ingest_facility(tables["facility"])
+            case _:
+                raise Exception()
 
     def keys(self, base: LazyFrame):
         return {pid: gen_closure(_ingest_keys, fun) for pid, fun in base.items()}

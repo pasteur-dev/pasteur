@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
+from .utils import LazyFrame, gen_closure
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -63,9 +64,7 @@ def split_keys(
     return splits
 
 
-def filter_by_keys(
-    keys: pd.DataFrame, tables: dict[str, pd.DataFrame]
-) -> dict[str, pd.DataFrame]:
+def filter_by_keys(keys: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
     # Sort to ensure consistent split every time
     # Dataframe should consist of up to 1 column (which is the key) or an index
     if keys.keys().empty:
@@ -75,16 +74,21 @@ def filter_by_keys(
         # assert len.keys() == 1, "Keys df should only have one column"
         # col = keys.keys()[0]
 
-    out = {}
-    for name, table in tables.items():
-        idx = table.index.name
-        new_table = table.reset_index(drop=not idx).merge(keys, on=col)
-        if idx:
-            new_table = new_table.set_index(idx)
+    idx = table.index.name
+    # new_table = table.reset_index(drop=not idx).merge(keys, on=col, how="inner")
+    new_table = table.reset_index(drop=not idx).join(keys, on=col, how="inner")
 
-        out[name] = new_table
+    if idx:
+        new_table = new_table.set_index(idx)
 
-    return out
+    return new_table
+
+
+def filter_by_keys_lazy(
+    keys: pd.DataFrame, fun: Callable[..., pd.DataFrame] | pd.DataFrame
+):
+    chunk = fun() if callable(fun) else fun
+    return filter_by_keys(keys, chunk)
 
 
 class View(Module):
@@ -135,8 +139,25 @@ class View(Module):
     ):
         return split_keys(keys, split, random_state)
 
-    def filter_tables(self, keys: pd.DataFrame, **tables):
-        return filter_by_keys(keys, tables)
+    def filter_tables(self, keys: pd.DataFrame, **tables: pd.DataFrame | LazyFrame):
+        import pandas as pd
+
+        new_tables = {}
+        for name, table in tables.items():
+            if isinstance(table, pd.DataFrame):
+                new_tables[name] = filter_by_keys(keys, table)
+            else:
+                new_tables[name] = pd.concat(
+                    [
+                        filter_by_keys(keys, fun() if callable(fun) else fun)
+                        for fun in table.values()
+                    ]
+                )
+                # new_tables[name] = {
+                #     pid: gen_closure(filter_by_keys_lazy, keys, fun)
+                #     for pid, fun in table.items()
+                # }
+        return new_tables
 
     def __str__(self) -> str:
         return self.name
