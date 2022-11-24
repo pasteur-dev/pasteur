@@ -45,7 +45,7 @@ def create_dataset_pipeline(
             node(
                 func=gen_closure(dataset.keys, _fn="gen_keys"),
                 inputs={dep: f"{dataset}.{dep}" for dep in dataset.key_deps},
-                namespace="keys",
+                namespace=str(dataset),
                 outputs=f"{dataset}.keys",
                 tags=TAGS_DATASET,
             )

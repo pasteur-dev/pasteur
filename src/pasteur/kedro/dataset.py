@@ -142,10 +142,6 @@ class FragmentedParquetDataset(ParquetDataSet):
     def _load_merged(self) -> pd.DataFrame:
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
 
-        if not self._fs.isdir(load_path):
-            return self._load_from_pandas()
-
-        # Create complete schema using dataset
         data = pq.ParquetDataset(
             load_path, filesystem=self._fs, use_legacy_dataset=False
         )
@@ -153,11 +149,13 @@ class FragmentedParquetDataset(ParquetDataSet):
         # Try to avoid double allocation
         return table.to_pandas(split_blocks=True, self_destruct=True)
 
-    def _load_partitioned(self) -> LazyFrame | pd.DataFrame:
-        load_path = get_filepath_str(self._get_load_path(), self._protocol)
+    def _load(self) -> LazyFrame | pd.DataFrame:
+        if not self.partition_load:
+            return self._load_merged()
 
+        load_path = get_filepath_str(self._get_load_path(), self._protocol)
         if not self._fs.isdir(load_path):
-            return self._load_from_pandas()
+            return self._load_merged()
 
         partitions = {}
         for fn in self._fs.listdir(load_path):
@@ -172,11 +170,6 @@ class FragmentedParquetDataset(ParquetDataSet):
             partitions[partition_id] = partition_data
 
         return partitions
-
-    def _load(self) -> pd.DataFrame | LazyFrame:
-        if self.partition_load:
-            return self._load_partitioned()
-        return self._load_merged()
 
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
