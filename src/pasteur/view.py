@@ -29,7 +29,7 @@ def split_keys(
     if keys.keys().empty:
         # If DataFrame is empty assume index is key
         assert keys.index.name, "No index column available"
-        idx_name = None
+        idx_name = keys.index.name
         idx = keys.index
     elif keys.index.name:
         # If index has a name, assume it is the key and drop other columns
