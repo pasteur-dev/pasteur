@@ -14,21 +14,6 @@ logger = logging.getLogger(__name__)
 ZERO_FILL = 1e-24
 
 
-def get_group_for_x(x: int, n: int) -> tuple[bool]:
-    """Returns a tuple `g` with length `n`, where `g[x]=True` and others `False`.
-
-    A tuple `g` represents a bucket group, where it states which buckets it contains with True/False.
-
-    Tuples are used because they are immutable and can be used in sets/dict keys,
-    allowing for dynamic programming caches."""
-    return tuple(i == x for i in range(n))
-
-
-def merge_groups(a: tuple[bool], b: tuple[bool]) -> tuple[bool]:
-    """Merges groups a, b into group c containing the superset of both groups."""
-    return tuple(i or j for i, j in zip(a, b))
-
-
 class OrdNode(list):
     pass
 
@@ -37,7 +22,9 @@ class CatNode(list):
     pass
 
 
-def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int | None = None) -> list:
+def create_tree(
+    node: Level, common: int = 0, ofs: int = 0, n: int | None = None
+) -> list:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
     replaced by bucket groups, with each bucket group containing the node it replaced.
@@ -54,39 +41,31 @@ def create_tree(node: Level, common: int = 0, ofs: int = 0, n: int | None = None
         elif isinstance(child, Level):
             out.append(create_tree(child, common, ofs, n))
         else:
-            out.append(get_group_for_x(ofs, n))
+            out.append(set([ofs]))
 
         ofs += 1
 
     return out
 
 
-def get_group_size(
-    counts: np.ndarray, g: tuple, group_sizes: dict[tuple, float] = {}
-) -> float:
-    """Returns the sum of the sizes of the buckets included in tuple `g`.
+def get_group_size(counts: np.ndarray, g: set) -> float:
+    """Returns the sum of the sizes of the buckets included in set `g`.
 
     `counts` is a list with the size of each bucket. `group_sizes` is a dynamic
     programming cache, which is used to save the size of each group."""
-    if g in group_sizes:
-        return group_sizes[g]
-
     s = 0
-    for i, present in enumerate(g):
-        if present:
-            s += counts[i]
+    for i in g:
+        s += counts[i]
 
-    group_sizes[g] = s
     return s
 
 
-def print_group(counts: np.ndarray | None, g: tuple) -> str:
+def print_group(counts: np.ndarray | None, g: set[int]) -> str:
     """Converts the group into a string representation:
     `(False, False, True, True, False)` -> `(2,3)`"""
     s = "("
-    for i, present in enumerate(g):
-        if present:
-            s += f"{i},"
+    for i in sorted(g):
+        s += f"{i},"
     base = s[:-1] + ")"
     if counts:
         return base + f":{get_group_size(counts, g)}"
@@ -112,7 +91,7 @@ def print_tree(node: list):
     return s
 
 
-def merge_groups_in_node(node: list, a: tuple, b: tuple):
+def merge_groups_in_node(node: list, a: set, b: set):
     """Computes `c = a intersection b` and inserts it into `node`, by
     replacing `a` with `c` and removing `b`.
 
@@ -129,7 +108,7 @@ def merge_groups_in_node(node: list, a: tuple, b: tuple):
 
     for child in tmp_node:
         if child == a:
-            node.append(merge_groups(a, b))
+            node.append(a.union(b))
         elif child == b:
             pass
         else:
@@ -148,12 +127,12 @@ def prune_tree(tree: list):
             prune_tree(child)
 
 
-N = TypeVar("N", CatNode, OrdNode, tuple)
+N = TypeVar("N", CatNode, OrdNode, set)
 
 
 def find_smallest_group(
     counts: np.ndarray, parent: list[N]
-) -> tuple[list, tuple, tuple, float]:
+) -> tuple[list, set, set, float]:
     """Finds groups `a`, `b` which when combined form `c`, where `c` is the smallest
     group that can be formed by any two nodes in the tree, which are valid to merge.
 
@@ -163,7 +142,7 @@ def find_smallest_group(
     groups in the tree.
 
     `parent` represents a tree over the hierarchy of the attribute.
-    Children can either be lists (nodes), tuples (leafs, groups), or None
+    Children can either be lists (nodes), sets (leafs, groups), or None
     (placeholders, common values, shouldn't be merged).
     """
     s_node = []
@@ -186,13 +165,13 @@ def find_smallest_group(
         # For ordinal nodes we only check nearby nodes
         for i in range(len(parent) - 1):
             a = parent[i]
-            if not isinstance(a, tuple):
+            if not isinstance(a, set):
                 continue
             b = parent[i + 1]
-            if not isinstance(b, tuple):
+            if not isinstance(b, set):
                 continue
 
-            size = get_group_size(counts, merge_groups(a, b))
+            size = get_group_size(counts, a.union(b))
             if s_size == -1 or size < s_size:
                 s_node = parent
                 s_a = a
@@ -202,13 +181,13 @@ def find_smallest_group(
         # For categorical nodes we check all pairs
         for i, j in combinations(range(len(parent)), 2):
             a = parent[i]
-            if not isinstance(a, tuple):
+            if not isinstance(a, set):
                 continue
             b = parent[j]
-            if not isinstance(b, tuple):
+            if not isinstance(b, set):
                 continue
 
-            size = get_group_size(counts, merge_groups(a, b))
+            size = get_group_size(counts, a.union(b))
             if s_size == -1 or size < s_size:
                 s_node = parent
                 s_a = a
@@ -232,10 +211,9 @@ def create_node_to_group_map(tree: list, grouping: np.ndarray, ofs: int = 0):
             # buckets will be None
             grouping[ofs] = ofs
             ofs += 1
-        elif isinstance(child, tuple):
-            for i, present in enumerate(child):
-                if present:
-                    grouping[i] = ofs
+        elif isinstance(child, set):
+            for i in child:
+                grouping[i] = ofs
             ofs += 1
         else:
             ofs = create_node_to_group_map(child, grouping, ofs)
