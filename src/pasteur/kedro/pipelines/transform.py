@@ -116,6 +116,7 @@ def create_transform_pipeline(
                         **{t: f"{view}.{split}.{t}" for t in view.tables},
                     },
                     outputs=[f"{view}.{split}.bst_{t}", f"{view}.{split}.ids_{t}"],
+                    namespace=f"{view}.{split}"
                 ),
             ]
 
@@ -146,6 +147,7 @@ def create_transform_pipeline(
                         "table": f"{view}.{split}.bst_{t}",
                     },
                     outputs=f"{view}.{split}.{type}_{t}",
+                    namespace=f"{view}.{split}"
                 )
             ]
             outputs.append(

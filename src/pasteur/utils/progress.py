@@ -28,7 +28,7 @@ PBAR_MIN_PIPE_LEN = 9
 
 RICH_TRACEBACK_ARGS = {
     "show_locals": False,
-    "max_frames": 10,
+    # "max_frames": 10,
     "suppress": ["kedro", "click"],
 }
 

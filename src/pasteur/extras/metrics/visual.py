@@ -106,7 +106,7 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
     def process(self, split: int, data: pd.Series):
-        return np.histogram(data, self.bins, density=True)[0]
+        return np.histogram(data.astype(np.float32), self.bins, density=True)[0]
 
     def visualise(
         self,

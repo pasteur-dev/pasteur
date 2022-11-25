@@ -55,7 +55,10 @@ class NumericalTransformer(Transformer):
         return pd.DataFrame(data.clip(self.min, self.max).astype("float32"))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
-        return data[self.col].clip(self.min, self.max).astype(self.dtype)
+        d = data[self.col].clip(self.min, self.max)
+        if self.dtype.name.lower().startswith("int"):
+            d = d.round()
+        return d.astype(self.dtype)
 
 
 class IdxTransformer(Transformer):
@@ -94,6 +97,11 @@ class IdxTransformer(Transformer):
         self.col = cast(str, data.name)
         self.domain = ofs + len(vals)
         self.ofs = ofs
+
+        # FIXME: If a column is empty it causes problems for the algorithm
+        # add 1 fake value as fix
+        if not vals:
+            vals = [7777777]
 
         self.type = data.dtype
         cls = OrdAttribute if self.ordinal else CatAttribute
