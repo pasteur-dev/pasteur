@@ -96,6 +96,12 @@ class NumericalHist(ColumnMetric[np.ndarray]):
             x_max = metrics.x_max
         else:
             x_max = args.get("max", data.max())
+        
+        # In the case the column is NA, x_min and x_max will be NA
+        # Disable visualiser
+        self.disabled = np.isnan(x_max) or np.isnan(x_min)
+        if self.disabled:
+            return
 
         main_param = args.get("main_param", None)
         if main_param and (isinstance(main_param, int)):
@@ -106,6 +112,8 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
     def process(self, split: int, data: pd.Series):
+        if self.disabled:
+            return np.array([])
         return np.histogram(data.astype(np.float32), self.bins, density=True)[0]
 
     def visualise(
@@ -115,6 +123,8 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         wrk_set: str = "wrk",
         ref_set: str = "ref",
     ):
+        if self.disabled:
+            return
 
         load_matplotlib_style()
         v = _gen_hist(
