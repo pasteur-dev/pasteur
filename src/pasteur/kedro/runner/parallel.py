@@ -3,6 +3,7 @@ import threading
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from itertools import chain
+from os import cpu_count
 
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
@@ -16,13 +17,13 @@ from ...utils.perf import PerformanceTracker
 from ...utils.progress import (
     MULTIPROCESS_ENABLE,
     RICH_TRACEBACK_ARGS,
+    close_pool,
+    init_pool,
     is_jupyter,
     logging_redirect_pbar,
     piter,
-    init_pool,
-    close_pool,
-    tqdm,
     set_node_name,
+    tqdm,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def _replace_loggers_with_queue(q):
 def _replace_logging(fun, *args, _q=None, **kwargs):
     if _q is not None:
         _replace_loggers_with_queue(_q)
-    
+
     node_name = kwargs["node"].name.split("(")[0]
     set_node_name(node_name)
 
@@ -72,15 +73,6 @@ def _replace_logging(fun, *args, _q=None, **kwargs):
 
 
 def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = None):
-    """
-    Calculate the max number of processes required for the pipeline,
-    limit to the number of CPU cores.
-    """
-    # Number of nodes is a safe upper-bound estimate.
-    # It's also safe to reduce it by the number of layers minus one,
-    # because each layer means some nodes depend on other nodes
-    # and they can not run in parallel.
-    # It might be not a perfect solution, but good enough and simple.
     required_processes = len(pipeline.nodes) - len(pipeline.grouped_nodes) + 1
 
     if not max_workers:
@@ -98,7 +90,8 @@ class SimpleParallelRunner(ParallelRunner):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        self.max_workers = max_workers
+        cpu = cpu_count()
+        self.max_workers = max_workers or (cpu + 2 if cpu else None)
 
         super().__init__(is_async=False)
 
@@ -146,8 +139,6 @@ class SimpleParallelRunner(ParallelRunner):
         max_threads = _get_required_workers_count(pipeline, self.max_workers)
 
         use_pbar = not is_jupyter()
-
-        from kedro.framework.project import LOGGING
 
         with logging_redirect_pbar(), ThreadPoolExecutor(
             max_workers=max_threads,
@@ -231,12 +222,7 @@ class SimpleParallelRunner(ParallelRunner):
                     interrupted = True
                     failed = True
 
-                    print("crashed")
-
                     done = set()
-                    for future in futures:
-                        future.cancel()
-                    pool.shutdown()
 
                 for future in chain(done):
                     try:
@@ -283,6 +269,7 @@ class SimpleParallelRunner(ParallelRunner):
 
             # Close pool
             close_pool()
+            pool.shutdown(wait=True, cancel_futures=True)
 
             # Remove logging queue
             log_queue.put(None)

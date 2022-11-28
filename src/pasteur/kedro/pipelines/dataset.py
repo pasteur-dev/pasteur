@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from kedro.pipeline import node, Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
@@ -9,8 +7,7 @@ from .meta import DatasetMeta as D
 from .meta import PipelineMeta, TAGS_DATASET
 from .utils import gen_closure
 
-if TYPE_CHECKING:
-    from ...dataset import Dataset
+from ...dataset import Dataset, ingest_keys
 
 
 def create_dataset_pipeline(
@@ -43,7 +40,7 @@ def create_dataset_pipeline(
     pipe = pipeline(
         [
             node(
-                func=gen_closure(dataset.keys, _fn="gen_keys"),
+                func=gen_closure(ingest_keys, dataset, _fn="gen_keys"),
                 inputs={dep: f"{dataset}.{dep}" for dep in dataset.key_deps},
                 namespace=str(dataset),
                 outputs=f"{dataset}.keys",

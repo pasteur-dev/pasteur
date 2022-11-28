@@ -4,15 +4,15 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
 from .utils import (
-    LazyFrame,
     LazyChunk,
-    get_data,
-    is_partitioned,
-    are_partitioned,
-    is_not_partitioned,
+    LazyFrame,
     are_not_partitioned,
+    are_partitioned,
+    get_data,
+    is_not_partitioned,
+    is_partitioned,
+    gen_closure,
 )
-from .utils.progress import get_node_name
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -70,65 +70,114 @@ class Dataset(Module):
     def tables(self):
         return list(self.deps.keys())
 
-    def ingest(self, name, **tables: LazyFrame) -> LazyFrame:
-        """Creates the table <name> using the tables provided based on the dependencies."""
+    def ingest(self, name, **tables: Any) -> LazyFrame:
+        """Creates the table <name> using the tables provided based on the dependencies.
+
+        The dependencies may be any and should be defined in the catalog.
+        The raw tables of a dataset are the only kedro datasets explicitly
+        defined by the user.
+
+        Can return a dataframe, callable which produces a dataframe, or dict of callables, dataframes.
+        If it's a dict, the table will be partitioned using the dict keys.
+
+        @warning: all partitioned tables should have the same partitions.
+        Some tables may not be partitioned."""
         raise NotImplemented()
 
-    def keys(self, **tables: LazyFrame) -> pd.DataFrame:
+    def keys(self, **tables: LazyChunk) -> pd.DataFrame:
+        """Returns a set of keys which split the current dataset (or partition).
+
+        Keys do not need to be unique per partition, since splitting will also
+        be partition based.
+
+        Gets a set of table partitions based on `key_deps`. All tables are the
+        same partition. If a table is not partitioned, it's the whole DataFrame.
+
+        Shouldn't return a callable."""
         raise NotImplemented()
 
     def __str__(self) -> str:
         return self.name
 
 
+def _ingest_chunk(
+    deps: dict[str, list[str]],
+    process: Callable[[pd.DataFrame], pd.DataFrame],
+    name: str,
+    tables: dict[str, LazyChunk],
+):
+    import pandas as pd
+
+    assert name == "table"
+    df = pd.concat([process(get_data(tables[name])) for name in deps["table"]])
+    df.index.name = "id"
+    return df
+
+
 class TabularDataset(Dataset):
+    """Boilerplate for a tabular dataset. Assumes the dataset contains one table
+    named `table`, the index of which is the keys.
+
+    By default, assumes one raw table `raw@table`, exists. If the data is concatenated
+    from multiple sources, `deps` can be modified to reflect this."""
+
     deps = {"table": ["table"]}
     key_deps = ["table"]
 
-    def _ingest_chunk(self, name: str, tables: dict[str, LazyChunk]):
-        import pandas as pd
-
-        assert name == "table"
-        df = pd.concat([get_data(tables[name]) for name in self.deps["table"]])
-        df.index.name = "id"
-        return df
+    def _process_chunk(self, table: pd.DataFrame):
+        return table
 
     def ingest(self, name, **tables: LazyFrame):
         if are_not_partitioned(tables):
-            return self._ingest_chunk(name, tables)
+            return gen_closure(
+                _ingest_chunk, self.deps, self._process_chunk, name, tables
+            )
 
         assert are_partitioned(tables)
 
         keys = tables[self.deps["table"][0]].keys()
-
         return {
-            pid: self._ingest_chunk(
-                name, {name: table[pid] for name, table in tables.items()}
+            pid: gen_closure(
+                _ingest_chunk,
+                self.deps,
+                name,
+                {name: table[pid] for name, table in tables.items()},
             )
             for pid in keys
         }
 
-    def keys(self, **tables: LazyFrame):
+    def keys(self, **tables: LazyChunk) -> pd.DataFrame:
         """Returns a DataFrame containing only the index column of table "table"."""
         assert len(tables) == 1 and "table" in tables
 
-        lf = tables["table"]
-
-        if is_not_partitioned(lf):
-            return get_data(lf, columns=[])[[]]
-
-        assert is_partitioned(lf)
-
-        import pandas as pd
-
-        keys = []
-        for lc in lf.values():
-            keys.append(get_data(lc, [])[[]])
-
-        return pd.concat(keys)
+        return get_data(tables["table"], columns=[])[[]]
 
 
-__all__ = [
-    "Dataset",
-    "TabularDataset",
-]
+def ingest_keys(ds: Dataset, **tables: LazyFrame):
+    """Ingests the keys of a dataset in a partitioned manner."""
+    partitioned_frames = {}
+    non_partitioned_frames = {}
+
+    for name, table in tables.items():
+        if is_partitioned(table):
+            partitioned_frames[name] = table
+        else:
+            non_partitioned_frames[name] = table
+
+    if not partitioned_frames:
+        return gen_closure(ds.keys, **non_partitioned_frames)
+
+    assert are_partitioned(partitioned_frames)
+    keys = next(iter(partitioned_frames.values())).keys()
+
+    return {
+        pid: gen_closure(
+            ds.keys,
+            **non_partitioned_frames,
+            **{name: frame[pid] for name, frame in partitioned_frames.items()},
+        )
+        for pid in keys
+    }
+
+
+__all__ = ["Dataset", "TabularDataset", "ingest_keys"]

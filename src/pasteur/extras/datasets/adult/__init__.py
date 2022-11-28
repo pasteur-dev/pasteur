@@ -16,7 +16,7 @@ class AdultDataset(TabularDataset):
     folder_name = "adult"
     catalog = get_relative_fn("catalog.yml")
 
-    def ingest(self, name, **tables: pd.DataFrame):
-        df = super().ingest(name, **tables)
+    def _process_chunk(self, table: pd.DataFrame):
+        df = table
         df["income"] = df["income"].str.replace(".", "")  # test set lines end with . ?
         return df

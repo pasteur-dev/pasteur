@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import contextmanager
 from os import cpu_count, environ
-from typing import Callable, TextIO, TypeVar, Any, TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, Any, Callable, TextIO, TypeGuard, TypeVar
 
 from tqdm import tqdm, trange
 
@@ -172,7 +172,12 @@ def process(fun: Callable[..., X], *args, **kwargs) -> X:
     if not MULTIPROCESS_ENABLE:
         return fun(*args, **kwargs)
 
-    return _get_pool().submit(fun, *args, **kwargs).result()
+    from concurrent.futures import CancelledError
+
+    try:
+        return _get_pool().submit(fun, *args, **kwargs).result()
+    except (RuntimeError, CancelledError):
+        raise KeyboardInterrupt()
 
 
 def process_in_parallel(
@@ -187,15 +192,20 @@ def process_in_parallel(
     Implements a custom form of chunk iteration, where `base_args` contains arguments
     with large size that are common in all function calls and `per_call_args` which
     change every iteration."""
-    import numpy as np
 
     if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
         out = []
-        for op in piter(per_call_args, total=len(per_call_args), desc=desc, leave=False):
+        for op in piter(
+            per_call_args, total=len(per_call_args), desc=desc, leave=False
+        ):
             args = {**base_args, **op} if base_args else op
             out.append(fun(**args))
 
         return out
+
+    from concurrent.futures import CancelledError
+
+    import numpy as np
 
     cpus = cpu_count() or 64
     chunk_n = min(cpus * 5, len(per_call_args) // min_chunk_size)
@@ -207,17 +217,20 @@ def process_in_parallel(
     for chunk in chunks:
         args.append((fun, base_args, chunk))
 
-    pool = _get_pool()
-    res = piter(
-        pool.map(_calc_worker, args),
-        desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
-        leave=False,
-        total=len(args),
-    )
+    try:
+        pool = _get_pool()
+        res = piter(
+            pool.map(_calc_worker, args),
+            desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
+            leave=False,
+            total=len(args),
+        )
 
-    out = []
-    for sub_arr in res:
-        out.extend(sub_arr)
+        out = []
+        for sub_arr in res:
+            out.extend(sub_arr)
+    except (RuntimeError, CancelledError):
+        raise KeyboardInterrupt()
 
     return out
 

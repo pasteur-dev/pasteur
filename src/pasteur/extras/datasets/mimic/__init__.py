@@ -1,7 +1,8 @@
 import pandas as pd
 
 from ....dataset import Dataset
-from ....utils import get_relative_fn
+from ....utils import get_relative_fn, LazyChunk, get_data
+
 
 class MimicDataset(Dataset):
     _mimic_tables_all = [
@@ -44,5 +45,5 @@ class MimicDataset(Dataset):
     def ingest(self, name, **tables: pd.DataFrame):
         return tables[name]
 
-    def keys(self, **tables: pd.DataFrame):
-        return tables["core_patients"][[]]
+    def keys(self, **tables: LazyChunk):
+        return get_data(tables["core_patients"], [])[[]]
