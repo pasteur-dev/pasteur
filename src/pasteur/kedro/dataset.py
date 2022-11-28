@@ -239,3 +239,58 @@ class FragmentedParquetDataset(ParquetDataSet):
 
             with self._fs.open(save_path, mode="wb") as fs_file:
                 fs_file.write(bytes_buffer.getvalue())
+
+
+def _load_csv(
+    protocol: str,
+    load_path: str,
+    storage_options,
+    load_args: dict,
+    chunksize: int | None = None,
+    columns: list[str] | None = None,
+):
+    if columns is not None or chunksize is not None:
+        load_args = load_args.copy()
+    if columns is not None:
+        load_args["usecols"] = columns
+
+        if "parse_dates" in load_args:
+            new_dates = []
+            for date in load_args["parse_dates"]:
+                if date in columns:
+                    new_dates.append(date)
+            load_args["parse_dates"] = new_dates
+    if chunksize is not None:
+        load_args["chunksize"] = chunksize
+
+    if protocol == "file":
+        return pd.read_csv(load_path, **load_args)
+
+    load_path = f"{protocol}{PROTOCOL_DELIMITER}{load_path}"
+    return pd.read_csv(load_path, storage_options=storage_options, **load_args)
+
+
+class FragmentedCSVDataset(CSVDataSet):
+    def __init__(
+        self,
+        filepath: str,
+        load_args=None,
+        save_args=None,
+        version=None,
+        credentials=None,
+        fs_args=None,
+        chunksize: int | None = None,
+    ) -> None:
+        super().__init__(filepath, load_args, save_args, version, credentials, fs_args)  # type: ignore
+        self.chunksize = chunksize
+
+    def _load(self) -> LazyFrame:
+        load_path = str(self._get_load_path())
+        return gen_closure(
+            _load_csv,
+            self._protocol,
+            load_path,
+            self._storage_options,
+            self._load_args,
+            self.chunksize,
+        )

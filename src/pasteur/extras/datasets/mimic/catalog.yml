@@ -1,5 +1,5 @@
 _mimic_in_csv: &mimic_csv
-  type: pandas.CSVDataSet
+  type: pasteur.kedro.dataset.FragmentedCSVDataset
   layer: raw
   filepath: ""
 
@@ -99,6 +99,8 @@ mimic.raw@hosp_drgcodes:
 mimic.raw@hosp_emar:
   <<: *mimic_csv
   filepath: ${location}/hosp/emar.csv.gz
+  chunksize: 2000000
+
   load_args:
     <<: *mimic_csv_load
     parse_dates: [scheduletime, storetime, charttime]
@@ -110,6 +112,8 @@ mimic.raw@hosp_emar:
 mimic.raw@hosp_emar_detail:
   <<: *mimic_csv
   filepath: ${location}/hosp/emar_detail.csv.gz
+  chunksize: 2000000
+
   load_args:
     <<: *mimic_csv_load
     # engine: c
