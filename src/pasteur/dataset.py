@@ -9,8 +9,6 @@ from .utils import (
     are_not_partitioned,
     are_partitioned,
     get_data,
-    is_not_partitioned,
-    is_partitioned,
     gen_closure,
 )
 
@@ -152,32 +150,4 @@ class TabularDataset(Dataset):
 
         return get_data(tables["table"], columns=[])[[]]
 
-
-def ingest_keys(ds: Dataset, **tables: LazyFrame):
-    """Ingests the keys of a dataset in a partitioned manner."""
-    partitioned_frames = {}
-    non_partitioned_frames = {}
-
-    for name, table in tables.items():
-        if is_partitioned(table):
-            partitioned_frames[name] = table
-        else:
-            non_partitioned_frames[name] = table
-
-    if not partitioned_frames:
-        return gen_closure(ds.keys, **non_partitioned_frames)
-
-    assert are_partitioned(partitioned_frames)
-    keys = next(iter(partitioned_frames.values())).keys()
-
-    return {
-        pid: gen_closure(
-            ds.keys,
-            **non_partitioned_frames,
-            **{name: frame[pid] for name, frame in partitioned_frames.items()},
-        )
-        for pid in keys
-    }
-
-
-__all__ = ["Dataset", "TabularDataset", "ingest_keys"]
+__all__ = ["Dataset", "TabularDataset"]

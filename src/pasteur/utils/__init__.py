@@ -139,3 +139,32 @@ class gen_closure(partial):
         if self._return is not None:  # type: ignore
             return self._return  # type: ignore
         return val
+
+def _run_chunked(fun: Callable, **tables: LazyFrame):
+    """Ingests the keys of a dataset in a partitioned manner."""
+    partitioned_frames = {}
+    non_partitioned_frames = {}
+
+    for name, table in tables.items():
+        if is_partitioned(table):
+            partitioned_frames[name] = table
+        else:
+            non_partitioned_frames[name] = table
+
+    if not partitioned_frames:
+        return gen_closure(fun, **non_partitioned_frames)
+
+    assert are_partitioned(partitioned_frames)
+    keys = next(iter(partitioned_frames.values())).keys()
+
+    return {
+        pid: gen_closure(
+            fun,
+            **non_partitioned_frames,
+            **{name: frame[pid] for name, frame in partitioned_frames.items()},
+        )
+        for pid in keys
+    }
+
+def to_chunked(fun: Callable):
+    return gen_closure(_run_chunked, fun, _fn=fun.__name__)

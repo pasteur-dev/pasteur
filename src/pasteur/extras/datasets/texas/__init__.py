@@ -4,12 +4,17 @@ from typing import Callable
 import pandas as pd
 
 from ....dataset import Dataset
-from ....utils import gen_closure, get_relative_fn
+from ....utils import (
+    LazyChunk,
+    LazyFrame,
+    gen_closure,
+    get_relative_fn,
+    is_partitioned,
+    get_data
+)
 from ....utils.progress import piter
 
 logger = logging.getLogger(__name__)
-
-LazyFrame = dict[str, Callable[..., pd.DataFrame]]
 
 
 def _process_old(load: Callable):
@@ -65,6 +70,11 @@ def _ingest_base(
         new_pids2
     ), "There's a missmatch of base2 and base1 files."
 
+    assert is_partitioned(base)
+    assert is_partitioned(base1)
+    assert is_partitioned(base1_v2)
+    assert is_partitioned(base2)
+
     return {
         **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids},
         **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
@@ -76,11 +86,8 @@ def _ingest_base(
 
 
 def _ingest_facility(facility: LazyFrame):
+    assert is_partitioned(facility)
     return pd.concat([fac() for fac in facility.values()]).drop_duplicates()
-
-
-def _ingest_keys(fun: Callable[..., pd.DataFrame]):
-    return fun()[[]]
 
 
 def _add_id(id: str, fun: Callable[..., pd.DataFrame] | pd.DataFrame):
@@ -128,5 +135,5 @@ class TexasDataset(Dataset):
             case _:
                 raise Exception()
 
-    def keys(self, base: LazyFrame):
-        return {pid: gen_closure(_ingest_keys, fun) for pid, fun in base.items()}
+    def keys(self, base: LazyChunk):
+        return get_data(base, columns=[])[[]]

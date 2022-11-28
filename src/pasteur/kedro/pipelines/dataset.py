@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from kedro.pipeline import node, Pipeline as pipeline
+from kedro.pipeline import Pipeline as pipeline
+from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from ...dataset import Dataset
+from ...utils import gen_closure, to_chunked
+from .meta import TAGS_DATASET
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta, TAGS_DATASET
-from .utils import gen_closure
-
-from ...dataset import Dataset, ingest_keys
+from .meta import PipelineMeta
 
 
 def create_dataset_pipeline(
@@ -40,7 +41,7 @@ def create_dataset_pipeline(
     pipe = pipeline(
         [
             node(
-                func=gen_closure(ingest_keys, dataset, _fn="gen_keys"),
+                func=to_chunked(gen_closure(dataset.keys, _fn="gen_keys")),
                 inputs={dep: f"{dataset}.{dep}" for dep in dataset.key_deps},
                 namespace=str(dataset),
                 outputs=f"{dataset}.keys",

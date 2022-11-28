@@ -6,6 +6,7 @@ from typing import Callable
 
 import pandas as pd
 import pyarrow.parquet as pq
+from kedro.extras.datasets.pandas.csv_dataset import CSVDataSet
 from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import DataSetError, get_filepath_str, PROTOCOL_DELIMITER
 from kedro.io.partitioned_dataset import PartitionedDataSet
@@ -80,8 +81,6 @@ def _save_worker(
     if callable(chunk):
         chunk = chunk()
 
-    mem = chunk.memory_usage().sum()
-
     if protocol == "file":
         with fs.open(path, mode="wb") as fs_file:
             chunk.to_parquet(fs_file, **save_args)
@@ -91,8 +90,6 @@ def _save_worker(
 
         with fs.open(path, mode="wb") as fs_file:
             fs_file.write(bytes_buffer.getvalue())
-
-    return mem
 
 
 def _load_worker(
