@@ -7,14 +7,14 @@ from itertools import chain
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
-from kedro.runner.parallel_runner import ParallelRunner, _run_node_synchronization
+from kedro.runner.parallel_runner import ParallelRunner
+from kedro.runner.runner import run_node
 from pluggy import PluginManager
 from rich import get_console
 
 from ...utils.perf import PerformanceTracker
 from ...utils.progress import (
     MULTIPROCESS_ENABLE,
-    PBAR_MIN_PIPE_LEN,
     RICH_TRACEBACK_ARGS,
     is_jupyter,
     logging_redirect_pbar,
@@ -22,6 +22,7 @@ from ...utils.progress import (
     init_pool,
     close_pool,
     tqdm,
+    set_node_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,9 +55,12 @@ def _replace_loggers_with_queue(q):
 
 
 def _replace_logging(fun, *args, _q=None, **kwargs):
-
     if _q is not None:
         _replace_loggers_with_queue(_q)
+    
+    node_name = kwargs["node"].name.split("(")[0]
+    set_node_name(node_name)
+
     try:
         return fun(*args, **kwargs), PerformanceTracker.get_trackers()
     except Exception as e:
@@ -143,7 +147,7 @@ class SimpleParallelRunner(ParallelRunner):
 
         use_pbar = not is_jupyter()
 
-        from kedro.framework.project import LOGGING, PACKAGE_NAME
+        from kedro.framework.project import LOGGING
 
         with logging_redirect_pbar(), ThreadPoolExecutor(
             max_workers=max_threads,
@@ -179,13 +183,12 @@ class SimpleParallelRunner(ParallelRunner):
                     futures.add(
                         pool.submit(
                             _replace_logging,
-                            _run_node_synchronization,
-                            node,
-                            catalog,
-                            False,
-                            session_id,
-                            package_name=PACKAGE_NAME,
-                            logging_config=LOGGING,  # type: ignore
+                            run_node,
+                            node=node,
+                            catalog=catalog,
+                            is_async=False,
+                            hook_manager=hook_manager,
+                            session_id=session_id,
                             _q=log_queue,
                         )
                     )

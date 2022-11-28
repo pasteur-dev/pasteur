@@ -25,7 +25,6 @@ PBAR_FORMAT = (" " * PBAR_OFFSET) + ">>>>>>>  {l_bar}{bar}{r_bar}"
 # Assumes a stripping github filter is used to remove the empty space (or time)
 # at the start
 PBAR_JUP_NCOLS = 135 + PBAR_OFFSET
-PBAR_MIN_PIPE_LEN = 9
 
 RICH_TRACEBACK_ARGS = {
     "show_locals": False,
@@ -105,7 +104,7 @@ X = TypeVar("X")
 _pool: "ProcessPoolExecutor | None" = None
 
 
-def init_subprocess(lk):
+def _init_subprocess(lk):
     import signal
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
@@ -123,6 +122,28 @@ def _get_pool():
     return _pool
 
 
+_node_name: Any | None = None
+
+
+def set_node_name(name: str):
+    global _node_name
+
+    if _node_name is None:
+        from threading import local
+
+        _node_name = local()
+        _node_name.name = name  # type: ignore
+    else:
+        _node_name.name = name
+
+
+def get_node_name():
+    assert _node_name and hasattr(
+        _node_name, "name"
+    ), "Node name has not been set, call `set_node_name()`."
+    return _node_name.name
+
+
 def init_pool(max_workers: int | None = None):
     """Creates a shared process pool for all threads in this process.
 
@@ -137,7 +158,7 @@ def init_pool(max_workers: int | None = None):
 
     lk = tqdm.get_lock()
     _pool = ProcessPoolExecutor(
-        initializer=init_subprocess, initargs=(lk,), max_workers=max_workers
+        initializer=_init_subprocess, initargs=(lk,), max_workers=max_workers
     )
 
 
@@ -170,7 +191,7 @@ def process_in_parallel(
 
     if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
         out = []
-        for op in piter(per_call_args, total=len(per_call_args), leave=False):
+        for op in piter(per_call_args, total=len(per_call_args), desc=desc, leave=False):
             args = {**base_args, **op} if base_args else op
             out.append(fun(**args))
 

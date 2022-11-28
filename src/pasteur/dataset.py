@@ -3,7 +3,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
-from .utils import LazyFrame, LazyChunk, get_data, is_partitioned, are_partitioned, is_not_partitioned, are_not_partitioned
+from .utils import (
+    LazyFrame,
+    LazyChunk,
+    get_data,
+    is_partitioned,
+    are_partitioned,
+    is_not_partitioned,
+    are_not_partitioned,
+)
+from .utils.progress import get_node_name
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -93,7 +102,9 @@ class TabularDataset(Dataset):
         keys = tables[self.deps["table"][0]].keys()
 
         return {
-            pid: self._ingest_chunk(name, {name: table[pid] for name, table in tables.items()})
+            pid: self._ingest_chunk(
+                name, {name: table[pid] for name, table in tables.items()}
+            )
             for pid in keys
         }
 
@@ -104,15 +115,15 @@ class TabularDataset(Dataset):
         lf = tables["table"]
 
         if is_not_partitioned(lf):
-            return get_data(lf)[[]]
-        
+            return get_data(lf, columns=[])[[]]
+
         assert is_partitioned(lf)
 
         import pandas as pd
 
         keys = []
         for lc in lf.values():
-            keys.append(get_data(lc)[[]])
+            keys.append(get_data(lc, [])[[]])
 
         return pd.concat(keys)
 

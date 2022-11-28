@@ -10,7 +10,7 @@ from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import DataSetError, get_filepath_str, PROTOCOL_DELIMITER
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
-from ..utils.progress import process_in_parallel, process
+from ..utils.progress import process_in_parallel, process, get_node_name
 from ..utils import gen_closure, LazyFrame
 
 logger = logging.getLogger(__name__)
@@ -211,7 +211,7 @@ class FragmentedParquetDataset(ParquetDataSet):
         }
         jobs = []
         for pid, partition_data in sorted(data.items()):
-            if (pid == "_all"):
+            if pid == "_all":
                 logger.debug("Skipping partition `_all`.")
                 continue
             chunk_save_path = os.path.join(
@@ -222,7 +222,13 @@ class FragmentedParquetDataset(ParquetDataSet):
         if not jobs:
             return
 
-        process_in_parallel(_save_worker, jobs, base_args, 1, f"Saving parquet chunks")
+        process_in_parallel(
+            _save_worker,
+            jobs,
+            base_args,
+            1,
+            f"Processing chunks ({get_node_name():>25s})",
+        )
 
         self._invalidate_cache()
 

@@ -15,7 +15,7 @@ import logging
 
 from ...utils.progress import (
     MULTIPROCESS_ENABLE,
-    PBAR_MIN_PIPE_LEN,
+    set_node_name,
     piter,
     logging_redirect_pbar,
     is_jupyter,
@@ -37,7 +37,7 @@ class SimpleSequentialRunner(AbstractRunner):
         self.pipe_name = pipe_name
         self.params_str = params_str
 
-        super().__init__(is_async=MULTIPROCESS_ENABLE)
+        super().__init__(is_async=False)
 
     def create_default_data_set(self, ds_name: str) -> AbstractDataSet:
         return MemoryDataSet()
@@ -69,7 +69,7 @@ class SimpleSequentialRunner(AbstractRunner):
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
 
-        use_pbar = len(nodes) >= PBAR_MIN_PIPE_LEN and not is_jupyter()
+        use_pbar = not is_jupyter()
 
         with logging_redirect_pbar():
             desc = f"Executing pipeline {self.pipe_name}"
@@ -86,6 +86,7 @@ class SimpleSequentialRunner(AbstractRunner):
                 if use_pbar:
                     pbar.set_description(f"Executing {node_name}")
                 try:
+                    set_node_name(node_name)
                     run_node(node, catalog, hook_manager, self._is_async, session_id)
                     done_nodes.add(node)
                 except KeyboardInterrupt:
@@ -122,6 +123,3 @@ class SimpleSequentialRunner(AbstractRunner):
 
     def __str__(self) -> str:
         return f"<SequentialRunner {self.pipe_name} {self.params_str}>"
-
-
-
