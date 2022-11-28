@@ -16,6 +16,7 @@ from ..attribute import (
     get_dtype,
 )
 from ..transform import RefTransformer, Transformer
+from ..utils import list_unique
 
 
 class NumericalTransformer(Transformer):
@@ -75,9 +76,13 @@ class IdxTransformer(Transformer):
         self.unknown_value = unknown_value
         self.nullable = nullable
         self.ordinal = False
+        self.raw_vals = []
 
     def fit(self, data: pd.Series):
-        vals = [v for v in data.unique() if not pd.isna(v)]
+        # Makes fit run out of core by storing the unique values seen previously in `raw_vals`
+        new_vals = [v for v in data.unique() if not pd.isna(v)]
+        vals = list_unique(new_vals, self.raw_vals)
+        self.raw_vals = vals
 
         # Try to sort vals
         try:
@@ -178,13 +183,19 @@ class DateTransformer(RefTransformer):
         self.nullable = nullable
         self.bins = bins
         self.max_len = max_len
+        self.ref = None
 
     def fit(
         self,
         data: pd.Series,
         ref: pd.Series | None = None,
     ):
-        self.ref = data.min() if ref is None else None
+        if ref is None:
+            if self.ref is None:
+                self.ref = data.min()
+            else:
+                self.ref = min(data.min(), self.ref)
+
         col = cast(str, data.name)  # type: ignore
         self.col = col
 

@@ -1,15 +1,13 @@
 import logging
-import signal
 import threading
 from collections import Counter
-from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from itertools import chain
 
 from kedro.io import DataCatalog
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner, _run_node_synchronization
-from kedro.runner.runner import run_node
 from pluggy import PluginManager
 from rich import get_console
 
@@ -21,6 +19,9 @@ from ...utils.progress import (
     is_jupyter,
     logging_redirect_pbar,
     piter,
+    init_pool,
+    close_pool,
+    tqdm,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,10 +53,6 @@ def _replace_loggers_with_queue(q):
     logging.root.handlers.append(QueueHandler(q))
 
 
-def _disable_keyboard_interrupt():
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-
 def _replace_logging(fun, *args, _q=None, **kwargs):
 
     if _q is not None:
@@ -70,9 +67,21 @@ def _replace_logging(fun, *args, _q=None, **kwargs):
         raise
 
 
-def _is_concurrency_safe(node: Node):
-    unsafe_tags = set(["gpu", "parallel"])
-    return len(node.tags.intersection(unsafe_tags)) == 0
+def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = None):
+    """
+    Calculate the max number of processes required for the pipeline,
+    limit to the number of CPU cores.
+    """
+    # Number of nodes is a safe upper-bound estimate.
+    # It's also safe to reduce it by the number of layers minus one,
+    # because each layer means some nodes depend on other nodes
+    # and they can not run in parallel.
+    # It might be not a perfect solution, but good enough and simple.
+    required_processes = len(pipeline.nodes) - len(pipeline.grouped_nodes) + 1
+
+    if not max_workers:
+        return required_processes
+    return min(required_processes, max_workers)
 
 
 class SimpleParallelRunner(ParallelRunner):
@@ -80,13 +89,14 @@ class SimpleParallelRunner(ParallelRunner):
         self,
         pipe_name: str | None = None,
         params_str: str | None = None,
+        max_workers: int | None = None,
     ):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        super().__init__(
-            is_async=False
-        )  # True creates problems with saving partitioned datasets.
+        self.max_workers = max_workers
+
+        super().__init__(is_async=False)
 
     @property
     def _logger(self):
@@ -127,14 +137,18 @@ class SimpleParallelRunner(ParallelRunner):
         done_nodes = set()  # type: set[Node]
         futures = set()
         done = None
-        max_workers = self._get_required_workers_count(pipeline)
 
-        use_pbar = len(nodes) >= PBAR_MIN_PIPE_LEN and not is_jupyter()
+        init_pool(self.max_workers)
+        max_threads = _get_required_workers_count(pipeline, self.max_workers)
+
+        use_pbar = not is_jupyter()
 
         from kedro.framework.project import LOGGING, PACKAGE_NAME
 
-        with logging_redirect_pbar(), ProcessPoolExecutor(
-            max_workers=max_workers, initializer=_disable_keyboard_interrupt
+        with logging_redirect_pbar(), ThreadPoolExecutor(
+            max_workers=max_threads,
+            initializer=tqdm.set_lock,
+            initargs=(tqdm.get_lock(),),
         ) as pool:
             # set up logging handler
             log_queue = self._manager.Queue()
@@ -161,26 +175,22 @@ class SimpleParallelRunner(ParallelRunner):
 
                 ready = {n for n in todo_nodes if node_dependencies[n] <= done_nodes}
                 todo_nodes -= ready
-                non_parallel: set[Node] = set()
                 for node in ready:
-                    if _is_concurrency_safe(node):
-                        futures.add(
-                            pool.submit(
-                                _replace_logging,
-                                _run_node_synchronization,
-                                node,
-                                catalog,
-                                self._is_async,
-                                session_id,
-                                package_name=PACKAGE_NAME,
-                                logging_config=LOGGING,  # type: ignore
-                                _q=log_queue,
-                            )
+                    futures.add(
+                        pool.submit(
+                            _replace_logging,
+                            _run_node_synchronization,
+                            node,
+                            catalog,
+                            False,
+                            session_id,
+                            package_name=PACKAGE_NAME,
+                            logging_config=LOGGING,  # type: ignore
+                            _q=log_queue,
                         )
-                    else:
-                        non_parallel.add(node)
+                    )
 
-                if not futures and not non_parallel:
+                if not futures:
                     if todo_nodes:
                         debug_data = {
                             "todo_nodes": todo_nodes,
@@ -199,14 +209,13 @@ class SimpleParallelRunner(ParallelRunner):
 
                 # Set pbar description
                 if use_pbar:
-                    if len(futures) + len(non_parallel) == 1:
+                    if len(futures) == 1:
                         pbar.set_description(
                             f"Executing node {len(done_nodes) + 1:2d}/{len(nodes)}"
                         )
                     else:
                         node_str = ", ".join(
-                            str(len(done_nodes) + 1 + i)
-                            for i in range(len(futures) + len(non_parallel))
+                            str(len(done_nodes) + 1 + i) for i in range(len(futures))
                         )
 
                         pbar.set_description(
@@ -214,52 +223,50 @@ class SimpleParallelRunner(ParallelRunner):
                         )
 
                 try:
-                    done, futures = wait(
-                        futures,
-                        return_when=FIRST_COMPLETED,
-                        timeout=0 if len(non_parallel) else None,
-                    )
+                    done, futures = wait(futures, return_when=FIRST_COMPLETED)
                 except KeyboardInterrupt:
                     interrupted = True
                     failed = True
 
+                    print("crashed")
+
                     done = set()
-                    non_parallel = set()
                     for future in futures:
                         future.cancel()
                     pool.shutdown()
 
-                for future in chain(done, non_parallel):
+                for future in chain(done):
                     try:
-                        # Run non-parallel nodes in the same process
-                        if isinstance(future, Node):
-                            node = future
-                            if use_pbar:
-                                pbar.set_description(f"Executing {node.name.split('(')[0]}")
-                            try:
-                                run_node(
-                                    node,
-                                    catalog,
-                                    hook_manager,
-                                    self._is_async,
-                                    session_id,
-                                )
-                            except KeyboardInterrupt as e:
-                                interrupted = True
-                                raise Exception()
-                            except Exception as e:
-                                get_console().print_exception(**RICH_TRACEBACK_ARGS)
-                                logger.error(
-                                    f"Node \"{node.name.split('(')[0]}\" failed with error:\n{type(e).__name__}: {e}"
-                                )
-                                raise
-                        else:
-                            node, trackers = future.result()
-                            # Merge performance tracking from the process
-                            # to the outside one.
-                            PerformanceTracker.merge_trackers(trackers)
-
+                        node, trackers = future.result()
+                        # Merge performance tracking from the thread
+                        # to the outside one.
+                        PerformanceTracker.merge_trackers(trackers)
                         done_nodes.add(node)
+
+                        # Print message
+                        if (not use_pbar or not is_jupyter()) and not failed:
+                            node_name = node.name.split("(")[0]
+                            logger.info(
+                                f"Completed node {len(done_nodes):2d}/{len(nodes):2d}: {node_name}"
+                            )
+
+                        # Decrement load counts, and release any datasets we
+                        # have finished with. This is particularly important
+                        # for the shared, default datasets we created above.
+                        for data_set in node.inputs:
+                            load_counts[data_set] -= 1
+                            if (
+                                load_counts[data_set] < 1
+                                and data_set not in pipeline.inputs()
+                            ):
+                                catalog.release(data_set)
+                        for data_set in node.outputs:
+                            if (
+                                load_counts[data_set] < 1
+                                and data_set not in pipeline.outputs()
+                            ):
+                                catalog.release(data_set)
+
                     except Exception:
                         for future in futures:
                             future.cancel()
@@ -271,29 +278,8 @@ class SimpleParallelRunner(ParallelRunner):
                             )
                         failed = True
 
-                    # Print message
-                    if (not use_pbar or not is_jupyter()) and not failed:
-                        node_name = node.name.split("(")[0]
-                        logger.info(
-                            f"Completed node {len(done_nodes):2d}/{len(nodes):2d}: {node_name}"
-                        )
-
-                    # Decrement load counts, and release any datasets we
-                    # have finished with. This is particularly important
-                    # for the shared, default datasets we created above.
-                    for data_set in node.inputs:
-                        load_counts[data_set] -= 1
-                        if (
-                            load_counts[data_set] < 1
-                            and data_set not in pipeline.inputs()
-                        ):
-                            catalog.release(data_set)
-                    for data_set in node.outputs:
-                        if (
-                            load_counts[data_set] < 1
-                            and data_set not in pipeline.outputs()
-                        ):
-                            catalog.release(data_set)
+            # Close pool
+            close_pool()
 
             # Remove logging queue
             log_queue.put(None)

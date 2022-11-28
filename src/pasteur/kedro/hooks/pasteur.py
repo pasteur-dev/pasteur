@@ -105,7 +105,7 @@ class PasteurHook:
             return Version(load_version, self.save_version)
         return None
 
-    def add_set(self, layer, name, path_seg, versioned=False, partition_load=False):
+    def add_set(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
             name,
             FragmentedParquetDataset(
@@ -116,7 +116,6 @@ class PasteurHook:
                 ),
                 save_args=self.pq_save_args,
                 version=self.get_version(name, versioned),  # type: ignore
-                partition_load=partition_load
             ),
         )
         if layer:
@@ -213,8 +212,6 @@ class PasteurHook:
             match d.type:
                 case "pkl":
                     self.add_pkl(d.layer, d.name, d.str_path, d.versioned)
-                case "ppq":
-                    self.add_set(d.layer, d.name, d.str_path, d.versioned, True)
                 case "pq":
                     self.add_set(d.layer, d.name, d.str_path, d.versioned)
                 case "mem":

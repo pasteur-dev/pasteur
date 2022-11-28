@@ -54,7 +54,7 @@ def create_view_pipeline(view: View):
             tags=TAGS_VIEW,
         ),
         [
-            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type ="ppq")
+            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type ="pq")
             for t in view.tables
         ],
     )

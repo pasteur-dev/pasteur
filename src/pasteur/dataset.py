@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
-from .utils import LazyFrame
+from .utils import LazyFrame, LazyChunk, get_data, is_partitioned, are_partitioned, is_not_partitioned, are_not_partitioned
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -61,13 +61,11 @@ class Dataset(Module):
     def tables(self):
         return list(self.deps.keys())
 
-    def ingest(
-        self, name, **tables: pd.DataFrame | LazyFrame
-    ) -> pd.DataFrame | LazyFrame:
+    def ingest(self, name, **tables: LazyFrame) -> LazyFrame:
         """Creates the table <name> using the tables provided based on the dependencies."""
         raise NotImplemented()
 
-    def keys(self, **tables: pd.DataFrame | LazyFrame) -> pd.DataFrame:
+    def keys(self, **tables: LazyFrame) -> pd.DataFrame:
         raise NotImplemented()
 
     def __str__(self) -> str:
@@ -78,20 +76,45 @@ class TabularDataset(Dataset):
     deps = {"table": ["table"]}
     key_deps = ["table"]
 
-    def ingest(self, name, **tables: pd.DataFrame):
+    def _ingest_chunk(self, name: str, tables: dict[str, LazyChunk]):
         import pandas as pd
 
         assert name == "table"
-        df = pd.concat([tables[name] for name in self.deps["table"]])
+        df = pd.concat([get_data(tables[name]) for name in self.deps["table"]])
         df.index.name = "id"
         return df
 
-    def keys(self, **tables: pd.DataFrame):
+    def ingest(self, name, **tables: LazyFrame):
+        if are_not_partitioned(tables):
+            return self._ingest_chunk(name, tables)
+
+        assert are_partitioned(tables)
+
+        keys = tables[self.deps["table"][0]].keys()
+
+        return {
+            pid: self._ingest_chunk(name, {name: table[pid] for name, table in tables.items()})
+            for pid in keys
+        }
+
+    def keys(self, **tables: LazyFrame):
+        """Returns a DataFrame containing only the index column of table "table"."""
+        assert len(tables) == 1 and "table" in tables
+
+        lf = tables["table"]
+
+        if is_not_partitioned(lf):
+            return get_data(lf)[[]]
+        
+        assert is_partitioned(lf)
+
         import pandas as pd
 
-        df = pd.concat([tables[name] for name in self.key_deps]).reset_index(drop=True)
-        df.index.name = "id"
-        return df
+        keys = []
+        for lc in lf.values():
+            keys.append(get_data(lc)[[]])
+
+        return pd.concat(keys)
 
 
 __all__ = [

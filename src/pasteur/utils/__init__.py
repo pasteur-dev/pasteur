@@ -2,14 +2,81 @@ from __future__ import annotations
 
 from functools import partial
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, Union, TypeGuard
 
 if TYPE_CHECKING:
     import pandas as pd
 
 A = TypeVar("A")
 
-LazyFrame = dict[str, Callable[..., "pd.DataFrame"] | "pd.DataFrame"]
+""" A DataFrame that might be loaded lazily. """
+LazyChunk = Union[Callable[..., "pd.DataFrame"], "pd.DataFrame"]
+""" A dictionary of DataFrame partitions or a DataFrame that might be loaded lazily. 
+If dictionary and includes partition `_all`, that partition will load the whole dataframe."""
+LazyFrame = Union[dict[str, LazyChunk], LazyChunk]
+
+
+def get_data(lazy: LazyFrame, columns: list[str] | None = None) -> "pd.DataFrame":
+    """Converts and concats a LazyFrame into one DataFrame, regardless of structure."""
+    if callable(lazy):
+        return lazy(columns=columns)
+    elif isinstance(lazy, dict):
+        import pandas as pd
+
+        if "_all" in lazy:
+            return get_data(lazy["_all"], columns=columns)
+
+        return pd.concat([get_data(l, columns=columns) for l in lazy.values()])
+    else:
+        return lazy
+
+
+def is_lazy(chunk: LazyChunk) -> TypeGuard[Callable[..., "pd.DataFrame"]]:
+    return callable(chunk)
+
+
+def is_not_lazy(chunk: LazyChunk) -> TypeGuard["pd.DataFrame"]:
+    return not callable(chunk)
+
+
+def is_partitioned(lazy: LazyFrame) -> TypeGuard[dict[str, LazyChunk]]:
+    """Checks whether a LazyFrame is partitioned (ie a dict)."""
+    return isinstance(lazy, dict)
+
+
+def is_not_partitioned(lazy: LazyFrame) -> TypeGuard[LazyChunk]:
+    """Checks whether a LazyFrame is partitioned (ie a dict)."""
+    return not is_partitioned(lazy)
+
+
+def are_partitioned(
+    lazies: dict[str, LazyFrame]
+) -> TypeGuard[dict[str, dict[str, LazyChunk]]]:
+    """Checks whether a set of LazyFrames are partitioned.
+
+    In addition, runs a check on whether all of them are partitioned and if they
+    are that they have the same keys."""
+    partitioned = [is_partitioned(lazy) for lazy in lazies.values()]
+    assert all(partitioned) or not any(partitioned)
+
+    if not partitioned[0]:
+        return False
+
+    names = list(lazies.keys())
+    ref_keys = set(lazies[names[0]].keys())
+
+    for name in names[1:]:
+        assert (
+            set(lazies[name].keys()) == ref_keys
+        ), f"Tables '{name}' and '{names[0]}' have different partitions."
+
+    return True
+
+
+def are_not_partitioned(
+    lazies: dict[str, LazyFrame]
+) -> TypeGuard[dict[str, LazyChunk]]:
+    return not are_partitioned(lazies)
 
 
 def get_relative_fn(fn: str):

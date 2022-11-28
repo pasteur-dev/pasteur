@@ -8,11 +8,12 @@ import logging
 import sys
 from contextlib import contextmanager
 from os import cpu_count, environ
-from typing import Callable, TextIO, TypeVar, Any
+from typing import Callable, TextIO, TypeVar, Any, TYPE_CHECKING, TypeGuard
 
-from tqdm.asyncio import tqdm, trange
-from tqdm.contrib.concurrent import process_map
-from tqdm.std import tqdm as std_tqdm
+from tqdm import tqdm, trange
+
+if TYPE_CHECKING:
+    from concurrent.futures import ProcessPoolExecutor
 
 # Jupyter doesn't support going up lines (moving cursor)
 # This means up to 1 loading bar works
@@ -34,8 +35,7 @@ RICH_TRACEBACK_ARGS = {
 
 # Disable multiprocessing when debugging due to process launch debug overhead
 MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
-
-A = TypeVar("A")
+IS_SUBPROCESS = False
 
 
 def is_jupyter() -> bool:  # pragma: no cover
@@ -57,8 +57,12 @@ def is_jupyter() -> bool:  # pragma: no cover
 
 
 def get_tqdm_args():
-    active_pbars = sum(not pbar.disable for pbar in std_tqdm._instances)
-    disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
+    if IS_SUBPROCESS:
+        """Disable subprocess pbars until a better solution."""
+        disable = True
+    else:
+        active_pbars = sum(not pbar.disable for pbar in tqdm._instances)  # type: ignore
+        disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
     return {
         "disable": disable,
         "colour": PBAR_COLOR,
@@ -69,6 +73,9 @@ def get_tqdm_args():
     }
 
 
+A = TypeVar("A", bound=Callable)
+
+
 def limit_pbar_nesting(pbar_gen: A) -> A:
     """Prevent nesting too much on jupyter. This causes ugly gaps to be generated
     on vs code. Up to 2 progress bars work fine."""
@@ -77,14 +84,14 @@ def limit_pbar_nesting(pbar_gen: A) -> A:
     def closure(*args, **kwargs):
         return pbar_gen(*args, **kwargs, **get_tqdm_args())
 
-    return closure
+    return closure  # type: ignore
 
 
 prange = limit_pbar_nesting(trange)
 piter = limit_pbar_nesting(tqdm)
 
 
-def calc_worker(args):
+def _calc_worker(args):
     fun, base_args, chunk = args
     out = []
     for op in chunk:
@@ -95,6 +102,56 @@ def calc_worker(args):
 
 
 X = TypeVar("X")
+_pool: "ProcessPoolExecutor | None" = None
+
+
+def init_subprocess(lk):
+    import signal
+
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    tqdm.set_lock(lk)
+
+    global IS_SUBPROCESS
+    IS_SUBPROCESS = True
+
+
+def _get_pool():
+    global _pool
+    assert (
+        _pool is not None
+    ), f"Call `init_pool()` to create a process pool for the subprocessing nodes."
+    return _pool
+
+
+def init_pool(max_workers: int | None = None):
+    """Creates a shared process pool for all threads in this process.
+
+    `max_workers` should be set based either on cores or on how many RAM GBs
+    will be required by each process."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    global _pool
+
+    if _pool is not None:
+        _pool.shutdown(wait=True, cancel_futures=True)
+
+    lk = tqdm.get_lock()
+    _pool = ProcessPoolExecutor(
+        initializer=init_subprocess, initargs=(lk,), max_workers=max_workers
+    )
+
+
+def close_pool():
+    if _pool is not None:
+        _pool.shutdown(wait=True, cancel_futures=True)
+
+
+def process(fun: Callable[..., X], *args, **kwargs) -> X:
+    """Uses a separate process to complete this task, taken from the common pool."""
+    if not MULTIPROCESS_ENABLE:
+        return fun(*args, **kwargs)
+
+    return _get_pool().submit(fun, *args, **kwargs).result()
 
 
 def process_in_parallel(
@@ -103,12 +160,12 @@ def process_in_parallel(
     base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 100,
     desc: str | None = None,
-    max_workers: int | None = None
 ) -> list[X]:
-    """Processes arguments in parallel using python's multiprocessing and prints progress bar.
+    """Processes arguments in parallel using the common process pool and prints progress bar.
 
-    Task is split into chunks based on CPU cores and each process handles a chunk of
-    calls before exiting."""
+    Implements a custom form of chunk iteration, where `base_args` contains arguments
+    with large size that are common in all function calls and `per_call_args` which
+    change every iteration."""
     import numpy as np
 
     if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
@@ -119,24 +176,24 @@ def process_in_parallel(
 
         return out
 
-    chunk_n = min(cpu_count() * 5, len(per_call_args) // min_chunk_size)
+    cpus = cpu_count() or 64
+    chunk_n = min(cpus * 5, len(per_call_args) // min_chunk_size)
     per_call_n = len(per_call_args) // chunk_n
 
-    chunks = np.array_split(per_call_args, chunk_n)
+    chunks = np.array_split(per_call_args, chunk_n)  # type: ignore
 
     args = []
     for chunk in chunks:
         args.append((fun, base_args, chunk))
 
-    res = process_map(
-        calc_worker,
-        args,
+    pool = _get_pool()
+    res = piter(
+        pool.map(_calc_worker, args),
         desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
         leave=False,
-        tqdm_class=tqdm,
-        max_workers=min(cpu_count(), max_workers) if max_workers else None,
-        **get_tqdm_args(),
+        total=len(args),
     )
+
     out = []
     for sub_arr in res:
         out.extend(sub_arr)
@@ -144,7 +201,7 @@ def process_in_parallel(
     return out
 
 
-def _is_console_logging_handler(handler):
+def _is_console_logging_handler(handler) -> TypeGuard[logging.StreamHandler]:
     return isinstance(handler, logging.StreamHandler) and handler.stream in {
         sys.stdout,
         sys.stderr,
@@ -158,24 +215,22 @@ def logging_redirect_pbar():
 
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     loggers.append(logging.root)
-    orig_streams: list[list[TextIO]] = []
+    orig_streams: list[list[TextIO | None]] = []
 
     # Use stdout for jupyter to avoid coloring it red
     out_stream = sys.stdout if is_jupyter() else sys.stderr
 
     class PbarIO(io.StringIO):
         def write(self, text: str):
-            std_tqdm.write(text[:-1], file=out_stream)
+            tqdm.write(text[:-1], file=out_stream)
 
+    # Swap rich logger
     pbar_stream = PbarIO()
-    rich_fn = None
+    c = get_console()
+    rich_fn = c.file
+    c.file = pbar_stream
 
     try:
-        # Swap rich logger
-        c = get_console()
-        rich_fn = c.file
-        c.file = pbar_stream
-
         for logger in loggers:
             # Swap standard loggers
             orig_streams.append([])

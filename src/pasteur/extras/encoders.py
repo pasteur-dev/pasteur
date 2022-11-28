@@ -21,6 +21,7 @@ class DiscretizationColumnTransformer:
             else None
         )
         assert attr.bins is not None
+        # FIXME: is not out of core
         self.edges = np.histogram_bin_edges(data[~pd.isna(data)], attr.bins, rng)
         self.vals = (self.edges[:-1] + self.edges[1:]) / 2
 
@@ -57,6 +58,7 @@ class IdxEncoder(Encoder):
     def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
         self.transformers: dict[str, DiscretizationColumnTransformer] = {}
 
+        # FIXME: not out-of-core
         cols = {}
         for name, col_attr in attr.vals.items():
             if isinstance(col_attr, NumValue):

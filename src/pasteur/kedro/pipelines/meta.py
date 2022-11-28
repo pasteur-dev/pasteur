@@ -7,7 +7,7 @@ class DatasetMeta(NamedTuple):
     name: str
     path: list[Any]  # todo: fix any memory leaks that occur with this
     versioned: bool = False
-    type: Literal["pkl", "ppq", "pq", "mem"] = "pq"
+    type: Literal["pkl", "pq", "mem"] = "pq"
 
     @property
     def str_path(self) -> tuple[str]:
@@ -46,7 +46,6 @@ TAG_METRICS = "metrics"
 
 # Process tags
 TAG_GPU = "gpu"
-TAG_PARALLEL = "parallel"
 
 # Tag each node in the pipeline based on when it should run.
 """Nodes tagged with `changes_never` always produce the same result (unless their
@@ -61,8 +60,8 @@ TAG_CHANGES_HYPERPARAMETER = "changes_hyperparameter"
 data (such as metrics, synthesis, and reversal)."""
 TAG_CHANGES_PER_ALGORITHM = "changes_per_algorithm"
 
-TAGS_DATASET = (TAG_DATASET, TAG_PARALLEL, TAG_CHANGES_NEVER)
-TAGS_VIEW = (TAG_VIEW, TAG_PARALLEL, TAG_CHANGES_NEVER)
+TAGS_DATASET = (TAG_DATASET, TAG_CHANGES_NEVER)
+TAGS_VIEW = (TAG_VIEW, TAG_CHANGES_NEVER)
 TAGS_VIEW_SPLIT = (TAG_VIEW, TAG_CHANGES_HYPERPARAMETER)
 TAGS_TRANSFORM = (TAG_TRANSFORM, TAG_CHANGES_HYPERPARAMETER)
 TAGS_SYNTH = (TAG_SYNTH, TAG_CHANGES_PER_ALGORITHM)

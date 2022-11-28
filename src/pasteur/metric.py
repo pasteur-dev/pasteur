@@ -1,14 +1,14 @@
+import logging
+from collections import defaultdict
 from typing import Generic, TypeVar, cast
 
 import pandas as pd
-from collections import defaultdict
 
 from .attribute import Attributes
 from .metadata import ColumnMeta, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
-from typing import Literal
-import logging
+from .utils import LazyFrame
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ class Metric(ModuleClass, Generic[A]):
         return f"{self.type}_{self.name}"
 
 
-class ColumnMetric(Metric[A], Generic[A]):
+class ColumnMetric(Metric[dict[str, A]], Generic[A]):
     type = "col"
     _factory = ColumnMetricFactory
 
@@ -156,8 +156,8 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
         self,
         table: str,
         meta: Metadata,
-        tables: dict[str, pd.DataFrame],
-        ids: pd.DataFrame | None = None,
+        tables: dict[str, LazyFrame],
+        ids: LazyFrame | None = None,
     ):
         self.meta = meta
         self.table = table
@@ -192,8 +192,8 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
     def process(
         self,
         split: int,
-        tables: dict[str, pd.DataFrame],
-        ids: pd.DataFrame | None = None,
+        tables: dict[str, LazyFrame],
+        ids: LazyFrame | None = None,
     ) -> dict[str, list]:
         out = {}
         for name, metrics in self.metrics.items():
@@ -264,16 +264,16 @@ class TableMetric(Metric[A], Generic[A]):
         table: str,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        tables: dict[str, dict[str, LazyFrame]],
+        ids: LazyFrame | None = None,
     ):
         raise NotImplementedError()
 
     def process(
         self,
         split: int,
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        tables: dict[str, dict[str, LazyFrame]],
+        ids: LazyFrame | None = None,
     ) -> A:
         raise NotImplementedError()
 
@@ -291,15 +291,15 @@ class DatasetMetric(Metric[A], Generic[A]):
         self,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: dict[str, pd.DataFrame] | pd.DataFrame,
+        tables: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
     ):
         raise NotImplementedError()
 
     def process(
         self,
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: dict[str, pd.DataFrame] | pd.DataFrame,
+        tables: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
     ) -> A:
         raise NotImplementedError()
 
@@ -331,8 +331,8 @@ def fit_column_holder(
     modules: dict[str, list[ColumnMetricFactory]],
     name: str,
     meta: Metadata,
-    ids: pd.DataFrame,
-    **tables: pd.DataFrame,
+    ids: LazyFrame,
+    **tables: LazyFrame,
 ):
     holder = ColumnMetricHolder(modules)
     holder.fit(table=name, meta=meta, tables=_separate_tables(tables)["raw"], ids=ids)
@@ -342,8 +342,8 @@ def fit_column_holder(
 def process_column_holder(
     split: int,
     holder: ColumnMetricHolder,
-    ids: pd.DataFrame,
-    **tables: pd.DataFrame,
+    ids: LazyFrame,
+    **tables: LazyFrame,
 ):
     splits = _separate_tables(tables)
     tables = dict(splits["raw"])
@@ -355,8 +355,8 @@ def fit_table_metric(
     fs: TableMetricFactory,
     name: str,
     meta: Metadata,
-    ids: pd.DataFrame,
-    **tables: pd.DataFrame | TransformHolder,
+    ids: LazyFrame,
+    **tables: LazyFrame | TransformHolder,
 ):
     enc = fs.encodings
     splits = _separate_tables(tables).copy()
@@ -368,7 +368,7 @@ def fit_table_metric(
         }
         for e in enc
     }
-    data = cast(dict[str, dict[str, pd.DataFrame]], splits)
+    data = cast(dict[str, dict[str, LazyFrame]], splits)
 
     module = fs.build()
     module.fit(table=name, meta=meta, attrs=attrs, tables=data, ids=ids)
@@ -378,8 +378,8 @@ def fit_table_metric(
 def process_table_metric(
     split: int,
     metric: TableMetric,
-    ids: pd.DataFrame,
-    **tables: pd.DataFrame,
+    ids: LazyFrame,
+    **tables: LazyFrame,
 ):
     return metric.process(split=split, tables=_separate_tables(tables), ids=ids)
 
@@ -387,7 +387,7 @@ def process_table_metric(
 def fit_dataset_metric(
     fs: DatasetMetricFactory,
     meta: Metadata,
-    **tables: pd.DataFrame | TransformHolder,
+    **tables: LazyFrame | TransformHolder,
 ):
     enc = fs.encodings
     assert enc and len(enc) > 1
@@ -401,8 +401,8 @@ def fit_dataset_metric(
         for e in enc
     }
 
-    ids = cast(dict[str, pd.DataFrame], splits.pop("ids"))
-    data = cast(dict[str, dict[str, pd.DataFrame]], splits)
+    ids = cast(dict[str, LazyFrame], splits.pop("ids"))
+    data = cast(dict[str, dict[str, LazyFrame]], splits)
 
     module = fs.build()
     module.fit(meta=meta, attrs=attrs, tables=data, ids=ids)
@@ -411,7 +411,7 @@ def fit_dataset_metric(
 
 def process_dataset_metric(
     metric: DatasetMetric,
-    **tables: pd.DataFrame,
+    **tables: LazyFrame,
 ):
     splits = _separate_tables(tables).copy()
     ids = splits.pop("ids")

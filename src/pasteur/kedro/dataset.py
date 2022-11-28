@@ -10,7 +10,7 @@ from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import DataSetError, get_filepath_str, PROTOCOL_DELIMITER
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
-from ..utils.progress import process_in_parallel
+from ..utils.progress import process_in_parallel, process
 from ..utils import gen_closure, LazyFrame
 
 logger = logging.getLogger(__name__)
@@ -66,15 +66,16 @@ class PatternDataSet(PartitionedDataSet):
         return self._replace_format.format(*m.groups(), **m.groupdict())
 
 
-def parallel_save_worker(
-    pid: str,
+def _save_worker(
+    pid: str | None,
     path: str,
     chunk: Callable[..., pd.DataFrame] | pd.DataFrame,
     protocol,
     fs,
     save_args,
 ):
-    logging.debug(f"Saving chunk {pid}...")
+    if pid:
+        logging.debug(f"Saving chunk {pid}...")
 
     if callable(chunk):
         chunk = chunk()
@@ -84,18 +85,23 @@ def parallel_save_worker(
     if protocol == "file":
         with fs.open(path, mode="wb") as fs_file:
             chunk.to_parquet(fs_file, **save_args)
-        
     else:
         bytes_buffer = BytesIO()
         chunk.to_parquet(bytes_buffer, **save_args)
 
         with fs.open(path, mode="wb") as fs_file:
             fs_file.write(bytes_buffer.getvalue())
-    
+
     return mem
 
 
-def load_worker(path: str, protocol: str, storage_options, load_args):
+def _load_worker(
+    path: str,
+    protocol: str,
+    storage_options,
+    load_args: dict,
+    columns: list[str] | None = None,
+):
     if protocol == "file":
         # file:// protocol seems to misbehave on Windows
         # (<urlopen error file not on local host>),
@@ -104,32 +110,45 @@ def load_worker(path: str, protocol: str, storage_options, load_args):
         return pd.read_parquet(path, **load_args)
 
     load_path = f"{protocol}{PROTOCOL_DELIMITER}{path}"
+    if columns is not None:
+        load_args = load_args.copy()
+        load_args["columns"] = columns
+
     return pd.read_parquet(load_path, storage_options=storage_options, **load_args)
 
 
+def _load_merged_worker(
+    load_path: str, filesystem, load_args, columns: list[str] | None = None
+):
+    if columns is not None:
+        load_args = load_args.copy()
+        load_args["columns"] = columns
+
+    data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
+    table = data.read_pandas(**load_args)
+
+    # Try to avoid double allocation
+    return table.to_pandas(split_blocks=True, self_destruct=True)
+
+
 class FragmentedParquetDataset(ParquetDataSet):
-    """Modified kedro parquet dataset that acts similarly to a partitioned dataset.
+    """Modified kedro parquet dataset that acts similarly to a partitioned dataset
+    and implements lazy loading.
 
     `save()` data can be a table, a callable, or a dictionary combination of both.
 
     If its a table or a callable, this class acts exactly as ParquetDataSet.
     If its a dictionary, each callable function is called and saved in parallel
     in a different parquet file, making the provided path a directory.
+    Parallelism is achieved by using Pasteur's common process pool.
 
-    `load()` merges all parquet files into one table and returns a DataFrame.
-    It also uses optimisations to avoid double memory allocation as much as possible.
-
-    if `partition_load` is set to true and `save()` was called with a dictionary,
-    `load()` returns an equivalent dictionary of callables.
-
-    The partitioned form of `load()` is used for datasets, where their size might
-    be larger than the available RAM, making them ingestable in machines with little
-    RAM. Then, when the views are split, the non partitioned form of `load()` is
-    used, merging the chunks. Provided that an appropriate ratio is chosen for the
-    splits, the combined chunks will be tractable for the provided RAM.
-
-    Out-of-core learning is experimental in most algorithms, so providing it for the
-    whole framework provides little utility for now."""
+    `load()` returns a dictionary with parquet file names and callables that will
+    load each one. In addition, `load()` will include an entry `_all` that will
+    load and concatenate all partitions, with memory optimisations.
+    If `save()` was called with a single dataframe/callable, then `load()` will
+    return a callable instead.
+    All callables can receive as input the columns they want to be loaded from the
+    dataframe."""
 
     def __init__(
         self,
@@ -139,40 +158,31 @@ class FragmentedParquetDataset(ParquetDataSet):
         version=None,
         credentials=None,
         fs_args=None,
-        partition_load: bool = False,
     ) -> None:
         super().__init__(filepath, load_args, save_args, version, credentials, fs_args)  # type: ignore
-        self.partition_load = partition_load
-
-    def _load_merged(self) -> pd.DataFrame:
-        load_path = get_filepath_str(self._get_load_path(), self._protocol)
-
-        data = pq.ParquetDataset(
-            load_path, filesystem=self._fs, use_legacy_dataset=False
-        )
-        table = data.read_pandas(**self._load_args)
-        # Try to avoid double allocation
-        return table.to_pandas(split_blocks=True, self_destruct=True)
 
     def _load(self) -> LazyFrame | pd.DataFrame:
-        if not self.partition_load:
-            return self._load_merged()
-
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
         if not self._fs.isdir(load_path):
-            return self._load_merged()
+            return gen_closure(
+                _load_merged_worker, load_path, self._fs, self._load_args
+            )
 
         partitions = {}
         for fn in self._fs.listdir(load_path):
             partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
             partition_data = gen_closure(
-                load_worker,
+                _load_worker,
                 fn["name"],
                 self._protocol,
                 self._storage_options,
                 self._load_args,
             )
             partitions[partition_id] = partition_data
+
+        partitions["_all"] = gen_closure(
+            _load_merged_worker, load_path, self._fs, self._load_args
+        )
 
         return partitions
 
@@ -182,16 +192,17 @@ class FragmentedParquetDataset(ParquetDataSet):
         if self._fs.exists(save_path):
             self._fs.rm(save_path, recursive=True)
 
-        if isinstance(data, pd.DataFrame):
-            return self._save_no_buff(save_path, data)
-
-        if callable(data):
-            return self._save_no_buff(save_path, data())
-
         if not isinstance(data, dict):
-            raise DataSetError(
-                f"{self.__class__.__name__} arguments should be DataFrames, callables, or dicts of dataframes and callables, not {type[data]}."
+            process(
+                _save_worker,
+                protocol=self._protocol,
+                fs=self._fs,
+                save_args=self._save_args,
+                pid=None,
+                path=save_path,
+                chunk=data,
             )
+            return
 
         base_args = {
             "protocol": self._protocol,
@@ -200,26 +211,18 @@ class FragmentedParquetDataset(ParquetDataSet):
         }
         jobs = []
         for pid, partition_data in sorted(data.items()):
+            if (pid == "_all"):
+                logger.debug("Skipping partition `_all`.")
+                continue
             chunk_save_path = os.path.join(
-                save_path, pid if pid.endswith(".pq") else pid + ".pq"
+                save_path, pid if pid.endswith(".pq") else pid + ".pq"  # type: ignore
             )
             jobs.append({"pid": pid, "path": chunk_save_path, "chunk": partition_data})
 
         if not jobs:
             return
-        
-        import psutil
 
-        MULTIPLIER = 10
-        batch_mem = parallel_save_worker(**jobs[0], **base_args)
-        total_mem = psutil.virtual_memory().total
-        max_workers = int(total_mem / batch_mem / MULTIPLIER)
-
-        logger.info(f"Batch size: {batch_mem / 1e9:.3f}GB, total RAM: {total_mem / 1e9:.3f}GB. Using up to {max_workers} workers.")
-
-        process_in_parallel(
-            parallel_save_worker, jobs[1:], base_args, 1, f"Saving parquet chunks", max_workers=max_workers
-        )
+        process_in_parallel(_save_worker, jobs, base_args, 1, f"Saving parquet chunks")
 
         self._invalidate_cache()
 

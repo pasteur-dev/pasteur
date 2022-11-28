@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pandas as pd
-
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
+from .utils import LazyFrame
+
 
 if TYPE_CHECKING:
     from .attribute import Attributes
@@ -69,16 +69,16 @@ class Synth(ModuleClass):
     def preprocess(
         self,
         attrs: dict[str, Attributes],
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         """Runs any preprocessing required, such as domain reduction."""
         raise NotImplementedError()
 
     def bake(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
@@ -89,8 +89,8 @@ class Synth(ModuleClass):
 
     def fit(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         """Fits the model based on the provided data.
 
@@ -99,7 +99,7 @@ class Synth(ModuleClass):
 
     def sample(
         self, n: int | None = None
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    ) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
         """Returns data, ids dict dataframes in the same format they were provided.
 
         Optional `n` parameter sets how many rows should be sampled. Otherwise,
@@ -109,7 +109,7 @@ class Synth(ModuleClass):
 
 
 def synth_fit(
-    factory: SynthFactory, metadata: Metadata, **kwargs: pd.DataFrame | TransformHolder
+    factory: SynthFactory, metadata: Metadata, **kwargs: LazyFrame | TransformHolder
 ):
     from .utils.perf import PerformanceTracker
 
@@ -120,12 +120,12 @@ def synth_fit(
     ids = {
         n[4:]: i
         for n, i in kwargs.items()
-        if "ids_" in n and isinstance(i, pd.DataFrame)
+        if "ids_" in n and not isinstance(i, TransformHolder)
     }
     data = {
         n[4:]: d
         for n, d in kwargs.items()
-        if "enc_" in n and isinstance(d, pd.DataFrame)
+        if "enc_" in n and not isinstance(d, TransformHolder)
     }
     trns = {
         n[4:]: t
@@ -174,42 +174,42 @@ def synth_sample(model: Synth):
 class IdentSynth(Synth):
     """Returns the data it was provided."""
 
-    name = "ident_idx"
-    type = "idx"
     tabular = True
     multimodal = True
     timeseries = True
 
+    def __init__(
+        self, *args, _from_factory: bool = False, name="ident_idx", type="idx", **kwargs
+    ) -> None:
+        self.name = name
+        self.type = type
+        super().__init__(*args, _from_factory=_from_factory, **kwargs)
+
     def preprocess(
         self,
         attrs: dict[str, Attributes],
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         pass
 
     def bake(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         pass
 
     def fit(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        data: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
     ):
         self._data = data
         self._ids = ids
 
     def sample(self):
         return self._data, self._ids
-
-
-class NumIdentSynth(IdentSynth):
-    name = "ident_num"
-    type = "num"
 
 
 __all__ = ["Synth", "synth_fit", "synth_sample"]

@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
-from .utils import LazyFrame, gen_closure
+from .utils import (
+    LazyFrame,
+    LazyChunk,
+    gen_closure,
+    is_partitioned,
+    are_partitioned,
+    is_lazy,
+    get_data,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -84,11 +92,8 @@ def filter_by_keys(keys: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
     return new_table
 
 
-def filter_by_keys_lazy(
-    keys: pd.DataFrame, fun: Callable[..., pd.DataFrame] | pd.DataFrame
-):
-    chunk = fun() if callable(fun) else fun
-    return filter_by_keys(keys, chunk)
+def filter_by_keys_lazy(keys: pd.DataFrame, chunk: LazyChunk):
+    return filter_by_keys(keys, get_data(chunk))
 
 
 class View(Module):
@@ -139,24 +144,16 @@ class View(Module):
     ):
         return split_keys(keys, split, random_state)
 
-    def filter_tables(self, keys: pd.DataFrame, **tables: pd.DataFrame | LazyFrame):
-        import pandas as pd
-
+    def filter_tables(self, keys: pd.DataFrame, **tables: LazyFrame):
         new_tables = {}
         for name, table in tables.items():
-            if isinstance(table, pd.DataFrame):
-                new_tables[name] = filter_by_keys(keys, table)
+            if is_partitioned(table):
+                new_tables[name] = {
+                    pid: gen_closure(filter_by_keys_lazy, keys, fun)
+                    for pid, fun in table.items()
+                }
             else:
-                new_tables[name] = pd.concat(
-                    [
-                        filter_by_keys(keys, fun() if callable(fun) else fun)
-                        for fun in table.values()
-                    ]
-                )
-                # new_tables[name] = {
-                #     pid: gen_closure(filter_by_keys_lazy, keys, fun)
-                #     for pid, fun in table.items()
-                # }
+                new_tables[name] = filter_by_keys(keys, table)
         return new_tables
 
     def __str__(self) -> str:
@@ -167,7 +164,7 @@ class TabularView(View):
     deps = {"table": ["table"]}
     tabular: bool = True
 
-    def ingest(self, name, **tables: pd.DataFrame):
+    def ingest(self, name, **tables: LazyFrame):
         assert name == "table"
         return tables["table"]
 

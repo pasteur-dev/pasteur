@@ -7,7 +7,7 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta, TAGS_DATASET
-from .utils import gen_closure, get_params_closure
+from .utils import gen_closure
 
 if TYPE_CHECKING:
     from ...dataset import Dataset
@@ -35,7 +35,7 @@ def create_dataset_pipeline(
     meta_tables = PipelineMeta(
         modular_pipeline(pipe=pipe, namespace=dataset.name),
         [
-            D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t], type="ppq")
+            D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t], type="pq")
             for t in tables
         ],
     )
