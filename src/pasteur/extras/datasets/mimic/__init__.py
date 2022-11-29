@@ -5,14 +5,16 @@ from typing import TYPE_CHECKING, Callable, cast
 import numpy as np
 import pandas as pd
 
-from ....dataset import Dataset
+from ....dataset import Dataset, TypedDataset
 from ....utils import LazyChunk, LazyFrame, gen_closure, get_data, get_relative_fn
 
 if TYPE_CHECKING:
     from pandas.io.parsers.readers import TextFileReader
 
 
-def _split_table(chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"):
+def _split_table(
+    chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"
+):
     pd_keys = pd.DataFrame(index=keys)
     del keys
 
@@ -20,7 +22,9 @@ def _split_table(chunksize: int, keys: np.ndarray, table: "Callable[..., TextFil
         yield chunk.join(pd_keys, on="subject_id", how="inner")
 
 
-def _partition_table(table: Callable, patients: LazyFrame, n_partition: int, chunksize: int):
+def _partition_table(
+    table: Callable, patients: LazyFrame, n_partition: int, chunksize: int
+):
     # Deterministic loading = all tables have the same split
     keys = get_data(patients, ["subject_id"]).index.to_numpy()
     partitions = np.array_split(keys, n_partition)
@@ -39,32 +43,32 @@ class MimicDataset(Dataset):
         "core_patients",
         "core_transfers",
         "core_admissions",
-        "hosp_d_hcpcs",
-        "hosp_diagnoses_icd",
-        "hosp_d_icd_diagnoses",
-        "hosp_d_icd_procedures",
-        "hosp_d_labitems",
-        "hosp_drgcodes",
-        "hosp_hcpcsevents",
-        "hosp_microbiologyevents",
-        "hosp_poe_detail",
-        "hosp_procedures_icd",
-        "hosp_services",
-        "icu_datetimeevents",
-        "icu_d_items",
-        "icu_icustays",
-        "icu_outputevents",
-        "icu_procedureevents",
+        # "hosp_d_hcpcs",
+        # "hosp_diagnoses_icd",
+        # "hosp_d_icd_diagnoses",
+        # "hosp_d_icd_procedures",
+        # "hosp_d_labitems",
+        # "hosp_drgcodes",
+        # "hosp_hcpcsevents",
+        # "hosp_microbiologyevents",
+        # "hosp_poe_detail",
+        # "hosp_procedures_icd",
+        # "hosp_services",
+        # "icu_datetimeevents",
+        # "icu_d_items",
+        # "icu_icustays",
+        # "icu_outputevents",
+        # "icu_procedureevents",
     ]
 
     _mimic_tables_partitioned = {
-        "hosp_emar": (5, 5_000_000),
-        "hosp_emar_detail": (5, 5_000_000),
-        "hosp_labevents": (20, 20_000_000),
-        "hosp_pharmacy": (5, 5_000_000),
-        "hosp_poe": (5, 5_000_000),
+        # "hosp_emar": (5, 5_000_000),
+        # "hosp_emar_detail": (5, 5_000_000),
+        # "hosp_labevents": (20, 5_000_000),
+        # "hosp_pharmacy": (5, 10_000_000),
+        # "hosp_poe": (5, 10_000_000),
         "hosp_prescriptions": (5, 5_000_000),
-        "icu_chartevents": (30, 20_000_000),
+        # "icu_chartevents": (30, 5_000_000),
         "icu_inputevents": (5, 5_000_000),
     }
 
@@ -78,6 +82,8 @@ class MimicDataset(Dataset):
     folder_name = "mimiciv_1_0"
     catalog = get_relative_fn("catalog.yml")
 
+    cache_typed = True
+
     def ingest(self, name, **tables: LazyFrame | Callable[..., TextFileReader]):
         if name in self._mimic_tables_single:
             return cast("LazyFrame", tables[name])
@@ -87,7 +93,7 @@ class MimicDataset(Dataset):
                 cast("Callable[..., TextFileReader]", tables[name]),
                 cast("LazyFrame", tables["core_patients"]),
                 n_partitions,
-                chunksize
+                chunksize,
             )
 
     def keys(self, **tables: LazyChunk):

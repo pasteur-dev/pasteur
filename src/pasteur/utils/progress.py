@@ -104,8 +104,25 @@ X = TypeVar("X")
 _pool: "ProcessPoolExecutor | None" = None
 
 
-def _init_subprocess(lk):
+def _replace_loggers_with_queue(q):
+    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+    loggers.append(logging.root)
+
+    for l in loggers:
+        l.propagate = True
+        l.handlers = []
+        l.level = logging.NOTSET
+
+    from logging.handlers import QueueHandler
+
+    logging.root.handlers.append(QueueHandler(q))
+
+
+def _init_subprocess(lk, log_queue):
     import signal
+
+    if log_queue is not None:
+        _replace_loggers_with_queue(log_queue)
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     tqdm.set_lock(lk)
@@ -144,7 +161,7 @@ def get_node_name():
     return _node_name.name
 
 
-def init_pool(max_workers: int | None = None):
+def init_pool(max_workers: int | None = None, log_queue=None):
     """Creates a shared process pool for all threads in this process.
 
     `max_workers` should be set based either on cores or on how many RAM GBs
@@ -158,7 +175,7 @@ def init_pool(max_workers: int | None = None):
 
     lk = tqdm.get_lock()
     _pool = ProcessPoolExecutor(
-        initializer=_init_subprocess, initargs=(lk,), max_workers=max_workers
+        initializer=_init_subprocess, initargs=(lk, log_queue), max_workers=max_workers
     )
 
 
@@ -174,10 +191,10 @@ def process(fun: Callable[..., X], *args, **kwargs) -> X:
 
     from concurrent.futures import CancelledError
 
-    try:
-        return _get_pool().submit(fun, *args, **kwargs).result()
-    except (RuntimeError, CancelledError):
-        raise KeyboardInterrupt()
+    # try:
+    return _get_pool().submit(fun, *args, **kwargs).result()
+    # except (RuntimeError, CancelledError):
+    #     raise KeyboardInterrupt()
 
 
 def process_in_parallel(

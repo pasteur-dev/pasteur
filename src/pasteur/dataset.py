@@ -111,6 +111,17 @@ def _ingest_chunk(
     df.index.name = "id"
     return df
 
+class TypedDataset(Dataset):
+    """ Extend from to create an intermediary step in ingestion, where the table
+    is loaded from `<dataset>.raw@<table>` to a parquet one `<dataset>.typed.<table>.
+    
+    Useful for multiple reads to raw tables. You can also override the `type()` function to make
+    minor changes to the dataset. By default it's the identity. 
+    
+    Since parquet files don't support chunked loading it's unused."""
+
+    def type(self, table: Any):
+        return table
 
 class TabularDataset(Dataset):
     """Boilerplate for a tabular dataset. Assumes the dataset contains one table
@@ -149,5 +160,6 @@ class TabularDataset(Dataset):
         assert len(tables) == 1 and "table" in tables
 
         return get_data(tables["table"], columns=[])[[]]
+
 
 __all__ = ["Dataset", "TabularDataset"]

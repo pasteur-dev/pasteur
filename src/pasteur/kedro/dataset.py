@@ -90,9 +90,9 @@ def _save_worker(
 
     # Handle data partitioning using generators, to avoid storing the whole partition in ram
     # or having to use pd.concat()
-    if isgenerator(chunk):
+    if isgenerator(chunk) or hasattr(chunk, "get_chunk"):
         # Assumes there's at least one chunk
-        p0 = next(chunk)
+        p0 = next(chunk)  # type: ignore
         # FIXME: Schema inference
         # null columns will lead to invalid schema
         # Try to upscale int8 dictionary types to avoid errors
@@ -149,6 +149,7 @@ def _load_worker(
         return pd.read_parquet(path, **load_args)
 
     load_path = f"{protocol}{PROTOCOL_DELIMITER}{path}"
+
     if columns is not None:
         load_args = load_args.copy()
         load_args["columns"] = columns

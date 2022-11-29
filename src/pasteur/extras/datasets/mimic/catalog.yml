@@ -9,6 +9,10 @@ _mimic_in_csv: &mimic_csv
     header: 0
     infer_datetime_format: True
 
+_mimic_in_chunked: &mimic_chunked
+  # Currently a placeholder
+  <<: *mimic_csv
+
 mimic.raw@core_patients:
   <<: *mimic_csv
   filepath: ${location}/core/patients.csv.gz
@@ -102,7 +106,7 @@ mimic.raw@hosp_drgcodes:
       drg_mortality: category
 
 mimic.raw@hosp_emar:
-  <<: *mimic_csv
+  <<: *mimic_chunked
   filepath: ${location}/hosp/emar.csv.gz
 
   load_args:
@@ -114,7 +118,7 @@ mimic.raw@hosp_emar:
       pharmacy_id: Int32
 
 mimic.raw@hosp_emar_detail:
-  <<: *mimic_csv
+  <<: *mimic_chunked
   filepath: ${location}/hosp/emar_detail.csv.gz
 
   load_args:
@@ -168,7 +172,7 @@ mimic.raw@hosp_hcpcsevents:
       seq_num: int32
 
 mimic.raw@hosp_labevents:
-  <<: *mimic_csv
+  <<: *mimic_chunked
   filepath: ${location}/hosp/labevents.csv.gz
 
   load_args:
@@ -232,10 +236,14 @@ mimic.raw@hosp_poe:
     dtype:
       subject_id: int32
       hadm_id: int32
+      poe_sec: int16
       order_status: category
       transaction_type: category
       order_subtype: category
       order_type: category
+      poe_id: object
+      discontinue_of_poe_id: object
+      discontinued_by_poe_id: object
 
 mimic.raw@hosp_poe_detail:
   <<: *mimic_csv

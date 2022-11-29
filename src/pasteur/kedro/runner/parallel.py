@@ -40,25 +40,7 @@ def _logging_thread_fun(q):
     except EOFError:
         pass
 
-
-def _replace_loggers_with_queue(q):
-    loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-    loggers.append(logging.root)
-
-    for l in loggers:
-        l.propagate = True
-        l.handlers = []
-        l.level = logging.NOTSET
-
-    from logging.handlers import QueueHandler
-
-    logging.root.handlers.append(QueueHandler(q))
-
-
-def _replace_logging(fun, *args, _q=None, **kwargs):
-    if _q is not None:
-        _replace_loggers_with_queue(_q)
-
+def _init_node(fun, *args, **kwargs):
     node_name = kwargs["node"].name.split("(")[0]
     set_node_name(node_name)
 
@@ -135,7 +117,16 @@ class SimpleParallelRunner(ParallelRunner):
         futures = set()
         done = None
 
-        init_pool(self.max_workers)
+
+        # set up logging handler for subprocesses
+        log_queue = self._manager.Queue()
+        lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
+        lp.start()
+
+        # Init subprocess pool
+        init_pool(self.max_workers, log_queue)
+
+        # Find max threads appropriate to pipeline
         max_threads = _get_required_workers_count(pipeline, self.max_workers)
 
         use_pbar = not is_jupyter()
@@ -145,10 +136,6 @@ class SimpleParallelRunner(ParallelRunner):
             initializer=tqdm.set_lock,
             initargs=(tqdm.get_lock(),),
         ) as pool:
-            # set up logging handler
-            log_queue = self._manager.Queue()
-            lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
-            lp.start()
 
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
@@ -172,14 +159,13 @@ class SimpleParallelRunner(ParallelRunner):
                 for node in ready:
                     futures.add(
                         pool.submit(
-                            _replace_logging,
+                            _init_node,
                             run_node,
                             node=node,
                             catalog=catalog,
                             is_async=False,
                             hook_manager=hook_manager,
                             session_id=session_id,
-                            _q=log_queue,
                         )
                     )
 
