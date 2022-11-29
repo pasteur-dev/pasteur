@@ -23,8 +23,8 @@ def get_data(lazy: LazyFrame, columns: list[str] | None = None) -> "pd.DataFrame
     elif isinstance(lazy, dict):
         import pandas as pd
 
-        if "_all" in lazy:
-            return get_data(lazy["_all"], columns=columns)
+        if hasattr(lazy, "all"):
+            return get_data(getattr(lazy, "all"), columns=columns)
 
         return pd.concat([get_data(l, columns=columns) for l in lazy.values()])
     else:

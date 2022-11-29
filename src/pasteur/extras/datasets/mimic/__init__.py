@@ -12,33 +12,28 @@ if TYPE_CHECKING:
     from pandas.io.parsers.readers import TextFileReader
 
 
-def _split_table(keys: np.ndarray, table: "Callable[..., TextFileReader]"):
+def _split_table(chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"):
     pd_keys = pd.DataFrame(index=keys)
     del keys
 
-    out = []
-    for chunk in table():
-        out.append(chunk.join(pd_keys, on="subject_id", how="inner"))
-        del chunk
-    
-    return pd.concat(out)
+    for chunk in table(chunksize=chunksize):
+        yield chunk.join(pd_keys, on="subject_id", how="inner")
 
 
-def _partition_table(table: Callable, patients: LazyFrame, n_partition: int | None):
+def _partition_table(table: Callable, patients: LazyFrame, n_partition: int, chunksize: int):
     # Deterministic loading = all tables have the same split
     keys = get_data(patients, ["subject_id"]).index.to_numpy()
-    partitions = np.array_split(keys, n_partition or 5)
+    partitions = np.array_split(keys, n_partition)
 
     return {
-        str(i): gen_closure(_split_table, part, table)
+        str(i): gen_closure(_split_table, chunksize, part, table)
         for i, part in enumerate(partitions)
     }
 
 
 class MimicDataset(Dataset):
-    def __init__(self, n_partition: int | None = None,  **_) -> None:
+    def __init__(self, **_) -> None:
         super().__init__(**_)
-        self.n_partition = n_partition
 
     _mimic_tables_single = [
         "core_patients",
@@ -51,27 +46,27 @@ class MimicDataset(Dataset):
         "hosp_d_labitems",
         "hosp_drgcodes",
         "hosp_hcpcsevents",
-        "hosp_labevents",
         "hosp_microbiologyevents",
-        "hosp_pharmacy",
-        "hosp_poe",
         "hosp_poe_detail",
-        "hosp_prescriptions",
         "hosp_procedures_icd",
         "hosp_services",
-        "icu_chartevents",
         "icu_datetimeevents",
         "icu_d_items",
         "icu_icustays",
-        "icu_inputevents",
         "icu_outputevents",
         "icu_procedureevents",
     ]
 
-    _mimic_tables_partitioned = [
-        "hosp_emar",
-        "hosp_emar_detail",
-    ]
+    _mimic_tables_partitioned = {
+        "hosp_emar": (5, 5_000_000),
+        "hosp_emar_detail": (5, 5_000_000),
+        "hosp_labevents": (20, 20_000_000),
+        "hosp_pharmacy": (5, 5_000_000),
+        "hosp_poe": (5, 5_000_000),
+        "hosp_prescriptions": (5, 5_000_000),
+        "icu_chartevents": (30, 20_000_000),
+        "icu_inputevents": (5, 5_000_000),
+    }
 
     name = "mimic"
     deps = {
@@ -87,10 +82,12 @@ class MimicDataset(Dataset):
         if name in self._mimic_tables_single:
             return cast("LazyFrame", tables[name])
         if name in self._mimic_tables_partitioned:
+            n_partitions, chunksize = self._mimic_tables_partitioned[name]
             return _partition_table(
                 cast("Callable[..., TextFileReader]", tables[name]),
                 cast("LazyFrame", tables["core_patients"]),
-                self.n_partition
+                n_partitions,
+                chunksize
             )
 
     def keys(self, **tables: LazyChunk):

@@ -6,6 +6,8 @@ _mimic_in_csv: &mimic_csv
   load_args: &mimic_csv_load
     sep: ","
     engine: "c"
+    header: 0
+    infer_datetime_format: True
 
 mimic.raw@core_patients:
   <<: *mimic_csv
@@ -17,6 +19,9 @@ mimic.raw@core_patients:
     dtype:
       subject_id: int32
       gender: category
+      anchor_age: int16
+      anchor_year: int16
+      anchor_year_group: category
 
 mimic.raw@core_transfers:
   <<: *mimic_csv
@@ -99,7 +104,6 @@ mimic.raw@hosp_drgcodes:
 mimic.raw@hosp_emar:
   <<: *mimic_csv
   filepath: ${location}/hosp/emar.csv.gz
-  chunksize: 2000000
 
   load_args:
     <<: *mimic_csv_load
@@ -112,12 +116,10 @@ mimic.raw@hosp_emar:
 mimic.raw@hosp_emar_detail:
   <<: *mimic_csv
   filepath: ${location}/hosp/emar_detail.csv.gz
-  chunksize: 2000000
 
   load_args:
     <<: *mimic_csv_load
-    # engine: c
-    # nrows: 10000000
+    index_col: emar_id
     dtype:
       subject_id: int32
       emar_id: object
@@ -168,6 +170,7 @@ mimic.raw@hosp_hcpcsevents:
 mimic.raw@hosp_labevents:
   <<: *mimic_csv
   filepath: ${location}/hosp/labevents.csv.gz
+
   load_args:
     <<: *mimic_csv_load
     index_col: labevent_id

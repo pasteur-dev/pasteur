@@ -154,8 +154,7 @@ class SimpleParallelRunner(ParallelRunner):
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
             pbar: piter = None  # type: ignore
-            if not is_jupyter() or not use_pbar:
-                logger.info(desc)
+            logger.info(desc)
             if use_pbar:
                 pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
             last_index = 0

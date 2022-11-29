@@ -5,16 +5,21 @@ from io import BytesIO
 from typing import Callable
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 from kedro.extras.datasets.pandas.csv_dataset import CSVDataSet
 from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
-from kedro.io.core import DataSetError, get_filepath_str, PROTOCOL_DELIMITER
+from kedro.io.core import PROTOCOL_DELIMITER, get_filepath_str
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
-from ..utils.progress import process_in_parallel, process, get_node_name
-from ..utils import gen_closure, LazyFrame
+from ..utils import LazyFrame, gen_closure
+from ..utils.progress import get_node_name, process, process_in_parallel
 
 logger = logging.getLogger(__name__)
+
+
+class _PartitionDict(dict):
+    ...
 
 
 class PatternDataSet(PartitionedDataSet):
@@ -81,15 +86,52 @@ def _save_worker(
     if callable(chunk):
         chunk = chunk()
 
-    if protocol == "file":
-        with fs.open(path, mode="wb") as fs_file:
-            chunk.to_parquet(fs_file, **save_args)
-    else:
-        bytes_buffer = BytesIO()
-        chunk.to_parquet(bytes_buffer, **save_args)
+    from inspect import isgenerator
 
-        with fs.open(path, mode="wb") as fs_file:
-            fs_file.write(bytes_buffer.getvalue())
+    # Handle data partitioning using generators, to avoid storing the whole partition in ram
+    # or having to use pd.concat()
+    if isgenerator(chunk):
+        # Assumes there's at least one chunk
+        p0 = next(chunk)
+        # FIXME: Schema inference
+        # null columns will lead to invalid schema
+        # Try to upscale int8 dictionary types to avoid errors
+        old_schema = pa.Table.from_pandas(p0).schema
+        fields = []
+        for field in old_schema:
+            if (
+                isinstance(field.type, pa.DictionaryType)
+                and field.type.index_type.bit_width == 8
+            ):
+                fields.append(
+                    pa.field(
+                        field.name,
+                        pa.dictionary(pa.int16(), field.type.value_type),
+                        field.nullable,
+                        field.metadata,
+                    )
+                )
+            else:
+                fields.append(field)
+        schema = pa.schema(fields, old_schema.metadata)
+
+        # Use parquet writer to write chunks
+        with pq.ParquetWriter(path, schema, filesystem=fs) as w:
+            w.write(pa.Table.from_pandas(p0, schema=schema))
+            del p0
+
+            for p in chunk:
+                w.write(pa.Table.from_pandas(p, schema=schema))
+    else:
+        if protocol == "file":
+            with fs.open(path, mode="wb") as fs_file:
+                chunk.to_parquet(fs_file, **save_args)
+        else:
+            bytes_buffer = BytesIO()
+            chunk.to_parquet(bytes_buffer, **save_args)
+
+            with fs.open(path, mode="wb") as fs_file:
+                fs_file.write(bytes_buffer.getvalue())
 
 
 def _load_worker(
@@ -165,7 +207,7 @@ class FragmentedParquetDataset(ParquetDataSet):
                 _load_merged_worker, load_path, self._fs, self._load_args
             )
 
-        partitions = {}
+        partitions = _PartitionDict()
         for fn in self._fs.listdir(load_path):
             partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
             partition_data = gen_closure(
@@ -177,7 +219,7 @@ class FragmentedParquetDataset(ParquetDataSet):
             )
             partitions[partition_id] = partition_data
 
-        partitions["_all"] = gen_closure(
+        partitions.all = gen_closure(  # type: ignore
             _load_merged_worker, load_path, self._fs, self._load_args
         )
 
@@ -208,9 +250,6 @@ class FragmentedParquetDataset(ParquetDataSet):
         }
         jobs = []
         for pid, partition_data in sorted(data.items()):
-            if pid == "_all":
-                logger.debug("Skipping partition `_all`.")
-                continue
             chunk_save_path = os.path.join(
                 save_path, pid if pid.endswith(".pq") else pid + ".pq"  # type: ignore
             )
@@ -218,6 +257,8 @@ class FragmentedParquetDataset(ParquetDataSet):
 
         if not jobs:
             return
+
+        self._fs.mkdir(save_path)
 
         process_in_parallel(
             _save_worker,
@@ -246,8 +287,8 @@ def _load_csv(
     load_path: str,
     storage_options,
     load_args: dict,
-    chunksize: int | None = None,
     columns: list[str] | None = None,
+    chunksize: int | None = None,
 ):
     if columns is not None or chunksize is not None:
         load_args = load_args.copy()
@@ -281,8 +322,13 @@ class FragmentedCSVDataset(CSVDataSet):
         fs_args=None,
         chunksize: int | None = None,
     ) -> None:
+        if chunksize:
+            if load_args:
+                load_args = load_args.copy()
+                load_args["chunksize"] = chunksize
+            else:
+                load_args = {"chunksize": chunksize}
         super().__init__(filepath, load_args, save_args, version, credentials, fs_args)  # type: ignore
-        self.chunksize = chunksize
 
     def _load(self) -> LazyFrame:
         load_path = str(self._get_load_path())
@@ -292,5 +338,4 @@ class FragmentedCSVDataset(CSVDataSet):
             load_path,
             self._storage_options,
             self._load_args,
-            self.chunksize,
         )
