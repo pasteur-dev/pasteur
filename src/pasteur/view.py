@@ -6,11 +6,7 @@ from .module import Module
 from .utils import (
     LazyFrame,
     LazyChunk,
-    gen_closure,
-    is_partitioned,
-    are_partitioned,
-    is_lazy,
-    get_data,
+    gen_closure
 )
 
 if TYPE_CHECKING:
@@ -93,7 +89,7 @@ def filter_by_keys(keys: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
 
 
 def filter_by_keys_lazy(keys: pd.DataFrame, chunk: LazyChunk):
-    return filter_by_keys(keys, get_data(chunk))
+    return filter_by_keys(keys, chunk())
 
 
 class View(Module):
@@ -147,13 +143,13 @@ class View(Module):
     def filter_tables(self, keys: pd.DataFrame, **tables: LazyFrame):
         new_tables = {}
         for name, table in tables.items():
-            if is_partitioned(table):
+            if table.partitioned:
                 new_tables[name] = {
                     pid: gen_closure(filter_by_keys_lazy, keys, fun)
                     for pid, fun in table.items()
                 }
             else:
-                new_tables[name] = filter_by_keys(keys, table)
+                new_tables[name] = filter_by_keys(keys, table())
         return new_tables
 
     def __str__(self) -> str:

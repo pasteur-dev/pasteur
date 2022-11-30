@@ -3,21 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
-from .utils import (
-    LazyChunk,
-    LazyFrame,
-    are_not_partitioned,
-    are_partitioned,
-    get_data,
-    gen_closure,
-)
+from .utils import LazyChunk, LazyFrame, to_chunked
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
 class Dataset(Module):
-    """A class for a Dataset named <name> that creates a set of tables based on the
+    """A class for a Dataset named `name` that creates a set of tables based on the
     provided dependencies.
 
     The set of tables is `deps.keys()`. It will be based on raw tables `set(deps.values())`.
@@ -42,9 +35,9 @@ class Dataset(Module):
     present in the original download.
 
     For compressed datasets or ones that require preprocessing, `bootstrap` can be
-    implemented as a callable which receives 2 strings, one for the base location
-    of the dataset (based on folder name), and one for a reserved intermediary
-    directory.
+    implemented as a callable which receives 2 strings, one for the raw location
+    of the dataset (based on `folder_name`), and one for a reserved intermediary
+    directory for this dataset (`#{bootstrap}`).
 
     @Warning: having a table named raw is not allowed."""
 
@@ -98,30 +91,18 @@ class Dataset(Module):
         return self.name
 
 
-def _ingest_chunk(
-    deps: dict[str, list[str]],
-    process: Callable[[pd.DataFrame], pd.DataFrame],
-    name: str,
-    tables: dict[str, LazyChunk],
-):
-    import pandas as pd
-
-    assert name == "table"
-    df = pd.concat([process(get_data(tables[name])) for name in deps["table"]])
-    df.index.name = "id"
-    return df
-
 class TypedDataset(Dataset):
-    """ Extend from to create an intermediary step in ingestion, where the table
+    """Extend from to create an intermediary step in ingestion, where the table
     is loaded from `<dataset>.raw@<table>` to a parquet one `<dataset>.typed.<table>.
-    
+
     Useful for multiple reads to raw tables. You can also override the `type()` function to make
-    minor changes to the dataset. By default it's the identity. 
-    
+    minor changes to the dataset. By default it's the identity.
+
     Since parquet files don't support chunked loading it's unused."""
 
     def type(self, table: Any):
         return table
+
 
 class TabularDataset(Dataset):
     """Boilerplate for a tabular dataset. Assumes the dataset contains one table
@@ -136,30 +117,23 @@ class TabularDataset(Dataset):
     def _process_chunk(self, table: pd.DataFrame):
         return table
 
-    def ingest(self, name, **tables: LazyFrame):
-        if are_not_partitioned(tables):
-            return gen_closure(
-                _ingest_chunk, self.deps, self._process_chunk, name, tables
-            )
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
+        import pandas as pd
 
-        assert are_partitioned(tables)
+        assert name == "table"
+        df = pd.concat(
+            [self._process_chunk(tables[name]()) for name in self.deps["table"]]
+        )
+        df.index.name = "id"
+        return df
 
-        keys = tables[self.deps["table"][0]].keys()
-        return {
-            pid: gen_closure(
-                _ingest_chunk,
-                self.deps,
-                name,
-                {name: table[pid] for name, table in tables.items()},
-            )
-            for pid in keys
-        }
-
+    @to_chunked
     def keys(self, **tables: LazyChunk) -> pd.DataFrame:
         """Returns a DataFrame containing only the index column of table "table"."""
         assert len(tables) == 1 and "table" in tables
 
-        return get_data(tables["table"], columns=[])[[]]
+        return tables["table"](columns=[])[[]]
 
 
 __all__ = ["Dataset", "TabularDataset"]

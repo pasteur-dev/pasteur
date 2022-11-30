@@ -1,82 +1,210 @@
 from __future__ import annotations
 
-from functools import partial
+from functools import partial, partialmethod
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, Union, TypeGuard
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    TypeVar,
+    Generic,
+    overload,
+    Mapping,
+    cast,
+)
+from types import GenericAlias
 
 if TYPE_CHECKING:
     import pandas as pd
 
 A = TypeVar("A")
-
-""" A DataFrame that might be loaded lazily. """
-LazyChunk = Union[Callable[..., "pd.DataFrame"], "pd.DataFrame"]
-""" A dictionary of DataFrame partitions or a DataFrame that might be loaded lazily. 
-If dictionary and includes partition `_all`, that partition will load the whole dataframe."""
-LazyFrame = Union[dict[str, LazyChunk], LazyChunk]
+B = TypeVar("B")
 
 
-def get_data(lazy: LazyFrame, columns: list[str] | None = None) -> "pd.DataFrame":
-    """Converts and concats a LazyFrame into one DataFrame, regardless of structure."""
-    if callable(lazy):
-        return lazy(columns=columns)
-    elif isinstance(lazy, dict):
-        import pandas as pd
+class LazyChunk(Generic[A]):
+    def __init__(self, fun: Callable[..., A], /, *args, **kwargs):
+        self.fun = fun
+        self.args = args
+        self.kwargs = kwargs
 
-        if hasattr(lazy, "all"):
-            return get_data(getattr(lazy, "all"), columns=columns)
-
-        return pd.concat([get_data(l, columns=columns) for l in lazy.values()])
-    else:
-        return lazy
-
-
-def is_lazy(chunk: LazyChunk) -> TypeGuard[Callable[..., "pd.DataFrame"]]:
-    return callable(chunk)
+    def __call__(
+        self, columns: list[str] | None = None, chunksize: int | None = None
+    ) -> A:
+        try:
+            return self.fun(
+                *self.args, **self.kwargs, columns=columns, chunksize=chunksize
+            )
+        except TypeError:
+            return self.fun(*self.args, **self.kwargs)
 
 
-def is_not_lazy(chunk: LazyChunk) -> TypeGuard["pd.DataFrame"]:
-    return not callable(chunk)
+class LazyDataset(Generic[A], LazyChunk[A]):
+    def __init__(
+        self,
+        merged_load: LazyChunk[A] | None,
+        partitions: dict[str, LazyChunk[A]] | None = None,
+    ) -> None:
+        self._partitions = partitions
+        self.merged_load = merged_load
 
+    def __call__(
+        self, columns: list[str] | None = None, chunksize: int | None = None
+    ) -> Any:
+        assert self.merged_load, f"Merged loading is not implemented for this dataset."
+        return self.merged_load(columns=columns, chunksize=chunksize)
 
-def is_partitioned(lazy: LazyFrame) -> TypeGuard[dict[str, LazyChunk]]:
-    """Checks whether a LazyFrame is partitioned (ie a dict)."""
-    return isinstance(lazy, dict)
+    def __getitem__(self, pid: str) -> LazyChunk[A]:
+        assert self._partitions, "No partitions found."
+        return self._partitions[pid]
 
+    def __iter__(self):
+        if self._partitions:
+            return iter(self._partitions)
+        return iter([self.merged_load])
 
-def is_not_partitioned(lazy: LazyFrame) -> TypeGuard[LazyChunk]:
-    """Checks whether a LazyFrame is partitioned (ie a dict)."""
-    return not is_partitioned(lazy)
+    @property
+    def partitioned(self):
+        return self._partitions
 
-
-def are_partitioned(
-    lazies: dict[str, LazyFrame]
-) -> TypeGuard[dict[str, dict[str, LazyChunk]]]:
-    """Checks whether a set of LazyFrames are partitioned.
-
-    In addition, runs a check on whether all of them are partitioned and if they
-    are that they have the same keys."""
-    partitioned = [is_partitioned(lazy) for lazy in lazies.values()]
-    assert all(partitioned) or not any(partitioned)
-
-    if not partitioned[0]:
-        return False
-
-    names = list(lazies.keys())
-    ref_keys = set(lazies[names[0]].keys())
-
-    for name in names[1:]:
+    def keys(self):
         assert (
-            set(lazies[name].keys()) == ref_keys
-        ), f"Tables '{name}' and '{names[0]}' have different partitions."
+            self._partitions
+        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        return self._partitions.keys()
 
-    return True
+    def values(self):
+        assert (
+            self._partitions
+        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        return self._partitions.values()
+
+    def items(self):
+        assert (
+            self._partitions
+        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        return self._partitions.items()
+
+    @staticmethod
+    def are_partitioned(*positional: LazyDataset, **keyword: LazyDataset):
+        """Returns whether the provided datasets are partitioned. If they are,
+        checks they have the same partitions."""
+
+        partitions = [*positional, *list(keyword.values())]
+        # Check keys are correct
+        keys = None
+        for partition in partitions:
+            if not partition.partitioned:
+                continue
+
+            if keys == None:
+                keys = list(partition.keys())
+            else:
+                assert set(keys) == set(partition.keys())
+
+        return keys is not None
+
+    @staticmethod
+    @overload
+    def zip(
+        datasets: Mapping[str, LazyDataset[B]], /
+    ) -> dict[str, dict[str, LazyChunk[B]]]:
+        ...
+
+    @staticmethod
+    @overload
+    def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyChunk[B]]]:
+        ...
+
+    @staticmethod
+    @overload
+    def zip(**keyword: LazyDataset[B]) -> dict[str, dict[str, LazyChunk[B]]]:
+        ...
+
+    @staticmethod
+    @overload
+    def zip(
+        *positional: LazyDataset[B], **keyword: LazyDataset[B]
+    ) -> dict[str, tuple[list[LazyChunk[B]], dict[str, LazyChunk[B]]]]:
+        ...
+
+    @staticmethod
+    def zip(
+        *positional, **keyword: LazyDataset[B]
+    ) -> dict[str, dict[str, LazyChunk[B]]] | dict[str, list[LazyChunk[B]]] | dict[
+        str, tuple[list[LazyChunk[B]], dict[str, LazyChunk[B]]]
+    ]:
+        """Aligns and returns a dictionary of partition ids to partitions.
+
+        Partitions can be a list, if positional arguments were provided, or a dictionary
+        if keyword arguments were provided.
+
+        @warning: all partitioned sets should have the same keys."""
+
+        if positional and keyword:
+            partitions = [*positional, *list(keyword.values())]
+        elif positional and not keyword:
+            if isinstance(positional[0], dict):
+                positional = tuple()
+                keyword = positional[0]
+                partitions = keyword.values()
+            else:
+                partitions = positional
+        else:
+            partitions = keyword.values()
+
+        # Check keys are correct
+        keys = None
+        for partition in partitions:
+            if not partition.partitioned:
+                continue
+
+            if keys == None:
+                keys = list(partition.keys())
+            else:
+                assert set(keys) == set(partition.keys())
+
+        # If no datasets are partitioned, return a single one with all the datasets.
+        assert (
+            keys
+        ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
+
+        if positional and keyword:
+            return {
+                pid: (
+                    [ds[pid] if ds.partitioned else ds for ds in positional],
+                    {
+                        name: ds[pid] if ds.partitioned else ds
+                        for name, ds in keyword.items()
+                    },
+                )
+                for pid in keys
+            }
+        elif positional:
+            return {
+                pid: [ds[pid] if ds.partitioned else ds for ds in positional]
+                for pid in keys
+            }
+
+        return {
+            pid: {
+                name: ds[pid] if ds.partitioned else ds for name, ds in keyword.items()
+            }
+            for pid in keys
+        }
+
+    def separate(
+        **datasets: LazyDataset[A],
+    ) -> tuple[dict[str, LazyDataset[A]], dict[str, LazyDataset[A]]]:
+        """Splits the datasets into partitioned and not partitioned and returns them.
+
+        `non_partitioned, partitioned = separate_partitioned(datasets)`"""
+        return {name: ds for name, ds in datasets.items() if not ds.partitioned}, {
+            name: ds for name, ds in datasets.items() if ds.partitioned
+        }
 
 
-def are_not_partitioned(
-    lazies: dict[str, LazyFrame]
-) -> TypeGuard[dict[str, LazyChunk]]:
-    return not are_partitioned(lazies)
+class LazyFrame(LazyDataset["pd.DataFrame"]):
+    ...
 
 
 def get_relative_fn(fn: str):
@@ -120,10 +248,21 @@ class gen_closure(partial):
     ):
         self = super().__new__(cls, func, *args, **keywords)
 
+        if hasattr(func, "func"):
+            _eat = _eat or func._eat
+            _return = _return or func._return
+            func = func.func
+
         if _fn:
-            self.__name__ = _fn.replace("%s", func.__name__)  # type: ignore
+            if hasattr(func, "__name__"):
+                self.__name__ = _fn.replace("%s", func.__name__)  # type: ignore
+            else:
+                self.__name__ = _fn  # type: ignore
         else:
-            self.__name__ = func.__name__  # type: ignore
+            if hasattr(func, "__name__"):
+                self.__name__ = func.__name__  # type: ignore
+            else:
+                self.__name__ = "ukn"  # type: ignore
 
         self._eat = _eat  # type: ignore
         self._return = _return  # type: ignore
@@ -140,31 +279,59 @@ class gen_closure(partial):
             return self._return  # type: ignore
         return val
 
-def _run_chunked(fun: Callable, **tables: LazyFrame):
-    """Ingests the keys of a dataset in a partitioned manner."""
-    partitioned_frames = {}
-    non_partitioned_frames = {}
 
-    for name, table in tables.items():
-        if is_partitioned(table):
-            partitioned_frames[name] = table
+def _chunk_fun(
+    fun, *args: Any, **kwargs: Any
+) -> dict[str, Callable[..., A]] | Callable[..., A]:
+    new_args = []
+    datasets = {}
+    # Fetch datasets from arguments
+    for i, arg in enumerate(args):
+        if isinstance(arg, LazyDataset):
+            datasets[i] = arg
+            new_args.append(None)
         else:
-            non_partitioned_frames[name] = table
+            new_args.append(arg)
 
-    if not partitioned_frames:
-        return gen_closure(fun, **non_partitioned_frames)
+    # Fetch datasets from keyword arguments
+    new_kwargs = {}
+    for name, arg in kwargs.items():
+        if isinstance(arg, LazyDataset):
+            datasets[name] = arg
+        else:
+            new_kwargs[name] = arg
 
-    assert are_partitioned(partitioned_frames)
-    keys = next(iter(partitioned_frames.values())).keys()
+    # If datasets are not partitioned, return a closure
+    if not LazyDataset.are_partitioned(**datasets):
+        return gen_closure(fun, *args, **kwargs)
 
-    return {
-        pid: gen_closure(
-            fun,
-            **non_partitioned_frames,
-            **{name: frame[pid] for name, frame in partitioned_frames.items()},
-        )
-        for pid in keys
-    }
+    # If they are, create proper arguments for each funciton call.
+    closures = {}
+    for pid, dataset_kw in LazyDataset.zip(datasets).items():
+        out_args = new_args.copy()
+        out_kwargs = new_kwargs.copy()
 
-def to_chunked(fun: Callable):
-    return gen_closure(_run_chunked, fun, _fn=fun.__name__)
+        for name, ds in dataset_kw.items():
+            if isinstance(name, str):
+                out_kwargs[name] = ds
+            else:
+                out_args[name] = ds
+
+        closures[pid] = gen_closure(fun, *out_args, **out_kwargs)
+
+    return closures
+
+
+class to_chunked:
+    def __init__(self, func, /):
+        self.func = func
+        self.name = func.__name__ or "ukn"
+
+    def __get__(self, obj, cls=None):
+        return gen_closure(_chunk_fun, self.func.__get__(obj, cls), _fn=self.name)
+
+    @property
+    def __isabstractmethod__(self):
+        return getattr(self.func, "__isabstractmethod__", False)
+
+    __class_getitem__ = classmethod(GenericAlias)

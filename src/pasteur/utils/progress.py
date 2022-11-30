@@ -8,12 +8,18 @@ import logging
 import sys
 from contextlib import contextmanager
 from os import cpu_count, environ
-from typing import TYPE_CHECKING, Any, Callable, TextIO, TypeGuard, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, ParamSpec, TextIO, TypeGuard, TypeVar
 
+from rich import get_console
 from tqdm import tqdm, trange
 
 if TYPE_CHECKING:
     from concurrent.futures import ProcessPoolExecutor
+
+
+X = TypeVar("X")
+P = ParamSpec("P")
+logger = logging.getLogger(__name__)
 
 # Jupyter doesn't support going up lines (moving cursor)
 # This means up to 1 loading bar works
@@ -90,17 +96,34 @@ prange = limit_pbar_nesting(trange)
 piter = limit_pbar_nesting(tqdm)
 
 
+def _wrap_exceptions(fun: Callable[P, X], /, *args: P.args, **kwargs: P.kwargs) -> X:
+    try:
+        return fun(*args, **kwargs)
+    except Exception as e:
+        get_console().print_exception(**RICH_TRACEBACK_ARGS)
+        logger.error(
+            f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+        )
+        raise RuntimeError("subprocess failed")
+
+
 def _calc_worker(args):
     fun, base_args, chunk = args
     out = []
-    for op in chunk:
-        args = {**base_args, **op} if base_args else op
-        out.append(fun(**args))
+    for i, op in enumerate(chunk):
+        try:
+            args = {**base_args, **op} if base_args else op
+            out.append(fun(**args))
+        except Exception as e:
+            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+            logger.error(
+                f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
+            )
+            raise RuntimeError("subprocess failed")
 
     return out
 
 
-X = TypeVar("X")
 _pool: "ProcessPoolExecutor | None" = None
 
 
@@ -184,7 +207,7 @@ def close_pool():
         _pool.shutdown(wait=True, cancel_futures=True)
 
 
-def process(fun: Callable[..., X], *args, **kwargs) -> X:
+def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     """Uses a separate process to complete this task, taken from the common pool."""
     if not MULTIPROCESS_ENABLE:
         return fun(*args, **kwargs)
@@ -192,8 +215,13 @@ def process(fun: Callable[..., X], *args, **kwargs) -> X:
     from concurrent.futures import CancelledError
 
     try:
-        return _get_pool().submit(fun, *args, **kwargs).result()
-    except (CancelledError):
+        return _get_pool().submit(_wrap_exceptions, fun, *args, **kwargs).result()  # type: ignore
+    except (RuntimeError, CancelledError) as e:
+        if isinstance(e, RuntimeError):
+            if str(e) == "cannot schedule new futures after shutdown":
+                raise KeyboardInterrupt()
+            else:
+                raise
         raise KeyboardInterrupt()
 
 
@@ -246,7 +274,15 @@ def process_in_parallel(
         out = []
         for sub_arr in res:
             out.extend(sub_arr)
-    except (CancelledError):
+    except (RuntimeError, CancelledError) as e:
+        # Eat certain allowed exceptions and prevent them from printing tracebacks
+        # RuntimeError with 'cannot...' and CancelledError are produced after
+        # shutting down the pool
+        if isinstance(e, RuntimeError):
+            if str(e) == "cannot schedule new futures after shutdown":
+                raise KeyboardInterrupt()
+            else:
+                raise
         raise KeyboardInterrupt()
 
     return out
@@ -283,11 +319,11 @@ def logging_redirect_pbar():
 
     try:
         for logger in loggers:
-            # Swap standard loggers
+        # Swap standard loggers
             orig_streams.append([])
             for handler in logger.handlers:
                 if _is_console_logging_handler(handler):
-                    orig_streams[-1].append(handler.stream)
+                    orig_streams[-1].append(handler.stream) # type: ignore
                     handler.setStream(pbar_stream)
                 else:
                     orig_streams[-1].append(None)

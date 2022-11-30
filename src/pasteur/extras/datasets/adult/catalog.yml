@@ -1,5 +1,5 @@
 adult.raw@train: &adult_csv
-  type: pandas.CSVDataSet
+  type: pasteur.kedro.dataset.FragmentedCSVDataset
   layer: raw
   filepath: ${location}/adult.data
 

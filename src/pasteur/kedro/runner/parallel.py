@@ -5,7 +5,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from itertools import chain
 from os import cpu_count
 
-from kedro.io import DataCatalog
+from kedro.io import DataCatalog, DataSetError
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner
@@ -45,9 +45,18 @@ def _init_node(fun, *args, **kwargs):
     set_node_name(node_name)
 
     try:
-        return fun(*args, **kwargs), PerformanceTracker.get_trackers()
+        try:
+            return fun(*args, **kwargs), PerformanceTracker.get_trackers()
+        except DataSetError as e:
+            # Strip dataset error if it was caused by another exception
+            # for a cleaner traceback
+            if e.__cause__:
+                raise e.__cause__
+            raise
     except Exception as e:
-        get_console().print_exception(**RICH_TRACEBACK_ARGS)
+        if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
+            # Prevent printing traceback for subprocesses that crash
+            get_console().print_exception(**RICH_TRACEBACK_ARGS)
         logger.error(
             f"Node \"{args[0].name.split('(')[0]}\" failed with error:\n{type(e).__name__}: {e}"
         )

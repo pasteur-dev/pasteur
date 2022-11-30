@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Callable, cast
 import numpy as np
 import pandas as pd
 
-from ....dataset import Dataset, TypedDataset
-from ....utils import LazyChunk, LazyFrame, gen_closure, get_data, get_relative_fn
+from ....dataset import Dataset
+from ....utils import LazyChunk, LazyFrame, gen_closure, get_relative_fn
 
 if TYPE_CHECKING:
     from pandas.io.parsers.readers import TextFileReader
@@ -26,7 +26,7 @@ def _partition_table(
     table: Callable, patients: LazyFrame, n_partition: int, chunksize: int
 ):
     # Deterministic loading = all tables have the same split
-    keys = get_data(patients, ["subject_id"]).index.to_numpy()
+    keys = patients(["subject_id"]).index.to_numpy()
     partitions = np.array_split(keys, n_partition)
 
     return {
@@ -82,8 +82,6 @@ class MimicDataset(Dataset):
     folder_name = "mimiciv_1_0"
     catalog = get_relative_fn("catalog.yml")
 
-    cache_typed = True
-
     def ingest(self, name, **tables: LazyFrame | Callable[..., TextFileReader]):
         if name in self._mimic_tables_single:
             return cast("LazyFrame", tables[name])
@@ -97,4 +95,4 @@ class MimicDataset(Dataset):
             )
 
     def keys(self, **tables: LazyChunk):
-        return get_data(tables["core_patients"], [])[[]]
+        return tables["core_patients"]([])[[]]

@@ -4,14 +4,7 @@ from typing import Callable
 import pandas as pd
 
 from ....dataset import Dataset
-from ....utils import (
-    LazyChunk,
-    LazyFrame,
-    gen_closure,
-    get_relative_fn,
-    is_partitioned,
-    get_data
-)
+from ....utils import LazyChunk, LazyFrame, gen_closure, get_relative_fn, to_chunked
 from ....utils.progress import piter
 
 logger = logging.getLogger(__name__)
@@ -62,7 +55,7 @@ def _process_new(load1: Callable, load2: Callable):
 
 def _ingest_base(
     base: LazyFrame, base1: LazyFrame, base1_v2: LazyFrame, base2: LazyFrame
-) -> LazyFrame:
+):
     old_pids = list(base.keys())
     new_pids1 = list(base1.keys())
     new_pids2 = list(base1_v2.keys())
@@ -70,23 +63,23 @@ def _ingest_base(
         new_pids2
     ), "There's a missmatch of base2 and base1 files."
 
-    assert is_partitioned(base)
-    assert is_partitioned(base1)
-    assert is_partitioned(base1_v2)
-    assert is_partitioned(base2)
+    assert base.partitioned
+    assert base1.partitioned
+    assert base1_v2.partitioned
+    assert base2.partitioned
 
     return {
-        **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids},
-        **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
-        **{
-            pid: gen_closure(_process_new, base1_v2[pid], base2[pid])
-            for pid in new_pids2
-        },
+        **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids[:5]},
+        # **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
+        # **{
+        #     pid: gen_closure(_process_new, base1_v2[pid], base2[pid])
+        #     for pid in new_pids2
+        # },
     }
 
 
 def _ingest_facility(facility: LazyFrame):
-    assert is_partitioned(facility)
+    assert facility.partitioned
     return pd.concat([fac() for fac in facility.values()]).drop_duplicates()
 
 
@@ -135,5 +128,6 @@ class TexasDataset(Dataset):
             case _:
                 raise Exception()
 
+    @to_chunked
     def keys(self, base: LazyChunk):
-        return get_data(base, columns=[])[[]]
+        return base(columns=[])[[]]

@@ -5,7 +5,7 @@ from kedro.pipeline import node
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...dataset import Dataset, TypedDataset
-from ...utils import gen_closure, to_chunked
+from ...utils import gen_closure
 from .meta import TAGS_DATASET
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta
@@ -59,7 +59,7 @@ def create_dataset_pipeline(
     pipe = pipeline(
         [
             node(
-                func=to_chunked(gen_closure(dataset.keys, _fn="gen_keys")),
+                func=gen_closure(dataset.keys, _fn="gen_keys"),
                 inputs={dep: f"{dataset}.{dep}" for dep in dataset.key_deps},
                 namespace=str(dataset),
                 outputs=f"{dataset}.keys",
