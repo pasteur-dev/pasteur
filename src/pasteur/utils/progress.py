@@ -191,10 +191,10 @@ def process(fun: Callable[..., X], *args, **kwargs) -> X:
 
     from concurrent.futures import CancelledError
 
-    # try:
-    return _get_pool().submit(fun, *args, **kwargs).result()
-    # except (RuntimeError, CancelledError):
-    #     raise KeyboardInterrupt()
+    try:
+        return _get_pool().submit(fun, *args, **kwargs).result()
+    except (CancelledError):
+        raise KeyboardInterrupt()
 
 
 def process_in_parallel(
@@ -246,7 +246,7 @@ def process_in_parallel(
         out = []
         for sub_arr in res:
             out.extend(sub_arr)
-    except (RuntimeError, CancelledError):
+    except (CancelledError):
         raise KeyboardInterrupt()
 
     return out

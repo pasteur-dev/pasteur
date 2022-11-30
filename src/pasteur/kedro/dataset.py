@@ -90,23 +90,57 @@ def _save_worker(
 
     # Handle data partitioning using generators, to avoid storing the whole partition in ram
     # or having to use pd.concat()
-    if isgenerator(chunk) or hasattr(chunk, "get_chunk"):
-        # Assumes there's at least one chunk
-        p0 = next(chunk)  # type: ignore
-        # FIXME: Schema inference
+    if isgenerator(chunk):
+        # Grab first chunk with content
+        p0 = None
+        try: 
+            while p0 is None or len(p0) == 0:
+                p0 = next(chunk)
+        except:
+            logger.error(f"Generator {chunk} returned no data.")
+
+        old_schema = pa.Schema.from_pandas(p0, preserve_index=True)
+
+        # FIXME: Schema inference for pyarrow
         # null columns will lead to invalid schema
-        # Try to upscale int8 dictionary types to avoid errors
-        old_schema = pa.Table.from_pandas(p0).schema
+        # int8 dictionaries in first chunk which become int16 will lead to invalid schema
+        # try to fix both
         fields = []
+        dtypes = p0.dtypes
         for field in old_schema:
             if (
                 isinstance(field.type, pa.DictionaryType)
                 and field.type.index_type.bit_width == 8
             ):
+                # Expand uint8 dictionaries to uint16
                 fields.append(
                     pa.field(
                         field.name,
                         pa.dictionary(pa.int16(), field.type.value_type),
+                        field.nullable,
+                        field.metadata,
+                    )
+                )
+            elif field.name in dtypes and field.type == pa.null():
+                # Fix missing types based on pandas dtype
+                # might produce larger than required types, but better than failing.
+                # If field is not in dtype, assume it's related to pyarrow and skip.
+                match (dtypes[field.name].name):
+                    case "int64":
+                        pa_type = pa.int64()
+                    case other:
+                        logger.warn(
+                            f"Could not infer type for empty column `{field.name}`"
+                            + f" with pandas type `{other}` to generate parquet"
+                            + "schema. If there's a chunk who's column contains"
+                            + "values, saving will crash. Fill in the code for your type."
+                        )
+                        pa_type = pa.null()
+
+                fields.append(
+                    pa.field(
+                        field.name,
+                        pa_type,
                         field.nullable,
                         field.metadata,
                     )
@@ -121,7 +155,10 @@ def _save_worker(
             del p0
 
             for p in chunk:
-                w.write(pa.Table.from_pandas(p, schema=schema))
+                try:
+                    w.write(pa.Table.from_pandas(p, schema=schema))
+                except Exception as e:
+                    logger.error(f"Error writing chunk:\n{e}")
     else:
         if protocol == "file":
             with fs.open(path, mode="wb") as fs_file:

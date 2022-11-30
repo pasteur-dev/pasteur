@@ -9,8 +9,7 @@ _mimic_in_csv: &mimic_csv
     header: 0
     infer_datetime_format: True
 
-_mimic_in_chunked: &mimic_chunked
-  # Currently a placeholder
+_mimic_in_chunked: &mimic_chunked # Currently a placeholder
   <<: *mimic_csv
 
 mimic.raw@core_patients:
@@ -218,13 +217,33 @@ mimic.raw@hosp_pharmacy:
   load_args:
     <<: *mimic_csv_load
     parse_dates: [starttime, stoptime, entertime, verifiedtime, expirationdate]
+    # invalid rows
+    # 1763663: starttime (year 5181)
+    # 10689872: expirationdate (year 2341)
+    skiprows: [1763663, 10689872]
     dtype:
       subject_id: int32
       hadm_id: int32
       pharmacy_id: int32
-      lockout_interval: object
-      one_hr_max: object
-      fill_quantity: object
+      poe_id: object
+      medication: category
+      proc_type: category
+      status: category
+      route: category
+      frequency: category
+      disp_sched: category
+      infusion_type: category
+      sliding_scale: category
+      lockout_interval: category
+      basal_rate: category
+      one_hr_max: category
+      doses_per_24_hrs: category
+      duration: category
+      duration_interval: category
+      expiration_value: category
+      expiration_unit: category
+      dispensation: category
+      fill_quantity: category
 
 mimic.raw@hosp_poe:
   <<: *mimic_csv
@@ -363,7 +382,9 @@ mimic.raw@icu_inputevents:
       stay_id: int32
       icustay_id: int32
       itemid: category
+      amount: float32
       amountuom: category
+      rate: float32
       rateuom: category
       ordercategoryname: category
       secondaryordercategoryname: category
@@ -374,6 +395,12 @@ mimic.raw@icu_inputevents:
       continueinnextdept: category
       cancelreason: category
       statusdescription: category
+      originalamount: float32
+      originalrate: float32
+      patientweight: float32
+      totalamount: float32
+      linkorderid: int32
+      orderid: int32
 
 mimic.raw@icu_outputevents:
   <<: *mimic_csv
