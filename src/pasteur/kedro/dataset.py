@@ -87,7 +87,7 @@ def _save_worker(
     if callable(chunk):
         chunk = chunk()
         if callable(chunk):
-            logger.error("Warning, double callable `chunk()`")
+            logger.debug("Callable `chunk()` got double wrapped (`to_chunked()` bug).")
             chunk = chunk()
 
     from inspect import isgenerator

@@ -69,12 +69,12 @@ def _ingest_base(
     assert base2.partitioned
 
     return {
-        **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids[:5]},
-        # **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
-        # **{
-        #     pid: gen_closure(_process_new, base1_v2[pid], base2[pid])
-        #     for pid in new_pids2
-        # },
+        **{pid: gen_closure(_process_old, base[pid]) for pid in old_pids},
+        **{pid: gen_closure(_process_new, base1[pid], base2[pid]) for pid in new_pids1},
+        **{
+            pid: gen_closure(_process_new, base1_v2[pid], base2[pid])
+            for pid in new_pids2
+        },
     }
 
 

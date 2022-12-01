@@ -144,9 +144,9 @@ class LazyDataset(Generic[A], LazyChunk[A]):
             partitions = [*positional, *list(keyword.values())]
         elif positional and not keyword:
             if isinstance(positional[0], dict):
-                positional = tuple()
                 keyword = positional[0]
                 partitions = keyword.values()
+                positional = tuple()
             else:
                 partitions = positional
         else:
@@ -324,14 +324,14 @@ def _chunk_fun(
 
 class to_chunked:
     def __init__(self, func, /):
-        self.func = func
-        self.name = func.__name__ or "ukn"
+        self._func = func
 
     def __get__(self, obj, cls=None):
-        return gen_closure(_chunk_fun, self.func.__get__(obj, cls), _fn=self.name)
+        # FIXME: serialising causes _chunk_fun to come back
+        return gen_closure(_chunk_fun, self._func.__get__(obj, cls))
 
     @property
     def __isabstractmethod__(self):
-        return getattr(self.func, "__isabstractmethod__", False)
+        return getattr(self._func, "__isabstractmethod__", False)
 
     __class_getitem__ = classmethod(GenericAlias)
