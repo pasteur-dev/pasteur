@@ -30,3 +30,7 @@ tables:
         metrics:
           y_log: True
       income: categorical
+
+ratios:
+  wrk: 0.8
+  ref: 0.2

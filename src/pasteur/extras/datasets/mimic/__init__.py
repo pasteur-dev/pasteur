@@ -6,7 +6,14 @@ import numpy as np
 import pandas as pd
 
 from ....dataset import Dataset
-from ....utils import LazyChunk, LazyFrame, gen_closure, get_relative_fn
+from ....utils import (
+    LazyChunk,
+    LazyDataset,
+    LazyFrame,
+    gen_closure,
+    get_relative_fn,
+    to_chunked,
+)
 
 if TYPE_CHECKING:
     from pandas.io.parsers.readers import TextFileReader
@@ -62,15 +69,16 @@ class MimicDataset(Dataset):
     ]
 
     _mimic_tables_partitioned = {
-        "hosp_emar": (5, 4_000_000),
-        "hosp_emar_detail": (5, 4_000_000),
-        "hosp_labevents": (10, 4_000_000),
-        "hosp_pharmacy": (5, 4_000_000),
-        "hosp_poe": (5, 4_000_000),
-        "hosp_prescriptions": (5, 4_000_000),
-        "icu_chartevents": (10, 4_000_000),
-        "icu_inputevents": (5, 4_000_000),
+        "hosp_emar": 4_000_000,
+        "hosp_emar_detail": 4_000_000,
+        "hosp_labevents": 4_000_000,
+        "hosp_pharmacy": 4_000_000,
+        "hosp_poe":  4_000_000,
+        "hosp_prescriptions": 4_000_000,
+        "icu_chartevents": 4_000_000,
+        "icu_inputevents": 4_000_000,
     }
+    _n_partitions = 5
 
     name = "mimic"
     deps = {
@@ -82,17 +90,18 @@ class MimicDataset(Dataset):
     folder_name = "mimiciv_1_0"
     catalog = get_relative_fn("catalog.yml")
 
-    def ingest(self, name, **tables: LazyFrame | Callable[..., TextFileReader]):
+    def ingest(self, name, **tables: LazyFrame | LazyDataset[TextFileReader]):
         if name in self._mimic_tables_single:
             return cast("LazyFrame", tables[name])
         if name in self._mimic_tables_partitioned:
-            n_partitions, chunksize = self._mimic_tables_partitioned[name]
+            chunksize = self._mimic_tables_partitioned[name]
             return _partition_table(
                 cast("Callable[..., TextFileReader]", tables[name]),
                 cast("LazyFrame", tables["core_patients"]),
-                n_partitions,
+                self._n_partitions,
                 chunksize,
             )
 
+    @to_chunked
     def keys(self, **tables: LazyChunk):
         return tables["core_patients"]([])[[]]

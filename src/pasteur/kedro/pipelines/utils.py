@@ -3,12 +3,15 @@ from typing import Callable
 from ...utils import gen_closure, list_unique
 from ...utils.parser import get_params_for_pipe
 
-
 def _params_closure(
     fun: Callable, view: str, arguments: list[str], params: dict, **kwargs
 ):
     meta = get_params_for_pipe(view, params)
-    meta_kwargs = {n: meta[n] for n in arguments}
+    meta_kwargs = {}
+    for name in arguments:
+        if name not in meta:
+            raise AttributeError(f"Parameter '{name}' not provided for view '{view}'.")
+        meta_kwargs[name] = meta[name]
 
     ext_kwargs = {**meta_kwargs, **kwargs}
     return fun(**ext_kwargs)

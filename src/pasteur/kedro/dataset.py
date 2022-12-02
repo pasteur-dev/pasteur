@@ -12,7 +12,7 @@ from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import PROTOCOL_DELIMITER, get_filepath_str
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
-from ..utils import LazyFrame, LazyChunk, LazyDataset
+from ..utils import LazyDataset, LazyFrame, LazyPartition
 from ..utils.progress import get_node_name, process, process_in_parallel
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ class PatternDataSet(PartitionedDataSet):
 
     def _load(self):
         return LazyDataset(
-            None, {pid: LazyChunk(fun) for pid, fun in super()._load().items()}
+            None, {pid: LazyPartition(fun) for pid, fun in super()._load().items()}
         )
 
 
@@ -87,7 +87,7 @@ def _save_worker(
     if callable(chunk):
         chunk = chunk()
         if callable(chunk):
-            logger.debug("Callable `chunk()` got double wrapped (`to_chunked()` bug).")
+            logger.error(f"Callable `chunk()` got double wrapped (`to_chunked()` bug).\n{str(chunk)[:50]}")
             chunk = chunk()
 
     from inspect import isgenerator
@@ -246,14 +246,14 @@ class FragmentedParquetDataset(ParquetDataSet):
     def _load(self) -> LazyFrame:
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
         if not self._fs.isdir(load_path):
-            return LazyFrame(
-                LazyChunk(_load_merged_worker, load_path, self._fs, self._load_args)
+            return LazyDataset(
+                LazyPartition(_load_merged_worker, load_path, self._fs, self._load_args)
             )
 
         partitions = {}
         for fn in self._fs.listdir(load_path):
             partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
-            partition_data = LazyChunk(
+            partition_data = LazyPartition(
                 _load_worker,
                 fn["name"],
                 self._protocol,
@@ -262,9 +262,9 @@ class FragmentedParquetDataset(ParquetDataSet):
             )
             partitions[partition_id] = partition_data
 
-        all = LazyChunk(_load_merged_worker, load_path, self._fs, self._load_args)
+        all = LazyPartition(_load_merged_worker, load_path, self._fs, self._load_args)
 
-        return LazyFrame(all, partitions)
+        return LazyDataset(all, partitions)
 
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
@@ -272,7 +272,7 @@ class FragmentedParquetDataset(ParquetDataSet):
         if self._fs.exists(save_path):
             self._fs.rm(save_path, recursive=True)
 
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) and not isinstance(data, LazyDataset):
             process(
                 _save_worker,
                 protocol=self._protocol,
@@ -374,7 +374,7 @@ class FragmentedCSVDataset(CSVDataSet):
     def _load(self) -> LazyDataset:
         load_path = str(self._get_load_path())
         return LazyDataset(
-            LazyChunk(
+            LazyPartition(
                 _load_csv,
                 self._protocol,
                 load_path,

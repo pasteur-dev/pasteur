@@ -7,6 +7,8 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta, TAGS_TRANSFORM, TAGS_REVERSE, TAGS_RETRANSFORM
+from ...utils import to_chunked, LazyFrame, LazyChunk, LazyDataset
+from ...utils.progress import process
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -19,43 +21,58 @@ if TYPE_CHECKING:
 from .utils import gen_closure
 
 
+def _fit_table_internal(
+    name: str,
+    transformers: dict[str, TransformerFactory],
+    encoders: dict[str, EncoderFactory],
+    meta: Metadata,
+    **tables: LazyFrame,
+):
+    from ...table import TransformHolder
+
+    t = TransformHolder(meta, name, transformers, encoders)
+    for partitions in LazyDataset.zip(tables).values():
+        t.fit_transform({name: partition() for name, partition in partitions.items()})
+    return t
+
 def _fit_table(
     name: str,
     transformers: dict[str, TransformerFactory],
     encoders: dict[str, EncoderFactory],
     meta: Metadata,
-    **tables: pd.DataFrame,
-):
-    from ...table import TransformHolder
+    **tables: LazyFrame):
+    return process(_fit_table_internal, name, transformers, encoders, meta, **tables)
 
-    t = TransformHolder(meta, name, transformers, encoders)
-    t.fit_transform(tables)
-    return t
-
-
+@to_chunked
 def _transform_table(
     transformer: TransformHolder,
-    **tables: pd.DataFrame,
+    **tables: LazyChunk,
 ):
-    ids = transformer.find_ids(tables)
-    return transformer.transform(tables, ids), ids
+    loaded = {name: table() for name, table in tables.items()}
+    ids = transformer.find_ids(loaded)
+    return transformer.transform(loaded, ids), ids
 
 
+@to_chunked
 def _base_reverse_table(
     transformer: TransformHolder,
-    ids: pd.DataFrame,
-    table: pd.DataFrame,
-    **parents: pd.DataFrame,
+    ids: LazyChunk,
+    table: LazyChunk,
+    **parents: LazyChunk,
 ):
-    return transformer.reverse(table, ids, parents)
+    return transformer.reverse(
+        table(), ids(), {name: parent() for name, parent in parents.items()}
+    )
 
 
-def _encode_table(type: str, transformer: TransformHolder, table: pd.DataFrame):
-    return transformer[type].encode(table)
+@to_chunked
+def _encode_table(type: str, transformer: TransformHolder, table: LazyChunk):
+    return transformer[type].encode(table())
 
 
-def _decode_table(type: str, transformer: TransformHolder, table: pd.DataFrame):
-    return transformer[type].decode(table)
+@to_chunked
+def _decode_table(type: str, transformer: TransformHolder, table: LazyChunk):
+    return transformer[type].decode(table())
 
 
 def create_transformer_pipeline(
@@ -86,12 +103,7 @@ def create_transformer_pipeline(
     return PipelineMeta(
         pipeline(nodes, tags=TAGS_TRANSFORM),
         [
-            D(
-                "transformers",
-                f"{view}.trn.{t}",
-                ["views", "trn", view, t],
-                type="pkl"
-            )
+            D("transformers", f"{view}.trn.{t}", ["views", "trn", view, t], type="pkl")
             for t in view.tables
         ],
     )
@@ -116,7 +128,7 @@ def create_transform_pipeline(
                         **{t: f"{view}.{split}.{t}" for t in view.tables},
                     },
                     outputs=[f"{view}.{split}.bst_{t}", f"{view}.{split}.ids_{t}"],
-                    namespace=f"{view}.{split}"
+                    namespace=f"{view}.{split}",
                 ),
             ]
 
@@ -147,7 +159,7 @@ def create_transform_pipeline(
                         "table": f"{view}.{split}.bst_{t}",
                     },
                     outputs=f"{view}.{split}.{type}_{t}",
-                    namespace=f"{view}.{split}"
+                    namespace=f"{view}.{split}",
                 )
             ]
             outputs.append(

@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, overload
 
 from .module import Module
-from .utils import (
-    LazyFrame,
-    LazyChunk,
-    gen_closure
-)
+from .utils import LazyFrame, LazyChunk, to_chunked
 
 if TYPE_CHECKING:
     import pandas as pd
 
 
 def split_keys(
-    keys: pd.DataFrame, split: dict[str, Any], random_state: int | None = None
+    keys: pd.DataFrame,
+    split: str,
+    splits: dict[str, Any],
+    random_state: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Splits keys according to the split dictionary.
 
@@ -45,10 +44,10 @@ def split_keys(
         idx_name = keys.columns[0]
         idx = keys[idx_name]
 
-    assert sum(split.values()) <= 1, "Dataset ratios exceed 100%"
+    assert sum(splits.values()) <= 1, "Dataset ratios exceed 100%"
 
     n_all = len(keys)
-    ns = {name: floor(ratio * n_all) for name, ratio in split.items()}
+    ns = {name: floor(ratio * n_all) for name, ratio in splits.items()}
     assert sum(ns.values()) <= n_all, "Sizes exceed dataset size"
 
     # Sort and shuffle array for a consistent split every time
@@ -65,12 +64,16 @@ def split_keys(
         if idx_name is not None:
             splits[name].index.name = idx_name
 
-    return splits
+    return splits[split]
 
 
-def filter_by_keys(keys: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
+def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame:
     # Sort to ensure consistent split every time
     # Dataframe should consist of up to 1 column (which is the key) or an index
+
+    keys = key_chunk()
+    table = table_chunk()
+
     if keys.keys().empty:
         col = keys.index.name
     else:
@@ -86,10 +89,6 @@ def filter_by_keys(keys: pd.DataFrame, table: pd.DataFrame) -> pd.DataFrame:
         new_table = new_table.set_index(idx)
 
     return new_table
-
-
-def filter_by_keys_lazy(keys: pd.DataFrame, chunk: LazyChunk):
-    return filter_by_keys(keys, chunk())
 
 
 class View(Module):
@@ -131,26 +130,34 @@ class View(Module):
     def tables(self):
         return list(self.deps.keys())
 
-    def ingest(self, name, **tables: pd.DataFrame):
+    def ingest(self, name, **tables: LazyFrame):
         """Creates the table <name> using the tables provided based on the dependencies."""
         raise NotImplementedError()
 
+    @overload
     def split_keys(
-        self, keys: pd.DataFrame, split: dict[str, Any], random_state: int | None = None
+        self, keys: LazyFrame, split: str, splits: dict[str, Any], random_state: int
     ):
-        return split_keys(keys, split, random_state)
+        """Takes the key frame and splits it into the portions specified by `splits`. Then, return
+        the split with name `split`.
 
-    def filter_tables(self, keys: pd.DataFrame, **tables: LazyFrame):
-        new_tables = {}
-        for name, table in tables.items():
-            if table.partitioned:
-                new_tables[name] = {
-                    pid: gen_closure(filter_by_keys_lazy, keys, fun)
-                    for pid, fun in table.items()
-                }
-            else:
-                new_tables[name] = filter_by_keys(keys, table())
-        return new_tables
+        Should produce the same results each run regardless of the value of `split`,
+        because it will be ran once per split."""
+        ...
+
+    @to_chunked
+    def split_keys(
+        self, keys: LazyChunk, split: str, splits: dict[str, Any], random_state: int
+    ):
+        return split_keys(keys(), split, splits, random_state)
+
+    @overload
+    def filter_table(self, keys: LazyFrame, table: LazyFrame):
+        ...
+
+    @to_chunked
+    def filter_table(self, keys: LazyChunk, table: LazyChunk):
+        return filter_by_keys(keys, table)
 
     def __str__(self) -> str:
         return self.name
@@ -160,9 +167,10 @@ class TabularView(View):
     deps = {"table": ["table"]}
     tabular: bool = True
 
-    def ingest(self, name, **tables: LazyFrame):
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
         assert name == "table"
-        return tables["table"]
+        return tables["table"]()
 
 
 __all__ = ["View", "TabularView", "filter_by_keys"]

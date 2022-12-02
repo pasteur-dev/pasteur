@@ -1,17 +1,8 @@
 from __future__ import annotations
 
-from functools import partial, partialmethod
+from functools import partial, update_wrapper
 from itertools import chain
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    TypeVar,
-    Generic,
-    overload,
-    Mapping,
-    cast,
-)
+from typing import TYPE_CHECKING, Any, Callable, TypeVar, Generic, overload, Mapping
 from types import GenericAlias
 
 if TYPE_CHECKING:
@@ -21,7 +12,7 @@ A = TypeVar("A")
 B = TypeVar("B")
 
 
-class LazyChunk(Generic[A]):
+class LazyPartition(Generic[A]):
     def __init__(self, fun: Callable[..., A], /, *args, **kwargs):
         self.fun = fun
         self.args = args
@@ -38,11 +29,14 @@ class LazyChunk(Generic[A]):
             return self.fun(*self.args, **self.kwargs)
 
 
-class LazyDataset(Generic[A], LazyChunk[A]):
+LazyChunk = LazyPartition["pd.DataFrame"]
+
+
+class LazyDataset(Generic[A], LazyPartition[A]):
     def __init__(
         self,
-        merged_load: LazyChunk[A] | None,
-        partitions: dict[str, LazyChunk[A]] | None = None,
+        merged_load: LazyPartition[A] | None,
+        partitions: dict[str, LazyPartition[A]] | None = None,
     ) -> None:
         self._partitions = partitions
         self.merged_load = merged_load
@@ -53,7 +47,7 @@ class LazyDataset(Generic[A], LazyChunk[A]):
         assert self.merged_load, f"Merged loading is not implemented for this dataset."
         return self.merged_load(columns=columns, chunksize=chunksize)
 
-    def __getitem__(self, pid: str) -> LazyChunk[A]:
+    def __getitem__(self, pid: str) -> LazyPartition[A]:
         assert self._partitions, "No partitions found."
         return self._partitions[pid]
 
@@ -67,21 +61,16 @@ class LazyDataset(Generic[A], LazyChunk[A]):
         return self._partitions
 
     def keys(self):
-        assert (
-            self._partitions
-        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        assert self._partitions, f"Dataset not partitioned, check `.partitioned` first."
         return self._partitions.keys()
 
     def values(self):
-        assert (
-            self._partitions
-        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        if not self._partitions:
+            return [self.merged_load]
         return self._partitions.values()
 
     def items(self):
-        assert (
-            self._partitions
-        ), f"Dataset not partitioned, call `is_partitioned()` first."
+        assert self._partitions, f"Dataset not partitioned, check `.partitioned` first."
         return self._partitions.items()
 
     @staticmethod
@@ -107,32 +96,32 @@ class LazyDataset(Generic[A], LazyChunk[A]):
     @overload
     def zip(
         datasets: Mapping[str, LazyDataset[B]], /
-    ) -> dict[str, dict[str, LazyChunk[B]]]:
+    ) -> dict[str, dict[str, LazyPartition[B]]]:
         ...
 
     @staticmethod
     @overload
-    def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyChunk[B]]]:
+    def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyPartition[B]]]:
         ...
 
     @staticmethod
     @overload
-    def zip(**keyword: LazyDataset[B]) -> dict[str, dict[str, LazyChunk[B]]]:
+    def zip(**keyword: LazyDataset[B]) -> dict[str, dict[str, LazyPartition[B]]]:
         ...
 
     @staticmethod
     @overload
     def zip(
         *positional: LazyDataset[B], **keyword: LazyDataset[B]
-    ) -> dict[str, tuple[list[LazyChunk[B]], dict[str, LazyChunk[B]]]]:
+    ) -> dict[str, tuple[list[LazyPartition[B]], dict[str, LazyPartition[B]]]]:
         ...
 
     @staticmethod
     def zip(
         *positional, **keyword: LazyDataset[B]
-    ) -> dict[str, dict[str, LazyChunk[B]]] | dict[str, list[LazyChunk[B]]] | dict[
-        str, tuple[list[LazyChunk[B]], dict[str, LazyChunk[B]]]
-    ]:
+    ) -> dict[str, dict[str, LazyPartition[B]]] | dict[
+        str, list[LazyPartition[B]]
+    ] | dict[str, tuple[list[LazyPartition[B]], dict[str, LazyPartition[B]]]]:
         """Aligns and returns a dictionary of partition ids to partitions.
 
         Partitions can be a list, if positional arguments were provided, or a dictionary
@@ -203,8 +192,7 @@ class LazyDataset(Generic[A], LazyChunk[A]):
         }
 
 
-class LazyFrame(LazyDataset["pd.DataFrame"]):
-    ...
+LazyFrame = LazyDataset["pd.DataFrame"]
 
 
 def get_relative_fn(fn: str):
@@ -264,6 +252,7 @@ class gen_closure(partial):
             else:
                 self.__name__ = "ukn"  # type: ignore
 
+        # FIXME: probably get lost during multiprocessing
         self._eat = _eat  # type: ignore
         self._return = _return  # type: ignore
         return self
@@ -302,8 +291,8 @@ def _chunk_fun(
             new_kwargs[name] = arg
 
     # If datasets are not partitioned, return a closure
-    if not LazyDataset.are_partitioned(**datasets):
-        return gen_closure(fun, *args, **kwargs)
+    if not LazyDataset.are_partitioned(*datasets.values()):
+        return gen_closure(fun, *args, _canary=True, **kwargs)
 
     # If they are, create proper arguments for each funciton call.
     closures = {}
@@ -317,21 +306,48 @@ def _chunk_fun(
             else:
                 out_args[name] = ds
 
-        closures[pid] = gen_closure(fun, *out_args, **out_kwargs)
+        closures[pid] = gen_closure(fun, *out_args, _canary=True, **out_kwargs)
 
     return closures
 
 
-class to_chunked:
-    def __init__(self, func, /):
-        self._func = func
+def to_chunked(func, /):
+    """Makes wrapped function lazy evaluate. If args contain forms of
+    `LazyDataset`, a dictionary of lazy functions are returned, each one loading
+    one partition."""
 
-    def __get__(self, obj, cls=None):
-        # FIXME: serialising causes _chunk_fun to come back
-        return gen_closure(_chunk_fun, self._func.__get__(obj, cls))
+    def wrapper(*args, _canary=False, **kwargs):
+        """Wrapper acts like the real function when `_canary` is True, otherwise
+        it runs `_chunk_fun()`.
 
-    @property
-    def __isabstractmethod__(self):
-        return getattr(self._func, "__isabstractmethod__", False)
+        This way, the decorated function can both be used to create the lazy dictionary
+        when called by end users and perform the evaluation when ran by one of the
+        closures."""
+        if _canary:
+            return func(*args, **kwargs)
+        else:
+            return _chunk_fun(wrapper, *args, **kwargs)
 
-    __class_getitem__ = classmethod(GenericAlias)
+    update_wrapper(wrapper, func)
+
+    # Update annotations
+    new_annotations = {}
+    for param, orig in getattr(func, "__annotations__", {}).items():
+        annotation = str(orig)
+        
+        if annotation == "LazyChunk":
+            annotation = "LazyFrame"
+        elif annotation == "LazyFrame":
+            raise AttributeError("Can't wrap a LazyFrame with to_chunked")
+        elif annotation.startswith("LazyDataset"):
+            raise AttributeError("Can't wrap a LazyDataset with to_chunked")
+        elif annotation.startswith("LazyPartition"):
+            annotation = "LazyDataset" + annotation[len("LazyPartition") :]
+        else:
+            annotation = orig # preserve annotation object if it's not one of the lazies
+        
+        new_annotations[param] = annotation
+    
+    wrapper.__annotations__ = new_annotations
+
+    return wrapper

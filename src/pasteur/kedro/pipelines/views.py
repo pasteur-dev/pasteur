@@ -54,7 +54,7 @@ def create_view_pipeline(view: View):
             tags=TAGS_VIEW,
         ),
         [
-            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type ="pq")
+            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type="pq")
             for t in view.tables
         ],
     )
@@ -86,10 +86,10 @@ def _filter_keys(
     random_state: int,
     keys: pd.DataFrame,
 ):
-    splits = view.split_keys(keys, ratios, random_state)
-    if not req_splits:
-        return splits
-    return {name: split for name, split in splits.items() if name in req_splits}
+    return {
+        split: view.split_keys(keys, split, ratios, random_state)
+        for split in req_splits or ratios.keys()
+    }
 
 
 def create_keys_pipeline(view: View, splits: list[str]):
@@ -126,18 +126,19 @@ def create_filter_pipeline(view: View, splits: list[str]):
 
     nodes = []
     for split in splits:
-        nodes.append(
-            node(
-                func=gen_closure(view.filter_tables, _fn=f"filter_{split}"),
-                inputs={
-                    "keys": f"keys.{split}",
-                    **{t: f"view.{t}" for t in tables},
-                },
-                outputs={t: f"{split}.{t}" for t in tables},
-                namespace=split,
-                tags=TAGS_VIEW_SPLIT
+        for table in tables:
+            nodes.append(
+                node(
+                    func=gen_closure(view.filter_table, _fn=f"filter_{table}_{split}"),
+                    inputs={
+                        "keys": f"keys.{split}",
+                        **{t: f"view.{t}" for t in tables},
+                    },
+                    outputs=f"{split}.{table}",
+                    namespace=split,
+                    tags=TAGS_VIEW_SPLIT,
+                )
             )
-        )
 
     return PipelineMeta(
         modular_pipeline(

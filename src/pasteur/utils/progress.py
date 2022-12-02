@@ -73,6 +73,7 @@ def get_tqdm_args():
         "colour": PBAR_COLOR,
         "bar_format": PBAR_FORMAT,
         "ncols": PBAR_JUP_NCOLS if is_jupyter() else None,
+        "dynamic_ncols": not is_jupyter(),
         "ascii": True if is_jupyter() else None,
         "file": sys.stdout if is_jupyter() else sys.stderr,
     }
@@ -104,7 +105,7 @@ def _wrap_exceptions(fun: Callable[P, X], /, *args: P.args, **kwargs: P.kwargs) 
         logger.error(
             f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
         )
-        raise RuntimeError("subprocess failed")
+        raise RuntimeError("subprocess failed") from e
 
 
 def _calc_worker(args):
@@ -119,7 +120,7 @@ def _calc_worker(args):
             logger.error(
                 f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
             )
-            raise RuntimeError("subprocess failed")
+            raise RuntimeError("subprocess failed") from e
 
     return out
 
