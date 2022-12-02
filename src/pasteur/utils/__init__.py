@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from functools import partial, update_wrapper
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, TypeVar, Generic, overload, Mapping
-from types import GenericAlias
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    TypeVar,
+    Generic,
+    overload,
+    Mapping,
+    ParamSpec,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
 
 A = TypeVar("A")
 B = TypeVar("B")
+P = ParamSpec("P")
 
 
 class LazyPartition(Generic[A]):
@@ -311,7 +320,9 @@ def _chunk_fun(
     return closures
 
 
-def to_chunked(func, /):
+def to_chunked(
+    func: Callable[P, A], /
+) -> Callable[P, Callable[P, A] | dict[str, Callable[P, A]]]:
     """Makes wrapped function lazy evaluate. If args contain forms of
     `LazyDataset`, a dictionary of lazy functions are returned, each one loading
     one partition."""
@@ -324,7 +335,7 @@ def to_chunked(func, /):
         when called by end users and perform the evaluation when ran by one of the
         closures."""
         if _canary:
-            return func(*args, **kwargs)
+            return func(*args, **kwargs)  # type: ignore
         else:
             return _chunk_fun(wrapper, *args, **kwargs)
 
@@ -334,7 +345,7 @@ def to_chunked(func, /):
     new_annotations = {}
     for param, orig in getattr(func, "__annotations__", {}).items():
         annotation = str(orig)
-        
+
         if annotation == "LazyChunk":
             annotation = "LazyFrame"
         elif annotation == "LazyFrame":
@@ -344,10 +355,12 @@ def to_chunked(func, /):
         elif annotation.startswith("LazyPartition"):
             annotation = "LazyDataset" + annotation[len("LazyPartition") :]
         else:
-            annotation = orig # preserve annotation object if it's not one of the lazies
-        
+            annotation = (
+                orig  # preserve annotation object if it's not one of the lazies
+            )
+
         new_annotations[param] = annotation
-    
+
     wrapper.__annotations__ = new_annotations
 
-    return wrapper
+    return wrapper  # type: ignore

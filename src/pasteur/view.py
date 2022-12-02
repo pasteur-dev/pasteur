@@ -9,8 +9,9 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
+@to_chunked
 def split_keys(
-    keys: pd.DataFrame,
+    key_chunk: LazyChunk,
     split: str,
     splits: dict[str, Any],
     random_state: int | None = None,
@@ -24,6 +25,8 @@ def split_keys(
 
     import numpy as np
     import pandas as pd
+
+    keys = key_chunk()
 
     if random_state is not None:
         np.random.seed(random_state)
@@ -67,6 +70,7 @@ def split_keys(
     return splits[split]
 
 
+@to_chunked
 def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame:
     # Sort to ensure consistent split every time
     # Dataframe should consist of up to 1 column (which is the key) or an index
@@ -134,7 +138,6 @@ class View(Module):
         """Creates the table <name> using the tables provided based on the dependencies."""
         raise NotImplementedError()
 
-    @overload
     def split_keys(
         self, keys: LazyFrame, split: str, splits: dict[str, Any], random_state: int
     ):
@@ -144,19 +147,10 @@ class View(Module):
         Should produce the same results each run regardless of the value of `split`,
         because it will be ran once per split."""
         ...
+        return split_keys(keys, split, splits, random_state)
 
-    @to_chunked
-    def split_keys(
-        self, keys: LazyChunk, split: str, splits: dict[str, Any], random_state: int
-    ):
-        return split_keys(keys(), split, splits, random_state)
-
-    @overload
     def filter_table(self, keys: LazyFrame, table: LazyFrame):
-        ...
-
-    @to_chunked
-    def filter_table(self, keys: LazyChunk, table: LazyChunk):
+        """Filters the table using the keys provided."""
         return filter_by_keys(keys, table)
 
     def __str__(self) -> str:

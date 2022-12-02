@@ -75,7 +75,7 @@ class Dataset(Module):
         Some tables may not be partitioned."""
         raise NotImplemented()
 
-    def keys(self, **tables: LazyChunk) -> pd.DataFrame:
+    def keys(self, **tables: LazyFrame) -> pd.DataFrame:
         """Returns a set of keys which split the current dataset (or partition).
 
         Keys do not need to be unique per partition, since splitting will also
@@ -128,7 +128,6 @@ class TabularDataset(Dataset):
         df.index.name = "id"
         return df
 
-    @to_chunked
     def keys(self, **tables: LazyChunk) -> pd.DataFrame:
         """Returns a DataFrame containing only the index column of table "table"."""
         assert len(tables) == 1 and "table" in tables

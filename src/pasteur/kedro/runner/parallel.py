@@ -70,7 +70,7 @@ def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = No
         return required_processes
     return min(required_processes, max_workers)
 
-
+# FIXME: Is ParallelRunner, should be based on ThreadRunner now...
 class SimpleParallelRunner(ParallelRunner):
     def __init__(
         self,

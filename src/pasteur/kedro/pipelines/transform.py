@@ -8,7 +8,7 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta, TAGS_TRANSFORM, TAGS_REVERSE, TAGS_RETRANSFORM
 from ...utils import to_chunked, LazyFrame, LazyChunk, LazyDataset
-from ...utils.progress import process
+from ...utils.progress import process, piter
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,17 +31,25 @@ def _fit_table_internal(
     from ...table import TransformHolder
 
     t = TransformHolder(meta, name, transformers, encoders)
-    for partitions in LazyDataset.zip(tables).values():
-        t.fit_transform({name: partition() for name, partition in partitions.items()})
+    if LazyDataset.are_partitioned(**tables):
+        for partitions in piter(LazyDataset.zip(tables).values(), desc='Fitting transformers (per chunk)'):
+            t.fit_transform(
+                {name: partition() for name, partition in partitions.items()}
+            )
+    else:
+        t.fit_transform({name: table() for name, table in tables.items()})
     return t
+
 
 def _fit_table(
     name: str,
     transformers: dict[str, TransformerFactory],
     encoders: dict[str, EncoderFactory],
     meta: Metadata,
-    **tables: LazyFrame):
+    **tables: LazyFrame,
+):
     return process(_fit_table_internal, name, transformers, encoders, meta, **tables)
+
 
 @to_chunked
 def _transform_table(
