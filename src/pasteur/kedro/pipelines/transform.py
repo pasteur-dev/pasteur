@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kedro.pipeline import node, Pipeline as pipeline
+from kedro.pipeline import Pipeline as pipeline
 from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
+from ...utils import LazyChunk, LazyDataset, LazyFrame, to_chunked
+from ...utils.progress import piter, process
+from .meta import TAGS_RETRANSFORM, TAGS_REVERSE, TAGS_TRANSFORM
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta, TAGS_TRANSFORM, TAGS_REVERSE, TAGS_RETRANSFORM
-from ...utils import to_chunked, LazyFrame, LazyChunk, LazyDataset
-from ...utils.progress import process, piter
+from .meta import PipelineMeta, node
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -32,7 +33,9 @@ def _fit_table_internal(
 
     t = TransformHolder(meta, name, transformers, encoders)
     if LazyDataset.are_partitioned(**tables):
-        for partitions in piter(LazyDataset.zip(tables).values(), desc='Fitting transformers (per chunk)'):
+        for partitions in piter(
+            LazyDataset.zip(tables).values(), desc="Fitting transformers (per chunk)"
+        ):
             t.fit_transform(
                 {name: partition() for name, partition in partitions.items()}
             )
@@ -52,13 +55,19 @@ def _fit_table(
 
 
 @to_chunked
+def _get_ids(transformer: TransformHolder, **tables: LazyChunk):
+    return transformer.find_ids({name: table() for name, table in tables.items()})
+
+
+@to_chunked
 def _transform_table(
     transformer: TransformHolder,
+    ids: LazyChunk,
     **tables: LazyChunk,
 ):
-    loaded = {name: table() for name, table in tables.items()}
-    ids = transformer.find_ids(loaded)
-    return transformer.transform(loaded, ids), ids
+    return transformer.transform(
+        {name: table() for name, table in tables.items()}, ids()
+    )
 
 
 @to_chunked
@@ -130,12 +139,24 @@ def create_transform_pipeline(
         if not retransform:
             table_nodes += [
                 node(
-                    func=gen_closure(_transform_table, _fn=f"transform_{t}"),
+                    func=_get_ids,
+                    name=f"get_ids_{t}",
                     inputs={
                         "transformer": f"{view}.trn.{t}",
                         **{t: f"{view}.{split}.{t}" for t in view.tables},
                     },
-                    outputs=[f"{view}.{split}.bst_{t}", f"{view}.{split}.ids_{t}"],
+                    outputs=f"{view}.{split}.ids_{t}",
+                    namespace=f"{view}.{split}",
+                ),
+                node(
+                    func=_transform_table,
+                    name=f"transform_{t}",
+                    inputs={
+                        "transformer": f"{view}.trn.{t}",
+                        "ids": f"{view}.{split}.ids_{t}",
+                        **{t: f"{view}.{split}.{t}" for t in view.tables},
+                    },
+                    outputs=f"{view}.{split}.bst_{t}",
                     namespace=f"{view}.{split}",
                 ),
             ]
@@ -161,7 +182,9 @@ def create_transform_pipeline(
 
             table_nodes += [
                 node(
-                    func=gen_closure(_encode_table, type, _fn=f"encode_{t}"),
+                    func=_encode_table,
+                    name=f"encode_{t}_{type}",
+                    args=[type],
                     inputs={
                         "transformer": f"{view}.trn.{t}",
                         "table": f"{view}.{split}.bst_{t}",

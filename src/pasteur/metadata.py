@@ -158,14 +158,7 @@ class TableMeta:
     def __getitem__(self, col) -> ColumnMeta:
         return self._columns[col]
 
-    def check(self, data: pd.DataFrame | LazyFrame):
-        import pandas as pd
-
-        if not isinstance(data, pd.DataFrame):
-            # data = list(data.values())[0]()
-            fun = list(data.values())[0]
-            data = fun() if callable(fun) else fun
-
+    def check(self, data: pd.DataFrame):
         """Run a key check to ensure metadata and table have the same keys"""
         table_keys = set(data.keys())
         meta_keys = set(self._columns.keys())

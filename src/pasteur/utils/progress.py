@@ -220,10 +220,10 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     except (RuntimeError, CancelledError) as e:
         if isinstance(e, RuntimeError):
             if str(e) == "cannot schedule new futures after shutdown":
-                raise KeyboardInterrupt()
+                raise KeyboardInterrupt() from e
             else:
-                raise
-        raise KeyboardInterrupt()
+                raise e
+        raise KeyboardInterrupt() from e
 
 
 def process_in_parallel(
@@ -281,10 +281,10 @@ def process_in_parallel(
         # shutting down the pool
         if isinstance(e, RuntimeError):
             if str(e) == "cannot schedule new futures after shutdown":
-                raise KeyboardInterrupt()
+                raise KeyboardInterrupt() from e
             else:
-                raise
-        raise KeyboardInterrupt()
+                raise e
+        raise KeyboardInterrupt() from e
 
     return out
 

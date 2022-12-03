@@ -18,7 +18,50 @@ def _process_old(load: Callable):
     get_spec_idx = (
         lambda i: spec_unit.str.slice(i, i + 1).replace("", pd.NA).astype("category")
     )
-    spec_units = pd.DataFrame({f"spec_unit_{i + 1}": get_spec_idx(i) for i in range(5)})
+    spec_units = pd.DataFrame(
+        {f"spec_unit_{i + 1}": get_spec_idx(i) for i in range(5)}
+    )  # type:ignore
+
+    empty_col = pd.Series(pd.NA, index=chunk.index).astype("category")
+    empty_col_names = [
+        "poa_e_code_1",
+        "poa_e_code_10",
+        "poa_e_code_2",
+        "poa_e_code_3",
+        "poa_e_code_4",
+        "poa_e_code_5",
+        "poa_e_code_6",
+        "poa_e_code_7",
+        "poa_e_code_8",
+        "poa_e_code_9",
+        "poa_oth_diag_code_1",
+        "poa_oth_diag_code_10",
+        "poa_oth_diag_code_11",
+        "poa_oth_diag_code_12",
+        "poa_oth_diag_code_13",
+        "poa_oth_diag_code_14",
+        "poa_oth_diag_code_15",
+        "poa_oth_diag_code_16",
+        "poa_oth_diag_code_17",
+        "poa_oth_diag_code_18",
+        "poa_oth_diag_code_19",
+        "poa_oth_diag_code_2",
+        "poa_oth_diag_code_20",
+        "poa_oth_diag_code_21",
+        "poa_oth_diag_code_22",
+        "poa_oth_diag_code_23",
+        "poa_oth_diag_code_24",
+        "poa_oth_diag_code_3",
+        "poa_oth_diag_code_4",
+        "poa_oth_diag_code_5",
+        "poa_oth_diag_code_6",
+        "poa_oth_diag_code_7",
+        "poa_oth_diag_code_8",
+        "poa_oth_diag_code_9",
+        "poa_princ_diag_code",
+        "poa_provider_indicator",
+    ]
+    empty_df = pd.DataFrame({name: empty_col for name in empty_col_names})
 
     # Drop denormalized facility columns
     return chunk.drop(
@@ -33,7 +76,7 @@ def _process_old(load: Callable):
             "fac_teaching_ind",
             "spec_unit",
         ]
-    ).join(spec_units)
+    ).join(spec_units).join(empty_df)
 
 
 def _process_new(load1: Callable, load2: Callable):
@@ -49,6 +92,40 @@ def _process_new(load1: Callable, load2: Callable):
             "ms_grouper_version_nbr",
         ]
     )
+
+    if "princ_icd9_code" not in chunk1:
+        empty_col = pd.Series(pd.NA, index=chunk1.index).astype("category")
+        empty_col_names = [
+            "cert_status",
+            "oth_icd9_code_1",
+            "oth_icd9_code_10",
+            "oth_icd9_code_11",
+            "oth_icd9_code_12",
+            "oth_icd9_code_13",
+            "oth_icd9_code_14",
+            "oth_icd9_code_15",
+            "oth_icd9_code_16",
+            "oth_icd9_code_17",
+            "oth_icd9_code_18",
+            "oth_icd9_code_19",
+            "oth_icd9_code_2",
+            "oth_icd9_code_20",
+            "oth_icd9_code_21",
+            "oth_icd9_code_22",
+            "oth_icd9_code_23",
+            "oth_icd9_code_24",
+            "oth_icd9_code_3",
+            "oth_icd9_code_4",
+            "oth_icd9_code_5",
+            "oth_icd9_code_6",
+            "oth_icd9_code_7",
+            "oth_icd9_code_8",
+            "oth_icd9_code_9",
+            "poa_provider_indicator",
+            "princ_icd9_code",
+        ]
+        empty_df = pd.DataFrame({name: empty_col for name in empty_col_names})
+        chunk1 = chunk1.join(empty_df)
 
     return chunk1.join(chunk2.drop(columns=["filler_space"]))
 

@@ -99,7 +99,7 @@ def _bind_inputs(inputs: NestedInputs, datasets: dict[str, Any]):
 def _rename_inputs(inputs: NestedInputs, new_names: list[str], idx: int = 0):
 
     if isinstance(inputs, str):
-        return new_names[0] if isinstance(new_names, list) else new_names, idx + 1
+        return (new_names[idx] if isinstance(new_names, list) else new_names), idx + 1
 
     if isinstance(inputs, list):
         out = []
@@ -119,8 +119,8 @@ def _rename_inputs(inputs: NestedInputs, new_names: list[str], idx: int = 0):
 
 
 class ExtendedNode(Node):
-    """Extended node is a modification of node that uses `name` as the function name
-    and allows for nesting dictionaries in inputs.
+    """Extended node is a modification of node that allows for nesting dictionaries
+    in inputs and outputs and features a built-in closure.
 
     Example:
     ```
@@ -164,13 +164,11 @@ class ExtendedNode(Node):
         if outputs is not None:
             flattened_outputs = _flatten_inputs(outputs)
 
-        self.__func_name = name
-
         super().__init__(
             func,
             flattened_inputs,
             flattened_outputs,
-            name=None,  # type: ignore
+            name=name,  # type: ignore
             tags=tags,  # type: ignore
             confirms=confirms,  # type: ignore
             namespace=namespace,  # type: ignore
@@ -178,26 +176,37 @@ class ExtendedNode(Node):
 
         self._validate_exp_inputs()
 
-    @property
-    def _func_name(self) -> str:
-        return self.__func_name or super()._func_name
-
     def run(self, inputs: Dict[str, Any] | None = None) -> Dict[str, Any]:
         if self._nested_inputs is None or len(self._nested_inputs) == 0:
-            return self._func(*self._args, **self._kwargs)
+            out = self._func(*self._args, **self._kwargs)
+            if self._nested_outputs:
+                return _flatten_outputs(self._nested_outputs, out)
+            return {}
 
         assert inputs, f"Inputs for node are None, but node expects inputs."
 
         data = _bind_inputs(self._nested_inputs, inputs)
 
-        if isinstance(data, list):
+        if isinstance(self._nested_inputs, str):  # One argument
+            out = self._func(*self._args, data, **self._kwargs)
+        elif isinstance(data, list):  # List
             out = self._func(*self._args, *data, **self._kwargs)
-        else:
+        else:  # Dictionary
             out = self._func(*self._args, **self._kwargs, **data)
 
         if self._nested_outputs:
             return _flatten_outputs(self._nested_outputs, out)
         return {}
+
+    def __str__(self):
+        def _set_to_str(xset):
+            return f"[{','.join(xset)}]"
+
+        out_str = _set_to_str(self.outputs) if self._outputs else "None"
+        in_str = _set_to_str(self.inputs) if self._inputs else "None"
+
+        prefix = self._name + ": " if self._name else ""
+        return prefix + f"{self._func_name}({in_str}) -> {out_str}"
 
     def _validate_inputs(self, func, inputs):
         ...
@@ -273,8 +282,8 @@ class ExtendedNode(Node):
 
 def node(
     func: Callable,
-    inputs: NestedInputs,
-    outputs: NestedInputs,
+    inputs: NestedInputs | None,
+    outputs: NestedInputs | None,
     *,
     args: list[Any] | None = None,
     kwargs: dict[str, Any] | None = None,

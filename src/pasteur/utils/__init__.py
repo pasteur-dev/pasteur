@@ -12,6 +12,7 @@ from typing import (
     Mapping,
     ParamSpec,
 )
+import logging
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 A = TypeVar("A")
 B = TypeVar("B")
 P = ParamSpec("P")
+
+logger = logging.getLogger(__name__)
 
 
 class LazyPartition(Generic[A]):
@@ -54,6 +57,10 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         self, columns: list[str] | None = None, chunksize: int | None = None
     ) -> Any:
         assert self.merged_load, f"Merged loading is not implemented for this dataset."
+        if self.partitioned:
+            logger.warn(
+                f"Loading partitioned dataset as a whole, this may cause memory issues."
+            )
         return self.merged_load(columns=columns, chunksize=chunksize)
 
     def __getitem__(self, pid: str) -> LazyPartition[A]:
@@ -68,6 +75,13 @@ class LazyDataset(Generic[A], LazyPartition[A]):
     @property
     def partitioned(self):
         return self._partitions
+    
+    @property
+    def sample(self):
+        if self._partitions:
+            return next(iter(self._partitions.values()))
+        assert self.merged_load is not None, f"LazyDataset is empty."
+        return self.merged_load
 
     def keys(self):
         assert self._partitions, f"Dataset not partitioned, check `.partitioned` first."
@@ -75,6 +89,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
     def values(self):
         if not self._partitions:
+            assert self.merged_load
             return [self.merged_load]
         return self._partitions.values()
 

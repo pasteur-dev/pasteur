@@ -149,9 +149,9 @@ class View(Module):
         ...
         return split_keys(keys, split, splits, random_state)
 
-    def filter_table(self, keys: LazyFrame, table: LazyFrame):
+    def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         """Filters the table using the keys provided."""
-        return filter_by_keys(keys, table)
+        return filter_by_keys(keys, tables[name])
 
     def __str__(self) -> str:
         return self.name

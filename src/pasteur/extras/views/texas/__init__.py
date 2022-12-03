@@ -1,5 +1,6 @@
 from ....view import View
-from ....utils import get_relative_fn
+from ....utils import get_relative_fn, to_chunked, LazyChunk
+
 
 class TexasChargesView(View):
     name = "texas_charges"
@@ -9,22 +10,23 @@ class TexasChargesView(View):
     deps = {"table": ["charges"]}
     parameters = get_relative_fn("./parameters_charges.yml")
 
-    def ingest(self, name, charges):
-        return charges
+    @to_chunked
+    def ingest(self, name: str, charges: LazyChunk):
+        return charges()
+
 
 class TexasBaseView(View):
     name = "texas_base"
     dataset = "texas"
     tabular = True
 
-    pid_pattern = "" #"20(?:06|07|11|15)"
+    pid_pattern = ""  # "20(?:06|07|11|15)"
 
     deps = {"table": ["base"]}
     parameters = get_relative_fn("./parameters_base.yml")
 
-    def ingest(self, name, base):
-        return base
+    @to_chunked
+    def ingest(self, name: str, base: LazyChunk):
+        return base()
 
-    
-    
     # parameters = get_relative_fn("parameters.yml")

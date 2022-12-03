@@ -40,6 +40,7 @@ def _logging_thread_fun(q):
     except EOFError:
         pass
 
+
 def _init_node(fun, *args, **kwargs):
     node_name = kwargs["node"].name.split("(")[0]
     set_node_name(node_name)
@@ -57,9 +58,9 @@ def _init_node(fun, *args, **kwargs):
         if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
             # Prevent printing traceback for subprocesses that crash
             get_console().print_exception(**RICH_TRACEBACK_ARGS)
-        logger.error(
-            f"Node \"{args[0].name.split('(')[0]}\" failed with error:\n{type(e).__name__}: {e}"
-        )
+            logger.error(
+                f"Node \"{node_name}\" failed with error:\n{type(e).__name__}: {e}"
+            )
         raise
 
 
@@ -69,6 +70,7 @@ def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = No
     if not max_workers:
         return required_processes
     return min(required_processes, max_workers)
+
 
 # FIXME: Is ParallelRunner, should be based on ThreadRunner now...
 class SimpleParallelRunner(ParallelRunner):
@@ -126,7 +128,6 @@ class SimpleParallelRunner(ParallelRunner):
         futures = set()
         done = None
 
-
         # set up logging handler for subprocesses
         log_queue = self._manager.Queue()
         lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
@@ -141,9 +142,7 @@ class SimpleParallelRunner(ParallelRunner):
         use_pbar = not is_jupyter()
 
         with logging_redirect_pbar(), ThreadPoolExecutor(
-            max_workers=max_threads,
-            initializer=tqdm.set_lock,
-            initargs=(tqdm.get_lock(),),
+            max_workers=max_threads
         ) as pool:
 
             desc = f"Executing pipeline {self.pipe_name}"
@@ -155,7 +154,7 @@ class SimpleParallelRunner(ParallelRunner):
                 pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
             last_index = 0
 
-            failed = False
+            failed = None
             interrupted = False
             while not failed:
                 if use_pbar:
@@ -212,9 +211,9 @@ class SimpleParallelRunner(ParallelRunner):
 
                 try:
                     done, futures = wait(futures, return_when=FIRST_COMPLETED)
-                except KeyboardInterrupt:
+                except KeyboardInterrupt as e:
                     interrupted = True
-                    failed = True
+                    failed = e
 
                     done = set()
 
@@ -250,7 +249,7 @@ class SimpleParallelRunner(ParallelRunner):
                             ):
                                 catalog.release(data_set)
 
-                    except Exception:
+                    except Exception as e:
                         for future in futures:
                             future.cancel()
 
@@ -259,7 +258,7 @@ class SimpleParallelRunner(ParallelRunner):
                             logger.error(
                                 f"One (or more) of the nodes failed, exiting..."
                             )
-                        failed = True
+                        failed = e
 
             # Close pool
             close_pool()
@@ -284,7 +283,7 @@ class SimpleParallelRunner(ParallelRunner):
                 import sys
 
                 sys.excepthook = lambda *_: None
-                raise Exception()
+                raise failed
 
     def __str__(self) -> str:
         return f"<ParallelRunner {self.pipe_name} {self.params_str}>"

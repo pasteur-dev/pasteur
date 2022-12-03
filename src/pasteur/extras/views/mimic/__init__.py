@@ -1,7 +1,7 @@
 import pandas as pd
 
 from ....view import TabularView, View
-from ....utils import get_relative_fn
+from ....utils import get_relative_fn, LazyChunk, to_chunked
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:
     # # Calculate rel patient date
@@ -43,14 +43,15 @@ class MimicMmCoreView(View):
     }
     parameters = get_relative_fn("parameters_mm.yml")
 
-    def ingest(self, name, **tables: pd.DataFrame):
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
         match name:
             case "patients":
-                return mm_core_transform_patients(tables["core_patients"])
+                return mm_core_transform_patients(tables["core_patients"]())
             case "admissions":
-                return tables["core_admissions"]
+                return tables["core_admissions"]()
             case "transfers":
-                return tables["core_transfers"]
+                return tables["core_transfers"]()
             case other:
                 assert False, f"Table {other} not part of view {self.name}"
 
@@ -65,6 +66,7 @@ class MimicTabAdmissions(TabularView):
     }
     parameters = get_relative_fn("parameters_tab.yml")
 
-    def ingest(self, name, **tables: pd.DataFrame):
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
         assert name == "table"
-        return tab_join_tables(tables["core_patients"], tables["core_admissions"])
+        return tab_join_tables(tables["core_patients"](), tables["core_admissions"]())
