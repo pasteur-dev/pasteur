@@ -137,7 +137,7 @@ def generate_pipelines(
                 all_types,
             )
             + create_transform_pipeline(view, ref_split, msr_types)
-            + pipe_metrics_fit
+            # + pipe_metrics_fit
         )
 
         # Metadata needs to be created every time to allow for overrides

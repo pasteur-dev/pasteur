@@ -69,16 +69,16 @@ class Synth(ModuleClass):
     def preprocess(
         self,
         attrs: dict[str, Attributes],
-        data: dict[str, LazyFrame],
         ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         """Runs any preprocessing required, such as domain reduction."""
         raise NotImplementedError()
 
     def bake(
         self,
-        data: dict[str, LazyFrame],
         ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
@@ -89,8 +89,8 @@ class Synth(ModuleClass):
 
     def fit(
         self,
-        data: dict[str, LazyFrame],
         ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         """Fits the model based on the provided data.
 
@@ -109,29 +109,13 @@ class Synth(ModuleClass):
 
 
 def synth_fit(
-    factory: SynthFactory, metadata: Metadata, **kwargs: LazyFrame | TransformHolder
+    factory: SynthFactory, metadata: Metadata, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame], trns: dict[str, TransformHolder]
 ):
     from .utils.perf import PerformanceTracker
 
     tracker = PerformanceTracker.get("synth")
 
     tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
-
-    ids = {
-        n[4:]: i
-        for n, i in kwargs.items()
-        if "ids_" in n and not isinstance(i, TransformHolder)
-    }
-    data = {
-        n[4:]: d
-        for n, d in kwargs.items()
-        if "enc_" in n and not isinstance(d, TransformHolder)
-    }
-    trns = {
-        n[4:]: t
-        for n, t in kwargs.items()
-        if "trn_" in n and isinstance(t, TransformHolder)
-    }
 
     meta = metadata
     args = {**meta.algs.get(factory.name, {}), **meta.alg_override}
@@ -143,15 +127,15 @@ def synth_fit(
         tracker.use_gpu()
 
     tracker.start("preprocess")
-    model.preprocess(attrs, data, ids)
+    model.preprocess(attrs, ids, tables)
     tracker.stop("preprocess")
 
     tracker.start("bake")
-    model.bake(data, ids)
+    model.bake(ids, tables)
     tracker.stop("bake")
 
     tracker.start("fit")
-    model.fit(data, ids)
+    model.fit(ids, tables)
     tracker.stop("fit")
     return model
 
@@ -162,54 +146,37 @@ def synth_sample(model: Synth):
     tracker = PerformanceTracker.get("synth")
 
     tracker.start("sample")
-    data, ids = model.sample()
+    ids, tables = model.sample()
     tracker.stop("sample")
 
     return {
-        **{f"enc_{n}": d for n, d in data.items()},
-        **{f"ids_{n}": d for n, d in ids.items()},
+        "tables": tables,
+        "ids": ids
     }
 
 
 class IdentSynth(Synth):
     """Returns the data it was provided."""
 
+    name="ident_idx"
+    type="idx"
+    
     tabular = True
     multimodal = True
     timeseries = True
-
-    def __init__(
-        self, *args, _from_factory: bool = False, name="ident_idx", type="idx", **kwargs
-    ) -> None:
-        self.name = name
-        self.type = type
-        super().__init__(*args, _from_factory=_from_factory, **kwargs)
-
-    def preprocess(
-        self,
-        attrs: dict[str, Attributes],
-        data: dict[str, LazyFrame],
-        ids: dict[str, LazyFrame],
-    ):
+    
+    def preprocess(self, attrs: dict[str, Attributes], ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
         pass
 
-    def bake(
-        self,
-        data: dict[str, LazyFrame],
-        ids: dict[str, LazyFrame],
-    ):
+    def bake(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
         pass
 
-    def fit(
-        self,
-        data: dict[str, LazyFrame],
-        ids: dict[str, LazyFrame],
-    ):
-        self._data = data
-        self._ids = ids
+    def fit(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
+        self._ids = {name: table.sample() for name, table in ids.items()}
+        self._tables = {name: table.sample() for name, table in tables.items()}
 
     def sample(self):
-        return self._data, self._ids
+        return self._ids, self._tables
 
 
 __all__ = ["Synth", "synth_fit", "synth_sample"]

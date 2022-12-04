@@ -31,18 +31,19 @@ def get_recommended_datasets() -> list[Dataset | View]:
 
 def get_recommended_system_modules() -> list[Module]:
     from .encoders import IdxEncoder, NumEncoder
-    from .metrics.distr import ChiSquareMetric, KullbackLeiblerMetric
-    from .metrics.visual import (
-        CategoricalHist,
-        DateHist,
-        DatetimeHist,
-        FixedHist,
-        NumericalHist,
-        OrdinalHist,
-        TimeHist,
-    )
-    from .synth.extern import AimSynth, PrivMrfSynth
-    from .synth.privbayes import PrivBayesSynth
+    # from .metrics.distr import ChiSquareMetric, KullbackLeiblerMetric
+    # from .metrics.visual import (
+    #     CategoricalHist,
+    #     DateHist,
+    #     DatetimeHist,
+    #     FixedHist,
+    #     NumericalHist,
+    #     OrdinalHist,
+    #     TimeHist,
+    # )
+    # from .synth.extern import AimSynth, PrivMrfSynth
+    # from .synth.privbayes import PrivBayesSynth
+    from ..synth import IdentSynth
     from .transformers import (
         DatetimeTransformer,
         DateTransformer,
@@ -52,11 +53,11 @@ def get_recommended_system_modules() -> list[Module]:
         OrdinalTransformer,
         TimeTransformer,
     )
-    from .metrics.models import (
-        ModelMetric,
-        XGBoostlassifierModel,
-        RandomForestClassifierSklearn,
-    )
+    # from .metrics.models import (
+    #     ModelMetric,
+    #     XGBoostlassifierModel,
+    #     RandomForestClassifierSklearn,
+    # )
 
     return [
         # Transformers
@@ -71,20 +72,21 @@ def get_recommended_system_modules() -> list[Module]:
         IdxEncoder.get_factory(),
         NumEncoder.get_factory(),
         # Synthesizers
-        PrivBayesSynth.get_factory(),
-        AimSynth.get_factory(),
-        PrivMrfSynth.get_factory(),
+        IdentSynth.get_factory(),
+        # PrivBayesSynth.get_factory(),
+        # AimSynth.get_factory(),
+        # PrivMrfSynth.get_factory(),
         # Metrics
-        ChiSquareMetric.get_factory(),
-        KullbackLeiblerMetric.get_factory(),
-        NumericalHist.get_factory(),
-        OrdinalHist.get_factory(),
-        CategoricalHist.get_factory(),
-        FixedHist.get_factory(),
-        DateHist.get_factory(),
-        TimeHist.get_factory(),
-        DatetimeHist.get_factory(),
-        ModelMetric.get_factory(XGBoostlassifierModel, RandomForestClassifierSklearn),
+        # ChiSquareMetric.get_factory(),
+        # KullbackLeiblerMetric.get_factory(),
+        # NumericalHist.get_factory(),
+        # OrdinalHist.get_factory(),
+        # CategoricalHist.get_factory(),
+        # FixedHist.get_factory(),
+        # DateHist.get_factory(),
+        # TimeHist.get_factory(),
+        # DatetimeHist.get_factory(),
+        # ModelMetric.get_factory(XGBoostlassifierModel, RandomForestClassifierSklearn),
     ]
 
 

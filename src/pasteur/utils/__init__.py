@@ -75,7 +75,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
     @property
     def partitioned(self):
         return self._partitions
-    
+
     @property
     def sample(self):
         if self._partitions:
@@ -204,6 +204,30 @@ class LazyDataset(Generic[A], LazyPartition[A]):
             }
             for pid in keys
         }
+
+    @staticmethod
+    @overload
+    def zip_values(*positional: LazyDataset[B]) -> list[list[LazyPartition[B]]]:
+        ...
+
+    @staticmethod
+    @overload
+    def zip_values(**keyword: LazyDataset[B]) -> list[dict[str, LazyPartition[B]]]:
+        ...
+
+    @staticmethod
+    def zip_values(
+        *positional: LazyDataset[B], **keyword: LazyDataset[B]
+    ) -> list[list[LazyPartition[B]]] | list[dict[str, LazyPartition[B]]]:
+        """Same as zip, but doesn't return partition names and works even if
+        the datasets are not partitioned, by returning a single partition."""
+        if not LazyDataset.are_partitioned(*positional, **keyword):
+            if positional:
+                return [list(positional)]
+            else:
+                return [keyword]  # type: ignore
+
+        return list(LazyDataset.zip(*positional, **keyword).values())
 
     def separate(
         **datasets: LazyDataset[A],
@@ -379,3 +403,8 @@ def to_chunked(
     wrapper.__annotations__ = new_annotations
 
     return wrapper  # type: ignore
+
+
+def apply_fun(obj: Any, *args, _fun: str, **kwargs):
+    """Runs function with name `_fun` of object `obj` with the provided arguments."""
+    return getattr(obj, _fun)(*args, **kwargs)

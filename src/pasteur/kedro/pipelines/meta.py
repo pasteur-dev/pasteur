@@ -41,8 +41,7 @@ class PipelineMeta(NamedTuple):
 
 
 NestedInputs = str | list["NestedInputs"] | dict[str, "NestedInputs"]
-NestedOutputs = Any | list["NestedInputs"] | dict[str, "NestedInputs"]
-
+NestedOutputs = Any | list["NestedOutputs"] | dict[str, "NestedOutputs"]
 
 def _flatten_inputs(inputs: NestedInputs) -> str | list[str]:
     if isinstance(inputs, str):

@@ -19,9 +19,6 @@ if TYPE_CHECKING:
     from ...encode import EncoderFactory
     from ...view import View
 
-from .utils import gen_closure
-
-
 def _fit_table_internal(
     name: str,
     transformers: dict[str, TransformerFactory],
@@ -100,13 +97,9 @@ def create_transformer_pipeline(
 ):
     nodes = [
         node(
-            func=gen_closure(
-                _fit_table,
-                t,
-                transformers,
-                encoders,
-                _fn=f"fit_transformer_to_{t}",
-            ),
+            name=f"fit_transformer_to_{t}",
+            func=_fit_table,
+            args=[t, transformers, encoders],
             inputs={
                 "meta": f"{view}.metadata",
                 **{t: f"{view}.{split}.{t}" for t in view.tables},
@@ -217,7 +210,9 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
     for t in view.tables:
         decode_nodes += [
             node(
-                func=gen_closure(_decode_table, type, _fn=f"decode_{t}"),
+                func=_decode_table,
+                args=[type],
+                name=f"decode_{t}",
                 inputs={
                     "transformer": f"trn_{t}",
                     "table": f"enc_{t}",
@@ -225,7 +220,8 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
                 outputs=f"bst_{t}",
             ),
             node(
-                func=gen_closure(_base_reverse_table, _fn=f"reverse_{t}"),
+                func=_base_reverse_table, 
+                name=f"reverse_{t}",
                 inputs={
                     "transformer": f"trn_{t}",
                     "ids": f"ids_{t}",

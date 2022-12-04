@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Generic, TypeVar, cast
+from typing import Generic, TypeVar, cast, TypedDict, NamedTuple, Any
 
 import pandas as pd
 
@@ -8,7 +8,8 @@ from .attribute import Attributes
 from .metadata import ColumnMeta, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
-from .utils import LazyFrame
+from .utils import LazyChunk, LazyFrame
+from .utils.progress import process, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +54,13 @@ class DatasetMetricFactory(ModuleFactory["DatasetMetric"]):
 
 A = TypeVar("A")
 
+_DATA = TypeVar("_DATA")
+_INGEST = TypeVar("_INGEST")
+_SUMMARY = TypeVar("_SUMMARY")
 
-class Metric(ModuleClass, Generic[A]):
+
+class Metric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
     """Encapsulates a special way to visualize results."""
-
-    WRK_SPLIT = 1
-    REF_SPLIT = 2
-    SYN_SPLIT = 3
 
     type: str
 
@@ -69,19 +70,20 @@ class Metric(ModuleClass, Generic[A]):
         which is common among different executions of the view."""
         raise NotImplementedError()
 
-    def process(self, split: int, *args, **kwargs) -> A:
+    def preprocess(self, wrk: _DATA, ref: _DATA) -> _INGEST | None:
+        """Preprocess is called to cache the summaries for the wrk and ref sets
+        during ingest. Implementation is optional."""
+        ...
+
+    def process(self, wrk: _DATA, ref: _DATA, syn: _DATA, pre: _INGEST) -> _SUMMARY:
         """Process is called with each set of data from the view (reference, work, synthetic).
         It should capture data relevant to each metric but in a synopsis or compressed form,
-        that can be used to compute the metric for different algorithm/split combinations."""
+        that can be used to compute the metric for different algorithm/split combinations.
+
+        If `preprocess()` is implemented, `pre` will contain the results of the function."""
         raise NotImplementedError()
 
-    def visualise(
-        self,
-        data: dict[str, A],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def visualise(self, data: dict[str, _SUMMARY]):
         """Visualise is called for dicts of runs that run within the same view.
 
         It is expected to create detailed visualizations (such as tables, figures)
@@ -95,13 +97,7 @@ class Metric(ModuleClass, Generic[A]):
         as a reference."""
         ...
 
-    def summarize(
-        self,
-        data: dict[str, A],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def summarize(self, data: dict[str, _SUMMARY]):
         """Summarize is called for dicts of runs that are not necessarily from the same view.
 
         It is expected to create detailed summary metrics for the run which are
@@ -117,14 +113,17 @@ class Metric(ModuleClass, Generic[A]):
         return f"{self.type}_{self.name}"
 
 
-class ColumnMetric(Metric[dict[str, A]], Generic[A]):
+class ColumnMetric(Metric, Generic[A]):
     type = "col"
     _factory = ColumnMetricFactory
 
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         raise NotImplementedError()
 
-    def process(self, split: int, data: pd.Series) -> A:
+    def process(self, data: pd.Series) -> A:
+        raise NotImplementedError()
+
+    def combine(self, summaries: list[A]) -> A:
         raise NotImplementedError()
 
 
@@ -139,11 +138,25 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
     ):
         raise NotImplementedError()
 
-    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None) -> A:
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
         raise NotImplementedError()
 
 
-class ColumnMetricHolder(Metric[dict[str, list]]):
+class ColumnData(TypedDict):
+    ids: LazyFrame
+    tables: dict[str, LazyFrame]
+
+
+ColumnSummary = dict[str, list[Any]]
+
+
+class ColumnSummaries(NamedTuple):
+    wrk: ColumnSummary
+    ref: ColumnSummary
+    syn: ColumnSummary | None = None
+
+
+class ColumnMetricHolder(Metric[ColumnData, ColumnSummaries, ColumnSummaries]):
     name = "holder"
     type = "col"
 
@@ -152,15 +165,11 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
         self.modules = modules
         self.metrics: dict[str, list[ColumnMetric]] = {}
 
-    def fit(
-        self,
-        table: str,
-        meta: Metadata,
-        tables: dict[str, LazyFrame],
-        ids: LazyFrame | None = None,
+    def _fit_chunk(
+        self, table: str, meta: Metadata, tables: dict[str, LazyChunk], ids: LazyChunk
     ):
-        self.meta = meta
-        self.table = table
+        cached = {table: tables[table]()}
+        cached_ids = ids()
 
         for name, col in meta[table].cols.items():
             if col.is_id():
@@ -175,26 +184,46 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
 
                     if rtable:
                         assert ids and rtable in tables
-                        ref_col = ids.join(tables[rtable][rcol], on=rtable)[rcol]
+                        if rtable not in cached:
+                            cached[rtable] = tables[rtable]()
+                        ref_col = cached_ids.join(cached[rtable][rcol], on=rtable)[rcol]
                     else:
-                        ref_col = tables[table][rcol]
-                    m.fit(table, name, col, tables[table][name], ref_col)
+                        ref_col = cached[table][rcol]
+                    m.fit(table, name, col, cached[table][name], ref_col)
                 else:
-                    m.fit(table, name, col, tables[table][name])
+                    m.fit(table, name, col, cached[table][name])
 
                 self.metrics[name].append(m)
+
+    def fit(self, table: str, meta: Metadata, data: ColumnData):
+        self.meta = meta
+        self.table = table
+
+        for name, col in meta[table].cols.items():
+            if col.is_id():
+                continue
+
+            self.metrics[name] = []
+            for fs in self.modules.get(col.type, []):
+                self.metrics[name].append(fs.build())
 
             if not self.metrics[name]:
                 logger.warning(
                     f"Type {col.type} of {table}.{name} does not support visualisation (Single-Column metrics)."
                 )
 
-    def process(
+        ids = data["ids"]
+        tables = data["tables"].copy()
+        tables["ids"] = ids
+        for part in LazyFrame.zip(tables).values():
+            self._fit_chunk(table, meta, part, part["ids"])
+
+    def _process_chunk(
         self,
-        split: int,
-        tables: dict[str, LazyFrame],
-        ids: LazyFrame | None = None,
+        **tables: LazyChunk,
     ) -> dict[str, list]:
+        cached = {self.table: tables[self.table]()}
+        cached_ids = tables["ids"]() if "ids" in tables else None
         out = {}
         for name, metrics in self.metrics.items():
             out[name] = []
@@ -205,55 +234,97 @@ class ColumnMetricHolder(Metric[dict[str, list]]):
                     assert rcol and isinstance(m, RefColumnMetric)
 
                     if rtable:
-                        assert ids and rtable in tables
-                        ref_col = ids.join(tables[rtable][rcol], on=rtable)[rcol]
+                        assert cached_ids and rtable in tables
+                        ref_col = cached_ids.join(cached[rtable][rcol], on=rtable)[rcol]
                     else:
-                        ref_col = tables[self.table][rcol]
-                    a = m.process(split, tables[self.table][name], ref_col)
+                        ref_col = cached[self.table][rcol]
+                    a = m.process(cached[self.table][name], ref_col)
                 else:
-                    a = m.process(split, tables[self.table][name])
+                    a = m.process(cached[self.table][name])
 
                 out[name].append(a)
 
         return out
 
-    def visualise(
-        self,
-        data: dict[str, dict[str, list]],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def preprocess(self, wrk: ColumnData, ref: ColumnData) -> ColumnSummaries:
+        chunks_wrk = list(LazyFrame.zip_values(**wrk["tables"], ids=wrk["ids"]))
+        chunks_ref = list(LazyFrame.zip_values(**ref["tables"], ids=ref["ids"]))
+        summaries = process_in_parallel(
+            self._process_chunk,
+            per_call_args=[*chunks_wrk, *chunks_ref],
+            desc=f"Ingesting metric {self.unique_name()}",
+        )
+        summaries_wrk = summaries[: len(chunks_wrk)]
+        summaries_ref = summaries[len(chunks_ref) :]
+
+        wrk_sum = {}
+        ref_sum = {}
         for name, metrics in self.metrics.items():
+            ref[name] = []
             for i, metric in enumerate(metrics):
-                metric.visualise(
-                    data={n: d[name][i] for n, d in data.items()},
-                    comparison=comparison,
-                    wrk_set=wrk_set,
-                    ref_set=ref_set,
+                wrk_sum[name][i] = metric.combine(
+                    [chunk[name][i] for chunk in summaries_wrk]
+                )
+                ref_sum[name][i] = metric.combine(
+                    [chunk[name][i] for chunk in summaries_ref]
                 )
 
-    def summarize(
-        self,
-        data: dict[str, dict[str, list]],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+        return ColumnSummaries(wrk_sum, ref_sum)
+
+    def process(
+        self, wrk: ColumnData, ref: ColumnData, syn: ColumnData, pre: ColumnSummaries
+    ) -> ColumnSummaries:
+        chunks_syn = list(LazyFrame.zip_values(**syn["tables"], ids=syn["ids"]))
+        summaries = process_in_parallel(
+            self._process_chunk,
+            per_call_args=chunks_syn,
+            desc=f"Processing metric {self.unique_name()}",
+        )
+
+        syn_sum = {}
+        for name, metrics in self.metrics.items():
+            ref[name] = []
+            for i, metric in enumerate(metrics):
+                syn_sum[name][i] = metric.combine(
+                    [chunk[name][i] for chunk in summaries]
+                )
+
+        return pre._replace(syn=syn_sum)
+
+    def visualise(self, data: dict[str, ColumnSummaries]):
         for name, metrics in self.metrics.items():
             for i, metric in enumerate(metrics):
                 metric.visualise(
-                    data={n: d[name][i] for n, d in data.items()},
-                    comparison=comparison,
-                    wrk_set=wrk_set,
-                    ref_set=ref_set,
+                    data={
+                        sname: ColumnSummaries(
+                            wrk=s.wrk[name][i], ref=s.ref[name][i], syn=s.syn[name][i]  # type: ignore
+                        )
+                        for sname, s in data.items()
+                    },
+                )
+
+    def summarize(self, data: dict[str, ColumnSummaries]):
+        for name, metrics in self.metrics.items():
+            for i, metric in enumerate(metrics):
+                metric.summarize(
+                    data={
+                        sname: ColumnSummaries(
+                            wrk=s.wrk[name][i], ref=s.ref[name][i], syn=s.syn[name][i]  # type: ignore
+                        )
+                        for sname, s in data.items()
+                    },
                 )
 
     def unique_name(self) -> str:
         return f"{self.type}_{self.name}_{self.table}"
 
 
-class TableMetric(Metric[A], Generic[A]):
+class TableData(TypedDict):
+    ids: LazyFrame
+    tables: dict[str, dict[str, LazyFrame]]
+
+
+class TableMetric(Metric[TableData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
     _factory = TableMetricFactory
     type = "tbl"
     table: str
@@ -264,191 +335,86 @@ class TableMetric(Metric[A], Generic[A]):
         table: str,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, LazyFrame]],
-        ids: LazyFrame | None = None,
+        data: TableData,
     ):
-        raise NotImplementedError()
-
-    def process(
-        self,
-        split: int,
-        tables: dict[str, dict[str, LazyFrame]],
-        ids: LazyFrame | None = None,
-    ) -> A:
         raise NotImplementedError()
 
     def unique_name(self) -> str:
         return f"{self.type}_{self.name}_{self.table}"
 
 
-class DatasetMetric(Metric[A], Generic[A]):
+class DatasetData(TypedDict):
+    tables: dict[str, dict[str, LazyFrame]]
+    ids: dict[str, LazyFrame]
+
+
+class DatasetMetric(Metric[DatasetData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
     _factory = DatasetMetricFactory
     type = "dst"
     table: str
     encodings: list[str] = ["raw"]
 
     def fit(
-        self,
-        meta: Metadata,
-        attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, LazyFrame]],
-        ids: dict[str, LazyFrame],
+        self, meta: Metadata, attrs: dict[str, dict[str, Attributes]], data: DatasetData
     ):
         raise NotImplementedError()
-
-    def process(
-        self,
-        tables: dict[str, dict[str, LazyFrame]],
-        ids: dict[str, LazyFrame],
-    ) -> A:
-        raise NotImplementedError()
-
-
-def _separate_tables(data: dict[str, A]) -> dict[str, dict[str, A]]:
-    """Receives a dict of tables with names prefixed with a split such as `tbl.`.
-    Splits on `.` and returns a dictionary of splits containing a dictionary of tables."""
-
-    splits = defaultdict(dict)
-
-    for in_name, d in data.items():
-        split, name = in_name.split(".")
-        splits[split][name] = d
-
-    return splits
-
-
-def _separate_tables_2lvl(data: dict[str, A]) -> dict[str, dict[str, dict[str, A]]]:
-    splits: dict[str, dict[str, dict[str, A]]] = defaultdict(lambda: defaultdict(dict))
-
-    for in_name, d in data.items():
-        split, enc, name = in_name.split(".")
-        splits[split][enc][name] = d
-
-    return splits
 
 
 def fit_column_holder(
     modules: dict[str, list[ColumnMetricFactory]],
     name: str,
     meta: Metadata,
-    ids: LazyFrame,
-    **tables: LazyFrame,
+    data: ColumnData,
 ):
     holder = ColumnMetricHolder(modules)
-    holder.fit(table=name, meta=meta, tables=_separate_tables(tables)["raw"], ids=ids)
+    holder.fit(table=name, meta=meta, data=data)
     return holder
-
-
-def process_column_holder(
-    split: int,
-    holder: ColumnMetricHolder,
-    ids: LazyFrame,
-    **tables: LazyFrame,
-):
-    splits = _separate_tables(tables)
-    tables = dict(splits["raw"])
-
-    return holder.process(split=split, tables=tables, ids=ids)
 
 
 def fit_table_metric(
     fs: TableMetricFactory,
     name: str,
     meta: Metadata,
-    ids: LazyFrame,
-    **tables: LazyFrame | TransformHolder,
+    trns: dict[str, TransformHolder],
+    data: TableData,
 ):
     enc = fs.encodings
-    splits = _separate_tables(tables).copy()
-    trn = splits.pop("trn")
     attrs = {
         e: {
             n: h.get_attributes() if e == "bst" else h[e].get_attributes()
-            for n, h in cast(dict[str, TransformHolder], trn).items()
+            for n, h in trns.items()
         }
         for e in enc
     }
-    data = cast(dict[str, dict[str, LazyFrame]], splits)
 
     module = fs.build()
-    module.fit(table=name, meta=meta, attrs=attrs, tables=data, ids=ids)
+    module.fit(table=name, meta=meta, attrs=attrs, data=data)
     return module
-
-
-def process_table_metric(
-    split: int,
-    metric: TableMetric,
-    ids: LazyFrame,
-    **tables: LazyFrame,
-):
-    return metric.process(split=split, tables=_separate_tables(tables), ids=ids)
 
 
 def fit_dataset_metric(
     fs: DatasetMetricFactory,
     meta: Metadata,
-    **tables: LazyFrame | TransformHolder,
+    trns: dict[str, TransformHolder],
+    data: DatasetData,
 ):
     enc = fs.encodings
-    assert enc and len(enc) > 1
-    splits = _separate_tables(tables)
-    trn = splits.pop("trn")
     attrs = {
         e: {
             n: h.get_attributes() if e == "bst" else h[e].get_attributes()
-            for n, h in cast(dict[str, TransformHolder], trn).items()
+            for n, h in trns.items()
         }
         for e in enc
     }
 
-    ids = cast(dict[str, LazyFrame], splits.pop("ids"))
-    data = cast(dict[str, dict[str, LazyFrame]], splits)
-
     module = fs.build()
-    module.fit(meta=meta, attrs=attrs, tables=data, ids=ids)
+    module.fit(meta=meta, attrs=attrs, data=data)
     return module
 
 
-def process_dataset_metric(
-    metric: DatasetMetric,
-    **tables: LazyFrame,
-):
-    splits = _separate_tables(tables).copy()
-    ids = splits.pop("ids")
-    return metric.process(tables=splits, ids=ids)
-
-
-def viz_metric(
-    metric: Metric[A],
-    comparison: bool = False,
-    wrk_set: str = "wrk",
-    ref_set: str = "ref",
-    **splits: A,
-):
-    metric.visualise(
-        data=splits, comparison=comparison, wrk_set=wrk_set, ref_set=ref_set
-    )
-
-
-def sum_metric(
-    metric: Metric[A],
-    comparison: bool = False,
-    wrk_set: str = "wrk",
-    ref_set: str = "ref",
-    **splits: A,
-):
-    metric.summarize(
-        data=splits, comparison=comparison, wrk_set=wrk_set, ref_set=ref_set
-    )
-
-
-def log_metric(
-    metric: Metric[A],
-    comparison: bool = False,
-    wrk_set: str = "wrk",
-    ref_set: str = "ref",
-    **splits: A,
-):
+def log_metric(metric: Metric[Any, Any, _SUMMARY], summary: _SUMMARY):
     from .utils.mlflow import mlflow_log_artifacts
 
-    mlflow_log_artifacts("metrics", metric.unique_name(), metric=metric, **splits)
+    mlflow_log_artifacts(
+        "metrics", metric.unique_name(), metric=metric, summary=summary
+    )

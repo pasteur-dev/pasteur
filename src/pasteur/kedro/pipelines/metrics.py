@@ -1,72 +1,111 @@
 from kedro.pipeline import Pipeline as pipeline
-from kedro.pipeline import node
 
 from ...metric import (
     ColumnMetricFactory,
     DatasetMetricFactory,
-    Metric,
     TableMetricFactory,
     fit_column_holder,
     fit_dataset_metric,
     fit_table_metric,
-    log_metric,
-    process_column_holder,
-    process_dataset_metric,
-    process_table_metric,
-    sum_metric,
-    viz_metric,
 )
 from ...module import Module, get_module_dict, get_module_dict_multiple
 from ...utils.mlflow import mlflow_log_artifacts
 from ...view import View
+from ...utils import apply_fun
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta
+from .meta import PipelineMeta, node
 from .utils import gen_closure
 
 from .meta import TAGS_METRICS_INGEST, TAGS_METRICS_LOG
+
 
 def _log_metadata(view: View):
     return pipeline(
         [
             node(
-                gen_closure(mlflow_log_artifacts, _fn=f"log_metadata"),
+                func=mlflow_log_artifacts,
+                name=f"log_metadata",
                 inputs={"meta": f"{view}.metadata"},
                 outputs=None,
                 namespace=str(view),
             )
-        ], tags=TAGS_METRICS_INGEST
+        ],
+        tags=TAGS_METRICS_INGEST,
     )
 
 
-def _create_fit_pipeline(view: View, modules: list[Module], split: str):
+def _get_dataset_data(view: View, split: str, encodings: list[str]):
+    data = {
+        "ids": {t: f"{view}.{split}.ids_{t}" for t in view.tables},
+        "tables": {},
+    }
+    for enc in encodings:
+        if enc == "raw":
+            data["tables"]["raw"] = {t: f"{view}.{split}.{t}" for t in view.tables}
+        else:
+            data["tables"][enc] = {t: f"{view}.{split}.{enc}_{t}" for t in view.tables}
+    return data
+
+
+def _get_table_data(view: View, split: str, table: str, encodings: list[str]):
+    data = {
+        "tables": {},
+        "ids": f"{view}.{split}.ids_{table}",
+    }
+    input_tables = [*view.trn_deps.get(table, []), table]
+
+    for enc in encodings:
+        if enc == "raw":
+            data["tables"]["raw"] = {t: f"{view}.{split}.{t}" for t in input_tables}
+        else:
+            data["tables"][enc] = {t: f"{view}.{split}.{enc}_{t}" for t in input_tables}
+
+    return data
+
+
+def _get_column_data(view: View, split: str, table: str):
+    input_tables = [*view.trn_deps.get(table, []), table]
+    return {
+        "ids": f"{view}.{split}.ids_{table}",
+        "tables": {f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables},
+    }
+
+
+def _create_fit_pipeline(
+    view: View, modules: list[Module], fit_split: str, wrk_split: str, ref_split: str
+):
     nodes = []
     outputs = []
 
     # Dataset Metrics
     for name, fs in get_module_dict(DatasetMetricFactory, modules).items():
         # Create node inputs
-        inputs = {"meta": f"{view}.metadata"}
-        inputs.update({f"ids.{t}": f"{split}.{split}.ids_{t}" for t in view.tables})
-
-        requires_attr = False
-        for enc in fs.encodings:
-            if enc == "raw":
-                inputs.update({f"raw.{t}": f"{view}.{split}.{t}" for t in view.tables})
-            else:
-                requires_attr = True
-                inputs.update(
-                    {f"{enc}.{t}": f"{view}.{split}.{enc}_{t}" for t in view.tables}
-                )
-
-        if requires_attr:
-            inputs.update({f"trn.{t}": f"{view}.trn.{t}" for t in view.tables})
+        inputs_fit = {
+            "meta": f"{view}.metadata",
+            "trns": {t: f"{view}.trn.{t}" for t in view.tables},
+            "data": _get_dataset_data(view, fit_split, fs.encodings),
+        }
+        inputs_pre = {
+            "obj": f"{view}.msr.ds_{name}",
+            "wrk": _get_dataset_data(view, wrk_split, fs.encodings),
+            "ref": _get_dataset_data(view, ref_split, fs.encodings),
+        }
 
         # Create node
         nodes += [
             node(
-                gen_closure(fit_dataset_metric, _fn=f"fit_{name}"),
-                inputs=inputs,
+                fit_dataset_metric,
+                name=f"fit_{name}",
+                inputs=inputs_fit,
                 outputs=f"{view}.msr.ds_{name}",
+                namespace=f"{view}.msr",
+            ),
+            node(
+                name=f"preprocess_ds_{name}",
+                func=apply_fun,
+                kwargs={"_fun": "preprocess"},
+                inputs=inputs_pre,
+                outputs=f"{view}.msr.ds_{name}_pre",
                 namespace=f"{view}.msr",
             ),
         ]
@@ -76,7 +115,13 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
                 f"{view}.msr.ds_{name}",
                 ["measure", "dataset", view, name, "metric"],
                 type="pkl",
-            )
+            ),
+            D(
+                "measure",
+                f"{view}.msr.ds_{name}_pre",
+                ["measure", "dataset", view, name, "pre"],
+                type="pkl",
+            ),
         }
 
     # Table Metrics
@@ -84,34 +129,33 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
         for table in view.tables:
             # Create node inputs
             input_tables = [*view.trn_deps.get(table, []), table]
-            inputs = {"meta": f"{view}.metadata", "ids": f"{view}.{split}.ids_{table}"}
-
-            requires_attr = False
-            for enc in fs.encodings:
-                if enc == "raw":
-                    inputs.update(
-                        {f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables}
-                    )
-                else:
-                    requires_attr = True
-                    inputs.update(
-                        {
-                            f"{enc}.{t}": f"{view}.{split}.{enc}_{t}"
-                            for t in input_tables
-                        }
-                    )
-
-            if requires_attr:
-                inputs.update({f"trn.{t}": f"{view}.trn.{t}" for t in input_tables})
+            inputs_fit = {
+                "meta": f"{view}.metadata",
+                "trns": {t: f"{view}.trn.{t}" for t in input_tables},
+                "data": _get_table_data(view, fit_split, table, fs.encodings),
+            }
+            inputs_pre = {
+                "obj": f"{view}.msr.ds_{name}",
+                "wrk": _get_table_data(view, wrk_split, table, fs.encodings),
+                "ref": _get_table_data(view, ref_split, table, fs.encodings),
+            }
 
             # Create node
             nodes += [
                 node(
                     gen_closure(fit_table_metric, fs, table, _fn=f"fit_{name}_{table}"),
-                    inputs=inputs,
+                    inputs=inputs_fit,
                     outputs=f"{view}.msr.tbl_{name}_{table}",
                     namespace=f"{view}.msr",
-                )
+                ),
+                node(
+                    name=f"preprocess_tbl_{name}_{table}",
+                    func=apply_fun,
+                    kwargs={"_fun": "preprocess"},
+                    inputs=inputs_pre,
+                    outputs=f"{view}.msr.tbl_{name}_{table}_pre",
+                    namespace=f"{view}.msr",
+                ),
             ]
             outputs += [
                 D(
@@ -119,7 +163,13 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
                     f"{view}.msr.tbl_{name}_{table}",
                     ["measure", "table", view, table, name, "metric"],
                     type="pkl",
-                )
+                ),
+                D(
+                    "measure",
+                    f"{view}.msr.tbl_{name}_{table}_pre",
+                    ["measure", "dataset", view, table, name, "pre"],
+                    type="pkl",
+                ),
             ]
 
     # Column Metrics
@@ -127,26 +177,36 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
     if col_modules:
         for table in view.tables:
             # Create node inputs
-            input_tables = [*view.trn_deps.get(table, []), table]
-            inputs = {
+            inputs_pre = {
                 "meta": f"{view}.metadata",
-                "ids": f"{view}.{split}.ids_{table}",
-                **{f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables},
+                "data": _get_column_data(view, fit_split, table),
+            }
+
+            # Column metrics
+            inputs_fit = {
+                "obj": f"{view}.msr.col_{table}",
+                "wrk": _get_column_data(view, wrk_split, table),
+                "ref": _get_column_data(view, ref_split, table),
             }
 
             # Create node
             nodes += [
                 node(
-                    gen_closure(
-                        fit_column_holder,
-                        col_modules,
-                        table,
-                        _fn=f"fit_column_metrics_{table}",
-                    ),
-                    inputs=inputs,
+                    name=f"fit_column_metrics_{table}",
+                    func=fit_column_holder,
+                    args=[col_modules, table],
+                    inputs=inputs_fit,
                     outputs=f"{view}.msr.col_{table}",
                     namespace=f"{view}.msr",
-                )
+                ),
+                node(
+                    name=f"preprocess_col_metrics",
+                    func=apply_fun,
+                    kwargs={"_fun": "preprocess"},
+                    inputs=inputs_pre,
+                    outputs=f"{view}.msr.col_{table}_pre",
+                    namespace=f"{view}.msr",
+                ),
             ]
             outputs += [
                 D(
@@ -154,161 +214,133 @@ def _create_fit_pipeline(view: View, modules: list[Module], split: str):
                     f"{view}.msr.col_{table}",
                     ["measure", "column", view, table, "metric"],
                     type="pkl",
-                )
+                ),
+                D(
+                    "measure",
+                    f"{view}.msr.col_{table}_pre",
+                    ["measure", "dataset", view, table, "col", "pre"],
+                    type="pkl",
+                ),
             ]
 
     return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_INGEST), outputs)
 
 
 def _create_process_pipeline(
-    view: View, modules: list[Module], split: str, split_type: int = 1
+    view: View, modules: list[Module], syn_split: str, wrk_split: str, ref_split: str
 ):
     nodes = []
     outputs = []
 
-    if split_type == Metric.SYN_SPLIT:
-        versioned = True
-        pkg = split
-        suffix = "data"
-        out_dir = ["synth", "measure"]
-        tags = TAGS_METRICS_LOG
-    else:
-        versioned = False
-        pkg = "msr"
-        suffix = split
-        out_dir = ["measure"]
-        tags = TAGS_METRICS_INGEST
-
     # Dataset Metrics
     for name, fs in get_module_dict(DatasetMetricFactory, modules).items():
         # Create node inputs
+
         inputs = {
-            "metric": f"{view}.msr.ds_{name}",
-            **{f"ids.{t}": f"{view}.{split}.ids_{t}" for t in view.tables},
+            "obj": f"{view}.msr.ds_{name}",
+            "wrk": _get_dataset_data(view, wrk_split, fs.encodings),
+            "ref": _get_dataset_data(view, ref_split, fs.encodings),
+            "syn": _get_dataset_data(view, syn_split, fs.encodings),
         }
-        for enc in fs.encodings:
-            if enc == "raw":
-                inputs.update({f"raw.{t}": f"{view}.{split}.{t}" for t in view.tables})
-            else:
-                inputs.update(
-                    {f"{enc}.{t}": f"{view}.{split}.{enc}_{t}" for t in view.tables}
-                )
 
         # Create node
         nodes += [
             node(
-                gen_closure(
-                    process_dataset_metric,
-                    split=split_type,
-                    _fn=f"process_{name}_{split}",
-                ),
+                name=f"process_ds_{name}",
+                func=apply_fun,
+                kwargs={"_fun": "process"},
                 inputs=inputs,
-                outputs=f"{view}.{pkg}.ds_{name}_{suffix}",
-                namespace=f"{view}.msr",
+                outputs=f"{view}.{syn_split}.ds_{name}_data",
+                namespace=f"{view}.{syn_split}",
             ),
         ]
         outputs += {
             D(
                 "measure",
-                f"{view}.{pkg}.ds_{name}_{suffix}",
-                [*out_dir, "dataset", view, name, suffix],
+                f"{view}.msr.ds_{name}_pre",
+                ["synth", "measure", "dataset", view, name, "pre"],
                 type="pkl",
-                versioned=versioned,
-            )
+                versioned=True,
+            ),
         }
 
     # Table Metrics
     for name, fs in get_module_dict(TableMetricFactory, modules).items():
         for table in view.tables:
             # Create node inputs
-            input_tables = [*view.trn_deps.get(table, []), table]
-            inputs = {
-                "metric": f"{view}.msr.tbl_{name}_{table}",
-                "ids": f"{view}.{split}.ids_{table}",
-            }
 
-            for enc in fs.encodings:
-                if enc == "raw":
-                    inputs.update(
-                        {f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables}
-                    )
-                else:
-                    inputs.update(
-                        {
-                            f"{enc}.{t}": f"{view}.{split}.{enc}_{t}"
-                            for t in input_tables
-                        }
-                    )
+            inputs = {
+                "obj": f"{view}.msr.ds_{name}",
+                "pre": f"{view}.msr.ds_{name}_pre",
+                "wrk": _get_table_data(view, wrk_split, table, fs.encodings),
+                "ref": _get_table_data(view, ref_split, table, fs.encodings),
+                "syn": _get_table_data(view, syn_split, table, fs.encodings),
+            }
 
             # Create node
             nodes += [
                 node(
-                    gen_closure(
-                        process_table_metric,
-                        split=split_type,
-                        _fn=f"process_{name}_{table}_{split}",
-                    ),
+                    name=f"process_tbl_{name}_{table}",
+                    func=apply_fun,
+                    kwargs={"_fun": "process"},
                     inputs=inputs,
-                    outputs=f"{view}.{pkg}.tbl_{name}_{table}_{suffix}",
-                    namespace=f"{view}.{pkg}",
-                )
+                    outputs=f"{view}.{syn_split}.tbl_{name}_{table}_pre",
+                    namespace=f"{view}.{syn_split}",
+                ),
             ]
             outputs += [
                 D(
                     "measure",
-                    f"{view}.{pkg}.tbl_{name}_{table}_{suffix}",
-                    [*out_dir, "table", view, table, name, suffix],
+                    f"{view}.{syn_split}.tbl_{name}_{table}_data",
+                    ["synth", "measure", "table", view, table, name, "data"],
                     type="pkl",
-                    versioned=versioned,
-                )
+                    versioned=True,
+                ),
             ]
 
     # Column Metrics
     col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
     if col_modules:
         for table in view.tables:
-            # Create node inputs
-            input_tables = [*view.trn_deps.get(table, []), table]
+
+            # Column metrics
             inputs = {
-                "holder": f"{view}.msr.col_{table}",
-                "ids": f"{view}.{split}.ids_{table}",
-                **{f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables},
+                "obj": f"{view}.msr.col_{table}",
+                "pre": f"{view}.msr.col_{table}_pre",
+                "wrk": _get_column_data(view, wrk_split, table),
+                "ref": _get_column_data(view, ref_split, table),
+                "syn": _get_column_data(view, syn_split, table),
             }
 
             # Create node
             nodes += [
                 node(
-                    gen_closure(
-                        process_column_holder,
-                        split=split_type,
-                        _fn=f"process_column_metrics_{table}_{split}",
-                    ),
+                    name=f"process_col_{table}",
+                    func=apply_fun,
+                    kwargs={"_fun": "process"},
                     inputs=inputs,
-                    outputs=f"{view}.{pkg}.col_{table}_{suffix}",
-                    namespace=f"{view}.{pkg}",
-                )
+                    outputs=f"{view}.{syn_split}.col_{table}_data",
+                    namespace=f"{view}.{syn_split}",
+                ),
             ]
             outputs += [
                 D(
                     "measure",
-                    f"{view}.{pkg}.col_{table}_{suffix}",
-                    [*out_dir, "column", view, table, suffix],
+                    f"{view}.{syn_split}.col_{table}_data",
+                    ["synth", "measure", "column", view, table, "data"],
                     type="pkl",
-                    versioned=versioned,
-                )
+                    versioned=True,
+                ),
             ]
 
-    return PipelineMeta(pipeline(nodes, tags=tags), outputs)
+    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_INGEST), outputs)
 
 
 def create_metrics_ingest_pipeline(
     view: View, modules: list[Module], wrk_split: str, ref_split: str
 ):
-    return (
-        _log_metadata(view)
-        + _create_fit_pipeline(view, modules, wrk_split)
-        + _create_process_pipeline(view, modules, wrk_split, Metric.WRK_SPLIT)
-        + _create_process_pipeline(view, modules, ref_split, Metric.REF_SPLIT)
+    return _log_metadata(view) + _create_fit_pipeline(
+        view, modules, wrk_split, wrk_split, ref_split
     )
 
 
@@ -317,18 +349,18 @@ def create_metrics_model_pipeline(
 ):
     nodes = []
 
-    for fn in (viz_metric, sum_metric, log_metric):
+    for fn in ("visualise", "summarise"):
         col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
         if col_modules:
             for table in view.tables:
                 nodes += [
                     node(
-                        gen_closure(fn, _fn=f"%s_columns_{table}"),
+                        func=apply_fun,
+                        name=f"{fn}_columns_{table}",
+                        kwargs={"_fun": fn},
                         inputs={
-                            "metric": f"{view}.msr.col_{table}",
-                            "wrk": f"{view}.msr.col_{table}_{wrk_split}",
-                            "ref": f"{view}.msr.col_{table}_{ref_split}",
-                            "syn": f"{view}.{alg}.col_{table}_data",
+                            "obj": f"{view}.msr.col_{table}",
+                            "data": {"syn": f"{view}.{alg}.col_{table}_data"},
                         },
                         outputs=None,
                         namespace=f"{view}.{alg}",
@@ -339,12 +371,12 @@ def create_metrics_model_pipeline(
             for table in view.tables:
                 nodes += [
                     node(
-                        gen_closure(fn, _fn=f"%s_{name}_{table}"),
+                        func=apply_fun,
+                        name=f"{fn}_{name}_{table}",
+                        kwargs={"_fun": fn},
                         inputs={
-                            "metric": f"{view}.msr.tbl_{name}_{table}",
-                            "wrk": f"{view}.msr.tbl_{name}_{table}_{wrk_split}",
-                            "ref": f"{view}.msr.tbl_{name}_{table}_{ref_split}",
-                            "syn": f"{view}.{alg}.tbl_{name}_{table}_data",
+                            "obj": f"{view}.msr.tbl_{name}_{table}",
+                            "data": {"syn": f"{view}.{alg}.tbl_{name}_{table}_data"},
                         },
                         outputs=None,
                         namespace=f"{view}.{alg}",
@@ -354,21 +386,19 @@ def create_metrics_model_pipeline(
         for name in get_module_dict(DatasetMetricFactory, modules):
             nodes += [
                 node(
-                    gen_closure(fn, _fn=f"%s_{name}"),
+                    func=apply_fun,
+                    name=f"{fn}_{name}",
+                    kwargs={"_fun": fn},
                     inputs={
-                        "metric": f"{view}.msr.ds_{name}",
-                        "wrk": f"{view}.msr.ds_{name}_{wrk_split}",
-                        "ref": f"{view}.msr.ds_{name}_{ref_split}",
-                        "syn": f"{view}.{alg}.ds_{name}_data",
+                        "obj": f"{view}.msr.ds_{name}",
+                        "data": {"syn": f"{view}.{alg}.ds_{name}_data"},
                     },
                     outputs=None,
                     namespace=f"{view}.{alg}",
                 )
             ]
 
-    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_LOG), []) + _create_process_pipeline(
-        view, modules, alg, Metric.SYN_SPLIT
-    )
+    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_LOG), [])
 
 
 def get_metrics_types(modules: list[Module]):
