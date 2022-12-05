@@ -1,8 +1,8 @@
 import logging
 import threading
 from collections import Counter
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from itertools import chain
+from multiprocessing.pool import ThreadPool
 from os import cpu_count
 
 from kedro.io import DataCatalog, DataSetError
@@ -59,7 +59,7 @@ def _init_node(fun, *args, **kwargs):
             # Prevent printing traceback for subprocesses that crash
             get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
-                f"Node \"{node_name}\" failed with error:\n{type(e).__name__}: {e}"
+                f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
         raise
 
@@ -140,10 +140,7 @@ class SimpleParallelRunner(ParallelRunner):
 
         use_pbar = not is_jupyter()
 
-        with logging_redirect_pbar(), ThreadPoolExecutor(
-            max_workers=max_threads
-        ) as pool:
-
+        with logging_redirect_pbar(), ThreadPool(max_threads) as pool:
             desc = f"Executing pipeline {self.pipe_name}"
             desc += f" with overrides `{self.params_str}`" if self.params_str else ""
 
@@ -165,14 +162,16 @@ class SimpleParallelRunner(ParallelRunner):
                 todo_nodes -= ready
                 for node in ready:
                     futures.add(
-                        pool.submit(
+                        pool.apply_async(
                             _init_node,
-                            run_node,
-                            node=node,
-                            catalog=catalog,
-                            is_async=False,
-                            hook_manager=hook_manager,
-                            session_id=session_id,
+                            kwds={
+                                "fun": run_node,
+                                "node": node,
+                                "catalog": catalog,
+                                "is_async": False,
+                                "hook_manager": hook_manager,
+                                "session_id": session_id,
+                            },
                         )
                     )
 
@@ -209,7 +208,18 @@ class SimpleParallelRunner(ParallelRunner):
                         )
 
                 try:
-                    done, futures = wait(futures, return_when=FIRST_COMPLETED)
+                    # FIXME: use proper await
+                    from time import sleep
+
+                    while not any(res.ready() for res in futures):
+                        sleep(0.1)
+
+                    done = set()
+                    for res in list(futures):
+                        if res.ready():
+                            done.add(res)
+                            futures.remove(res)
+
                 except KeyboardInterrupt as e:
                     interrupted = True
                     failed = e
@@ -218,7 +228,7 @@ class SimpleParallelRunner(ParallelRunner):
 
                 for future in chain(done):
                     try:
-                        node, trackers = future.result()
+                        node, trackers = future.get()
                         # Merge performance tracking from the thread
                         # to the outside one.
                         PerformanceTracker.merge_trackers(trackers)
@@ -249,9 +259,6 @@ class SimpleParallelRunner(ParallelRunner):
                                 catalog.release(data_set)
 
                     except Exception as e:
-                        for future in futures:
-                            future.cancel()
-
                         # Log to console
                         if not interrupted:
                             logger.error(
@@ -259,9 +266,9 @@ class SimpleParallelRunner(ParallelRunner):
                             )
                         failed = e
 
-            # Close pool
+            # Close pools
+            pool.terminate()
             close_pool()
-            pool.shutdown(wait=True, cancel_futures=True)
 
             # Remove logging queue
             log_queue.put(None)
@@ -282,7 +289,7 @@ class SimpleParallelRunner(ParallelRunner):
                 import sys
 
                 sys.excepthook = lambda *_: None
-                raise failed
+                raise Exception() from failed
 
     def __str__(self) -> str:
         return f"<ParallelRunner {self.pipe_name} {self.params_str}>"

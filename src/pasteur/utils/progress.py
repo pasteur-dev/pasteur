@@ -120,7 +120,7 @@ def _calc_worker(args):
             logger.error(
                 f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
             )
-            raise RuntimeError("subprocess failed") from e
+            raise e
 
     return out
 
@@ -145,10 +145,11 @@ def _replace_loggers_with_queue(q):
 def _init_subprocess(lk, log_queue):
     import signal
 
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     if log_queue is not None:
         _replace_loggers_with_queue(log_queue)
 
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
     tqdm.set_lock(lk)
 
     global IS_SUBPROCESS
@@ -198,7 +199,6 @@ def init_pool(max_workers: int | None = None, log_queue=None):
     if _pool is not None:
         logger.warning("Closing open pool...")
         _pool.terminate()
-        _pool.join()
 
     lk = tqdm.get_lock()
     _pool = Pool(
@@ -212,7 +212,6 @@ def init_pool(max_workers: int | None = None, log_queue=None):
 def close_pool():
     if _pool is not None:
         _pool.terminate()
-        _pool.join()
 
 
 def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
@@ -220,17 +219,7 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     if not MULTIPROCESS_ENABLE:
         return fun(*args, **kwargs)
 
-    from concurrent.futures import CancelledError
-
-    try:
-        return _get_pool().apply(_wrap_exceptions, (fun, *args), kwargs) # type: ignore
-    except (RuntimeError, CancelledError) as e:
-        if isinstance(e, RuntimeError):
-            if str(e) == "cannot schedule new futures after shutdown":
-                raise KeyboardInterrupt() from e
-            else:
-                raise e
-        raise KeyboardInterrupt() from e
+    return _get_pool().apply(_wrap_exceptions, (fun, *args), kwargs)  # type: ignore
 
 
 def process_in_parallel(
@@ -270,28 +259,17 @@ def process_in_parallel(
     for chunk in chunks:
         args.append((fun, base_args, chunk))
 
-    try:
-        pool = _get_pool()
-        res = piter(
-            pool.imap_unordered(_calc_worker, args),
-            desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
-            leave=False,
-            total=len(args),
-        )
+    pool = _get_pool()
+    res = piter(
+        pool.imap_unordered(_calc_worker, args),
+        desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
+        leave=False,
+        total=len(args),
+    )
 
-        out = []
-        for sub_arr in res:
-            out.extend(sub_arr)
-    except (RuntimeError, CancelledError) as e:
-        # Eat certain allowed exceptions and prevent them from printing tracebacks
-        # RuntimeError with 'cannot...' and CancelledError are produced after
-        # shutting down the pool
-        if isinstance(e, RuntimeError):
-            if str(e) == "cannot schedule new futures after shutdown":
-                raise KeyboardInterrupt() from e
-            else:
-                raise e
-        raise KeyboardInterrupt() from e
+    out = []
+    for sub_arr in res:
+        out.extend(sub_arr)
 
     return out
 
