@@ -43,6 +43,7 @@ class PipelineMeta(NamedTuple):
 NestedInputs = str | list["NestedInputs"] | dict[str, "NestedInputs"]
 NestedOutputs = Any | list["NestedOutputs"] | dict[str, "NestedOutputs"]
 
+
 def _flatten_inputs(inputs: NestedInputs) -> str | list[str]:
     if isinstance(inputs, str):
         return inputs
@@ -58,7 +59,13 @@ def _flatten_inputs(inputs: NestedInputs) -> str | list[str]:
     return out
 
 
-def _flatten_outputs(nested: NestedInputs, outputs: NestedOutputs) -> dict[str, Any]:
+def _flatten_outputs(
+    nested: NestedInputs, outputs: NestedOutputs, run: bool = False
+) -> dict[str, Any]:
+    # Allow this function to be used in a partial
+    if run and callable(outputs):
+        outputs = outputs()
+
     if isinstance(nested, str):
         return {nested: outputs}
 
@@ -66,10 +73,12 @@ def _flatten_outputs(nested: NestedInputs, outputs: NestedOutputs) -> dict[str, 
     if isinstance(nested, dict):
         assert isinstance(outputs, dict)
         for idx, vals in nested.items():
+            assert idx in outputs
             data = _flatten_outputs(vals, outputs[idx])
             out.update(data)
     else:
         assert isinstance(outputs, list) and isinstance(nested, list)
+        assert len(outputs) == len(nested)
         for vals, outs in zip(nested, outputs):
             data = _flatten_outputs(vals, outs)
             out.update(data)
@@ -175,26 +184,37 @@ class ExtendedNode(Node):
 
         self._validate_exp_inputs()
 
-    def run(self, inputs: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    def run(self, inputs: Dict[str, Any] | None = None) -> Dict[str, Any] | Callable:
         if self._nested_inputs is None or len(self._nested_inputs) == 0:
             out = self._func(*self._args, **self._kwargs)
-            if self._nested_outputs:
-                return _flatten_outputs(self._nested_outputs, out)
-            return {}
+        else:
+            assert inputs, f"Inputs for node are None, but node expects inputs."
 
-        assert inputs, f"Inputs for node are None, but node expects inputs."
+            data = _bind_inputs(self._nested_inputs, inputs)
 
-        data = _bind_inputs(self._nested_inputs, inputs)
-
-        if isinstance(self._nested_inputs, str):  # One argument
-            out = self._func(*self._args, data, **self._kwargs)
-        elif isinstance(data, list):  # List
-            out = self._func(*self._args, *data, **self._kwargs)
-        else:  # Dictionary
-            out = self._func(*self._args, **self._kwargs, **data)
+            if isinstance(self._nested_inputs, str):  # One argument
+                out = self._func(*self._args, data, **self._kwargs)
+            elif isinstance(data, list):  # List
+                out = self._func(*self._args, *data, **self._kwargs)
+            else:  # Dictionary
+                out = self._func(*self._args, **self._kwargs, **data)
 
         if self._nested_outputs:
             return _flatten_outputs(self._nested_outputs, out)
+            # try:
+            # except AssertionError:
+            #     # Failed mapping outputs
+            #     if callable(out):
+            #         return partial(
+            #             _flatten_outputs, self._nested_outputs, out, run=True
+            #         )
+            #     elif isinstance(out, dict):
+            #         return {
+            #             pid: partial(
+            #                 _flatten_outputs, self._nested_outputs, partition, run=True
+            #             )
+            #             for pid, partition in out.items()
+            #         }
         return {}
 
     def __str__(self):

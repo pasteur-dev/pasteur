@@ -570,7 +570,8 @@ class DatetimeTransformer(RefTransformer):
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         date_enc = self.dt.transform(data, ref)
         time_enc = self.tt.transform(data)
-        return pd.concat([date_enc, time_enc], axis=1)
+        del data, ref
+        return pd.concat([date_enc, time_enc], axis=1, copy=False, join='inner')
 
     def reverse(
         self, data: pd.DataFrame, ref: pd.Series | None = None

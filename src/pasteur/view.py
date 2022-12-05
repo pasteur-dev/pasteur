@@ -78,21 +78,21 @@ def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame
     keys = key_chunk()
     table = table_chunk()
 
-    if keys.keys().empty:
-        col = keys.index.name
-    else:
-        assert False, "Keys df should only have an index (0 columns)"
-        # assert len.keys() == 1, "Keys df should only have one column"
-        # col = keys.keys()[0]
+    assert keys.keys().empty, "Keys df should only have an index (0 columns)"
 
+    col = keys.index.name
     idx = table.index.name
-    # new_table = table.reset_index(drop=not idx).merge(keys, on=col, how="inner")
-    new_table = table.reset_index(drop=not idx).join(keys, on=col, how="inner")
+    if idx == col:
+        # Assume if index of table is from keys we can index it
+        return table.loc[keys.index]
+    else:
+        table = table.reset_index(drop=not idx)
+        new_table = table.join(keys, on=col, how="inner")
 
-    if idx:
-        new_table = new_table.set_index(idx)
+        if idx:
+            new_table = new_table.set_index(idx)
 
-    return new_table
+        return new_table
 
 
 class View(Module):

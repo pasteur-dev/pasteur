@@ -87,7 +87,9 @@ def _save_worker(
     if callable(chunk):
         chunk = chunk()
         if callable(chunk):
-            logger.error(f"Callable `chunk()` got double wrapped (`to_chunked()` bug).\n{str(chunk)[:50]}")
+            logger.error(
+                f"Callable `chunk()` got double wrapped (`to_chunked()` bug).\n{str(chunk)[:50]}"
+            )
             chunk = chunk()
 
     from inspect import isgenerator
@@ -209,8 +211,30 @@ def _load_merged_worker(
     data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
     table = data.read_pandas(**load_args)
 
+    # Grab categorical columns from metadata
+    # null columns that are specified as categorical in pandas metadata
+    # will become objects after loading, ballooning dataset size
+    # the following code will remake the column as categorical
+    try: 
+        import json
+
+        categorical = []
+        for field in json.loads(table.schema.metadata[b'pandas'])['columns']:
+            if (field['pandas_type']) == "categorical":
+                categorical.append(field['name'])
+
+        dtypes = {name: 'category' for name in categorical}
+    except:
+        dtypes = None
+
     # Try to avoid double allocation
-    return table.to_pandas(split_blocks=True, self_destruct=True)
+    out = table.to_pandas(split_blocks=True, self_destruct=True)
+    del table
+
+    # restore categorical dtypes
+    if dtypes:
+        return out.astype(dtypes)
+    return out
 
 
 class FragmentedParquetDataset(ParquetDataSet):
@@ -254,11 +278,7 @@ class FragmentedParquetDataset(ParquetDataSet):
         for fn in self._fs.listdir(load_path):
             partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
             partition_data = LazyPartition(
-                _load_worker,
-                fn["name"],
-                self._protocol,
-                self._storage_options,
-                self._load_args,
+                _load_merged_worker, fn["name"], self._fs, self._load_args
             )
             partitions[partition_id] = partition_data
 

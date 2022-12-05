@@ -83,8 +83,7 @@ class SimpleParallelRunner(ParallelRunner):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        cpu = cpu_count()
-        self.max_workers = max_workers or (cpu + 2 if cpu else None)
+        self.max_workers = max_workers or cpu_count()
 
         super().__init__(is_async=False)
 

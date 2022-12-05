@@ -123,7 +123,7 @@ class TabularDataset(Dataset):
 
         assert name == "table"
         df = pd.concat(
-            [self._process_chunk(tables[name]()) for name in self.deps["table"]]
+            [self._process_chunk(tables[name]()) for name in self.deps["table"]], copy=False
         )
         df.index.name = "id"
         return df

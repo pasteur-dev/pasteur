@@ -14,7 +14,7 @@ from rich import get_console
 from tqdm import tqdm, trange
 
 if TYPE_CHECKING:
-    from concurrent.futures import ProcessPoolExecutor
+    from multiprocessing.pool import Pool
 
 
 X = TypeVar("X")
@@ -125,7 +125,7 @@ def _calc_worker(args):
     return out
 
 
-_pool: "ProcessPoolExecutor | None" = None
+_pool: "Pool | None" = None
 
 
 def _replace_loggers_with_queue(q):
@@ -190,22 +190,29 @@ def init_pool(max_workers: int | None = None, log_queue=None):
 
     `max_workers` should be set based either on cores or on how many RAM GBs
     will be required by each process."""
+    from multiprocessing import Pool
     from concurrent.futures import ProcessPoolExecutor
 
     global _pool
 
     if _pool is not None:
-        _pool.shutdown(wait=True, cancel_futures=True)
+        logger.warning("Closing open pool...")
+        _pool.terminate()
+        _pool.join()
 
     lk = tqdm.get_lock()
-    _pool = ProcessPoolExecutor(
-        initializer=_init_subprocess, initargs=(lk, log_queue), max_workers=max_workers
+    _pool = Pool(
+        processes=max_workers,
+        initializer=_init_subprocess,
+        initargs=(lk, log_queue),
+        maxtasksperchild=1,
     )
 
 
 def close_pool():
     if _pool is not None:
-        _pool.shutdown(wait=True, cancel_futures=True)
+        _pool.terminate()
+        _pool.join()
 
 
 def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
@@ -216,7 +223,7 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     from concurrent.futures import CancelledError
 
     try:
-        return _get_pool().submit(_wrap_exceptions, fun, *args, **kwargs).result()  # type: ignore
+        return _get_pool().apply(_wrap_exceptions, (fun, *args), kwargs) # type: ignore
     except (RuntimeError, CancelledError) as e:
         if isinstance(e, RuntimeError):
             if str(e) == "cannot schedule new futures after shutdown":
@@ -266,7 +273,7 @@ def process_in_parallel(
     try:
         pool = _get_pool()
         res = piter(
-            pool.map(_calc_worker, args),
+            pool.imap_unordered(_calc_worker, args),
             desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
             leave=False,
             total=len(args),
@@ -320,11 +327,11 @@ def logging_redirect_pbar():
 
     try:
         for logger in loggers:
-        # Swap standard loggers
+            # Swap standard loggers
             orig_streams.append([])
             for handler in logger.handlers:
                 if _is_console_logging_handler(handler):
-                    orig_streams[-1].append(handler.stream) # type: ignore
+                    orig_streams[-1].append(handler.stream)  # type: ignore
                     handler.setStream(pbar_stream)
                 else:
                     orig_streams[-1].append(None)

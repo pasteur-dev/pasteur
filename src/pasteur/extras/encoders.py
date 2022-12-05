@@ -90,7 +90,7 @@ class IdxEncoder(Encoder):
             else:
                 out_cols.append(data[name])
 
-        return pd.concat(out_cols, axis=1)
+        return pd.concat(out_cols, axis=1, copy=False, join='inner')
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         dec = pd.DataFrame(index=enc.index)
@@ -168,7 +168,7 @@ class NumEncoder(Encoder):
                             (data[name] == i + col.common).rename(f"{name}_{i}")
                         )
 
-        return pd.concat(cols, axis=1)
+        return pd.concat(cols, axis=1, copy=False, join='inner')
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         assert False, "Not Implemented"

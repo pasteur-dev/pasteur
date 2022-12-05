@@ -19,25 +19,21 @@ if TYPE_CHECKING:
     from ...encode import EncoderFactory
     from ...view import View
 
+
 def _fit_table_internal(
     name: str,
     transformers: dict[str, TransformerFactory],
     encoders: dict[str, EncoderFactory],
     meta: Metadata,
-    **tables: LazyFrame,
+    tables: dict[str, LazyFrame]
 ):
     from ...table import TransformHolder
 
     t = TransformHolder(meta, name, transformers, encoders)
-    if LazyDataset.are_partitioned(**tables):
-        for partitions in piter(
-            LazyDataset.zip(tables).values(), desc="Fitting transformers (per chunk)"
-        ):
-            t.fit_transform(
-                {name: partition() for name, partition in partitions.items()}
-            )
-    else:
-        t.fit_transform({name: table() for name, table in tables.items()})
+    # for partitions in piter(
+    #     LazyDataset.zip_values(**tables), desc="Fitting transformers (per chunk)"
+    # ):
+    t.fit_transform({name: table.sample for name, table in tables.items()})
     return t
 
 
@@ -46,9 +42,9 @@ def _fit_table(
     transformers: dict[str, TransformerFactory],
     encoders: dict[str, EncoderFactory],
     meta: Metadata,
-    **tables: LazyFrame,
+    tables: dict[str, LazyFrame],
 ):
-    return process(_fit_table_internal, name, transformers, encoders, meta, **tables)
+    return process(_fit_table_internal, name, transformers, encoders, meta, tables)
 
 
 @to_chunked
@@ -62,9 +58,7 @@ def _transform_table(
     ids: LazyChunk,
     **tables: LazyChunk,
 ):
-    return transformer.transform(
-        {name: table() for name, table in tables.items()}, ids()
-    )
+    return transformer.transform(tables, ids)
 
 
 @to_chunked
@@ -74,19 +68,17 @@ def _base_reverse_table(
     table: LazyChunk,
     **parents: LazyChunk,
 ):
-    return transformer.reverse(
-        table(), ids(), {name: parent() for name, parent in parents.items()}
-    )
+    return transformer.reverse(table, ids, parents)
 
 
 @to_chunked
 def _encode_table(type: str, transformer: TransformHolder, table: LazyChunk):
-    return transformer[type].encode(table())
+    return transformer[type].encode(table)
 
 
 @to_chunked
 def _decode_table(type: str, transformer: TransformHolder, table: LazyChunk):
-    return transformer[type].decode(table())
+    return transformer[type].decode(table)
 
 
 def create_transformer_pipeline(
@@ -102,7 +94,7 @@ def create_transformer_pipeline(
             args=[t, transformers, encoders],
             inputs={
                 "meta": f"{view}.metadata",
-                **{t: f"{view}.{split}.{t}" for t in view.tables},
+                "tables": {t: f"{view}.{split}.{t}" for t in view.tables}
             },
             outputs=f"{view}.trn.{t}",
             namespace=f"{view}.trn",
@@ -220,7 +212,7 @@ def create_reverse_pipeline(view: View, alg: str, type: str):
                 outputs=f"bst_{t}",
             ),
             node(
-                func=_base_reverse_table, 
+                func=_base_reverse_table,
                 name=f"reverse_{t}",
                 inputs={
                     "transformer": f"trn_{t}",
