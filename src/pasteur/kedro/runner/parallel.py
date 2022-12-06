@@ -26,6 +26,9 @@ from ...utils.progress import (
     tqdm,
 )
 
+# Add a couple of workers to fill in extra tasks
+# Too many will cause issues with ram...
+DEFAULT_WORKERS = int(1.2 * (cpu_count() or 1))
 logger = logging.getLogger(__name__)
 
 
@@ -83,7 +86,7 @@ class SimpleParallelRunner(ParallelRunner):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
-        self.max_workers = max_workers or cpu_count()
+        self.max_workers = max_workers or DEFAULT_WORKERS
 
         super().__init__(is_async=False)
 
@@ -289,7 +292,9 @@ class SimpleParallelRunner(ParallelRunner):
                 import sys
 
                 sys.excepthook = lambda *_: None
-                raise Exception() from failed
+                if isinstance(failed, KeyboardInterrupt):
+                    raise Exception() from failed  # Hides 'Aborted!' message
+                raise failed
 
     def __str__(self) -> str:
         return f"<ParallelRunner {self.pipe_name} {self.params_str}>"

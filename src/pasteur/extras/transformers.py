@@ -56,7 +56,7 @@ class NumericalTransformer(Transformer):
         return pd.DataFrame(data.clip(self.min, self.max).astype("float32"))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
-        d = data[self.col].clip(self.min, self.max)
+        d = data[self.col].copy().clip(self.min, self.max)
         if self.dtype.name.lower().startswith("int"):
             d = d.round()
         return d.astype(self.dtype)

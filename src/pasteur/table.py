@@ -229,9 +229,9 @@ class TableTransformer:
 
             t = self.transformers[name]
             if isinstance(t, RefTransformer) and ref_col is not None:
-                tt = t.transform(table[name], ref_col).copy(deep=True)
+                tt = t.transform(table[name].copy(), ref_col)
             else:
-                tt = t.transform(table[name]).copy(deep=True)
+                tt = t.transform(table[name].copy())
             tts.append(tt)
             del ref_col, tt
 

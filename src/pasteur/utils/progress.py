@@ -205,7 +205,7 @@ def init_pool(max_workers: int | None = None, log_queue=None):
         processes=max_workers,
         initializer=_init_subprocess,
         initargs=(lk, log_queue),
-        maxtasksperchild=1,
+        # maxtasksperchild=1,
     )
 
 
@@ -261,7 +261,7 @@ def process_in_parallel(
 
     pool = _get_pool()
     res = piter(
-        pool.imap_unordered(_calc_worker, args),
+        pool.imap(_calc_worker, args),
         desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
         leave=False,
         total=len(args),

@@ -3,7 +3,6 @@ disable_existing_loggers: False
 formatters:
     simple:
         format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    
 
 handlers:
     rich:
@@ -60,11 +59,6 @@ loggers:
 
     blib2to3.pgen2.driver:
         level: NOTSET
-        handlers: [debug, error]
-        propagate: no
-
-    py.warnings:
-        level: DEBUG
         handlers: [debug, error]
         propagate: no
 

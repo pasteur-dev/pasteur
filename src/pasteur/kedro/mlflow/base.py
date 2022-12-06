@@ -73,7 +73,7 @@ def get_run_id(name: str, parent: str, finished: bool = True):
             f" and attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'"
         )
     tmp = mlflow.search_runs(
-        search_all_experiments=True,
+        experiment_ids=[exp.experiment_id for exp in mlflow.search_experiments()],
         filter_string=filter_string,
     )
     if len(tmp):
