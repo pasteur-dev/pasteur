@@ -56,7 +56,7 @@ def _is_downloaded(ds: Dataset, params: dict):
     if path.exists(p):
         return True
 
-    logger.warn(f'Disabling dataset {ds}, path "{p}" doesn\'t exist.')
+    logger.warning(f'Disabling dataset {ds}, path "{p}" doesn\'t exist.')
     return False
 
 
@@ -66,7 +66,7 @@ def _has_dataset(view: View, datasets: dict[str, Dataset]):
     if has:
         return True
 
-    logger.warn(f"Disabling {view}, missing dataset {view.dataset}.")
+    logger.warning(f"Disabling {view}, missing dataset {view.dataset}.")
     return False
 
 

@@ -67,7 +67,7 @@ def create_synth_pipeline(
             D(
                 "synth_output",
                 f"{view}.{alg}.enc_{t}",
-                ["synth", "enc", f"{view}.{alg}.{t}"],
+                ["synth", "enc", f"{view}.{alg}", t],
                 versioned=True,
             )
             for t in view.tables
@@ -76,7 +76,7 @@ def create_synth_pipeline(
             D(
                 "synth_output",
                 f"{view}.{alg}.ids_{t}",
-                ["synth", "ids", f"{view}.{alg}.{t}"],
+                ["synth", "ids", f"{view}.{alg}", t],
                 versioned=True,
             )
             for t in view.tables

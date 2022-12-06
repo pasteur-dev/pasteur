@@ -142,7 +142,7 @@ class PerformanceTracker:
 
                 if metric < 0:
                     metric = -1
-                    logger.warn(
+                    logger.warning(
                         f"Metric {metric_name} is negative, there is a missing `start()`, `stop()` or partial `ensemble()`."
                     )
                 else:

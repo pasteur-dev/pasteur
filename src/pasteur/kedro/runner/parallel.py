@@ -13,7 +13,6 @@ from kedro.runner.runner import run_node
 from pluggy import PluginManager
 from rich import get_console
 
-from ...utils.perf import PerformanceTracker
 from ...utils.progress import (
     MULTIPROCESS_ENABLE,
     RICH_TRACEBACK_ARGS,
@@ -23,8 +22,8 @@ from ...utils.progress import (
     logging_redirect_pbar,
     piter,
     set_node_name,
-    tqdm,
 )
+from .common import run_expanded_node
 
 # Add a couple of workers to fill in extra tasks
 # Too many will cause issues with ram...
@@ -42,29 +41,6 @@ def _logging_thread_fun(q):
             logger.handle(record)
     except EOFError:
         pass
-
-
-def _init_node(fun, *args, **kwargs):
-    node_name = kwargs["node"].name.split("(")[0]
-    set_node_name(node_name)
-
-    try:
-        try:
-            return fun(*args, **kwargs), PerformanceTracker.get_trackers()
-        except DataSetError as e:
-            # Strip dataset error if it was caused by another exception
-            # for a cleaner traceback
-            if e.__cause__:
-                raise e.__cause__
-            raise
-    except Exception as e:
-        if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
-            # Prevent printing traceback for subprocesses that crash
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
-            logger.error(
-                f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
-            )
-        raise
 
 
 def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = None):
@@ -166,12 +142,10 @@ class SimpleParallelRunner(ParallelRunner):
                 for node in ready:
                     futures.add(
                         pool.apply_async(
-                            _init_node,
+                            run_expanded_node,
                             kwds={
-                                "fun": run_node,
                                 "node": node,
                                 "catalog": catalog,
-                                "is_async": False,
                                 "hook_manager": hook_manager,
                                 "session_id": session_id,
                             },
@@ -231,10 +205,7 @@ class SimpleParallelRunner(ParallelRunner):
 
                 for future in chain(done):
                     try:
-                        node, trackers = future.get()
-                        # Merge performance tracking from the thread
-                        # to the outside one.
-                        PerformanceTracker.merge_trackers(trackers)
+                        node = future.get()
                         done_nodes.add(node)
 
                         # Print message

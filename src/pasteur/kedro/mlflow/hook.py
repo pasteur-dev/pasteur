@@ -100,7 +100,7 @@ class MlflowTrackingHook:
         pipe_seg = run_params["pipeline_name"].split(".")
         if len(pipe_seg) < 2:
             self._is_mlflow_enabled = False
-            self._logger.warn(
+            self._logger.warning(
                 "Running ingest dataset/view pipeline, disabling mlflow"
                 # f"Pipeline name {pipeline_name} is not compatible with mlflow hook (<view>.<alg>.<misc>), disabling logging."
             )
@@ -194,7 +194,7 @@ class MlflowTrackingHook:
             for view in override_params.pop("_views"):
                 override_params.pop(view, None)
         else:
-            logger.warn(
+            logger.warning(
                 '"_views" key not found in params, view parameters won\'t be stripped from mlflow params.'
             )
 
@@ -233,16 +233,6 @@ class MlflowTrackingHook:
         # And for good measure, store all parameters as a yml file
         mlflow.log_dict(self.params, f"_raw/params_all.yml")
         mlflow.log_dict(run_params, f"_raw/params_run.yml")
-
-    @hook_impl
-    def before_node_run(self, node: Node) -> None:
-        t = PerformanceTracker.get("nodes")
-        t.log_to_file()
-        t.start(node.name.split("(")[0])
-
-    @hook_impl
-    def after_node_run(self, node: Node):
-        PerformanceTracker.get("nodes").stop(node.name.split("(")[0])
 
     @hook_impl
     def on_pipeline_error(self):

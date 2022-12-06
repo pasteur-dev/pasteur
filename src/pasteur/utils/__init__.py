@@ -58,7 +58,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
     ) -> Any:
         assert self.merged_load, f"Merged loading is not implemented for this dataset."
         if self.partitioned:
-            logger.warn(
+            logger.warning(
                 f"Loading partitioned dataset as a whole, this may cause memory issues."
             )
         return self.merged_load(columns=columns, chunksize=chunksize)
@@ -238,6 +238,13 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         return {name: ds for name, ds in datasets.items() if not ds.partitioned}, {
             name: ds for name, ds in datasets.items() if ds.partitioned
         }
+
+    def __len__(self):
+        if self._partitions:
+            return len(self._partitions)
+        if self.merged_load:
+            return 1
+        return 0
 
 
 LazyFrame = LazyDataset["pd.DataFrame"]

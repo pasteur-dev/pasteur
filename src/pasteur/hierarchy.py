@@ -438,7 +438,9 @@ def rebalance_attributes(
     if ep:
         logger.info(f"Rebalancing columns with e_p={ep}")
     else:
-        logger.warn(f"Rebalancing columns without using Differential Privacy (e_p=inf)")
+        logger.warning(
+            f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+        )
 
     num_cols = table.shape[1]
 

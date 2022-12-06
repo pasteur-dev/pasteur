@@ -49,12 +49,12 @@ def pipe(pipeline, params, all, synth, metrics):
             logger.info("Nodes for ingesting the dataset will be run.")
             tags = []
         elif synth:
-            logger.warn(
+            logger.warning(
                 "Skipping ingest nodes which are affected by hyperparameters, results may be invalid."
             )
             tags = [TAG_CHANGES_PER_ALGORITHM]
         elif metrics:
-            logger.warn("Only running metrics nodes.")
+            logger.warning("Only running metrics nodes.")
             tags = [TAG_METRICS]
         else:
             logger.debug(

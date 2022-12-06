@@ -411,10 +411,10 @@ def greedy_bayes(
 
     # Allow for "unbounded" privacy budget without destroying the computer.
     if e1 > MAX_EPSILON or e1 is None:
-        logger.warn("Baking without DP (e1=inf).")
+        logger.warning("Baking without DP (e1=inf).")
     if t > n / 10 or e2 > MAX_EPSILON or e2 is None or t > MAX_T:
         t = min(n / 10, MAX_T)
-        logger.warn(
+        logger.warning(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
 

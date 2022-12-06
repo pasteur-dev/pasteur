@@ -4,22 +4,17 @@ loading bar (friendlier for jupyter). It also force enables async save of datase
 The TQDM loading bar is only activated if the pipeline is large enough.
 """
 
+import logging
 from collections import Counter
 from itertools import chain
 
 from kedro.io import AbstractDataSet, DataCatalog, MemoryDataSet
 from kedro.pipeline import Pipeline
-from kedro.runner.runner import AbstractRunner, run_node
+from kedro.runner.runner import AbstractRunner
 from pluggy import PluginManager
-import logging
 
-from ...utils.progress import (
-    MULTIPROCESS_ENABLE,
-    set_node_name,
-    piter,
-    logging_redirect_pbar,
-    is_jupyter,
-)
+from ...utils.progress import is_jupyter, logging_redirect_pbar, piter, set_node_name
+from .common import run_expanded_node
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +82,9 @@ class SimpleSequentialRunner(AbstractRunner):
                     pbar.set_description(f"Executing {node_name}")
                 try:
                     set_node_name(node_name)
-                    run_node(node, catalog, hook_manager, self._is_async, session_id)
+                    run_expanded_node(node, catalog, hook_manager, session_id)
                     done_nodes.add(node)
-                except KeyboardInterrupt:
+                except KeyboardInterrupt as e:
                     import sys
 
                     logger.error(f"Received KeyboardInterrupt, exiting...")
@@ -99,9 +94,16 @@ class SimpleSequentialRunner(AbstractRunner):
                         pbar.leave = False
                         pbar.close()
 
-                    raise Exception()
-                except Exception:
-                    # self._suggest_resume_scenario(pipeline, done_nodes)
+                    raise Exception() from e  # raising KeyboardInterrupt results in Aborted! being printed.
+                except Exception as e:
+                    import sys
+
+                    sys.excepthook = lambda *_: None  # exception was printed already
+
+                    if use_pbar:
+                        pbar.leave = False
+                        pbar.close()
+
                     raise
 
                 # decrement load counts and release any data sets we've finished with

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import Any, Callable, Dict, Iterable, List, Literal, NamedTuple
 
 from kedro.pipeline import Pipeline
@@ -184,7 +185,9 @@ class ExtendedNode(Node):
 
         self._validate_exp_inputs()
 
-    def run(self, inputs: Dict[str, Any] | None = None) -> Dict[str, Any] | Callable:
+    def run(
+        self, inputs: Dict[str, Any] | None = None
+    ) -> Dict[str, Any] | set[Callable[..., Dict[str, Any]]]:
         if self._nested_inputs is None or len(self._nested_inputs) == 0:
             out = self._func(*self._args, **self._kwargs)
         else:
@@ -199,23 +202,16 @@ class ExtendedNode(Node):
             else:  # Dictionary
                 out = self._func(*self._args, **self._kwargs, **data)
 
-        if self._nested_outputs:
-            return _flatten_outputs(self._nested_outputs, out)
-            # try:
-            # except AssertionError:
-            #     # Failed mapping outputs
-            #     if callable(out):
-            #         return partial(
-            #             _flatten_outputs, self._nested_outputs, out, run=True
-            #         )
-            #     elif isinstance(out, dict):
-            #         return {
-            #             pid: partial(
-            #                 _flatten_outputs, self._nested_outputs, partition, run=True
-            #             )
-            #             for pid, partition in out.items()
-            #         }
-        return {}
+        if not self._nested_outputs:
+            return {}
+
+        if isinstance(out, set):
+            return {
+                partial(_flatten_outputs, self._nested_outputs, o, run=True)
+                for o in out
+            }
+
+        return _flatten_outputs(self._nested_outputs, out)
 
     def __str__(self):
         def _set_to_str(xset):
@@ -326,7 +322,6 @@ def node(
         confirms=confirms,
         namespace=namespace,
     )
-
 
 # Tag each node in the pipeline based on its use
 TAG_VIEW = "view"

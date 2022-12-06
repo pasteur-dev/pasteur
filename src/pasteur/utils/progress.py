@@ -97,7 +97,10 @@ prange = limit_pbar_nesting(trange)
 piter = limit_pbar_nesting(tqdm)
 
 
-def _wrap_exceptions(fun: Callable[P, X], /, *args: P.args, **kwargs: P.kwargs) -> X:
+def _wrap_exceptions(
+    fun: Callable[P, X], /, node_name: str, *args: P.args, **kwargs: P.kwargs
+) -> X:
+    set_node_name(node_name)
     try:
         return fun(*args, **kwargs)
     except Exception as e:
@@ -109,7 +112,9 @@ def _wrap_exceptions(fun: Callable[P, X], /, *args: P.args, **kwargs: P.kwargs) 
 
 
 def _calc_worker(args):
-    fun, base_args, chunk = args
+    node_name, fun, base_args, chunk = args
+    set_node_name(node_name)
+
     out = []
     for i, op in enumerate(chunk):
         try:
@@ -192,7 +197,6 @@ def init_pool(max_workers: int | None = None, log_queue=None):
     `max_workers` should be set based either on cores or on how many RAM GBs
     will be required by each process."""
     from multiprocessing import Pool
-    from concurrent.futures import ProcessPoolExecutor
 
     global _pool
 
@@ -216,17 +220,17 @@ def close_pool():
 
 def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     """Uses a separate process to complete this task, taken from the common pool."""
-    if not MULTIPROCESS_ENABLE:
+    if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return fun(*args, **kwargs)
 
-    return _get_pool().apply(_wrap_exceptions, (fun, *args), kwargs)  # type: ignore
+    return _get_pool().apply(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
 
 
 def process_in_parallel(
     fun: Callable[..., X],
     per_call_args: list[dict],
     base_args: dict[str, Any] | None = None,
-    min_chunk_size: int = 100,
+    min_chunk_size: int = 1,
     desc: str | None = None,
 ) -> list[X]:
     """Processes arguments in parallel using the common process pool and prints progress bar.
@@ -235,7 +239,11 @@ def process_in_parallel(
     with large size that are common in all function calls and `per_call_args` which
     change every iteration."""
 
-    if len(per_call_args) < 2 * min_chunk_size or not MULTIPROCESS_ENABLE:
+    if (
+        len(per_call_args) < 2 * min_chunk_size
+        or not MULTIPROCESS_ENABLE
+        or IS_SUBPROCESS
+    ):
         out = []
         for op in piter(
             per_call_args, total=len(per_call_args), desc=desc, leave=False
@@ -244,8 +252,6 @@ def process_in_parallel(
             out.append(fun(**args))
 
         return out
-
-    from concurrent.futures import CancelledError
 
     import numpy as np
 
@@ -257,7 +263,7 @@ def process_in_parallel(
 
     args = []
     for chunk in chunks:
-        args.append((fun, base_args, chunk))
+        args.append((get_node_name(), fun, base_args, chunk))
 
     pool = _get_pool()
     res = piter(

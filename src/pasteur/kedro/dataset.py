@@ -136,7 +136,7 @@ def _save_worker(
                     case "int64":
                         pa_type = pa.int64()
                     case other:
-                        logger.warn(
+                        logger.warning(
                             f"Could not infer type for empty column `{field.name}`"
                             + f" with pandas type `{other}` to generate parquet"
                             + "schema. If there's a chunk who's column contains"
@@ -215,15 +215,15 @@ def _load_merged_worker(
     # null columns that are specified as categorical in pandas metadata
     # will become objects after loading, ballooning dataset size
     # the following code will remake the column as categorical
-    try: 
+    try:
         import json
 
         categorical = []
-        for field in json.loads(table.schema.metadata[b'pandas'])['columns']:
-            if (field['pandas_type']) == "categorical":
-                categorical.append(field['name'])
+        for field in json.loads(table.schema.metadata[b"pandas"])["columns"]:
+            if (field["pandas_type"]) == "categorical":
+                categorical.append(field["name"])
 
-        dtypes = {name: 'category' for name in categorical}
+        dtypes = {name: "category" for name in categorical}
     except:
         dtypes = None
 
@@ -286,11 +286,31 @@ class FragmentedParquetDataset(ParquetDataSet):
 
         return LazyDataset(all, partitions)
 
+
+    def _get_save_path(self):
+        if not self._version:
+            # When versioning is disabled, return original filepath
+            return self._filepath
+
+        save_version = self.resolve_save_version()
+        versioned_path = self._get_versioned_path(save_version)  # type: ignore
+
+        # TODO; Redo check that respects partitioning
+        # if self._exists_function(str(versioned_path)):
+        #     raise DataSetError(
+        #         f"Save path '{versioned_path}' for {str(self)} must not exist if "
+        #         f"versioning is enabled."
+        #     )
+
+        return versioned_path
+
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
 
-        if self._fs.exists(save_path):
-            self._fs.rm(save_path, recursive=True)
+        # TODO: Figure out what to do with repartitioning and old partitions
+        # being left behind
+        # if self._fs.exists(save_path):
+        #     self._fs.rm(save_path, recursive=True)
 
         if not isinstance(data, dict) and not isinstance(data, LazyDataset):
             process(
@@ -319,7 +339,7 @@ class FragmentedParquetDataset(ParquetDataSet):
         if not jobs:
             return
 
-        self._fs.mkdir(save_path)
+        # self._fs.mkdirs(save_path, exist_ok = True)
 
         process_in_parallel(
             _save_worker,

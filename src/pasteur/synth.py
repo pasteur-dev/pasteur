@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
 from .utils import LazyFrame
+from functools import partial
 
 
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ class Synth(ModuleClass):
     tabular = True
     multimodal = False
     timeseries = False
+    partitions = 1
     gpu = False
     parallel = False
 
@@ -109,7 +111,11 @@ class Synth(ModuleClass):
 
 
 def synth_fit(
-    factory: SynthFactory, metadata: Metadata, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame], trns: dict[str, TransformHolder]
+    factory: SynthFactory,
+    metadata: Metadata,
+    ids: dict[str, LazyFrame],
+    tables: dict[str, LazyFrame],
+    trns: dict[str, TransformHolder],
 ):
     from .utils.perf import PerformanceTracker
 
@@ -140,32 +146,40 @@ def synth_fit(
     return model
 
 
-def synth_sample(model: Synth):
-    from .utils.perf import PerformanceTracker
-
-    tracker = PerformanceTracker.get("synth")
-
-    tracker.start("sample")
-    ids, tables = model.sample()
-    tracker.stop("sample")
+def _synth_sample_part(i: int, n: int | None, model: Synth):
+    ids, tables = model.sample(n)
 
     return {
-        "tables": tables,
-        "ids": ids
+        "tables": {name: {f"{i:04d}": table} for name, table in tables.items()},
+        "ids": {name: {f"{i:04d}": table} for name, table in ids.items()},
+    }
+
+
+def synth_sample(model: Synth, n: int | None = None, partitions: int | None = None):
+    # TODO: Track synth speed
+    return {
+        partial(_synth_sample_part, i, n, model)
+        for i in range(partitions or model.partitions)
     }
 
 
 class IdentSynth(Synth):
     """Returns the data it was provided."""
 
-    name="ident_idx"
-    type="idx"
-    
+    name = "ident_idx"
+    type = "idx"
+
     tabular = True
     multimodal = True
     timeseries = True
-    
-    def preprocess(self, attrs: dict[str, Attributes], ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
+    partitions = 1
+
+    def preprocess(
+        self,
+        attrs: dict[str, Attributes],
+        ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
+    ):
         pass
 
     def bake(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
@@ -174,8 +188,9 @@ class IdentSynth(Synth):
     def fit(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
         self._ids = {name: table.sample() for name, table in ids.items()}
         self._tables = {name: table.sample() for name, table in tables.items()}
+        self.partitions = len(tables[next(iter(tables))])
 
-    def sample(self):
+    def sample(self, n: int | None = None):
         return self._ids, self._tables
 
 
