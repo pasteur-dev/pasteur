@@ -191,11 +191,19 @@ def get_node_name():
     return _node_name.name
 
 
-def init_pool(max_workers: int | None = None, log_queue=None):
+def init_pool(
+    max_workers: int | None = None, refresh_processes: bool = False, log_queue=None
+):
     """Creates a shared process pool for all threads in this process.
 
     `max_workers` should be set based either on cores or on how many RAM GBs
-    will be required by each process."""
+    will be required by each process.
+
+    `log_queue` connects the subprocesses to the main process logger, see `pasteur.kedro.runner.parallel.py`
+
+    `refresh_processes` if True sets `maxtasksperchild=1` for the pool, which
+    prevents memory leaks from snowballing from node to node. However,
+    due to additional imports per task, it is slower."""
     from multiprocessing import Pool
 
     global _pool
@@ -209,7 +217,7 @@ def init_pool(max_workers: int | None = None, log_queue=None):
         processes=max_workers,
         initializer=_init_subprocess,
         initargs=(lk, log_queue),
-        # maxtasksperchild=1,
+        maxtasksperchild=1 if refresh_processes else None,
     )
 
 

@@ -58,11 +58,13 @@ class SimpleParallelRunner(ParallelRunner):
         pipe_name: str | None = None,
         params_str: str | None = None,
         max_workers: int | None = None,
+        refresh_processes: bool = False
     ):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
         self.max_workers = max_workers or DEFAULT_WORKERS
+        self.refresh_processes = refresh_processes
 
         super().__init__(is_async=False)
 
@@ -112,7 +114,7 @@ class SimpleParallelRunner(ParallelRunner):
         lp.start()
 
         # Init subprocess pool
-        init_pool(self.max_workers, log_queue)
+        init_pool(self.max_workers, self.refresh_processes, log_queue)
 
         # Find max threads appropriate to pipeline
         max_threads = _get_required_workers_count(pipeline, self.max_workers)

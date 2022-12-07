@@ -28,8 +28,14 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
 )
+@click.option(
+    "-r",
+    "--refresh-processes",
+    is_flag=True,
+    help="Restarts processes between tasks. Helps with memory leaks but slower. Check `pasteur.utils.leaks` to fix.",
+)
 @click.option("-w", "--max-workers", type=int, default=None)
-def pipe(pipeline, params, all, synth, metrics, max_workers):
+def pipe(pipeline, params, all, synth, metrics, max_workers, refresh_processes):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
     from .pipelines.meta import (
@@ -65,7 +71,9 @@ def pipe(pipeline, params, all, synth, metrics, max_workers):
 
         session.run(
             tags=tags,
-            runner=SimpleRunner(pipeline, " ".join(params), max_workers=max_workers) ,  # SequentialRunner(True),
+            runner=SimpleRunner(
+                pipeline, " ".join(params), max_workers=max_workers, refresh_processes=refresh_processes
+            ),  # SequentialRunner(True),
             node_names="",
             from_nodes="",
             to_nodes="",
