@@ -345,7 +345,7 @@ def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable] | Callable:
 
     # If datasets are not partitioned, return a closure
     if not LazyDataset.are_partitioned(*datasets.values()):
-        return gen_closure(fun, *args, _canary=True, **kwargs)
+        return {gen_closure(fun, *args, _canary=True, **kwargs)}
 
     # If they are, create proper arguments for each funciton call.
     closures = set()

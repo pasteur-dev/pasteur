@@ -286,7 +286,6 @@ class FragmentedParquetDataset(ParquetDataSet):
 
         return LazyDataset(all, partitions)
 
-
     def _get_save_path(self):
         if not self._version:
             # When versioning is disabled, return original filepath
@@ -312,7 +311,9 @@ class FragmentedParquetDataset(ParquetDataSet):
         # if self._fs.exists(save_path):
         #     self._fs.rm(save_path, recursive=True)
 
-        if not isinstance(data, dict) and not isinstance(data, LazyDataset):
+        if (not isinstance(data, dict) and not isinstance(data, LazyDataset)) or (
+            isinstance(data, LazyDataset) and not data.partitioned
+        ):
             process(
                 _save_worker,
                 protocol=self._protocol,
@@ -339,7 +340,7 @@ class FragmentedParquetDataset(ParquetDataSet):
         if not jobs:
             return
 
-        # self._fs.mkdirs(save_path, exist_ok = True)
+        self._fs.mkdirs(save_path, exist_ok=True)
 
         process_in_parallel(
             _save_worker,

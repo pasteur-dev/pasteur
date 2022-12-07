@@ -66,8 +66,9 @@ def get_tqdm_args():
         """Disable subprocess pbars until a better solution."""
         disable = True
     else:
-        active_pbars = sum(not pbar.disable for pbar in tqdm._instances)  # type: ignore
-        disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
+        # active_pbars = sum(not pbar.disable for pbar in tqdm._instances)  # type: ignore
+        # disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
+        disable = is_jupyter()
     return {
         "disable": disable,
         "colour": PBAR_COLOR,
@@ -252,14 +253,7 @@ def process_in_parallel(
         or not MULTIPROCESS_ENABLE
         or IS_SUBPROCESS
     ):
-        out = []
-        for op in piter(
-            per_call_args, total=len(per_call_args), desc=desc, leave=False
-        ):
-            args = {**base_args, **op} if base_args else op
-            out.append(fun(**args))
-
-        return out
+        return _calc_worker((get_node_name(), fun, base_args, per_call_args))
 
     import numpy as np
 
