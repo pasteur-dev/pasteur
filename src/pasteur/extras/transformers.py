@@ -144,7 +144,7 @@ class IdxTransformer(Transformer):
         return pd.DataFrame(out_col.astype(type))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
-        col = data[self.col]
+        col = data.loc[:, self.col]
         if self.type.name == "category":
             out = col.astype(
                 pd.CategoricalDtype(range(self.domain))

@@ -324,9 +324,7 @@ class gen_closure(partial):
         return val
 
 
-def _chunk_fun(
-    fun, *args: Any, **kwargs: Any
-) -> dict[str, Callable[..., A]] | Callable[..., A]:
+def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable] | Callable:
     new_args = []
     datasets = {}
     # Fetch datasets from arguments
@@ -350,7 +348,7 @@ def _chunk_fun(
         return gen_closure(fun, *args, _canary=True, **kwargs)
 
     # If they are, create proper arguments for each funciton call.
-    closures = {}
+    closures = set()
     for pid, dataset_kw in LazyDataset.zip(datasets).items():
         out_args = new_args.copy()
         out_kwargs = new_kwargs.copy()
@@ -361,7 +359,9 @@ def _chunk_fun(
             else:
                 out_args[name] = ds
 
-        closures[pid] = gen_closure(fun, *out_args, _canary=True, **out_kwargs)
+        closures.add(
+            gen_closure(fun, *out_args, _canary=True, _partition=pid, **out_kwargs)
+        )
 
     return closures
 
@@ -373,7 +373,7 @@ def to_chunked(
     `LazyDataset`, a dictionary of lazy functions are returned, each one loading
     one partition."""
 
-    def wrapper(*args, _canary=False, **kwargs):
+    def wrapper(*args, _canary=False, _partition: str | None = None, **kwargs):
         """Wrapper acts like the real function when `_canary` is True, otherwise
         it runs `_chunk_fun()`.
 
@@ -381,7 +381,28 @@ def to_chunked(
         when called by end users and perform the evaluation when ran by one of the
         closures."""
         if _canary:
-            return func(*args, **kwargs)  # type: ignore
+            out = func(*args, **kwargs)  # type: ignore
+
+            # Try to partition output if partition is provided
+            # dictionaries will have their values become a nested dictionary
+            # with 1 key, the partition
+            # Similarly with lists
+            # Else, the output itself is wrapped
+            if _partition:
+                if isinstance(out, dict):
+                    new_out = {}
+                    for name, output in out.items():
+                        new_out[name] = {_partition: output}
+                    out = new_out
+                elif isinstance(out, list):
+                    new_out = []
+                    for output in out:
+                        new_out.append({_partition: out})
+                    out = new_out
+                else:
+                    out = {_partition: out}
+
+            return out
         else:
             return _chunk_fun(wrapper, *args, **kwargs)
 

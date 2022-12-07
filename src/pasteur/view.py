@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 @to_chunked
 def split_keys(
     key_chunk: LazyChunk,
-    split: str,
+    req_splits: list[str] | None,
     splits: dict[str, Any],
     random_state: int | None = None,
 ) -> dict[str, pd.DataFrame]:
@@ -67,7 +67,9 @@ def split_keys(
         if idx_name is not None:
             splits[name].index.name = idx_name
 
-    return splits[split]
+    if req_splits:
+        return {name: splits[name] for name in req_splits}
+    return splits
 
 
 @to_chunked
@@ -135,15 +137,15 @@ class View(Module):
         raise NotImplementedError()
 
     def split_keys(
-        self, keys: LazyFrame, split: str, splits: dict[str, Any], random_state: int
+        self, keys: LazyFrame, req_splits: list[str] | None, splits: dict[str, Any], random_state: int
     ):
         """Takes the key frame and splits it into the portions specified by `splits`. Then, return
-        the split with name `split`.
+        the split with names in `req_splits`.
 
         Should produce the same results each run regardless of the value of `split`,
         because it will be ran once per split."""
         ...
-        return split_keys(keys, split, splits, random_state)
+        return split_keys(keys, req_splits, splits, random_state)
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         """Filters the table using the keys provided."""

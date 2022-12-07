@@ -92,10 +92,7 @@ def _filter_keys(
     random_state: int,
     keys: LazyFrame,
 ):
-    return {
-        split: view.split_keys(keys, split, ratios, random_state)
-        for split in req_splits or ratios.keys()
-    }
+    return view.split_keys(keys, req_splits, ratios, random_state)
 
 
 def create_keys_pipeline(view: View, splits: list[str]):
@@ -114,6 +111,7 @@ def create_keys_pipeline(view: View, splits: list[str]):
                     "params": "parameters",
                     "keys": f"{view.dataset}.keys",
                 },
+                name="split_keys",
                 namespace=f"{view}.keys",
                 outputs={s: f"{view}.keys.{s}" for s in splits},
                 tags=TAGS_VIEW_SPLIT,
@@ -135,7 +133,9 @@ def create_filter_pipeline(view: View, splits: list[str]):
         for table in tables:
             nodes.append(
                 node(
-                    func=gen_closure(view.filter_table, table, _fn=f"filter_{table}_{split}"),
+                    func=gen_closure(
+                        view.filter_table, table, _fn=f"filter_{table}_{split}"
+                    ),
                     inputs={
                         "keys": f"keys.{split}",
                         **{t: f"view.{t}" for t in tables},

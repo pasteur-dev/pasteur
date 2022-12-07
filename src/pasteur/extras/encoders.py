@@ -23,7 +23,7 @@ class DiscretizationColumnTransformer:
         assert attr.bins is not None
         # FIXME: is not out of core
         self.edges = np.histogram_bin_edges(data[~pd.isna(data)], attr.bins, rng)
-        self.vals = (self.edges[:-1] + self.edges[1:]) / 2
+        self.vals = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.float32)
 
         if attr.common <= 1:
             self.attr = OrdValue(self.vals, na=attr.common == 1)

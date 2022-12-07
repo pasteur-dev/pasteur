@@ -90,13 +90,13 @@ class MimicDataset(Dataset):
     folder_name = "mimiciv_1_0"
     catalog = get_relative_fn("catalog.yml")
 
-    def ingest(self, name, **tables: LazyFrame | LazyDataset[TextFileReader]):
+    def ingest(self, name, **tables: LazyFrame | Callable[[], TextFileReader]):
         if name in self._mimic_tables_single:
             return cast("LazyFrame", tables[name])
         if name in self._mimic_tables_partitioned:
             chunksize = self._mimic_tables_partitioned[name]
             return _partition_table(
-                cast("Callable[..., TextFileReader]", tables[name]),
+                cast("Callable[[], TextFileReader]", tables[name]),
                 cast("LazyFrame", tables["core_patients"]),
                 self._n_partitions,
                 chunksize,
