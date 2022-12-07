@@ -3,7 +3,7 @@ from copy import copy
 import numpy as np
 import pandas as pd
 
-from ..attribute import Attribute, IdxValue, NumValue, OrdValue
+from ..attribute import Attribute, IdxValue, NumValue, OrdValue, get_dtype
 from ..encode import Encoder
 
 
@@ -36,10 +36,11 @@ class DiscretizationColumnTransformer:
             # self.attr = LevelColumn(Level("ord", self.vals), attr.common)
         return self.attr
 
-    def encode(self, data: pd.Series) -> pd.DataFrame:
+    def encode(self, data: pd.Series) -> pd.DataFrame | pd.Series:
         ofs = self.in_attr.common
+        dtype = get_dtype(len(self.vals))
         midx = len(self.vals) - 1  # clip digitize out of bounds values
-        digits = (np.digitize(data, bins=self.edges) - 1).clip(0, midx) + ofs
+        digits = (np.digitize(data, bins=self.edges).astype(dtype) - 1).clip(0, midx) + ofs
         if ofs:
             digits[pd.isna(data)] = 0
         return pd.Series(digits, index=data.index, name=self.col)

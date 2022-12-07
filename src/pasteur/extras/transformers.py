@@ -145,14 +145,28 @@ class IdxTransformer(Transformer):
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
         col = data[self.col]
-        out = col.map(self.vals)
+        if self.type.name == "category":
+            out = col.astype(
+                pd.CategoricalDtype(range(self.domain))
+            ).cat.rename_categories(self.vals)
 
-        if self.nullable:
-            out = out.where(col != 0, pd.NA)
-        if self.unknown_value is not None:
-            out = out.where(col != (1 if self.nullable else 0), self.unknown_value)
+            if self.nullable:
+                out = out.where(col != 0, pd.NA).cat.remove_categories([0])
+            if self.unknown_value is not None:
+                out = out.cat.add_categories([self.unknown_value]).where(
+                    col != (1 if self.nullable else 0), self.unknown_value
+                ).cat.remove_categories([1 if self.nullable else 0])
 
-        return out.astype(self.type)
+            return out
+        else:
+            out = col.map(self.vals)
+
+            if self.nullable:
+                out = out.where(col != 0, pd.NA)
+            if self.unknown_value is not None:
+                out = out.where(col != (1 if self.nullable else 0), self.unknown_value)
+
+            return out.astype(self.type)
 
 
 class OrdinalTransformer(IdxTransformer):
@@ -571,7 +585,7 @@ class DatetimeTransformer(RefTransformer):
         date_enc = self.dt.transform(data, ref)
         time_enc = self.tt.transform(data)
         del data, ref
-        return pd.concat([date_enc, time_enc], axis=1, copy=False, join='inner')
+        return pd.concat([date_enc, time_enc], axis=1, copy=False, join="inner")
 
     def reverse(
         self, data: pd.DataFrame, ref: pd.Series | None = None

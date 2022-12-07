@@ -86,13 +86,9 @@ def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame
         # Assume if index of table is from keys we can index it
         return table.loc[keys.index]
     else:
-        table = table.reset_index(drop=not idx)
-        new_table = table.join(keys, on=col, how="inner")
-
-        if idx:
-            new_table = new_table.set_index(idx)
-
-        return new_table
+        mask = table[col].isin(keys.index)
+        del keys
+        return table.loc[mask]
 
 
 class View(Module):

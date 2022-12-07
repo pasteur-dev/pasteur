@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
 )
-def pipe(pipeline, params, all, synth, metrics):
+@click.option("-w", "--max-workers", type=int, default=None)
+def pipe(pipeline, params, all, synth, metrics, max_workers):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
     from .pipelines.meta import (
@@ -64,7 +65,7 @@ def pipe(pipeline, params, all, synth, metrics):
 
         session.run(
             tags=tags,
-            runner=SimpleRunner(pipeline, " ".join(params)),  # SequentialRunner(True),
+            runner=SimpleRunner(pipeline, " ".join(params), max_workers=max_workers) ,  # SequentialRunner(True),
             node_names="",
             from_nodes="",
             to_nodes="",

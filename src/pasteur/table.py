@@ -291,6 +291,7 @@ class TableTransformer:
         # Process columns with intra-table dependencies afterwards.
         # fix-me: assumes no nested dependencies within the same table
         parent_cols: pd.DataFrame = pd.concat(tts, axis=1, copy=False, join="inner")
+        tts = []
         for name, col in meta.cols.items():
             if col.is_id() or col.ref is None:
                 # Columns with no dependencies have been processed
@@ -314,9 +315,9 @@ class TableTransformer:
         # Re-add ids
         # If an id references another table it will be merged from the ids
         # dataframe. Otherwise, it will be set to 0 (irrelevant to data synthesis).
-        del parent_cols, cached_table, cached_parents
-        dec_table = pd.concat(tts, axis=1, copy=False, join="inner")
-        del tts
+        del cached_table, cached_parents
+        dec_table = pd.concat([parent_cols, *tts], axis=1, copy=False, join="inner")
+        del tts, parent_cols
         for name, col in meta.cols.items():
             if not col.is_id() or name == meta.primary_key:
                 continue

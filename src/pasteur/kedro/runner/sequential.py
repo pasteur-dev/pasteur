@@ -28,6 +28,7 @@ class SimpleSequentialRunner(AbstractRunner):
         self,
         pipe_name: str | None = None,
         params_str: str | None = None,
+        max_workers: int | None = None
     ):
         self.pipe_name = pipe_name
         self.params_str = params_str
