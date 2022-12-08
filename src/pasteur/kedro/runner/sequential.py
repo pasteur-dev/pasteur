@@ -29,7 +29,7 @@ class SimpleSequentialRunner(AbstractRunner):
         pipe_name: str | None = None,
         params_str: str | None = None,
         max_workers: int | None = None,
-        refresh_processes: bool = False,
+        refresh_processes: int | None = None
     ):
         self.pipe_name = pipe_name
         self.params_str = params_str

@@ -35,19 +35,31 @@ ExtensionBlock             2        +1 < suspicious
 IntegerArray               2        +1 < suspicious
 ```"""
 
+import logging
+
 try:
     import objgraph
 except:
     print("Module 'objgraph' is required to use this module.")
     raise
 
+logger = logging.getLogger(__name__)
+
 
 def clear():
     objgraph.growth()
 
 
-def check():
-    objgraph.show_growth(1000)
+def check(info: str):
+    result = objgraph.growth(1000)
+    if not result:
+        return
+
+    width = max(len(name) for name, _, _ in result)
+    for name, count, delta in result:
+        info += "\n%-*s%9d %+9d" % (width, name, count, delta)
+
+    logger.warning(info)
 
 
 def graph(name: str):
@@ -62,5 +74,5 @@ def graph(name: str):
             ),
             output=output,
         )
-        
+
         print("https://dreampuf.github.io/GraphvizOnline/#" + quote(output.getvalue()))

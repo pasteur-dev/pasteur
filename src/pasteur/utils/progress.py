@@ -42,6 +42,8 @@ RICH_TRACEBACK_ARGS = {
 MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
 IS_SUBPROCESS = False
 
+CHECK_LEAKS = False
+
 
 def is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
@@ -103,7 +105,18 @@ def _wrap_exceptions(
 ) -> X:
     set_node_name(node_name)
     try:
-        return fun(*args, **kwargs)
+        res = fun(*args, **kwargs)
+
+        if CHECK_LEAKS:
+            # check for leaks after first execution
+            from pasteur.utils.leaks import clear, check
+
+            clear()
+            a = fun(*args, **kwargs)
+            del a
+            check(f"Node {node_name} leaks")
+
+        return res
     except Exception as e:
         get_console().print_exception(**RICH_TRACEBACK_ARGS)
         logger.error(
@@ -120,7 +133,17 @@ def _calc_worker(args):
     for i, op in enumerate(chunk):
         try:
             args = {**base_args, **op} if base_args else op
+
             out.append(fun(**args))
+
+            if CHECK_LEAKS:
+                # Run second so first run loads modules
+                from pasteur.utils.leaks import check, clear
+
+                clear()
+                a = fun(**args)
+                del a
+                check(f"Node {node_name}:{i} leaks")
         except Exception as e:
             get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
@@ -193,7 +216,7 @@ def get_node_name():
 
 
 def init_pool(
-    max_workers: int | None = None, refresh_processes: bool = False, log_queue=None
+    max_workers: int | None = None, refresh_processes: int | None = None, log_queue=None
 ):
     """Creates a shared process pool for all threads in this process.
 
@@ -202,9 +225,9 @@ def init_pool(
 
     `log_queue` connects the subprocesses to the main process logger, see `pasteur.kedro.runner.parallel.py`
 
-    `refresh_processes` if True sets `maxtasksperchild=1` for the pool, which
+    `refresh_processes` sets `maxtasksperchild` for the pool, which
     prevents memory leaks from snowballing from node to node. However,
-    due to additional imports per task, it is slower."""
+    due to additional imports every restart, it is slower."""
     from multiprocessing import Pool
 
     global _pool
@@ -218,7 +241,7 @@ def init_pool(
         processes=max_workers,
         initializer=_init_subprocess,
         initargs=(lk, log_queue),
-        maxtasksperchild=1 if refresh_processes else None,
+        maxtasksperchild=refresh_processes,
     )
 
 

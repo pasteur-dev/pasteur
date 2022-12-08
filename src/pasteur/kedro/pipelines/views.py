@@ -138,7 +138,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
                     ),
                     inputs={
                         "keys": f"keys.{split}",
-                        **{t: f"view.{t}" for t in tables},
+                        table: f"view.{table}",
                     },
                     outputs=f"{split}.{table}",
                     namespace=split,

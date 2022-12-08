@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 @click.option(
     "-r",
     "--refresh-processes",
-    is_flag=True,
-    help="Restarts processes between tasks. Helps with memory leaks but slower. Check `pasteur.utils.leaks` to fix.",
+    type=int,
+    default=None,
+    help="Restarts processes after `n` tasks. Lower numbers help with memory leaks but slower. Set to 0 to disable. Check `pasteur.utils.leaks` to fix.",
 )
 @click.option("-w", "--max-workers", type=int, default=None)
 def pipe(pipeline, params, all, synth, metrics, max_workers, refresh_processes):
@@ -69,10 +70,19 @@ def pipe(pipeline, params, all, synth, metrics, max_workers, refresh_processes):
             )
             tags = [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
 
+        # TODO: Allow for using a config value
+        if refresh_processes == 0:
+            refresh_processes = None
+        elif not refresh_processes:
+            refresh_processes = 5
+
         session.run(
             tags=tags,
             runner=SimpleRunner(
-                pipeline, " ".join(params), max_workers=max_workers, refresh_processes=refresh_processes
+                pipeline,
+                " ".join(params),
+                max_workers=max_workers,
+                refresh_processes=refresh_processes,
             ),  # SequentialRunner(True),
             node_names="",
             from_nodes="",

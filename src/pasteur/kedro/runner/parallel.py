@@ -58,7 +58,7 @@ class SimpleParallelRunner(ParallelRunner):
         pipe_name: str | None = None,
         params_str: str | None = None,
         max_workers: int | None = None,
-        refresh_processes: bool = False
+        refresh_processes: int | None = None
     ):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
