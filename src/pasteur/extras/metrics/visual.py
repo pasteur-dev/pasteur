@@ -6,7 +6,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from ...metadata import ColumnMeta, Metadata
-from ...metric import ColumnMetric, RefColumnMetric
+from ...metric import ColumnMetric, RefColumnMetric, ColumnSummaries
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
 from typing import NamedTuple
 
@@ -96,7 +96,7 @@ class NumericalHist(ColumnMetric[np.ndarray]):
             x_max = metrics.x_max
         else:
             x_max = args.get("max", data.max())
-        
+
         # In the case the column is NA, x_min and x_max will be NA
         # Disable visualiser
         self.disabled = np.isnan(x_max) or np.isnan(x_min)
@@ -111,27 +111,30 @@ class NumericalHist(ColumnMetric[np.ndarray]):
 
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
-    def process(self, split: int, data: pd.Series):
+    def process(self, data: np.ndarray):
         if self.disabled:
             return np.array([])
         return np.histogram(data.astype(np.float32), self.bins, density=True)[0]
 
-    def visualise(
-        self,
-        data: dict[str, np.ndarray],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
+        return np.sum(summaries, axis=0)
+
+    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
         if self.disabled:
             return
+
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
 
         load_matplotlib_style()
         v = _gen_hist(
             self.meta,
             self.col.capitalize(),
             self.bins,
-            data,
+            splits,
         )
 
         mlflow_log_hists(self.table, self.col, v)
@@ -146,22 +149,25 @@ class CategoricalHist(ColumnMetric[np.ndarray]):
         self.col = col
         self.cols = list(data.value_counts().sort_values(ascending=False).index)
 
-    def process(self, split: int, data: pd.Series):
+    def process(self, data: pd.Series):
         return data.value_counts().reindex(self.cols, fill_value=0).to_numpy()
 
-    def visualise(
-        self,
-        data: dict[str, np.ndarray],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
+        return np.sum(summaries, axis=0)
+
+    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
+
         load_matplotlib_style()
         v = _gen_bar(
             self.meta,
             self.col.capitalize(),
             self.cols,
-            data,
+            splits,
         )
         mlflow_log_hists(self.table, self.col, v)
 
@@ -258,7 +264,7 @@ class DateHist(RefColumnMetric[DateData]):
         )
         self.nullable = meta.args.get("nullable", False)
 
-    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None) -> DateData:
+    def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
         assert self.ref is not None or ref is not None
 
         # Based on date transformer
@@ -319,6 +325,14 @@ class DateHist(RefColumnMetric[DateData]):
 
         return DateData(span, weeks, days, na)
 
+    def combine(self, summaries: list[DateData]) -> DateData:
+        return DateData(
+            span=np.sum([s.span for s in summaries if s.span], axis=0),
+            weeks=np.sum([s.weeks for s in summaries if s.weeks], axis=0),
+            days=np.sum([s.days for s in summaries if s.days], axis=0),
+            na=np.sum([s.na for s in summaries if s.na], axis=0),
+        )
+
     def _viz_days(self, data: dict[str, DateData]):
         return _gen_bar(
             meta=self.meta,
@@ -373,15 +387,15 @@ class DateHist(RefColumnMetric[DateData]):
             charts["na"] = self._viz_na(data)
         return charts
 
-    def visualise(
-        self,
-        data: dict[str, DateData],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def visualise(self, data: dict[str, ColumnSummaries[DateData]]):
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
+
         load_matplotlib_style()
-        v = self._visualise(data)
+        v = self._visualise(splits)
         mlflow_log_hists(self.table, self.col, v)
 
 
@@ -400,7 +414,7 @@ class TimeHist(ColumnMetric[np.ndarray]):
         else:
             self.span = "halfhour"
 
-    def process(self, split: int, data: pd.Series):
+    def process(self, data: pd.Series):
         data = data[~pd.isna(data)]
         hours = data.dt.hour
 
@@ -436,15 +450,15 @@ class TimeHist(ColumnMetric[np.ndarray]):
             xticks_label=tick_label,
         )
 
-    def visualise(
-        self,
-        data: dict[str, np.ndarray],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
+
         load_matplotlib_style()
-        v = self._visualise(data)
+        v = self._visualise(splits)
         mlflow_log_hists(self.table, self.col, v)
 
 
@@ -469,20 +483,23 @@ class DatetimeHist(RefColumnMetric[DatetimeData]):
         self.date.fit(table=table, col=col, meta=meta, data=data, ref=ref)
         self.time.fit(table=table, col=col, meta=meta, data=data)
 
-    def process(self, split: int, data: pd.Series, ref: pd.Series | None = None):
-        date = self.date.process(split, data, ref)
-        time = self.time.process(split, data)
+    def process(self, data: pd.Series, ref: pd.Series | None = None):
+        date = self.date.process(data, ref)
+        time = self.time.process(data)
         return DatetimeData(date, time)
 
     def visualise(
         self,
-        data: dict[str, DatetimeData],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
+        data: dict[str, ColumnSummaries[DatetimeData]],
     ):
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
+
         load_matplotlib_style()
-        date_fig = self.date._visualise({n: c.date for n, c in data.items()})
-        time_fig = self.time._visualise({n: c.time for n, c in data.items()})
+        date_fig = self.date._visualise({n: c.date for n, c in splits.items()})
+        time_fig = self.time._visualise({n: c.time for n, c in splits.items()})
 
         mlflow_log_hists(self.table, self.col, {**date_fig, "time": time_fig})

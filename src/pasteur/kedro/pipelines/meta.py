@@ -32,7 +32,7 @@ class PipelineMeta(NamedTuple):
         if isinstance(other, Pipeline):
             return PipelineMeta(self.pipeline + other, self.outputs)
 
-        assert isinstance(other, PipelineMeta)
+        assert isinstance(other, PipelineMeta), f"Other pipeline is type: {type(other)}"
         return PipelineMeta(
             self.pipeline + other.pipeline, [*self.outputs, *other.outputs]
         )

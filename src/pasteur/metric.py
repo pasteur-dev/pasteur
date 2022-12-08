@@ -113,7 +113,23 @@ class Metric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
         return f"{self.type}_{self.name}"
 
 
-class ColumnMetric(Metric, Generic[A]):
+class ColumnSummaries(Generic[A]):
+    wrk: A
+    ref: A
+    syn: A | None = None
+
+    def __init__(self, wrk: A, ref: A, syn: A | None = None) -> None:
+        self.wrk = wrk
+        self.ref = ref
+        self.syn = syn
+
+    def replace(self, **kwargs):
+        params = {"wrk": self.wrk, "ref": self.ref, "syn": self.syn}
+        params.update(kwargs)
+        return type(self)(**params)
+
+
+class ColumnMetric(Metric[Any, Any, ColumnSummaries[A]], Generic[A]):
     type = "col"
     _factory = ColumnMetricFactory
 
@@ -150,13 +166,9 @@ class ColumnData(TypedDict):
 ColumnSummary = dict[str, list[Any]]
 
 
-class ColumnSummaries(NamedTuple):
-    wrk: ColumnSummary
-    ref: ColumnSummary
-    syn: ColumnSummary | None = None
-
-
-class ColumnMetricHolder(Metric[ColumnData, ColumnSummaries, ColumnSummaries]):
+class ColumnMetricHolder(
+    Metric[ColumnData, ColumnSummaries[ColumnSummary], ColumnSummaries[ColumnSummary]]
+):
     name = "holder"
     type = "col"
 
@@ -212,11 +224,12 @@ class ColumnMetricHolder(Metric[ColumnData, ColumnSummaries, ColumnSummaries]):
                     f"Type {col.type} of {table}.{name} does not support visualisation (Single-Column metrics)."
                 )
 
+        # FIXME: does not fit on all data
         ids = data["ids"]
         tables = data["tables"].copy()
         tables["ids"] = ids
-        for part in LazyFrame.zip(tables).values():
-            self._fit_chunk(table, meta, part, part["ids"])
+        part = next(iter(LazyFrame.zip(tables).values()))
+        self._fit_chunk(table, meta, part, part["ids"])
 
     def _process_chunk(
         self,
@@ -260,14 +273,15 @@ class ColumnMetricHolder(Metric[ColumnData, ColumnSummaries, ColumnSummaries]):
         wrk_sum = {}
         ref_sum = {}
         for name, metrics in self.metrics.items():
-            ref[name] = []
+            wrk_sum[name] = []
+            ref_sum[name] = []
             for i, metric in enumerate(metrics):
-                wrk_sum[name][i] = metric.combine(
+                wrk_sum[name].append(metric.combine(
                     [chunk[name][i] for chunk in summaries_wrk]
-                )
-                ref_sum[name][i] = metric.combine(
+                ))
+                ref_sum[name].append(metric.combine(
                     [chunk[name][i] for chunk in summaries_ref]
-                )
+                ))
 
         return ColumnSummaries(wrk_sum, ref_sum)
 
@@ -283,13 +297,13 @@ class ColumnMetricHolder(Metric[ColumnData, ColumnSummaries, ColumnSummaries]):
 
         syn_sum = {}
         for name, metrics in self.metrics.items():
-            ref[name] = []
+            syn_sum[name] = []
             for i, metric in enumerate(metrics):
-                syn_sum[name][i] = metric.combine(
+                syn_sum[name].append(metric.combine(
                     [chunk[name][i] for chunk in summaries]
-                )
+                ))
 
-        return pre._replace(syn=syn_sum)
+        return pre.replace(syn=syn_sum)
 
     def visualise(self, data: dict[str, ColumnSummaries]):
         for name, metrics in self.metrics.items():

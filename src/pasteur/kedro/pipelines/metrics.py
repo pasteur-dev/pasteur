@@ -67,7 +67,7 @@ def _get_column_data(view: View, split: str, table: str):
     input_tables = [*view.trn_deps.get(table, []), table]
     return {
         "ids": f"{view}.{split}.ids_{table}",
-        "tables": {f"raw.{t}": f"{view}.{split}.{t}" for t in input_tables},
+        "tables": {t: f"{view}.{split}.{t}" for t in input_tables},
     }
 
 
@@ -177,13 +177,13 @@ def _create_fit_pipeline(
     if col_modules:
         for table in view.tables:
             # Create node inputs
-            inputs_pre = {
+            inputs_fit = {
                 "meta": f"{view}.metadata",
                 "data": _get_column_data(view, fit_split, table),
             }
 
             # Column metrics
-            inputs_fit = {
+            inputs_pre = {
                 "obj": f"{view}.msr.col_{table}",
                 "wrk": _get_column_data(view, wrk_split, table),
                 "ref": _get_column_data(view, ref_split, table),
@@ -333,7 +333,7 @@ def _create_process_pipeline(
                 ),
             ]
 
-    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_INGEST), outputs)
+    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_LOG), outputs)
 
 
 def create_metrics_ingest_pipeline(
@@ -349,7 +349,7 @@ def create_metrics_model_pipeline(
 ):
     nodes = []
 
-    for fn in ("visualise", "summarise"):
+    for fn in ("visualise", "summarize"):
         col_modules = get_module_dict_multiple(ColumnMetricFactory, modules)
         if col_modules:
             for table in view.tables:
@@ -398,7 +398,9 @@ def create_metrics_model_pipeline(
                 )
             ]
 
-    return PipelineMeta(pipeline(nodes, tags=TAGS_METRICS_LOG), [])
+    return _create_process_pipeline(
+        view, modules, alg, wrk_split, ref_split
+    ) + pipeline(nodes, tags=TAGS_METRICS_LOG)
 
 
 def get_metrics_types(modules: list[Module]):
