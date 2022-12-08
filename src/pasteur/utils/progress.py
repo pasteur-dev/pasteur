@@ -276,7 +276,18 @@ def process_in_parallel(
         or not MULTIPROCESS_ENABLE
         or IS_SUBPROCESS
     ):
-        return _calc_worker((get_node_name(), fun, base_args, per_call_args))
+        out = []
+        for args in piter(
+            per_call_args,
+            desc=desc,
+            leave=False,
+        ):
+            kwargs = args.copy()
+            if base_args:
+                kwargs.update(base_args)
+            res = _wrap_exceptions(fun, get_node_name(), **kwargs)
+            out.append(res)
+        return out
 
     import numpy as np
 
