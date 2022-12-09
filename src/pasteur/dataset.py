@@ -123,16 +123,18 @@ class TabularDataset(Dataset):
 
         assert name == "table"
         df = pd.concat(
-            [self._process_chunk(tables[name]()) for name in self.deps["table"]], copy=False
-        )
-        df.index.name = "id"
+            [self._process_chunk(tables[name]()) for name in self.deps["table"]],
+            copy=False,
+        ).reset_index(drop=True)
+        df.index = df.index.astype('int64').rename('id')
         return df
 
+    @to_chunked
     def keys(self, **tables: LazyChunk) -> pd.DataFrame:
         """Returns a DataFrame containing only the index column of table "table"."""
         assert len(tables) == 1 and "table" in tables
 
-        return tables["table"](columns=[])[[]]
+        return tables["table"]()
 
 
 __all__ = ["Dataset", "TabularDataset"]

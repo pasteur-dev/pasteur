@@ -18,5 +18,5 @@ class AdultDataset(TabularDataset):
 
     def _process_chunk(self, table: pd.DataFrame):
         df = table
-        df["income"] = df["income"].str.replace(".", "")  # test set lines end with . ?
+        df["income"] = df["income"].str.replace(".", "", regex=False)  # test set lines end with . ?
         return df

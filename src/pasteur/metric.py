@@ -228,8 +228,8 @@ class ColumnMetricHolder(
         ids = data["ids"]
         tables = data["tables"].copy()
         tables["ids"] = ids
-        part = next(iter(LazyFrame.zip(tables).values()))
-        self._fit_chunk(table, meta, part, part["ids"])
+        part = next(iter(LazyFrame.zip_values(**tables))) # FIXME: incorrect type
+        self._fit_chunk(table, meta, part, part["ids"]) #type: ignore
 
     def _process_chunk(
         self,
