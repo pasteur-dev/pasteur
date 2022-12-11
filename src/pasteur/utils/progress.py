@@ -68,8 +68,8 @@ def get_tqdm_args():
         """Disable subprocess pbars until a better solution."""
         disable = True
     else:
-        # active_pbars = sum(not pbar.disable for pbar in tqdm._instances)  # type: ignore
-        # disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
+        active_pbars = len(tqdm._instances)  # type: ignore
+        disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
         disable = is_jupyter()
     return {
         "disable": disable,
@@ -209,10 +209,11 @@ def set_node_name(name: str):
 
 
 def get_node_name():
-    assert _node_name and hasattr(
+    if _node_name and hasattr(
         _node_name, "name"
-    ), "Node name has not been set, call `set_node_name()`."
-    return _node_name.name
+    ):
+        return _node_name.name
+    return "UKN_NODE"
 
 
 def init_pool(

@@ -27,7 +27,7 @@ from .common import run_expanded_node
 
 # Add a couple of workers to fill in extra tasks
 # Too many will cause issues with ram...
-DEFAULT_WORKERS = int(1.2*(cpu_count() or 1))
+DEFAULT_WORKERS = cpu_count() or 1
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +58,7 @@ class SimpleParallelRunner(ParallelRunner):
         pipe_name: str | None = None,
         params_str: str | None = None,
         max_workers: int | None = None,
-        refresh_processes: int | None = None
+        refresh_processes: int | None = None,
     ):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name

@@ -6,7 +6,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from ...metadata import ColumnMeta, Metadata
-from ...metric import ColumnMetric, RefColumnMetric, ColumnSummaries
+from ...metric import ColumnMetric, RefColumnMetric, Summaries as ColumnSummaries
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
 from typing import NamedTuple
 

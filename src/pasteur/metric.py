@@ -113,7 +113,7 @@ class Metric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
         return f"{self.type}_{self.name}"
 
 
-class ColumnSummaries(Generic[A]):
+class Summaries(Generic[A]):
     wrk: A
     ref: A
     syn: A | None = None
@@ -129,7 +129,7 @@ class ColumnSummaries(Generic[A]):
         return type(self)(**params)
 
 
-class ColumnMetric(Metric[Any, Any, ColumnSummaries[A]], Generic[A]):
+class ColumnMetric(Metric[Any, Any, Summaries[A]], Generic[A]):
     type = "col"
     _factory = ColumnMetricFactory
 
@@ -167,7 +167,7 @@ ColumnSummary = dict[str, list[Any]]
 
 
 class ColumnMetricHolder(
-    Metric[ColumnData, ColumnSummaries[ColumnSummary], ColumnSummaries[ColumnSummary]]
+    Metric[ColumnData, Summaries[ColumnSummary], Summaries[ColumnSummary]]
 ):
     name = "holder"
     type = "col"
@@ -259,7 +259,7 @@ class ColumnMetricHolder(
 
         return out
 
-    def preprocess(self, wrk: ColumnData, ref: ColumnData) -> ColumnSummaries:
+    def preprocess(self, wrk: ColumnData, ref: ColumnData) -> Summaries:
         chunks_wrk = list(LazyFrame.zip_values(**wrk["tables"], ids=wrk["ids"]))
         chunks_ref = list(LazyFrame.zip_values(**ref["tables"], ids=ref["ids"]))
         summaries = process_in_parallel(
@@ -283,11 +283,11 @@ class ColumnMetricHolder(
                     [chunk[name][i] for chunk in summaries_ref]
                 ))
 
-        return ColumnSummaries(wrk_sum, ref_sum)
+        return Summaries(wrk_sum, ref_sum)
 
     def process(
-        self, wrk: ColumnData, ref: ColumnData, syn: ColumnData, pre: ColumnSummaries
-    ) -> ColumnSummaries:
+        self, wrk: ColumnData, ref: ColumnData, syn: ColumnData, pre: Summaries
+    ) -> Summaries:
         chunks_syn = list(LazyFrame.zip_values(**syn["tables"], ids=syn["ids"]))
         summaries = process_in_parallel(
             self._process_chunk,
@@ -305,24 +305,24 @@ class ColumnMetricHolder(
 
         return pre.replace(syn=syn_sum)
 
-    def visualise(self, data: dict[str, ColumnSummaries]):
+    def visualise(self, data: dict[str, Summaries]):
         for name, metrics in self.metrics.items():
             for i, metric in enumerate(metrics):
                 metric.visualise(
                     data={
-                        sname: ColumnSummaries(
+                        sname: Summaries(
                             wrk=s.wrk[name][i], ref=s.ref[name][i], syn=s.syn[name][i]  # type: ignore
                         )
                         for sname, s in data.items()
                     },
                 )
 
-    def summarize(self, data: dict[str, ColumnSummaries]):
+    def summarize(self, data: dict[str, Summaries]):
         for name, metrics in self.metrics.items():
             for i, metric in enumerate(metrics):
                 metric.summarize(
                     data={
-                        sname: ColumnSummaries(
+                        sname: Summaries(
                             wrk=s.wrk[name][i], ref=s.ref[name][i], syn=s.syn[name][i]  # type: ignore
                         )
                         for sname, s in data.items()

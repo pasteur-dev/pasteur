@@ -135,7 +135,7 @@ def _create_fit_pipeline(
                 "data": _get_table_data(view, fit_split, table, fs.encodings),
             }
             inputs_pre = {
-                "obj": f"{view}.msr.ds_{name}",
+                "obj": f"{view}.msr.tbl_{name}_{table}",
                 "wrk": _get_table_data(view, wrk_split, table, fs.encodings),
                 "ref": _get_table_data(view, ref_split, table, fs.encodings),
             }
@@ -257,8 +257,8 @@ def _create_process_pipeline(
         outputs += {
             D(
                 "measure",
-                f"{view}.msr.ds_{name}_pre",
-                ["synth", "measure", "dataset", view, name, "pre"],
+                f"{view}.msr.ds_{name}_data",
+                ["synth", "measure", "dataset", view, name, "data"],
                 type="pkl",
                 versioned=True,
             ),
@@ -270,8 +270,8 @@ def _create_process_pipeline(
             # Create node inputs
 
             inputs = {
-                "obj": f"{view}.msr.ds_{name}",
-                "pre": f"{view}.msr.ds_{name}_pre",
+                "obj": f"{view}.msr.tbl_{name}_{table}",
+                "pre": f"{view}.msr.tbl_{name}_{table}_pre",
                 "wrk": _get_table_data(view, wrk_split, table, fs.encodings),
                 "ref": _get_table_data(view, ref_split, table, fs.encodings),
                 "syn": _get_table_data(view, syn_split, table, fs.encodings),
@@ -284,7 +284,7 @@ def _create_process_pipeline(
                     func=apply_fun,
                     kwargs={"_fun": "process"},
                     inputs=inputs,
-                    outputs=f"{view}.{syn_split}.tbl_{name}_{table}_pre",
+                    outputs=f"{view}.{syn_split}.tbl_{name}_{table}_data",
                     namespace=f"{view}.{syn_split}",
                 ),
             ]

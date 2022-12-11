@@ -9,7 +9,8 @@ from scipy.special import rel_entr
 from scipy.stats import chisquare
 
 from ...attribute import Attributes, IdxValue, get_dtype
-from ...metric import TableMetric
+from ...metric import Summaries, TableData, TableMetric
+from ...utils.progress import process_in_parallel
 
 if TYPE_CHECKING:
     from ...metadata import Metadata
@@ -48,7 +49,9 @@ def calc_marginal_1way(
     return margin.reshape(-1)
 
 
-class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
+class ChiSquareMetric(
+    TableMetric[Summaries[dict[str, np.ndarray]], Summaries[dict[str, np.ndarray]]]
+):
     name = "cs"
     encodings = ["idx"]
 
@@ -57,8 +60,7 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
         table: str,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        data: TableData,
     ):
         self.table = table
         table_attrs = attrs["idx"][table]
@@ -69,15 +71,12 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
                 assert isinstance(val, IdxValue)
                 self.domain[name] = val.domain
 
-    def process(
+    def process_chunk(
         self,
-        split: int,
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        table: pd.DataFrame,
     ):
-        table = tables["idx"][self.table]
         domain = np.array(list(self.domain.values()))
-        a = table[list(self.domain)].to_numpy(dtype="uint16")
+        a = table()[list(self.domain)].to_numpy(dtype="uint16")
 
         # Add at least one sample prob to distr chisquare valid
         zero_fill = 1 / len(a)
@@ -88,25 +87,57 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
 
         return res
 
-    def visualise(
+    def process_split(self, name: str, split: TableData):
+        res = process_in_parallel(
+            self.process_chunk,
+            [{"table": t} for t in split["tables"]["idx"][self.table].values()],
+            desc=f"Processing CS split {name}",
+        )
+
+        assert res, "Received empty data"
+
+        cols = res[0].keys()
+        return {col: np.sum([r[col] for r in res], axis=0) for col in cols}
+
+    def preprocess(
+        self, wrk: TableData, ref: TableData
+    ) -> Summaries[dict[str, np.ndarray]]:
+        return Summaries(self.process_split("wrk", wrk), self.process_split("ref", ref))
+
+    def process(
         self,
-        data: dict[str, np.ndarray],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+        wrk: TableData,
+        ref: TableData,
+        syn: TableData,
+        pre: Summaries[dict[str, np.ndarray]],
+    ) -> Summaries[dict[str, np.ndarray]]:
+        return Summaries(pre.wrk, pre.ref, self.process_split("syn", syn))
+
+    def visualise(self, data: dict[str, Summaries[dict[str, np.ndarray]]]):
         import mlflow
 
         from ...utils.mlflow import color_dataframe, gen_html_table
 
-        splits = data.copy()
-        wrk = splits.pop(wrk_set)
-
         results = {}
-        for name, split in splits.items():
+
+        # Add ref split first
+        name = "ref"
+        res = []
+        split = next(iter(data.values()))
+        for col in self.domain:
+            wrk, syn = split.wrk, split.ref
+            assert syn is not None
+            chi, p = chisquare(wrk[col], syn[col])
+            res.append([col, chi, p])
+
+        results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
+
+        for name, split in data.items():
             res = []
             for col in self.domain:
-                chi, p = chisquare(wrk[col], split[col])
+                wrk, syn = split.wrk, split.syn
+                assert syn is not None
+                chi, p = chisquare(wrk[col], syn[col])
                 res.append([col, chi, p])
 
             results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
@@ -121,7 +152,7 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
             cols=[],
             vals=["X^2", "p"],
             formatters=cs_formatters,
-            split_ref=ref_set,
+            split_ref="ref",
         )
 
         fn = (
@@ -130,7 +161,12 @@ class ChiSquareMetric(TableMetric[dict[str, np.ndarray]]):
         mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
-class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
+class KullbackLeiblerMetric(
+    TableMetric[
+        Summaries[dict[tuple[str, str], np.ndarray]],
+        Summaries[dict[tuple[str, str], np.ndarray]],
+    ]
+):
     name = "kl"
     encodings = ["idx"]
 
@@ -139,8 +175,7 @@ class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
         table: str,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        data: TableData,
     ):
         self.table = table
         table_attrs = attrs["idx"][table]
@@ -151,14 +186,11 @@ class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
                 assert isinstance(val, IdxValue)
                 self.domain[name] = val.domain
 
-    def process(
+    def process_chunk(
         self,
-        split: int,
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        table: pd.DataFrame,
     ):
-        table = tables["idx"][self.table]
-        a = table[list(self.domain)].to_numpy(dtype="uint16")
+        a = table()[list(self.domain)].to_numpy(dtype="uint16")
         domain = np.array(list(self.domain.values()))
 
         res = {}
@@ -170,27 +202,51 @@ class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
 
         return res
 
-    def visualise(
+    def process_split(self, name: str, split: TableData):
+        res = process_in_parallel(
+            self.process_chunk,
+            [{"table": t} for t in split["tables"]["idx"][self.table].values()],
+            desc=f"Processing CS split {name}",
+        )
+
+        assert res, "Received empty data"
+
+        pairs = res[0].keys()
+        return {pair: np.sum([r[pair] for r in res], axis=0) for pair in pairs}
+
+    def preprocess(
+        self, wrk: TableData, ref: TableData
+    ) -> Summaries[dict[str, np.ndarray]]:
+        return Summaries(self.process_split("wrk", wrk), self.process_split("ref", ref))
+
+    def process(
         self,
-        data: dict[str, np.ndarray],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
-    ):
+        wrk: TableData,
+        ref: TableData,
+        syn: TableData,
+        pre: Summaries[dict[tuple[str, str], np.ndarray]],
+    ) -> Summaries[dict[tuple[str, str], np.ndarray]]:
+        return Summaries(pre.wrk, pre.ref, self.process_split("syn", syn))
+
+    def visualise(self, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]):
         import mlflow
 
         from ...utils.mlflow import color_dataframe, gen_html_table
 
-        splits = data.copy()
-        wrk = splits.pop(wrk_set)
-
         results = {}
-        for name, split in splits.items():
+        ref_split = next(iter(data.values()))
+        ref_split = Summaries(ref_split.wrk, ref_split.ref, ref_split.ref)
+        for name, split in {
+            "ref": ref_split,
+            **data,
+        }.items():
+            wrk, syn = split.wrk, split.syn
+            assert syn
             res = []
-            for key in split:
+            for key in syn:
                 col_i, col_j = key
                 k = wrk[key]
-                j = split[key]
+                j = syn[key]
 
                 kl = rel_entr(k, j).sum()
                 kl_norm = 1 / (1 + kl)
@@ -214,7 +270,7 @@ class KullbackLeiblerMetric(TableMetric[dict[str, np.ndarray]]):
             cols=["col_i"],
             vals=["kl_norm"],
             formatters=kl_formatters,
-            split_ref=ref_set,
+            split_ref="ref",
         )
 
         fn = (
