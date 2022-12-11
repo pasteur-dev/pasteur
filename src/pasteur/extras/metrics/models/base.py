@@ -6,10 +6,76 @@ from sklearn.model_selection import train_test_split
 
 from ....attribute import Attributes
 from ....metadata import Metadata
-from ....metric import TableMetric, TableMetricFactory
+from ....metric import TableMetric, TableMetricFactory, TableData
 from ....utils.progress import process_in_parallel
+from ....utils import LazyDataset, LazyFrame, LazyChunk
 
-from typing import NamedTuple
+from typing import Literal, NamedTuple
+
+
+def _split_data(
+    *data: pd.DataFrame,
+    ratio: float,
+    random_state: int | None,
+    i: int,
+    split: Literal["train", "test"],
+):
+    index = data[0].index
+    train_idx, test_idx = train_test_split(
+        index,
+        test_size=ratio,
+        random_state=random_state + i if random_state else None,
+    )
+
+    # TODO: expand tables
+    return [
+        (
+            d.loc[train_idx if split == "train" else test_idx]
+            .sort_index()
+            .reset_index(drop=True)
+        )
+        for d in data
+    ]
+
+
+class DataIterator:
+    def __init__(
+        self,
+        x: LazyFrame,
+        y: LazyFrame,
+        drop_x_cols: list[str],
+        y_col: str,
+        random_state: int | None,
+        ratio: float = 0.2,
+        split: Literal["train", "test"] = "train",
+    ) -> None:
+        self.data = enumerate(zip(x.values(), y.values()))
+        self.ratio = ratio
+        self.random_state = random_state
+        self.split: Literal["train", "test"] = split
+
+        self.drop_x_cols = drop_x_cols
+        self.y_col = y_col
+
+    def __next__(self):
+        i, (x, y) = next(self.data)
+        return _split_data(
+            x().drop(columns=self.drop_x_cols),
+            y()[[self.y_col]],
+            ratio=self.ratio,
+            random_state=self.random_state,
+            i=i,
+            split=self.split,
+        )
+
+
+class DataIterable:
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+
+    def __iter__(self):
+        return DataIterator(*self.args, **self.kwargs)
 
 
 class BaseModel:
@@ -22,7 +88,7 @@ class BaseModel:
     def __init__(self, random_state: int):
         self.random_state = random_state
 
-    def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+    def fit(self, data: DataIterable):
         raise NotImplementedError()
 
     def score(self, x: pd.DataFrame, y: pd.DataFrame) -> float:
@@ -38,128 +104,160 @@ def _get_model_types(cls: tuple[type[BaseModel]]):
     return sorted(list(types))
 
 
-def _fit_model(
-    train: dict[str, pd.DataFrame],
+def _fit_model_worker(
+    data: dict[str, LazyFrame],
+    random_state: int,
+    ratio: float,
     cls: type[BaseModel],
     drop_x_cols: list[str],
     y_col: str,
-    random_state: int,
 ):
     model = cls(random_state=random_state)
     model.fit(
-        train[cls.x_trn_type].drop(columns=drop_x_cols), train[cls.y_trn_type][[y_col]]
+        DataIterable(
+            data[cls.x_trn_type],
+            data[cls.y_trn_type],
+            drop_x_cols,
+            y_col,
+            random_state,
+            ratio,
+            "train",
+        )
     )
     return model
 
 
-class TrainedModel(NamedTuple):
-    name: str
-    y_col: str
-    model: BaseModel
-
-
 class ModelData(NamedTuple):
-    models: list[TrainedModel] | None
-    train: dict[str, pd.DataFrame]
-    test: dict[str, pd.DataFrame] | None
+    model: BaseModel
+    drop_x_cols: list[str]
+    y_col: str
 
 
-def _score_model(
-    train: dict[str, dict[str, pd.DataFrame]],
-    test: dict[str, dict[str, pd.DataFrame]],
-    wrk: dict[str, pd.DataFrame],
-    ref: dict[str, pd.DataFrame],
-    model: BaseModel,
-    drop_x_cols: list[str],
-    y_col: str,
-    split: str,
-    test_wrk: bool,
-):
-    sets = {
-        "train": train[split],
-        "test": test[split],
-        "ref": ref,
-    }
-    if test_wrk:
-        sets["wrk"] = wrk
-    x_sets = {n: s[model.x_trn_type].drop(columns=drop_x_cols) for n, s in sets.items()}
-    y_sets = {n: s[model.y_trn_type][[y_col]] for n, s in sets.items()}
-    return {n: model.score(x_sets[n], y_sets[n]) for n in sets}
+def _score_models_worker(
+    models: list[ModelData],
+    random_state: int,
+    ratio: float,
+    chunks: dict[str, LazyChunk],
+    i: int | None,
+    split=None,
+) -> tuple[int, list[float]]:
+    data = {}
+    l = -1
+    for enc in chunks.keys():
+        if i is not None and split:
+            data[enc] = _split_data(
+                chunks[enc](), ratio=ratio, random_state=random_state, i=i, split=split
+            )
+        else:
+            data[enc] = chunks[enc]()
+        l = len(data[enc])
+
+    return l, [
+        m.score(
+            data[m.x_trn_type].drop(columns=drop_x_cols), data[m.y_trn_type][[y_col]]
+        )
+        for (m, drop_x_cols, y_col) in models
+    ]
 
 
-def train_models(
+def _process_models(
     name: str,
     test_cols: dict[str, str],
-    data: dict[str, dict[str, pd.DataFrame]],
-    ids: pd.DataFrame | None,
+    wrk: TableData,
+    ref: TableData,
+    syn: TableData | None,
     classes: tuple[type[BaseModel]],
     random_state: int | None,
     ratio: float,
     orig_to_enc_cols: dict[str, dict[str, list[str]]],
 ):
-    train = {}
-    test = {}
+    #
+    # Fit models
+    #
+    data = syn or wrk
+    data = data["tables"]
+    data = {enc: data[enc][name] for enc in data}
 
-    index = next(iter(data.values()))[name].index
-    train_idx, test_idx = train_test_split(
-        index,
-        test_size=ratio,
-        random_state=random_state if random_state else None,
-    )
-
-    # Create train, test sets, and remove index from dataframes.
-    for type, tables in data.items():
-        # TODO: expand tables
-        train[type] = tables[name].loc[train_idx].sort_index().reset_index(drop=True)
-        test[type] = tables[name].loc[test_idx].sort_index().reset_index(drop=True)
-
-    base_args = {"train": train}
-    jobs = []
-    job_info = []
-    i = 0
+    base_args = {
+        "data": data,
+        "ratio": ratio,
+        "random_state": random_state,
+    }
+    model_info = []
+    per_call_args = []
     for cls in classes:
-        # TODO: Handle work and synth set with diff lengths hitting size limit differently
-        if cls.size_limit is not None and cls.size_limit < len(index):
-            continue
-
-        for orig_col, col_type in test_cols.items():
-            # Filter, say, categorical columns from regression models.
-            if cls.y_col_types is not None and col_type not in cls.y_col_types:
-                continue
-
-            drop_x_cols = orig_to_enc_cols[cls.x_trn_type][orig_col]
-            for y_col in orig_to_enc_cols[cls.y_trn_type][orig_col]:
-                jobs.append(
-                    {
-                        "cls": cls,
-                        "drop_x_cols": drop_x_cols,
-                        "y_col": y_col,
-                        "random_state": (random_state + i) if random_state else None,
-                    }
+        for col in test_cols:
+            drop_x_cols = orig_to_enc_cols[cls.x_trn_type][col]
+            for y_col in orig_to_enc_cols[cls.y_trn_type][col]:
+                model_info.append({"drop_x_cols": drop_x_cols, "y_col": y_col})
+                per_call_args.append(
+                    {"cls": cls, "drop_x_cols": drop_x_cols, "y_col": y_col}
                 )
-                job_info.append((cls.name, y_col))
-                i += 1
 
-    models = process_in_parallel(
-        _fit_model, jobs, base_args, 1, "Fitting models to data"
+
+    res = process_in_parallel(
+        _fit_model_worker, per_call_args, base_args, desc="Fitting models..."
     )
 
-    trained_models = []
-    for (name, y_col), model in zip(job_info, models):
-        trained_models.append(TrainedModel(name, y_col, model))
+    model_data: list[ModelData] = []
+    for info, out in zip(model_info, res):
+        model_data.append(ModelData(out, info["drop_x_cols"], info["y_cols"]))
 
-    return ModelData(trained_models, train, test)
+    return model_data
+
+    #
+    # Score models
+    #
+    score_info = []
+    base_args = {"models": model_data, "random_state": random_state, "ratio": ratio}
+    per_call_args = []
+
+    # Training data
+    for i, chunks in enumerate(LazyFrame.zip_values(**data)):
+        for split in ("train", "test"):
+            score_info.append({"data": split})
+            per_call_args.append({"i": i, "chunks": chunks, "split": split})
+
+    # Ref data
+    for chunks in enumerate(
+        LazyFrame.zip_values(**{enc: d[name] for enc, d in ref["tables"].items()})
+    ):
+        score_info.append({"data": "ref"})
+        per_call_args.append({"chunks": chunks})
+
+    # Wrk data if trained on syn
+    if syn:
+        for chunks in enumerate(
+            LazyFrame.zip_values(**{enc: d[name] for enc, d in wrk["tables"].items()})
+        ):
+            score_info.append({"data": "wrk"})
+            per_call_args.append({"chunks": chunks})
+
+    res = process_in_parallel(
+        _score_models_worker, per_call_args, base_args, desc="Scoring models..."
+    )
+
+    results = []
+    for info, out in zip(score_info, res):
+        l, scores = out
+        for data, score in zip(model_data, scores):
+            model = data.model
+
+            results.append(
+                {
+                    "model": data.model.name,
+                    "y_col": data.y_col,
+                    "train": "syn" if syn else "wrk",
+                    "data": info["data"],
+                    "length": l,
+                    "score": score,
+                }
+            )
+
+    return pd.DataFrame(results)
 
 
-def score_models(
-    splits: dict[str, ModelData],
-    test_cols: dict[str, str],
-    orig_to_enc_cols: dict[str, dict[str, list[str]]],
-    wrk_set: str = "wrk",
-    ref_set: str = "ref",
-    comparison: bool = False,
-) -> pd.DataFrame:
-
+def tst():
     # Create train/test sets for splits
     wrk = splits[wrk_set]
     ref = splits[ref_set]
@@ -306,7 +404,7 @@ class ModelMetricFactory(TableMetricFactory):
         self.encodings = _get_model_types(models)
 
 
-class ModelMetric(TableMetric[ModelData]):
+class ModelMetric(TableMetric[pd.DataFrame, pd.DataFrame]):
     _factory = ModelMetricFactory
     name = "model"
 
@@ -323,8 +421,7 @@ class ModelMetric(TableMetric[ModelData]):
         table: str,
         meta: Metadata,
         attrs: dict[str, dict[str, Attributes]],
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
+        data: TableData,
     ):
         m = meta[table].metrics.model
         targets = list(dict.fromkeys(m.sensitive + m.targets))
@@ -338,36 +435,41 @@ class ModelMetric(TableMetric[ModelData]):
             orig_to_enc_cols[type] = cols
         self.orig_to_enc_cols = orig_to_enc_cols
 
-    def process(
-        self,
-        split: int,
-        tables: dict[str, dict[str, pd.DataFrame]],
-        ids: pd.DataFrame | None = None,
-    ):
+    def preprocess(self, wrk: TableData, ref: TableData) -> pd.DataFrame:
         if not self.targets:
-            return ModelData(None, {}, None)
+            return pd.DataFrame()
 
-        if split == self.REF_SPLIT:
-            return ModelData(
-                None, {name: split[self.table] for name, split in tables.items()}, None
-            )
-        return train_models(
+        return _process_models(
             self.table,
             self.targets,
-            tables,
-            ids,
+            wrk,
+            ref,
+            None,
             self.cls,
             self.random_state,
             0.2,
             self.orig_to_enc_cols,
         )
 
+    def process(self, wrk: TableData, ref: TableData, syn: TableData, pre: pd.DataFrame) -> pd.DataFrame:
+        if not self.targets:
+            return pd.DataFrame()
+
+        return pd.concat([_process_models(
+            self.table,
+            self.targets,
+            wrk,
+            ref,
+            syn,
+            self.cls,
+            self.random_state,
+            0.2,
+            self.orig_to_enc_cols,
+        ), pre], axis=0) 
+
     def visualise(
         self,
-        data: dict[str, ModelData],
-        comparison: bool = False,
-        wrk_set: str = "wrk",
-        ref_set: str = "ref",
+        data: dict[str, pd.DataFrame]
     ):
         if not self.targets:
             return

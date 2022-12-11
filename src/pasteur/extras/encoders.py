@@ -113,13 +113,21 @@ class NumEncoder(Encoder):
         cols = {}
 
         common = attr.common
-        for i in range(common):
-            cols[f"{attr.name}_cmn_{i}"] = NumValue()
+
+        skip_common = False
+        if len(attr.vals) == 1:
+            v = next(iter(attr.vals.values()))
+            if isinstance(v, IdxValue) and v.is_ordinal:
+                skip_common = True
+
+        if not skip_common:
+            for i in range(common):
+                cols[f"{attr.name}_cmn_{i}"] = NumValue()
 
         for name, col in attr.vals.items():
             if isinstance(col, NumValue):
                 cols[name] = col
-            if isinstance(col, IdxValue):
+            elif isinstance(col, IdxValue):
                 if col.is_ordinal():
                     cols[name] = NumValue()
                 else:
@@ -136,21 +144,27 @@ class NumEncoder(Encoder):
         if len(a.vals) == 0:
             return pd.DataFrame(index=data.index)
         cols = []
-
         only_has_na = a.common == 1 and a.na
 
         # Handle common values
-        for i in range(a.common):
-            cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}")
+        skip_common = False
+        if len(a.vals) == 1:
+            v = next(iter(a.vals.values()))
+            if isinstance(v, IdxValue) and v.is_ordinal:
+                skip_common = True
+
+        for i in range(a.common) if not skip_common else []:
+            cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}", dtype=np.float32)
 
             for name, col in a.vals.items():
                 if isinstance(col, IdxValue):
-                    cmn_col |= data[name] == i
-                if isinstance(col, NumValue) and only_has_na:
+                    cmn_col += data[name] == i
+                elif isinstance(col, NumValue) and only_has_na:
                     # Numerical values are expected to be NA for all common values
                     # so they are only used to set the common values when:
                     # `common == 1 and a.na`, meaning the only common value is NA.``
-                    cmn_col |= pd.isna(data[name])
+                    cmn_col += pd.isna(data[name])
+            cols.append(cmn_col.clip(0, 1, inplace=False))
 
         # Add other columns
         for name, col in a.vals.items():
@@ -161,7 +175,7 @@ class NumEncoder(Encoder):
 
                 # Handle ordinal values
                 if col.is_ordinal():
-                    cols.append(data[name] - col.common)
+                    cols.append(data[name])
                 else:
                     # One hot encode everything else
                     for i in range(col.get_domain(0) - col.common):
