@@ -126,15 +126,15 @@ def _wrap_exceptions(
 
 
 def _calc_worker(args):
-    node_name, fun, base_args, chunk = args
+    node_name, progress_queue, fun, base_args, chunk = args
     set_node_name(node_name)
 
     out = []
     for i, op in enumerate(chunk):
         try:
             args = {**base_args, **op} if base_args else op
-
             out.append(fun(**args))
+            progress_queue.put(1)
 
             if CHECK_LEAKS:
                 # Run second so first run loads modules
@@ -154,6 +154,7 @@ def _calc_worker(args):
     return out
 
 
+_max_workers: int = 1
 _pool: "Pool | None" = None
 
 
@@ -188,7 +189,9 @@ def _init_subprocess(lk, log_queue):
 def _get_pool():
     global _pool
     if _pool is None:
-        logger.warning("`Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation.")
+        logger.warning(
+            "`Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
+        )
         return init_pool()
 
     return _pool
@@ -230,7 +233,7 @@ def init_pool(
     due to additional imports every restart, it is slower."""
     from multiprocessing import Pool
 
-    global _pool
+    global _pool, _max_workers
 
     if _pool is not None:
         logger.warning("Closing open pool...")
@@ -243,6 +246,7 @@ def init_pool(
         initargs=(lk, log_queue),
         maxtasksperchild=refresh_processes,
     )
+    _max_workers = max_workers or cpu_count() or 1
     return _pool
 
 
@@ -291,29 +295,35 @@ def process_in_parallel(
         return out
 
     import numpy as np
+    from multiprocessing import Manager
 
-    cpus = cpu_count() or 64
-    chunk_n = min(cpus * 5, len(per_call_args) // min_chunk_size)
-    per_call_n = len(per_call_args) // chunk_n
+    manager = Manager()
+    progress_queue = manager.Queue()
 
+    n_tasks = len(per_call_args)
+    chunk_n = min(_max_workers, n_tasks // min_chunk_size)
     chunks = np.array_split(per_call_args, chunk_n)  # type: ignore
 
     args = []
     for chunk in chunks:
-        args.append((get_node_name(), fun, base_args, chunk))
+        args.append((get_node_name(), progress_queue, fun, base_args, chunk))
 
-    pool = _get_pool()
-    res = piter(
-        pool.imap(_calc_worker, args),
-        desc=f"{desc}, {per_call_n}/{len(per_call_args)} per it",
-        leave=False,
-        total=len(args),
-    )
+    res = _get_pool().map_async(_calc_worker, args)
+
+    pbar = piter(desc=desc, leave=False, total=n_tasks)
+    n = 0
+    while not res.ready():
+        u = progress_queue.get()
+        n += u
+        pbar.update(u)
+        if n == n_tasks:
+            break
 
     out = []
-    for sub_arr in res:
+    for sub_arr in res.get():
         out.extend(sub_arr)
 
+    pbar.close()
     return out
 
 
