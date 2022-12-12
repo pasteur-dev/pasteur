@@ -187,9 +187,10 @@ def _init_subprocess(lk, log_queue):
 
 def _get_pool():
     global _pool
-    assert (
-        _pool is not None
-    ), f"Call `init_pool()` to create a process pool for the subprocessing nodes."
+    if _pool is None:
+        logger.warning("`Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation.")
+        return init_pool()
+
     return _pool
 
 
@@ -209,9 +210,7 @@ def set_node_name(name: str):
 
 
 def get_node_name():
-    if _node_name and hasattr(
-        _node_name, "name"
-    ):
+    if _node_name and hasattr(_node_name, "name"):
         return _node_name.name
     return "UKN_NODE"
 
@@ -244,6 +243,7 @@ def init_pool(
         initargs=(lk, log_queue),
         maxtasksperchild=refresh_processes,
     )
+    return _pool
 
 
 def close_pool():
@@ -273,8 +273,8 @@ def process_in_parallel(
     change every iteration."""
 
     if (
-        len(per_call_args) < 2 * min_chunk_size
-        or not MULTIPROCESS_ENABLE
+        # len(per_call_args) < 2 * min_chunk_size
+        not MULTIPROCESS_ENABLE
         or IS_SUBPROCESS
     ):
         out = []

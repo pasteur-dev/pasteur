@@ -1,4 +1,5 @@
-from typing import cast
+import logging
+from typing import Literal, NamedTuple, cast
 
 import numpy as np
 import pandas as pd
@@ -6,11 +7,11 @@ from sklearn.model_selection import train_test_split
 
 from ....attribute import Attributes
 from ....metadata import Metadata
-from ....metric import TableMetric, TableMetricFactory, TableData
+from ....metric import TableData, TableMetric, TableMetricFactory
+from ....utils import LazyChunk, LazyFrame
 from ....utils.progress import process_in_parallel
-from ....utils import LazyDataset, LazyFrame, LazyChunk
 
-from typing import Literal, NamedTuple
+logger = logging.getLogger(__name__)
 
 
 def _split_data(
@@ -28,7 +29,7 @@ def _split_data(
     )
 
     # TODO: expand tables
-    return [
+    l = [
         (
             d.loc[train_idx if split == "train" else test_idx]
             .sort_index()
@@ -36,6 +37,7 @@ def _split_data(
         )
         for d in data
     ]
+    return l[0] if len(l) == 1 else l
 
 
 class DataIterator:
@@ -194,16 +196,13 @@ def _process_models(
                     {"cls": cls, "drop_x_cols": drop_x_cols, "y_col": y_col}
                 )
 
-
     res = process_in_parallel(
         _fit_model_worker, per_call_args, base_args, desc="Fitting models..."
     )
 
     model_data: list[ModelData] = []
     for info, out in zip(model_info, res):
-        model_data.append(ModelData(out, info["drop_x_cols"], info["y_cols"]))
-
-    return model_data
+        model_data.append(ModelData(out, info["drop_x_cols"], info["y_col"]))
 
     #
     # Score models
@@ -219,19 +218,19 @@ def _process_models(
             per_call_args.append({"i": i, "chunks": chunks, "split": split})
 
     # Ref data
-    for chunks in enumerate(
+    for i, chunks in enumerate(
         LazyFrame.zip_values(**{enc: d[name] for enc, d in ref["tables"].items()})
     ):
         score_info.append({"data": "ref"})
-        per_call_args.append({"chunks": chunks})
+        per_call_args.append({"chunks": chunks, "i": i})
 
     # Wrk data if trained on syn
     if syn:
-        for chunks in enumerate(
+        for i, chunks in enumerate(
             LazyFrame.zip_values(**{enc: d[name] for enc, d in wrk["tables"].items()})
         ):
             score_info.append({"data": "wrk"})
-            per_call_args.append({"chunks": chunks})
+            per_call_args.append({"chunks": chunks, "i": i})
 
     res = process_in_parallel(
         _score_models_worker, per_call_args, base_args, desc="Scoring models..."
@@ -241,8 +240,6 @@ def _process_models(
     for info, out in zip(score_info, res):
         l, scores = out
         for data, score in zip(model_data, scores):
-            model = data.model
-
             results.append(
                 {
                     "model": data.model.name,
@@ -257,109 +254,7 @@ def _process_models(
     return pd.DataFrame(results)
 
 
-def tst():
-    # Create train/test sets for splits
-    wrk = splits[wrk_set]
-    ref = splits[ref_set]
-    train = {}
-    test = {}
-    for name, split in splits.items():
-        train[name] = split.train
-        test[name] = split.test
-
-    # Create work set which combines work train and test
-    assert wrk.test is not None
-    wrk_data = {}
-    for split in wrk.train:
-        wrk_data[split] = pd.concat([wrk.train[split], wrk.test[split]])
-    ref_data = ref.train
-
-    base_args = {"wrk": wrk_data, "ref": ref_data, "train": train, "test": test}
-    jobs = []
-    job_info = []
-
-    # Add work
-    for split_name, split in splits.items():
-        if split_name == ref_set:
-            continue
-        assert split.models
-
-        for (name, y_col, model) in split.models:
-            if model.size_limit is not None and model.size_limit < len(
-                next(iter(wrk_data.values()))
-            ):
-                continue
-
-            for orig_col, col_type in test_cols.items():
-                # Filter, say, categorical columns from regression models.
-                if model.y_col_types is not None and col_type not in model.y_col_types:
-                    continue
-
-                drop_x_cols = orig_to_enc_cols[model.x_trn_type][orig_col]
-                for y_col in orig_to_enc_cols[model.y_trn_type][orig_col]:
-                    jobs.append(
-                        {
-                            "model": model,
-                            "drop_x_cols": drop_x_cols,
-                            "y_col": y_col,
-                            "split": split_name,
-                            "test_wrk": split_name != wrk_set,
-                        }
-                    )
-                    job_info.append(
-                        {
-                            "model": name,
-                            "train_data": split_name,
-                            "target": y_col,
-                        }
-                    )
-    scores = process_in_parallel(_score_model, jobs, base_args, 1, "Scoring models")
-
-    all_scores = pd.concat([pd.DataFrame(job_info), pd.DataFrame(scores)], axis=1)
-    wrk_scores = (
-        all_scores[all_scores["train_data"] == wrk_set]
-        .drop(columns=["train_data", "wrk"])
-        .rename(
-            columns={
-                "train": "orig_train",
-                "test": "orig_test",
-                "ref": "orig_test_real",
-            }
-        )
-    )
-    alg_scores = all_scores[all_scores["train_data"] != wrk_set].rename(
-        columns={
-            "train_data": "alg",
-            "train": "synth_train",
-            "test": "synth_test",
-            "wrk": "synth_test_orig",
-            "ref": "synth_test_real",
-        }
-    )
-
-    final_scores = alg_scores.merge(wrk_scores, on=["model", "target"])
-    # Reorder columns
-    final_scores = final_scores[
-        [
-            "alg",
-            "model",
-            "target",
-            "orig_train",
-            "synth_train",
-            "orig_test",
-            "synth_test",
-            "orig_test_real",
-            "synth_test_real",
-            "synth_test_orig",
-        ]
-    ]
-
-    if comparison:
-        return final_scores.set_index(["target", "model", "alg"])
-    return final_scores.drop(columns=["alg"]).set_index(["target", "model"])
-
-
-def mlflow_log_model_results(name: str, res: pd.DataFrame):
+def mlflow_log_model_results(name: str, res: pd.DataFrame, comparison: bool):
     import mlflow
     import pandas as pd
 
@@ -371,18 +266,22 @@ def mlflow_log_model_results(name: str, res: pd.DataFrame):
     if len(res) == 0:
         return
 
-    res = res.copy()
+    style = res.style
 
-    res["privacy_leak"] = res["synth_test_orig"] - res["synth_test_real"]
-    res["synth_penalty"] = res["orig_test_real"] - res["synth_test_real"]
-    style = (
-        res.style.format(lambda x: f"{100*cast(float, x):.1f}%")
-        .background_gradient(axis=0)
-        .applymap(
-            lambda x: "color: transparent; background-color: transparent"
-            if pd.isnull(x)
-            else ""
-        )
+    if comparison:
+        # If comparison, style per column to showcase differences between algorithms
+        style = style.background_gradient(axis=0)
+    else:
+        # If only 1 alg, then gradient all accuracies together and all low percentages
+        # (leak, penalty) together.
+        style = style.background_gradient(
+            axis=None, subset=["train", "test", "ref", "orig"]
+        ).background_gradient(axis=None, subset=["leak", "penalty"])
+
+    style = style.format(lambda x: f"{100*cast(float, x):.1f}%").applymap(
+        lambda x: "color: transparent; background-color: transparent"
+        if pd.isnull(x) or x == 0
+        else ""
     )
 
     mlflow.log_text(
@@ -451,30 +350,69 @@ class ModelMetric(TableMetric[pd.DataFrame, pd.DataFrame]):
             self.orig_to_enc_cols,
         )
 
-    def process(self, wrk: TableData, ref: TableData, syn: TableData, pre: pd.DataFrame) -> pd.DataFrame:
+    def process(
+        self, wrk: TableData, ref: TableData, syn: TableData, pre: pd.DataFrame
+    ) -> pd.DataFrame:
         if not self.targets:
             return pd.DataFrame()
 
-        return pd.concat([_process_models(
-            self.table,
-            self.targets,
-            wrk,
-            ref,
-            syn,
-            self.cls,
-            self.random_state,
-            0.2,
-            self.orig_to_enc_cols,
-        ), pre], axis=0) 
+        return pd.concat(
+            [
+                _process_models(
+                    self.table,
+                    self.targets,
+                    wrk,
+                    ref,
+                    syn,
+                    self.cls,
+                    self.random_state,
+                    0.2,
+                    self.orig_to_enc_cols,
+                ),
+                pre,
+            ],
+            axis=0,
+        )
 
-    def visualise(
-        self,
-        data: dict[str, pd.DataFrame]
-    ):
+    def visualise(self, data: dict[str, pd.DataFrame]):
         if not self.targets:
             return
 
-        res = score_models(
-            data, self.targets, self.orig_to_enc_cols, wrk_set, ref_set, comparison
+        # Concatenate dataframes
+        splits: list[pd.DataFrame] = []
+        for name, datum in data.items():
+            split = datum.replace({"train": "syn"}, name).replace(
+                {"train": "wrk"}, "orig"
+            )
+            splits.append(split)
+        res = pd.concat(splits, axis=0)
+
+        # Create score series
+        w_score = res["length"] * res["score"]
+        new_data = res.assign(w_score=w_score).drop(columns="score")
+        summed = new_data.groupby(["model", "y_col", "train", "data"]).sum()
+
+        score = summed["w_score"] / summed["length"]
+        score = score.rename("score").reset_index()
+
+        # Convert to pivot table and rename columns
+        pt = score.pivot(index=["y_col", "model", "train"], columns=["data"])
+        # Fix columns
+        pt = (
+            pt.droplevel(None, axis="columns")
+            .reindex(columns=["train", "test", "ref", "wrk"])
+            .rename(columns={"wrk": "orig"})
+            .rename_axis(columns=None)
         )
-        mlflow_log_model_results(self.table, res)
+        # Fix index
+        pt = pt.rename_axis(
+            index={"y_col": "target", "model": "classifier", "train": "alg"}
+        )
+
+        # Add additional columns for privacy leak and synthetic penalty
+        leak = pt["orig"] - pt["ref"]
+        penalty = pt.xs("orig", level="alg")["ref"] - pt["ref"]
+        pt = pt.assign(leak=leak, penalty=penalty)
+
+        # Log to mlflow
+        mlflow_log_model_results(self.table, pt, len(data) > 1)

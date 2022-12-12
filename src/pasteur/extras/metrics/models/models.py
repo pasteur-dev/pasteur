@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
-from .base import BaseModel
+from .base import BaseModel, DataIterable
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -17,23 +17,44 @@ class XGBoostlassifierModel(BaseModel):
         super().__init__(random_state)
         self.num_round = num_round
 
-    def fit(self, x: pd.DataFrame, y: pd.DataFrame):
+    def fit(self, data: DataIterable):
         from tempfile import TemporaryDirectory
 
         import numpy as np
         import xgboost as xgb
 
-        dtrain = xgb.DMatrix(x, label=y)
-        _bst = xgb.train(
-            {"objective": "multi:softmax", "num_class": np.max(y.to_numpy()) + 1},
-            dtrain,
-            self.num_round,
-        )
+        class Iterator(xgb.DataIter):
+            def __init__(self, it: DataIterable, dr: str):
+                self._base = it
+                super().__init__(cache_prefix=dr)
+                self.reset()
 
-        # XGB doesn't like pickling
+            def next(self, input_data: Callable):
+                try:
+                    X, y = next(self._it)
+                    input_data(X, label=y)
+                    return 1
+                except StopIteration:
+                    return 0
+
+            def reset(self):
+                self._it = iter(self._base)
+
         with TemporaryDirectory("_xgb") as dir:
+            _, sample_y = next(iter(data))
+            bst = xgb.train(
+                {
+                    "grow_policy": "depthwise",
+                    "tree_method": "approx",
+                    "objective": "multi:softmax",
+                    "num_class": np.max(sample_y.to_numpy()) + 1,
+                },
+                dtrain=xgb.DMatrix(Iterator(data, dir + "/")),
+                num_boost_round=self.num_round,
+            )
+
             fn = f"{dir}/xgb.txt"
-            _bst.save_model(fn)
+            bst.save_model(fn)
             with open(fn, "rb") as f:
                 self._bst = f.read()
 
@@ -47,7 +68,7 @@ class XGBoostlassifierModel(BaseModel):
             fn = f"{dir}/xgb.txt"
             with open(fn, "wb") as f:
                 f.write(self._bst)
-            
+
             _bst = xgb.Booster()
             _bst.load_model(fn)
 

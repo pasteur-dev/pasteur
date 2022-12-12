@@ -55,11 +55,11 @@ def get_recommended_system_modules() -> list[Module]:
         TimeTransformer,
     )
 
-    # from .metrics.models import (
-    #     ModelMetric,
-    #     XGBoostlassifierModel,
-    #     RandomForestClassifierSklearn,
-    # )
+    from .metrics.models import (
+        ModelMetric,
+        XGBoostlassifierModel,
+        # RandomForestClassifierSklearn,
+    )
 
     return [
         # Transformers
@@ -88,7 +88,7 @@ def get_recommended_system_modules() -> list[Module]:
         DateHist.get_factory(),
         TimeHist.get_factory(),
         DatetimeHist.get_factory(),
-        # ModelMetric.get_factory(XGBoostlassifierModel, RandomForestClassifierSklearn),
+        ModelMetric.get_factory(XGBoostlassifierModel),
     ]
 
 
