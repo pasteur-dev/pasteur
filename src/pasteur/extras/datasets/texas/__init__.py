@@ -5,7 +5,7 @@ import pandas as pd
 
 from ....dataset import Dataset
 from ....utils import LazyChunk, LazyFrame, gen_closure, get_relative_fn, to_chunked
-from ....utils.progress import piter
+from ....utils.progress import process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +165,16 @@ def _add_id(id: str, fun: Callable[..., pd.DataFrame] | pd.DataFrame):
     chunk.index.name = id
     return chunk
 
+def _extract(loc: str, fn: str, dst: str):
+    from zipfile import ZipFile
+    import os
+
+    if not (fn.endswith("_tab") or fn.endswith("-tab-delimited")):
+        return
+
+    with ZipFile(os.path.join(loc, fn), "r") as zf:
+        logger.info(f"Extracting {fn}...")
+        zf.extractall(dst)
 
 class TexasDataset(Dataset):
     name = "texas"
@@ -180,16 +190,13 @@ class TexasDataset(Dataset):
 
     def bootstrap(self, location: str, bootstrap: str):
         import os
-        from zipfile import ZipFile
 
         os.makedirs(bootstrap, exist_ok=True)
-        for fn in piter(os.listdir(location), leave=False):
-            if not (fn.endswith("_tab") or fn.endswith("-tab-delimited")):
-                continue
 
-            with ZipFile(os.path.join(location, fn), "r") as zf:
-                logger.info(f"Extracting {fn}...")
-                zf.extractall(bootstrap)
+        base_args = {'loc': location, 'dst': bootstrap}
+        per_call_args = [{"fn": fn} for fn in os.listdir(location)]
+        process_in_parallel(_extract, per_call_args, base_args, desc='Unzipping texas files')
+
 
     def ingest(self, name: str, **tables: LazyFrame):
         match (name):

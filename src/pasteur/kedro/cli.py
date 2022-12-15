@@ -6,6 +6,7 @@ from kedro.framework.session import KedroSession
 
 from ..utils.parser import eval_params, merge_params, str_params_to_dict
 from .runner import SimpleRunner
+from ..utils.progress import init_pool
 
 logger = logging.getLogger(__name__)
 
@@ -328,8 +329,8 @@ def bootstrap(
         params = ctx.params
         raw_location = params["raw_location"]
         base_location = params["base_location"]
-
-        with logging_redirect_pbar():
+        
+        with logging_redirect_pbar(), init_pool():
             for name in datasets:
                 ds = dataset_modules[name]
                 if not ds.bootstrap:

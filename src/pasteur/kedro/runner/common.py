@@ -30,29 +30,29 @@ def run_expanded_node(
     by `ExpandedNode` into the dictionary that gets saved in the catalog.
 
     It also handles printing exceptions."""
-    node_name = node.name.split("(")[0]
-    set_node_name(node_name)
-
-    t = PerformanceTracker.get("nodes")
-    t.log_to_file()
-    t.start(node_name)
-
-    inputs = {}
-    session_id = cast(str, session_id)
-
-    for name in node.inputs:
-        hook_manager.hook.before_dataset_loaded(dataset_name=name)  # type: ignore
-        inputs[name] = catalog.load(name)
-        hook_manager.hook.after_dataset_loaded(dataset_name=name, data=inputs[name])  # type: ignore
-
-    is_async = False
-
-    additional_inputs = _collect_inputs_from_hook(
-        node, catalog, inputs, is_async, hook_manager, session_id=session_id
-    )
-    inputs.update(additional_inputs)
-
     try:
+        node_name = node.name.split("(")[0]
+        set_node_name(node_name)
+
+        t = PerformanceTracker.get("nodes")
+        t.log_to_file()
+        t.start(node_name)
+
+        inputs = {}
+        session_id = cast(str, session_id)
+
+        for name in node.inputs:
+            hook_manager.hook.before_dataset_loaded(dataset_name=name)  # type: ignore
+            inputs[name] = catalog.load(name)
+            hook_manager.hook.after_dataset_loaded(dataset_name=name, data=inputs[name])  # type: ignore
+
+        is_async = False
+
+        additional_inputs = _collect_inputs_from_hook(
+            node, catalog, inputs, is_async, hook_manager, session_id=session_id
+        )
+        inputs.update(additional_inputs)
+
         outputs = _call_node_run(
             node, catalog, inputs, is_async, hook_manager, session_id=session_id
         )

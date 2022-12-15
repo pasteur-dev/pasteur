@@ -14,7 +14,7 @@ from rich import get_console
 from tqdm import tqdm, trange
 
 if TYPE_CHECKING:
-    from multiprocessing.pool import Pool
+    from multiprocessing.pool import Pool, Manager
 
 
 X = TypeVar("X")
@@ -155,7 +155,19 @@ def _calc_worker(args):
 
 
 _max_workers: int = 1
-_pool: "Pool | None" = None
+_pool: "tuple[Pool, Manager, Any] | None" = None
+
+
+def _logging_thread_fun(q):
+    try:
+        while True:
+            record = q.get()
+            if record is None:
+                break
+            logger = logging.getLogger(record.name)
+            logger.handle(record)
+    except EOFError:
+        pass
 
 
 def _replace_loggers_with_queue(q):
@@ -218,41 +230,66 @@ def get_node_name():
     return "UKN_NODE"
 
 
-def init_pool(
-    max_workers: int | None = None, refresh_processes: int | None = None, log_queue=None
-):
-    """Creates a shared process pool for all threads in this process.
+def close_pool():
+    global _pool
+    if _pool is None:
+        return
 
-    `max_workers` should be set based either on cores or on how many RAM GBs
-    will be required by each process.
+    pool, _, log_queue = _pool
+    log_queue.put(None)
+    pool.terminate()
+    _pool = None
 
-    `log_queue` connects the subprocesses to the main process logger, see `pasteur.kedro.runner.parallel.py`
-
-    `refresh_processes` sets `maxtasksperchild` for the pool, which
-    prevents memory leaks from snowballing from node to node. However,
-    due to additional imports every restart, it is slower."""
-    from multiprocessing import Pool
+def _init_pool(max_workers: int | None = None, refresh_processes: int | None = None):
+    from multiprocessing import Pool, Manager
+    import threading
 
     global _pool, _max_workers
 
-    if _pool is not None:
-        logger.warning("Closing open pool...")
-        _pool.terminate()
+    close_pool()
+
+    manager = Manager()
+    _max_workers = max_workers or cpu_count() or 1
+
+    # set up logging handler for subprocesses
+    log_queue = manager.Queue()
+    lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
+    lp.start()
 
     lk = tqdm.get_lock()
-    _pool = Pool(
+    pool = Pool(
         processes=max_workers,
         initializer=_init_subprocess,
         initargs=(lk, log_queue),
         maxtasksperchild=refresh_processes,
     )
-    _max_workers = max_workers or cpu_count() or 1
+
+    _pool = (pool, manager, log_queue)
+
     return _pool
 
 
-def close_pool():
-    if _pool is not None:
-        _pool.terminate()
+class init_pool:
+    def __init__(
+        self, max_workers: int | None = None, refresh_processes: int | None = None
+    ) -> None:
+        """Creates a shared process pool for all threads in this process.
+
+        `max_workers` should be set based either on cores or on how many RAM GBs
+        will be required by each process.
+
+        `log_queue` connects the subprocesses to the main process logger, see `pasteur.kedro.runner.parallel.py`
+
+        `refresh_processes` sets `maxtasksperchild` for the pool, which
+        prevents memory leaks from snowballing from node to node. However,
+        due to additional imports every restart, it is slower."""
+        _init_pool(max_workers, refresh_processes)
+
+    def __enter__(self):
+        return None
+
+    def __exit__(self, type, value, traceback):
+        close_pool()
 
 
 def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
@@ -260,7 +297,7 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return fun(*args, **kwargs)
 
-    return _get_pool().apply(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
+    return _get_pool()[0].apply(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
 
 
 def process_in_parallel(
@@ -295,9 +332,8 @@ def process_in_parallel(
         return out
 
     import numpy as np
-    from multiprocessing import Manager
 
-    manager = Manager()
+    pool, manager, _ = _get_pool()
     progress_queue = manager.Queue()
 
     n_tasks = len(per_call_args)
@@ -308,7 +344,7 @@ def process_in_parallel(
     for chunk in chunks:
         args.append((get_node_name(), progress_queue, fun, base_args, chunk))
 
-    res = _get_pool().map_async(_calc_worker, args)
+    res = pool.map_async(_calc_worker, args)
 
     pbar = piter(desc=desc, leave=False, total=n_tasks)
     n = 0

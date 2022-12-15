@@ -31,18 +31,6 @@ DEFAULT_WORKERS = cpu_count() or 1
 logger = logging.getLogger(__name__)
 
 
-def _logging_thread_fun(q):
-    try:
-        while True:
-            record = q.get()
-            if record is None:
-                break
-            logger = logging.getLogger(record.name)
-            logger.handle(record)
-    except EOFError:
-        pass
-
-
 def _get_required_workers_count(pipeline: Pipeline, max_workers: int | None = None):
     required_processes = len(pipeline.nodes) - len(pipeline.grouped_nodes) + 1
 
@@ -108,13 +96,8 @@ class SimpleParallelRunner(ParallelRunner):
         futures = set()
         done = None
 
-        # set up logging handler for subprocesses
-        log_queue = self._manager.Queue()
-        lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
-        lp.start()
-
         # Init subprocess pool
-        init_pool(self.max_workers, self.refresh_processes, log_queue)
+        init_pool(self.max_workers, self.refresh_processes)
 
         # Find max threads appropriate to pipeline
         max_threads = _get_required_workers_count(pipeline, self.max_workers)
@@ -245,10 +228,6 @@ class SimpleParallelRunner(ParallelRunner):
             # Close pools
             pool.terminate()
             close_pool()
-
-            # Remove logging queue
-            log_queue.put(None)
-            lp.join()
 
             if interrupted:
                 logger.error(f"Received KeyboardInterrupt, exiting...")
