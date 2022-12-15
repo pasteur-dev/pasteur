@@ -10,7 +10,9 @@ def get_dtype(domain: int):
         return np.uint8
     if domain <= 1 << 16:
         return np.uint16
-    return np.uint32
+    if domain <= 1 << 32:
+        return np.uint32
+    return np.uint64
 
 
 LI = TypeVar("LI", "Level", int)

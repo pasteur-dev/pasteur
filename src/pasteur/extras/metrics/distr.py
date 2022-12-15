@@ -206,7 +206,7 @@ class KullbackLeiblerMetric(
         res = process_in_parallel(
             self.process_chunk,
             [{"table": t} for t in split["tables"]["idx"][self.table].values()],
-            desc=f"Processing CS split {name}",
+            desc=f"Processing KL split {name}",
         )
 
         assert res, "Received empty data"
