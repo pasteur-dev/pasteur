@@ -70,7 +70,6 @@ def get_tqdm_args():
     else:
         active_pbars = len(tqdm._instances)  # type: ignore
         disable = is_jupyter() and active_pbars >= JUPYTER_MAX_NEST
-        disable = is_jupyter()
     return {
         "disable": disable,
         "colour": PBAR_COLOR,

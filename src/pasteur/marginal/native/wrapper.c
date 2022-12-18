@@ -5,19 +5,21 @@
 #include <numpy/ndarraytypes.h>
 
 void sum(
-    int l, uint32_t *out,
+    int dom, int l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
-    int n_u16, int *mul_u16, uint16_t **arr_u16);
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32);
 
 static PyObject *
 sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 {
     PyArrayObject *out;
     PyObject *ops;
+    int dom;
 
-    static char *kwlist[] = {"out", "ops", NULL};
+    static char *kwlist[] = {"dom", "out", "ops", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "OO", kwlist, &out, &ops))
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "iOO", kwlist, &dom, &out, &ops))
         return NULL;
 
     if (!PyList_Check(ops))
@@ -26,15 +28,16 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
         return NULL;
     }
 
+
     int n_u8 = 0;
     int mul_u8[100];
     uint8_t *arr_u8[100];
     int n_u16 = 0;
     int mul_u16[100];
     uint16_t *arr_u16[100];
-    // int n_u32 = 0;
-    // int mul_u32[100];
-    // uint32_t *arr_u32[100];
+    int n_u32 = 0;
+    int mul_u32[100];
+    uint32_t *arr_u32[100];
 
     int l = 0;
     for (int i = 0; i < PyList_Size(ops); i++)
@@ -57,11 +60,11 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
             arr_u16[n_u16] = (uint16_t *)PyArray_DATA(arr);
             n_u16 += 1;
             break;
-        // case NPY_UINT32:
-        //     mul_u32[n_u32] = mul;
-        //     arr_u32[n_u32] = (uint32_t *)PyArray_DATA(arr);
-        //     n_u8 += 1;
-        //     break;
+        case NPY_UINT32:
+            mul_u32[n_u32] = mul;
+            arr_u32[n_u32] = (uint32_t *)PyArray_DATA(arr);
+            n_u8 += 1;
+            break;
         default:
             PyErr_SetString(PyExc_TypeError, "Uknown Type passed in ops, only uint 8, 16, 32 supported");
             return NULL;
@@ -70,7 +73,7 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 
     uint32_t *data_out = (uint32_t *)PyArray_DATA(out);
 
-    sum(l, data_out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16);
+    sum(dom, l, data_out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
 
     Py_RETURN_NONE;
 }
