@@ -3,7 +3,7 @@ from typing import NamedTuple
 import numpy as np
 import pandas as pd
 
-from .attribute import Attributes, get_dtype
+from ..attribute import Attributes, get_dtype
 
 ZERO_FILL = 1e-24
 

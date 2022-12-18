@@ -1,4 +1,16 @@
-from setuptools import find_packages, setup
+import os
+
+import numpy as np
+from setuptools import Extension, find_packages, setup
+
+
+def get_c_files(dr: str):
+    return [
+        os.path.join(dr, fn)
+        for fn in os.listdir(dr)
+        if fn.endswith(".c") or fn.endswith(".h")
+    ]
+
 
 entry_points = {
     "console_scripts": ["pasteur = pasteur.__main__:main"],
@@ -39,4 +51,12 @@ setup(
             "Jinja2<3.1.0",
         ]
     },
+    ext_modules=[
+        Extension(
+            "pasteur.marginal.native",
+            get_c_files("pasteur/marginal/native/"),
+            include_dirs=[np.get_include()],
+            extra_compile_args=["-O3", "-march=native"],
+        )
+    ],
 )
