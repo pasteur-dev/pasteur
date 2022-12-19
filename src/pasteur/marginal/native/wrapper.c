@@ -28,7 +28,6 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
         return NULL;
     }
 
-
     int n_u8 = 0;
     int mul_u8[100];
     uint8_t *arr_u8[100];

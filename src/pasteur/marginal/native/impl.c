@@ -45,7 +45,7 @@ static inline void sum_inline_u32(
         }
     }
 
-    for (int i = 0; i < l; i += 1 << 3)
+    for (int i = 0; i < l - 7; i += 1 << 3)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -54,7 +54,7 @@ static inline void sum_inline_u32(
         {
             __m128i load = _mm_loadl_epi64((__m128i *)&arr_u8[j][i]);
             tmp = _mm256_cvtepu8_epi32(load);
-            mul = _mm256_load_si256((__m256i *)&exp_u8[j]);
+            mul = _mm256_load_si256((__m256i *)&exp_u8[j << 3]);
             tmp = _mm256_mullo_epi32(tmp, mul);
             idx = _mm256_add_epi32(tmp, idx);
         }
@@ -63,7 +63,7 @@ static inline void sum_inline_u32(
         {
             __m128i load = _mm_lddqu_si128((__m128i *)&arr_u16[j][i]);
             tmp = _mm256_cvtepu16_epi32(load);
-            mul = _mm256_load_si256((__m256i *)&exp_u16[j]);
+            mul = _mm256_load_si256((__m256i *)&exp_u16[j << 3]);
             tmp = _mm256_mullo_epi32(tmp, mul);
             idx = _mm256_add_epi32(tmp, idx);
         }
@@ -71,7 +71,7 @@ static inline void sum_inline_u32(
         for (int j = 0; j < n_u32; j += 1)
         {
             tmp = _mm256_lddqu_si256((__m256i *)&arr_u32[j][i]);
-            mul = _mm256_load_si256((__m256i *)&exp_u32[j]);
+            mul = _mm256_load_si256((__m256i *)&exp_u32[j << 3]);
             tmp = _mm256_mullo_epi32(tmp, mul);
             idx = _mm256_add_epi32(tmp, idx);
         }
@@ -118,7 +118,7 @@ static inline void sum_inline_u16(
         }
     }
 
-    for (int i = 0; i < l; i += 1 << 4)
+    for (int i = 0; i < l - 15; i += 1 << 4)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -127,7 +127,7 @@ static inline void sum_inline_u16(
         {
             __m128i load = _mm_lddqu_si128((__m128i *)&arr_u8[j][i]);
             tmp = _mm256_cvtepu8_epi16(load);
-            mul = _mm256_load_si256((__m256i *)&exp_u8[j]);
+            mul = _mm256_load_si256((__m256i *)&exp_u8[j << 4]);
             tmp = _mm256_mullo_epi16(tmp, mul);
             idx = _mm256_adds_epu16(tmp, idx);
         }
@@ -135,7 +135,7 @@ static inline void sum_inline_u16(
         for (int j = 0; j < n_u16; j += 1)
         {
             tmp = _mm256_lddqu_si256((__m256i *)&arr_u16[j][i]);
-            mul = _mm256_load_si256((__m256i *)&exp_u16[j]);
+            mul = _mm256_load_si256((__m256i *)&exp_u16[j << 4]);
             tmp = _mm256_mullo_epi16(tmp, mul);
             idx = _mm256_adds_epu16(tmp, idx);
         }
