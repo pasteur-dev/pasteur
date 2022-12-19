@@ -15,11 +15,10 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 {
     PyArrayObject *out;
     PyObject *ops;
-    int dom;
 
-    static char *kwlist[] = {"dom", "out", "ops", NULL};
+    static char *kwlist[] = {"out", "ops", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "iOO", kwlist, &dom, &out, &ops))
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "OO", kwlist, &out, &ops))
         return NULL;
 
     if (!PyList_Check(ops))
@@ -27,6 +26,8 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
         PyErr_SetString(PyExc_TypeError, "Ops (2nd arg) is not a list.");
         return NULL;
     }
+
+    int dom = PyArray_DIM(out, 0);
 
     int n_u8 = 0;
     int mul_u8[100];

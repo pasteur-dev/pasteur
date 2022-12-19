@@ -97,7 +97,7 @@ static inline void sum_inline_u32(
 }
 
 static inline void sum_inline_u16(
-    int l, uint32_t *out,
+    int dom, int l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16)
 {
@@ -117,6 +117,15 @@ static inline void sum_inline_u16(
             exp_u16[(i << 4) + j] = (uint16_t)mul_u16[i];
         }
     }
+
+    void *out_c = aligned_alloc(32, dom * 4 * 4);
+    uint32_t *out_1 = (uint32_t *)out_c;
+    uint32_t *out_2 = (uint32_t *)out_c + dom;
+    uint32_t *out_3 = (uint32_t *)out_c + 2 * dom;
+    uint32_t *out_4 = (uint32_t *)out_c + 3 * dom;
+
+    for (int i = 0; i < 4 * dom; i++)
+        out_1[i] = 0;
 
     for (int i = 0; i < l - 15; i += 1 << 4)
     {
@@ -142,38 +151,58 @@ static inline void sum_inline_u16(
 
         uint16_t k;
         k = _mm256_extract_epi16(idx, 0);
-        out[k] += 1;
+        out_1[k] += 1;
         k = _mm256_extract_epi16(idx, 1);
-        out[k] += 1;
+        out_2[k] += 1;
         k = _mm256_extract_epi16(idx, 2);
-        out[k] += 1;
+        out_3[k] += 1;
         k = _mm256_extract_epi16(idx, 3);
-        out[k] += 1;
+        out_4[k] += 1;
         k = _mm256_extract_epi16(idx, 4);
-        out[k] += 1;
+        out_1[k] += 1;
         k = _mm256_extract_epi16(idx, 5);
-        out[k] += 1;
+        out_2[k] += 1;
         k = _mm256_extract_epi16(idx, 6);
-        out[k] += 1;
+        out_3[k] += 1;
         k = _mm256_extract_epi16(idx, 7);
-        out[k] += 1;
+        out_4[k] += 1;
         k = _mm256_extract_epi16(idx, 8);
-        out[k] += 1;
+        out_1[k] += 1;
         k = _mm256_extract_epi16(idx, 9);
-        out[k] += 1;
+        out_2[k] += 1;
         k = _mm256_extract_epi16(idx, 10);
-        out[k] += 1;
+        out_3[k] += 1;
         k = _mm256_extract_epi16(idx, 11);
-        out[k] += 1;
+        out_4[k] += 1;
         k = _mm256_extract_epi16(idx, 12);
-        out[k] += 1;
+        out_1[k] += 1;
         k = _mm256_extract_epi16(idx, 13);
-        out[k] += 1;
+        out_2[k] += 1;
         k = _mm256_extract_epi16(idx, 14);
-        out[k] += 1;
+        out_3[k] += 1;
         k = _mm256_extract_epi16(idx, 15);
-        out[k] += 1;
+        out_4[k] += 1;
     }
+
+#pragma GCC ivdep
+    for (int i = 0; i < dom - 7; i += 8)
+    {
+        __m256i x1, x2;
+        x1 = _mm256_load_si256((__m256i *)&out_1[i]);
+        x2 = _mm256_load_si256((__m256i *)&out_2[i]);
+        x1 = _mm256_add_epi32(x1, x2);
+        x2 = _mm256_load_si256((__m256i *)&out_3[i]);
+        x1 = _mm256_add_epi32(x1, x2);
+        x2 = _mm256_load_si256((__m256i *)&out_4[i]);
+        x1 = _mm256_add_epi32(x1, x2);
+        x2 = _mm256_lddqu_si256((__m256i *)&out[i]);
+        x1 = _mm256_add_epi32(x1, x2);
+        _mm256_storeu_si256((__m256i_u *)&out[i], x1);
+
+        // out[i] += out_1[i];
+    }
+
+    free(out_c);
 }
 
 #else
@@ -227,13 +256,13 @@ static inline void sum_inline_u32(
 #endif
 
 #define SUM_INLINE(_i, _j, _k)                                                                  \
-    if (dom >= 65536 || n_u32 > 0)                                                              \
+    if (dom > 65536 || n_u32 > 0)                                                               \
     {                                                                                           \
         sum_inline_u32(l, out, _i, mul_u8, arr_u8, _j, mul_u16, arr_u16, _k, mul_u32, arr_u32); \
     }                                                                                           \
     else                                                                                        \
     {                                                                                           \
-        sum_inline_u16(l, out, _i, mul_u8, arr_u8, _j, mul_u16, arr_u16);                       \
+        sum_inline_u16(dom, l, out, _i, mul_u8, arr_u8, _j, mul_u16, arr_u16);                  \
     }
 
 #define SUM_CASE(i, j, k) (400 * i + 20 * j + k)
@@ -302,7 +331,7 @@ int main(int argc, char *argv[])
     int mul_u16[] = {256};
     uint16_t *arr_u16[] = {a2};
 
-    sum_inline_u32(N, out, 1, mul_u8, arr_u8, 1, mul_u16, arr_u16, 0, NULL, NULL);
+    sum_inline_u16(10000, N, out, 1, mul_u8, arr_u8, 1, mul_u16, arr_u16);
 
     for (int i = 0; i < 32; i++)
     {
