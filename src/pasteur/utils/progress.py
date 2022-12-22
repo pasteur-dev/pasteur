@@ -14,7 +14,8 @@ from rich import get_console
 from tqdm import tqdm, trange
 
 if TYPE_CHECKING:
-    from multiprocessing.pool import Pool, Manager
+    from multiprocessing.pool import Pool
+    from multiprocessing.managers import SyncManager
 
 
 X = TypeVar("X")
@@ -154,7 +155,7 @@ def _calc_worker(args):
 
 
 _max_workers: int = 1
-_pool: "tuple[Pool, Manager, Any] | None" = None
+_pool: "tuple[Pool, SyncManager, Any] | None" = None
 
 
 def _logging_thread_fun(q):
@@ -183,15 +184,16 @@ def _replace_loggers_with_queue(q):
     logging.root.handlers.append(QueueHandler(q))
 
 
-def _init_subprocess(lk, log_queue):
+def _init_subprocess(log_queue):
     import signal
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     if log_queue is not None:
+        # Kedro installs rich logging when importing the following module
+        # and messes with loggers. Import before replacing the loggers.
+        import kedro.framework.project as _
         _replace_loggers_with_queue(log_queue)
-
-    tqdm.set_lock(lk)
 
     global IS_SUBPROCESS
     IS_SUBPROCESS = True
@@ -203,8 +205,9 @@ def _get_pool():
         logger.warning(
             "`Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
         )
-        return init_pool()
+        init_pool()
 
+    assert _pool is not None
     return _pool
 
 
@@ -240,14 +243,16 @@ def close_pool():
     _pool = None
 
 def _init_pool(max_workers: int | None = None, refresh_processes: int | None = None):
-    from multiprocessing import Pool, Manager
+    # from multiprocessing import Pool, Manager
+    from multiprocessing import get_context
     import threading
 
     global _pool, _max_workers
 
     close_pool()
 
-    manager = Manager()
+    ctx = get_context('forkserver')
+    manager = ctx.Manager()
     _max_workers = max_workers or cpu_count() or 1
 
     # set up logging handler for subprocesses
@@ -255,11 +260,10 @@ def _init_pool(max_workers: int | None = None, refresh_processes: int | None = N
     lp = threading.Thread(target=_logging_thread_fun, args=(log_queue,))
     lp.start()
 
-    lk = tqdm.get_lock()
-    pool = Pool(
+    pool = ctx.Pool(
         processes=max_workers,
         initializer=_init_subprocess,
-        initargs=(lk, log_queue),
+        initargs=(log_queue,),
         maxtasksperchild=refresh_processes,
     )
 
