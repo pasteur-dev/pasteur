@@ -25,25 +25,44 @@ logger = logging.getLogger(__name__)
 
 
 class LazyPartition(Generic[A]):
-    def __init__(self, fun: Callable[..., A], /, *args, **kwargs):
+    def __init__(
+        self,
+        fun: Callable[..., A],
+        shape_fun: Callable[..., tuple[int, ...]] | None,
+        /,
+        *args,
+        **kwargs,
+    ):
         self.fun = fun
+        self.shape_fun = shape_fun
         self.args = args
         self.kwargs = kwargs
 
     def __call__(
         self, columns: list[str] | None = None, chunksize: int | None = None
     ) -> A:
+        new_kw = {}
+        if columns is not None:
+            new_kw['columns'] = columns
+        if chunksize is not None:
+            new_kw['chunksize'] = chunksize
+
         try:
             return self.fun(
-                *self.args, **self.kwargs, columns=columns, chunksize=chunksize
+                *self.args, **self.kwargs, **new_kw
             )
         except TypeError:
             return self.fun(*self.args, **self.kwargs)
-    
+
     @property
     def partitioned(self):
         return False
 
+    @property
+    def shape(self):
+        if self.shape_fun is not None:
+            return self.shape_fun(*self.args, **self.kwargs)
+        return self().shape  # type: ignore
 
 
 LazyChunk = LazyPartition["pd.DataFrame"]
@@ -76,6 +95,21 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         if self._partitions:
             return iter(self._partitions)
         return iter([self.merged_load])
+
+    @property
+    def shape(self):
+        if self.merged_load is not None:
+            return self.merged_load.shape
+
+        partitions = list(self.values())
+        if len(partitions) == 0:
+            return tuple()
+
+        shape = list(partitions[0].shape)
+        for part in partitions[1:]:
+            shape[0] += part.shape[0]
+
+        return shape
 
     @property
     def partitioned(self):

@@ -43,7 +43,7 @@ def get_recommended_system_modules() -> list[Module]:
     )
 
     # from .synth.extern import AimSynth, PrivMrfSynth
-    # from .synth.privbayes import PrivBayesSynth
+    from .synth.privbayes import PrivBayesSynth
     from ..synth import IdentSynth
     from .transformers import (
         DatetimeTransformer,
@@ -75,7 +75,7 @@ def get_recommended_system_modules() -> list[Module]:
         NumEncoder.get_factory(),
         # Synthesizers
         IdentSynth.get_factory(),
-        # PrivBayesSynth.get_factory(),
+        PrivBayesSynth.get_factory(),
         # AimSynth.get_factory(),
         # PrivMrfSynth.get_factory(),
         # Metrics

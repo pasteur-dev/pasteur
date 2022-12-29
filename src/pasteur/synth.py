@@ -11,6 +11,7 @@ from functools import partial
 if TYPE_CHECKING:
     from .attribute import Attributes
     from .metadata import Metadata
+    import pandas as pd
 
 import logging
 
@@ -101,7 +102,7 @@ class Synth(ModuleClass):
 
     def sample(
         self, n: int | None = None
-    ) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         """Returns data, ids dict dataframes in the same format they were provided.
 
         Optional `n` parameter sets how many rows should be sampled. Otherwise,

@@ -340,7 +340,7 @@ def process_in_parallel(
     progress_queue = manager.Queue()
 
     n_tasks = len(per_call_args)
-    chunk_n = min(_max_workers, n_tasks // min_chunk_size)
+    chunk_n = min(_max_workers, n_tasks // min_chunk_size + 1)
     chunks = np.array_split(per_call_args, chunk_n)  # type: ignore
 
     args = []

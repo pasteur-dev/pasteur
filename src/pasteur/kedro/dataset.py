@@ -69,7 +69,8 @@ class PatternDataSet(PartitionedDataSet):
 
     def _load(self):
         return LazyDataset(
-            None, {pid: LazyPartition(fun) for pid, fun in super()._load().items()}
+            None,
+            {pid: LazyPartition(fun, None) for pid, fun in super()._load().items()},
         )
 
 
@@ -237,6 +238,19 @@ def _load_merged_worker(
     return out
 
 
+def _load_shape_worker(load_path: str, filesystem, *_, **__):
+    # TODO: verify this returns correct numbers (esp. columns)
+    data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
+    rows = 0
+    for frag in data.fragments:
+        rows += frag.count_rows()
+
+    pm = data.schema.pandas_metadata  # type: ignore
+    cols = len(pm["columns"]) - len(pm["index_columns"])
+
+    return (rows, cols)
+
+
 class FragmentedParquetDataset(ParquetDataSet):
     """Modified kedro parquet dataset that acts similarly to a partitioned dataset
     and implements lazy loading.
@@ -271,20 +285,36 @@ class FragmentedParquetDataset(ParquetDataSet):
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
         if not self._fs.isdir(load_path):
             return LazyDataset(
-                LazyPartition(_load_merged_worker, load_path, self._fs, self._load_args)
+                LazyPartition(
+                    _load_merged_worker,
+                    _load_shape_worker,
+                    load_path,
+                    self._fs,
+                    self._load_args,
+                )
             )
 
         partitions = {}
         for fn in self._fs.listdir(load_path):
             partition_id = fn["name"].split("/")[-1].split("\\")[-1].replace(".pq", "")
             partition_data = LazyPartition(
-                _load_merged_worker, fn["name"], self._fs, self._load_args
+                _load_merged_worker,
+                _load_shape_worker,
+                fn["name"],
+                self._fs,
+                self._load_args,
             )
             partitions[partition_id] = partition_data
 
-        all = LazyPartition(_load_merged_worker, load_path, self._fs, self._load_args)
+        merged_partition = LazyPartition(
+            _load_merged_worker,
+            _load_shape_worker,
+            load_path,
+            self._fs,
+            self._load_args,
+        )
 
-        return LazyDataset(all, partitions)
+        return LazyDataset(merged_partition, partitions)
 
     def _get_save_path(self):
         if not self._version:
@@ -417,6 +447,7 @@ class FragmentedCSVDataset(CSVDataSet):
         return LazyDataset(
             LazyPartition(
                 _load_csv,
+                None,
                 self._protocol,
                 load_path,
                 self._storage_options,

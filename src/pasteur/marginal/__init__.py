@@ -6,10 +6,17 @@ import numpy as np
 
 from ..attribute import Attributes
 from ..utils import LazyChunk, LazyFrame
-from ..utils.progress import process_in_parallel, piter
-from .numpy import AttrSelector, AttrSelectors, expand_table
-
+from ..utils.progress import piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory
+from .numpy import (
+    ZERO_FILL,
+    AttrSelector,
+    AttrSelectors,
+    expand_table,
+    get_domains,
+    postprocess,
+    postprocess_1way,
+)
 
 try:
     from .native_py import calc_marginal, calc_marginal_1way
@@ -61,7 +68,13 @@ class MarginalOracle:
 
         self._loaded = False
 
-    def process_batch(
+    def get_domains(self):
+        return get_domains(self.attrs)
+
+    def get_shape(self):
+        return self.data.shape
+
+    def _process_batch(
         self,
         data: LazyChunk,
         requests: list[MarginalRequest],
@@ -119,16 +132,28 @@ class MarginalOracle:
 
         return res
 
-    def process(self, requests: list[MarginalRequest]):
+    def _postprocess(self, requests: list[MarginalRequest], data: list[np.ndarray]):
+        out = []
+        for req, res in zip(requests, data):
+            if req.x is not None:
+                out.append(postprocess(res))
+            else:
+                out.append(postprocess_1way(res))
+        return out
+
+    def process(
+        self, requests: list[MarginalRequest], desc: str = "Processing partition"
+    ):
         if not self.batched:
-            return self.process_batch(self.data, requests)
+            res = self._process_batch(self.data, requests)
+            return self._postprocess(requests, res)
 
         old = None
-        for batch in piter(
-            self.data.values(), total=len(self.data), desc="Processing partition"
-        ):
-            old = self.process_batch(batch, requests, old)
-        return old
+        for batch in piter(self.data.values(), total=len(self.data), desc=desc, leave=False):
+            old = self._process_batch(batch, requests, old)
+
+        assert old is not None
+        return self._postprocess(requests, old)
 
     def close(self):
         if self.batched or not self._loaded:
@@ -145,8 +170,7 @@ class MarginalOracle:
 __all__ = [
     "AttrSelector",
     "AttrSelectors",
-    "expand_table",
-    "calc_marginal",
-    "calc_marginal_1way",
     "MarginalOracle",
+    "MarginalRequest",
+    "ZERO_FILL",
 ]

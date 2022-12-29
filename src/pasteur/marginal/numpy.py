@@ -1,9 +1,9 @@
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 import numpy as np
 import pandas as pd
 
-from ..attribute import Attributes, get_dtype
+from ..attribute import Attributes, get_dtype, IdxValue
 
 ZERO_FILL = 1e-24
 
@@ -56,6 +56,7 @@ def expand_table(
     domains = {}
     for attr in attrs.values():
         for name, col in attr.vals.items():
+            col = cast(IdxValue, col)
             col_hier = []
             col_noncommon = []
             col_dom = []
@@ -79,6 +80,22 @@ def expand_table(
     return cols, cols_noncommon, domains
 
 
+def get_domains(attrs: Attributes) -> dict[str, list[int]]:
+    domains = {}
+    for attr in attrs.values():
+        for name, col in attr.vals.items():
+            col = cast(IdxValue, col)
+            col_dom = []
+
+            for height in range(col.height):
+                domain = col.get_domain(height)
+                col_dom.append(domain)
+
+            domains[name] = col_dom
+
+    return domains
+
+
 def calc_marginal(
     cols: dict[str, list[np.ndarray]],
     cols_noncommon: dict[str, list[np.ndarray]],
@@ -86,7 +103,7 @@ def calc_marginal(
     x: AttrSelector,
     p: AttrSelectors,
     partial: bool = False,
-    out: np.ndarray | None = None
+    out: np.ndarray | None = None,
 ):
     """Calculates the 1 way and 2 way marginals between the subsection of the
     hierarchical attribute x and the attributes p(arents)."""
@@ -162,7 +179,7 @@ def calc_marginal_1way(
     cols_noncommon: dict[str, list[np.ndarray]],
     domains: dict[str, list[int]],
     x: AttrSelectors,
-    out: np.ndarray | None = None
+    out: np.ndarray | None = None,
 ):
     """Calculates the 1 way marginal of the subsections of attributes x"""
 
@@ -188,7 +205,7 @@ def calc_marginal_1way(
             if common == 0 or i == 0:
                 np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
             else:
-                np.multiply(cols_noncoammon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
+                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
 
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
@@ -200,4 +217,29 @@ def calc_marginal_1way(
     else:
         out = counts
 
-    return out.reshape((-1, ))
+    return out
+
+def postprocess(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
+    margin = counts.astype("float32")
+
+    margin /= margin.sum()
+    if zero_fill is not None:
+        # Mutual info turns into NaN without this
+        margin += zero_fill
+
+    j_mar = margin
+    x_mar = np.sum(margin, axis=1)
+    p_mar = np.sum(margin, axis=0)
+
+    return j_mar, x_mar, p_mar
+
+
+def postprocess_1way(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
+    margin = counts.astype("float32")
+
+    margin /= margin.sum()
+    if zero_fill is not None:
+        # Mutual info turns into NaN without this
+        margin += zero_fill
+
+    return margin

@@ -4,6 +4,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from ....synth import Synth, make_deterministic
+from ....utils import LazyFrame
+from ....marginal import MarginalOracle, MarginalRequest, AttrSelector
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -32,6 +34,7 @@ class PrivBayesSynth(Synth):
         rebalance_columns: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
+        batched: bool = True,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -43,24 +46,45 @@ class PrivBayesSynth(Synth):
         self.random_init = random_init
         self.unbounded_dp = unbounded_dp
         self.rebalance = rebalance_columns
+        self.batched = batched
         self.kwargs = kwargs
 
     @make_deterministic
     def preprocess(
         self,
         attrs: dict[str, Attributes],
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         from ....hierarchy import rebalance_attributes
 
-        table_name = next(iter(data.keys()))
-        table = data[table_name]
+        table_name = next(iter(tables.keys()))
+        table = tables[table_name]
         table_attrs = attrs[table_name]
 
         if self.rebalance:
+            cols = []
+            reqs = []
+            for name, attr in table_attrs.items():
+                for val in attr.vals:
+                    cols.append(val)
+                    reqs.append(
+                        MarginalRequest(
+                            None,
+                            {name: AttrSelector(name, attr.common, {val: 0})},
+                            False,
+                        )
+                    )
+
+            oracle = MarginalOracle(table_attrs, table, self.batched)
+            count_arr = oracle.process(
+                reqs, desc="Calculating counts for column rebalancing"
+            )
+            oracle.close()
+            counts = {name: count for name, count in zip(cols, count_arr)}
+
             self.attrs = rebalance_attributes(
-                table,
+                counts,
                 table_attrs,
                 self.ep,
                 unbounded_dp=self.unbounded_dp,
@@ -72,19 +96,20 @@ class PrivBayesSynth(Synth):
     @make_deterministic
     def bake(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         from .implementation import greedy_bayes
 
-        assert len(data) == 1, "Only tabular data supported for now"
+        assert len(tables) == 1, "Only tabular data supported for now"
 
-        table_name = next(iter(data.keys()))
-        table = data[table_name]
+        table_name = next(iter(tables.keys()))
+        table = tables[table_name]
 
+        oracle = MarginalOracle(self.attrs, table, self.batched)
         # Fit network
         nodes, t = greedy_bayes(
-            table,
+            oracle,
             self.attrs,
             self.e1,
             self.e2,
@@ -93,6 +118,7 @@ class PrivBayesSynth(Synth):
             self.unbounded_dp,
             self.random_init,
         )
+        oracle.close()
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
@@ -104,30 +130,33 @@ class PrivBayesSynth(Synth):
     @make_deterministic
     def fit(
         self,
-        data: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
+        ids: dict[str, LazyFrame],
+        tables: dict[str, LazyFrame],
     ):
         from .implementation import MAX_EPSILON, calc_noisy_marginals
 
-        table = data[self.table_name]
+        table = tables[self.table_name]
         self.n = len(table)
         noise = (1 if self.unbounded_dp else 2) * self.d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
-        self.marginals = calc_noisy_marginals(self.attrs, table, self.nodes, noise)
+
+        oracle = MarginalOracle(self.attrs, table, self.batched)
+        self.marginals = calc_noisy_marginals(oracle, self.attrs, self.nodes, noise)
+        oracle.close()
 
     @make_deterministic
     def sample(
         self, n: int | None = None
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    ) -> tuple[dict[str,  pd.DataFrame], dict[str,  pd.DataFrame]]:
         import pandas as pd
 
         from .implementation import sample_rows
 
         data = {
             self.table_name: sample_rows(
-                self.attrs, self.nodes, self.marginals, self.n if n is None else n
+                self.attrs, self.nodes, self.marginals, self.n if n is None else n # type: ignore
             )
         }
         ids = {self.table_name: pd.DataFrame()}

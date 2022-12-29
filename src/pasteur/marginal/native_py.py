@@ -98,4 +98,4 @@ def calc_marginal_1way(
 
     marginal(out, ops)
 
-    return out.reshape((-1,))
+    return out

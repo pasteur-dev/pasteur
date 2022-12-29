@@ -146,8 +146,8 @@ def find_smallest_group(
     (placeholders, common values, shouldn't be merged).
     """
     s_node = []
-    s_a = ()
-    s_b = ()
+    s_a = set()
+    s_b = set()
     s_size = -1
 
     # First do a recursive pass
@@ -406,7 +406,7 @@ class RebalancedValue(IdxValue):
 
 
 def rebalance_value(
-    col_data: pd.Series,
+    counts: np.ndarray,
     col: LevelValue,
     num_cols: int = 1,
     ep: float | None = None,
@@ -416,7 +416,7 @@ def rebalance_value(
 ):
     assert not gaussian, "Gaussian dp not supported yet"
 
-    counts = np.bincount(col_data, minlength=col.get_domain(0)).astype(np.float32)
+    counts = counts.astype(np.float32)
 
     if ep is not None:
         noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
@@ -428,7 +428,7 @@ def rebalance_value(
 
 
 def rebalance_attributes(
-    table: pd.DataFrame,
+    counts: dict[str, np.ndarray],
     attrs: Attributes,
     ep: float | None = None,
     **kwargs,
@@ -442,7 +442,7 @@ def rebalance_attributes(
             f"Rebalancing columns without using Differential Privacy (e_p=inf)"
         )
 
-    num_cols = table.shape[1]
+    num_cols = len(counts)
 
     new_attrs = {}
     for name, attr in attrs.items():
@@ -450,7 +450,7 @@ def rebalance_attributes(
         for col_name, col in attr.vals.items():
             assert isinstance(col, LevelValue)
             cols[col_name] = rebalance_value(
-                table[col_name],
+                counts[col_name],
                 col,
                 num_cols,
                 ep,

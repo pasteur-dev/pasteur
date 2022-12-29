@@ -1,20 +1,19 @@
 import logging
 from itertools import combinations
-from typing import NamedTuple
+from typing import NamedTuple, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
-from ....attribute import Attributes, get_dtype
-from ....utils.progress import piter, prange, process_in_parallel
-from ..math import (
+from ....attribute import Attributes, IdxValue, get_dtype
+from ....marginal import (
     ZERO_FILL,
     AttrSelector,
     AttrSelectors,
-    calc_marginal,
-    calc_marginal_1way,
-    expand_table,
+    MarginalOracle,
+    MarginalRequest,
 )
+from ....utils.progress import piter, prange, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +47,8 @@ def sens_mutual_info(n: int):
     return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
 
 
-def calc_mutual_info(*args, **kwargs):
+def calc_mutual_info(j_mar, x_mar, p_mar):
     """Calculates mutual information I(X,P) for the provided data using log2."""
-    j_mar, x_mar, p_mar = calc_marginal(*args, **kwargs, zero_fill=ZERO_FILL)
     mi = np.sum(j_mar * np.log2(j_mar / (np.outer(x_mar, p_mar) + ZERO_FILL)))
     return mi
 
@@ -60,24 +58,16 @@ def sens_r_function(n: int):
     return 3 / n + 2 / (n**2)
 
 
-def calc_r_function(*args, **kwargs):
+def calc_r_function(j_mar, x_mar, p_mar):
     """Calculates the R(X,P) function for the provided data."""
-    j_mar, x_mar, p_mar = calc_marginal(*args, **kwargs)
     r = np.sum(np.abs(j_mar - np.outer(x_mar, p_mar))) / 2
     return r
 
 
-def calc_entropy(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
-    x: AttrSelectors,
-):
+def calc_entropy(mar):
     """Calculates the entropy for the provided data."""
     # TODO: check this is correct using scipy
-    mar = calc_marginal_1way(cols, cols_noncommon, domains, x, ZERO_FILL)
-    ent = -np.sum(mar * np.log2(mar))
-    return ent
+    return -np.sum(mar * np.log2(mar))
 
 
 def sens_entropy(n: int):
@@ -90,25 +80,25 @@ def add_to_pset(s: tuple, x: int, h: int):
     """Given parent set `s`, adds attribute `x` with height `h`.
 
     Making a list is faster than ex. using an iterator."""
-    s = list(s)
-    s[x] = h
-    return tuple(s)
+    y = list(s)
+    y[x] = h
+    return tuple(y)
 
 
-def add_multiple_to_pset(s: tuple, x: list[int], h: list[int]):
+def add_multiple_to_pset(s: tuple, x: Sequence[int], h: list[int]):
     """Given parent set `s`, adds attributes `x` with heights `h`.
 
     `x` is checked for length, so `h` may be a larger array."""
 
-    s = list(s)
+    y = list(s)
 
     for i in range(len(x)):
-        s[x[i]] = h[i]
+        y[x[i]] = h[i]
     return tuple(s)
 
 
 def greedy_bayes(
-    table: pd.DataFrame,
+    oracle: MarginalOracle,
     attrs: Attributes,
     e1: float | None,
     e2: float | None,
@@ -125,7 +115,7 @@ def greedy_bayes(
 
     Binary domains are not supported due to computational intractability."""
 
-    n, d = table.shape
+    n, d = oracle.get_shape()
     n_chosen = 1 if random_init else 0
     calc_fun = calc_r_function if use_r else calc_mutual_info
     sens_fun = sens_r_function if use_r else sens_mutual_info
@@ -142,14 +132,15 @@ def greedy_bayes(
     domain = []  # col, height -> domain
     for i, (an, a) in enumerate(attrs.items()):
         group_names.append(an)
-        for n, c in a.vals.items():
-            col_names.append(n)
+        for c_n, c in a.vals.items():
+            c = cast(IdxValue, c)
+            col_names.append(c_n)
             groups.append(i)
             heights.append(c.height)
             common.append(a.common)
             domain.append([c.get_domain(h) for h in range(c.height)])
 
-    def group_nodes(V: tuple[int], x: int):
+    def group_nodes(V: Sequence[int], x: int):
         """Groups nodes in set `V` into tuples based on their group.
 
         This allows the `maximal_parent` algorithm to skip calculating the domain
@@ -178,7 +169,7 @@ def greedy_bayes(
         return A
 
     def maximal_parents(
-        A: tuple[tuple[int]], tau: float, partial: bool = False
+        A: tuple[tuple[int], ...], tau: float, partial: bool = False
     ) -> list[tuple[int]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
@@ -273,7 +264,6 @@ def greedy_bayes(
     #
     # Implement misc functions for summating the scores
     #
-    cols, cols_noncommon, domains = expand_table(attrs, table)
     score_cache = {}
 
     def pset_to_attr_sel(pset: tuple[int]) -> AttrSelectors:
@@ -308,7 +298,7 @@ def greedy_bayes(
         scores = np.empty((len(candidates)), dtype="float")
         cached = np.zeros((len(candidates)), dtype="bool")
 
-        to_be_processed = []
+        requests = []
         for i, candidate in enumerate(candidates):
             if candidate in score_cache:
                 scores[i] = score_cache[candidate]
@@ -322,21 +312,16 @@ def greedy_bayes(
 
             # Create selectors for parents by first merging into attribute groups
             p_attrs = pset_to_attr_sel(pset)
-
-            to_be_processed.append({"x": x_attr, "p": p_attrs, "partial": partial})
+            requests.append(MarginalRequest(x_attr, p_attrs, partial))
 
         # Process new ones
-        base_args = {"cols": cols, "cols_noncommon": cols_noncommon, "domains": domains}
-        new_mar = np.sum(~cached)
-        all_mar = len(candidates)
-        new_scores = process_in_parallel(
-            # FIXME: handle partial marginals
-            calc_fun,
-            to_be_processed,
-            base_args,
-            500,
-            f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals",
-        )
+        # new_mar = np.sum(~cached)
+        # all_mar = len(candidates)
+        # f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals"
+        marginals = oracle.process(requests)
+        new_scores = []
+        for mar in piter(marginals, desc="Calculating scores"):
+            new_scores.append(calc_fun(*mar))
 
         # Update cache
         scores[~cached] = new_scores
@@ -348,14 +333,14 @@ def greedy_bayes(
 
     def pick_candidate(
         candidates: list[tuple[int, bool, tuple[int]]]
-    ) -> tuple[int, tuple[int]]:
+    ) -> tuple[int, bool, tuple[int]]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
         candidates = list(candidates)
         vals = np.array(calc_candidate_scores(candidates))
 
         # If e1 is bigger than max_epsilon, assume it's infinite.
-        if np.isinf(e1) or e1 > MAX_EPSILON:
+        if e1 is None or e1 > MAX_EPSILON:
             return candidates[np.argmax(vals)]
 
         # np.exp is unstable for large vals
@@ -374,7 +359,7 @@ def greedy_bayes(
     #
     # Implement greedy bayes (as shown in the paper)
     #
-    n, d = table.shape
+    n, d = oracle.get_shape()
     if random_init:
         x1 = np.random.randint(d)
     else:
@@ -383,14 +368,19 @@ def greedy_bayes(
         # to a bad network.
         vals = [
             calc_entropy(
-                cols,
-                cols_noncommon,
-                domains,
-                {
-                    group_names[groups[x]]: AttrSelector(
-                        group_names[groups[x]], 0, {col_names[x]: 0}
-                    )
-                },
+                oracle.process(
+                    [
+                        MarginalRequest(
+                            None,
+                            {
+                                group_names[groups[x]]: AttrSelector(
+                                    group_names[groups[x]], 0, {col_names[x]: 0}
+                                )
+                            },
+                            False,
+                        )
+                    ], desc="Choosing first node based on entropy"
+                )[0]
             )
             for x in range(d)
         ]
@@ -401,18 +391,18 @@ def greedy_bayes(
         p = np.exp(vals / 2 / delta)
         p /= p.sum()
 
-        if e1 > MAX_EPSILON or e1 is None:
-            x1 = np.argmax(p)
+        if e1 is None or e1 > MAX_EPSILON:
+            x1 = np.array(range(d))[np.argmax(p)]
         else:
-            x1 = np.random.choice(range(d), size=1, p=p)[0]
+            x1: int = np.random.choice(range(d), size=1, p=p)[0]
 
     A = [a for a in range(d) if a != x1]
     t = (n * (e2 if e2 is not None else 1)) / ((1 if unbounded_dp else 2) * d * theta)
 
     # Allow for "unbounded" privacy budget without destroying the computer.
-    if e1 > MAX_EPSILON or e1 is None:
+    if e1 is None or e1 > MAX_EPSILON:
         logger.warning("Baking without DP (e1=inf).")
-    if t > n / 10 or e2 > MAX_EPSILON or e2 is None or t > MAX_T:
+    if t > n / 10 or e2 is None or e2 > MAX_EPSILON or t > MAX_T:
         t = min(n / 10, MAX_T)
         logger.warning(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
@@ -420,7 +410,7 @@ def greedy_bayes(
 
     V = [x1]
     V_groups = set()
-    N = [(x1, False, EMPTY_PSET)]
+    N: list[tuple[int, bool, tuple[int, ...]]] = [(cast(int, x1), False, EMPTY_PSET)]
 
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
@@ -537,78 +527,34 @@ def print_tree(
 
 
 def calc_noisy_marginals(
-    attrs: Attributes, table: pd.DataFrame, nodes: Nodes, noise_scale: float
+    oracle: MarginalOracle, attrs: Attributes, nodes: Nodes, noise_scale: float
 ):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
-    cols, cols_noncommon, domains = expand_table(attrs, table)
+    requests = []
+    for x_attr, x, _, partial, p in nodes:
+        requests.append(
+            MarginalRequest(
+                AttrSelector(x_attr, attrs[x_attr].common, {x: 0}),
+                p,
+                partial,
+            )
+        )
 
-    marginals = []
-    for x_attr, x, x_dom, partial, p in nodes:
-        # Find integer dtype based on domain
-        p_dom = 1
-        for attr_name, attr in p.items():
-            l_dom = 1
-            common = attr.common
-            for i, (n, h) in enumerate(attr.cols.items()):
-                l_dom *= domains[n][h] - common
+    marginals = oracle.process(requests)
 
-            if partial and attr_name == x_attr:
-                p_dom *= l_dom
-            else:
-                p_dom *= l_dom + common
+    noised_marginals = []
+    for (x_attr, x, _, partial, p), marginal in zip(nodes, marginals):
+        noise = np.random.laplace(scale=noise_scale, size=marginal.shape)
 
-        dtype = get_dtype(p_dom * x_dom)
-        n, d = table.shape
-        _sum_nd = np.zeros((n,), dtype=dtype)
-        _tmp_nd = np.zeros((n,), dtype=dtype)
+        noised_marginal = (marginal + noise).clip(0)
+        noised_marginal /= noised_marginal.sum()
+        noised_marginals.append(noised_marginal)
 
-        mul = 1
-        for attr_name, attr in p.items():
-            common = attr.common
-            p_partial = partial and x_attr == attr_name
-            l_mul = 1
-            for i, (n, h) in enumerate(attr.cols.items()):
-                if common == 0 or (i == 0 and not p_partial):
-                    np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
-                else:
-                    np.multiply(
-                        cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype
-                    )
-
-                np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-                l_mul *= domains[n][h] - common
-
-            if p_partial:
-                mul *= l_mul
-            else:
-                mul *= l_mul + common
-
-        # If one of the previous columns is from the same attribute
-        # take reduced marginal and source common values from it
-        # -> fixes NA probability and saves bandwidth
-        common = attrs[x_attr].common if partial else 0
-        if common:
-            np.multiply(cols_noncommon[x][0], mul, out=_tmp_nd, dtype=dtype)
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-            _sum_nd = _sum_nd[cols[x][0] >= common]
-            x_dom = x_dom - common
-        else:
-            np.multiply(cols[x][0], mul, out=_tmp_nd, dtype=dtype)
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-
-        counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
-        margin = counts.reshape(x_dom, p_dom).astype("float32")
-        noise = np.random.laplace(scale=noise_scale, size=margin.shape)
-
-        marginal = (margin + noise).clip(0)
-        marginal /= marginal.sum()
-        marginals.append(marginal)
-
-    return marginals
+    return noised_marginals
 
 
 def sample_rows(
-    attrs: Attributes, nodes: list[Node], marginals: np.array, n: int
+    attrs: Attributes, nodes: list[Node], marginals: np.ndarray, n: int
 ) -> pd.DataFrame:
     out = pd.DataFrame()
 
@@ -643,6 +589,7 @@ def sample_rows(
                 p_partial = partial and attr_name == x_attr
                 for i, (col_name, h) in enumerate(attr.cols.items()):
                     col = attrs[attr_name].vals[col_name]
+                    col = cast(IdxValue, col)
                     mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 
