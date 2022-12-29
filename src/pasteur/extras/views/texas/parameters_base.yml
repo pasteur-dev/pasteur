@@ -253,7 +253,3 @@ tables:
         attending_physician_unif_id: categorical?|UKN
         operating_physician_unif_id: categorical?|UKN
         cert_status: categorical?|UKN
-
-ratios:
-  wrk: 0.01
-  ref: 0.0025

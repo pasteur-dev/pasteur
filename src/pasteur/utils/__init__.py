@@ -39,6 +39,11 @@ class LazyPartition(Generic[A]):
             )
         except TypeError:
             return self.fun(*self.args, **self.kwargs)
+    
+    @property
+    def partitioned(self):
+        return False
+
 
 
 LazyChunk = LazyPartition["pd.DataFrame"]

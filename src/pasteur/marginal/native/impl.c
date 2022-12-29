@@ -11,8 +11,6 @@
         printf("%s: %d\n", __msg, k);       \
     }
 
-#define AVX2
-
 #ifdef __AVX2__
 static inline void sum_inline_u32(
     int l, uint32_t *out,
@@ -177,6 +175,7 @@ static inline void sum_inline_u16(
 }
 
 #else
+#warning AX2 not supported by the current platform. Code will be compiled without SIMD.
 static inline void sum_inline_u16(
     int l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
@@ -227,7 +226,7 @@ static inline void sum_inline_u32(
 #endif
 
 #define SUM_INLINE(_i, _j, _k)                                                                  \
-    if (dom >= 65536 || n_u32 > 0)                                                              \
+    if (dom > 65536 || n_u32 > 0)                                                               \
     {                                                                                           \
         sum_inline_u32(l, out, _i, mul_u8, arr_u8, _j, mul_u16, arr_u16, _k, mul_u32, arr_u32); \
     }                                                                                           \

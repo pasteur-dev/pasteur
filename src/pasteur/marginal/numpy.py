@@ -86,7 +86,7 @@ def calc_marginal(
     x: AttrSelector,
     p: AttrSelectors,
     partial: bool = False,
-    zero_fill: float | None = None,
+    out: np.ndarray | None = None
 ):
     """Calculates the 1 way and 2 way marginals between the subsection of the
     hierarchical attribute x and the attributes p(arents)."""
@@ -148,18 +148,13 @@ def calc_marginal(
         x_dom = x_dom - x.common
 
     counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
-    margin = counts.reshape(x_dom, p_dom).astype("float32")
+    if out is not None:
+        out = out.reshape((-1,))
+        out += counts
+    else:
+        out = counts
 
-    margin /= margin.sum()
-    if zero_fill is not None:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
-
-    j_mar = margin
-    x_mar = np.sum(margin, axis=1)
-    p_mar = np.sum(margin, axis=0)
-
-    return j_mar, x_mar, p_mar
+    return out.reshape((x_dom, p_dom))
 
 
 def calc_marginal_1way(
@@ -167,7 +162,7 @@ def calc_marginal_1way(
     cols_noncommon: dict[str, list[np.ndarray]],
     domains: dict[str, list[int]],
     x: AttrSelectors,
-    zero_fill: float | None = None,
+    out: np.ndarray | None = None
 ):
     """Calculates the 1 way marginal of the subsections of attributes x"""
 
@@ -193,21 +188,16 @@ def calc_marginal_1way(
             if common == 0 or i == 0:
                 np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
             else:
-                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
+                np.multiply(cols_noncoammon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
 
             np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
             l_mul *= domains[n][h] - common
         mul *= l_mul + common
 
     counts = np.bincount(_sum_nd, minlength=dom)
-    margin = counts.astype("float32")
-    margin /= margin.sum()
-    if zero_fill is not None:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
+    if out is not None:
+        out += counts
+    else:
+        out = counts
 
-    return margin.reshape(-1)
-
-
-class MarginalOracle:
-    pass
+    return out.reshape((-1, ))

@@ -24,9 +24,9 @@ DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow",)
 # Class that manages storing KedroSession data.
 from kedro.framework.session.store import ShelveStore
 
-SESSION_STORE_CLASS = ShelveStore
-# Keyword arguments to pass to the `SESSION_STORE_CLASS` constructor.
-SESSION_STORE_ARGS = {"path": "./sessions"}
+# SESSION_STORE_CLASS = ShelveStore
+# # Keyword arguments to pass to the `SESSION_STORE_CLASS` constructor.
+# SESSION_STORE_ARGS = {"path": "./sessions"}
 
 # Class that manages Kedro's library components.
 # from kedro.framework.context import KedroContext

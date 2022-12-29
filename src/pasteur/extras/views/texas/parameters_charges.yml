@@ -16,7 +16,3 @@ tables:
       unit_rate: numerical?
       chrgs_line_item: numerical
       chrgs_non_cov: numerical
-
-ratios:
-  wrk: 0.01
-  ref: 0.0025
