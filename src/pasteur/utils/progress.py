@@ -126,8 +126,18 @@ def _wrap_exceptions(
 
 
 def _calc_worker(args):
-    node_name, progress_queue, fun, base_args, chunk = args
+    node_name, progress_queue, initializer, fun, finalizer, base_args, chunk = args
     set_node_name(node_name)
+
+    if initializer is not None:
+        try:
+            base_args, chunk = initializer(base_args, chunk)
+        except Exception as e:
+            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+            logger.error(
+                f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+            )
+            raise e
 
     out = []
     for i, op in enumerate(chunk):
@@ -148,6 +158,16 @@ def _calc_worker(args):
             get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
                 f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
+            )
+            raise e
+
+    if finalizer is not None:
+        try:
+            finalizer(base_args, chunk)
+        except Exception as e:
+            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+            logger.error(
+                f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
             )
             raise e
 
@@ -193,6 +213,7 @@ def _init_subprocess(log_queue):
         # Kedro installs rich logging when importing the following module
         # and messes with loggers. Import before replacing the loggers.
         import kedro.framework.project as _
+
         _replace_loggers_with_queue(log_queue)
 
     global IS_SUBPROCESS
@@ -242,6 +263,7 @@ def close_pool():
     pool.terminate()
     _pool = None
 
+
 def _init_pool(max_workers: int | None = None, refresh_processes: int | None = None):
     # from multiprocessing import Pool, Manager
     from multiprocessing import get_context
@@ -251,7 +273,7 @@ def _init_pool(max_workers: int | None = None, refresh_processes: int | None = N
 
     close_pool()
 
-    ctx = get_context('spawn')
+    ctx = get_context("spawn")
     manager = ctx.Manager()
     _max_workers = max_workers or cpu_count() or 1
 
@@ -309,6 +331,8 @@ def process_in_parallel(
     base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 1,
     desc: str | None = None,
+    initializer: Callable | None = None,
+    finalizer: Callable[..., None] | None = None,
 ) -> list[X]:
     """Processes arguments in parallel using the common process pool and prints progress bar.
 
@@ -345,7 +369,17 @@ def process_in_parallel(
 
     args = []
     for chunk in chunks:
-        args.append((get_node_name(), progress_queue, fun, base_args, chunk))
+        args.append(
+            (
+                get_node_name(),
+                progress_queue,
+                initializer,
+                fun,
+                finalizer,
+                base_args,
+                chunk,
+            )
+        )
 
     res = pool.map_async(_calc_worker, args)
 

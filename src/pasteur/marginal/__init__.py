@@ -1,7 +1,7 @@
 # from .numpy import *
 
 from typing import NamedTuple
-
+from threading import Thread
 import numpy as np
 
 from ..attribute import Attributes
@@ -38,24 +38,38 @@ class MarginalRequest(NamedTuple):
     partial: bool
 
 
+def _marginal_initializer(base_args, per_call_args):
+    cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"])
+    cols_noncommon = load_from_memory(
+        base_args["mem_noncommon"], base_args["info_noncommon"]
+    )
+
+    new_base_args = base_args.copy()
+    new_base_args["cols"] = cols
+    new_base_args["cols_noncommon"] = cols_noncommon
+
+    return new_base_args, per_call_args
+
+
 def _marginal_worker(
-    mem_cols,
-    info_cols,
-    mem_noncommon,
-    info_noncommon,
+    cols,
+    cols_noncommon,
     domains,
     req: MarginalRequest,
     data: np.ndarray | None = None,
-):
-    cols = load_from_memory(mem_cols, info_cols)
-    cols_noncommon = load_from_memory(mem_noncommon, info_noncommon)
-
+    **_,
+) -> np.ndarray:
     x, p, partial = req
 
     if x is None:
         return calc_marginal_1way(cols, cols_noncommon, domains, p, data)
     else:
         return calc_marginal(cols, cols_noncommon, domains, x, p, partial, data)
+
+
+def _marginal_finalizer(base_args, per_call_args):
+    base_args["mem_cols"].close()
+    base_args["mem_noncommon"].close()
 
 
 class MarginalOracle:
@@ -74,42 +88,41 @@ class MarginalOracle:
     def get_shape(self):
         return self.data.shape
 
+    def _load_batch(self, data: LazyChunk):
+        df = data()
+        cols, cols_noncommon, domains = expand_table(self.attrs, df)
+        del df
+
+        self.new_domains = domains
+        self.new_mem_cols, self.new_info_cols = map_to_memory(cols)
+        del cols
+        self.new_mem_noncommon, self.new_info_noncommon = map_to_memory(cols_noncommon)
+        del cols_noncommon
+
+    def _swap_batch(self):
+        self.domains = self.new_domains
+        self.mem_cols = self.new_mem_cols
+        self.info_cols = self.new_info_cols
+        self.mem_noncommon = self.new_mem_noncommon
+        self.info_noncommon = self.new_info_noncommon
+
+        del self.new_domains
+        del self.new_mem_cols
+        del self.new_info_cols
+        del self.new_mem_noncommon
+        del self.new_info_noncommon
+
     def _process_batch(
         self,
-        data: LazyChunk,
         requests: list[MarginalRequest],
         old_data: list[np.ndarray] | None = None,
     ):
-        # Load data
-        if self.batched or not self._loaded:
-            df = data()
-            cols, cols_noncommon, domains = expand_table(self.attrs, df)
-            del df
-
-            mem_cols, info_cols = map_to_memory(cols)
-            del cols
-            mem_noncommon, info_noncommon = map_to_memory(cols_noncommon)
-            del cols_noncommon
-
-            if not self.batched:
-                self._cache = (
-                    mem_cols,
-                    info_cols,
-                    mem_noncommon,
-                    info_noncommon,
-                    domains,
-                )
-                self._loaded = True
-        else:
-            # Allow using cached data
-            mem_cols, info_cols, mem_noncommon, info_noncommon, domains = self._cache
-
         base_args = {
-            "mem_cols": mem_cols,
-            "info_cols": info_cols,
-            "mem_noncommon": mem_noncommon,
-            "info_noncommon": info_noncommon,
-            "domains": domains,
+            "mem_cols": self.mem_cols,
+            "info_cols": self.info_cols,
+            "mem_noncommon": self.mem_noncommon,
+            "info_noncommon": self.info_noncommon,
+            "domains": self.domains,
         }
 
         if old_data:
@@ -120,17 +133,26 @@ class MarginalOracle:
             per_call_args = [{"req": req} for req in requests]
 
         res = process_in_parallel(
-            _marginal_worker, per_call_args, base_args, 100, "Calculating marginals"
+            _marginal_worker,
+            per_call_args,
+            base_args,
+            5,
+            desc="Calculating marginals",
+            initializer=_marginal_initializer,
+            finalizer=_marginal_finalizer,
         )
 
-        if not self.batched:
-            mem_cols.close()
-            mem_cols.unlink()
-
-            mem_noncommon.close()
-            mem_noncommon.unlink()
-
         return res
+
+    def _unload_batch(self):
+        if not self.batched:
+            return
+
+        self.mem_cols.close()
+        self.mem_cols.unlink()
+
+        self.mem_noncommon.close()
+        self.mem_noncommon.unlink()
 
     def _postprocess(self, requests: list[MarginalRequest], data: list[np.ndarray]):
         out = []
@@ -145,12 +167,31 @@ class MarginalOracle:
         self, requests: list[MarginalRequest], desc: str = "Processing partition"
     ):
         if not self.batched:
-            res = self._process_batch(self.data, requests)
+            if not self._loaded:
+                self._load_batch(self.data)
+                self._swap_batch()
+                self._loaded = True
+
+            res = self._process_batch(requests)
             return self._postprocess(requests, res)
 
         old = None
-        for batch in piter(self.data.values(), total=len(self.data), desc=desc, leave=False):
-            old = self._process_batch(batch, requests, old)
+        partitions = list(self.data.values())
+        t = Thread(target=self._load_batch, args=(partitions[0],))
+        t.start()
+
+        for i in piter(range(len(partitions)), desc=desc, leave=False):
+            t.join()
+            self._swap_batch()
+            if i < len(partitions) - 1:
+                t = Thread(target=self._load_batch, args=(partitions[i + 1],))
+                t.start()
+
+            old = self._process_batch(
+                requests,
+                old,
+            )
+            self._unload_batch()
 
         assert old is not None
         return self._postprocess(requests, old)
@@ -159,12 +200,7 @@ class MarginalOracle:
         if self.batched or not self._loaded:
             return
 
-        mem_cols, _, mem_noncommon, _, _ = self._cache
-        mem_cols.close()
-        mem_cols.unlink()
-
-        mem_noncommon.close()
-        mem_noncommon.unlink()
+        self._unload_batch()
 
 
 __all__ = [

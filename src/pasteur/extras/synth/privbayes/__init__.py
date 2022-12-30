@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+from math import ceil
 from typing import TYPE_CHECKING
 
+from ....marginal import AttrSelector, MarginalOracle, MarginalRequest
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame
-from ....marginal import MarginalOracle, MarginalRequest, AttrSelector
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,10 +32,10 @@ class PrivBayesSynth(Synth):
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
-        rebalance_columns: bool = False,
+        rebalance: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
-        batched: bool = True,
+        batched: bool = False,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -45,7 +46,7 @@ class PrivBayesSynth(Synth):
         self.seed = seed
         self.random_init = random_init
         self.unbounded_dp = unbounded_dp
-        self.rebalance = rebalance_columns
+        self.rebalance = rebalance
         self.batched = batched
         self.kwargs = kwargs
 
@@ -136,7 +137,9 @@ class PrivBayesSynth(Synth):
         from .implementation import MAX_EPSILON, calc_noisy_marginals
 
         table = tables[self.table_name]
-        self.n = len(table)
+        self.partitions = len(table)
+        self.n = ceil(table.shape[0] / self.partitions)
+
         noise = (1 if self.unbounded_dp else 2) * self.d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
@@ -161,7 +164,7 @@ class PrivBayesSynth(Synth):
         }
         ids = {self.table_name: pd.DataFrame()}
 
-        return data, ids
+        return ids, data
 
     def __str__(self) -> str:
         from .implementation import print_tree

@@ -320,7 +320,7 @@ def greedy_bayes(
         # f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals"
         marginals = oracle.process(requests)
         new_scores = []
-        for mar in piter(marginals, desc="Calculating scores"):
+        for mar in piter(marginals, desc="Calculating scores", leave=False):
             new_scores.append(calc_fun(*mar))
 
         # Update cache
@@ -366,8 +366,9 @@ def greedy_bayes(
         # Pick x1 based on entropy
         # consumes some privacy budget, but starting with a bad choice can lead
         # to a bad network.
-        vals = [
-            calc_entropy(
+        vals = list(
+            map(
+                calc_entropy,
                 oracle.process(
                     [
                         MarginalRequest(
@@ -379,11 +380,12 @@ def greedy_bayes(
                             },
                             False,
                         )
-                    ], desc="Choosing first node based on entropy"
-                )[0]
+                        for x in range(d)
+                    ],
+                    desc="Choosing first node based on entropy",
+                ),
             )
-            for x in range(d)
-        ]
+        )
         vals = np.array(vals)
         vals -= vals.max()
 
@@ -543,7 +545,7 @@ def calc_noisy_marginals(
     marginals = oracle.process(requests)
 
     noised_marginals = []
-    for (x_attr, x, _, partial, p), marginal in zip(nodes, marginals):
+    for (x_attr, x, _, partial, p), (marginal, _, _) in zip(nodes, marginals):
         noise = np.random.laplace(scale=noise_scale, size=marginal.shape)
 
         noised_marginal = (marginal + noise).clip(0)
