@@ -1,7 +1,9 @@
 # from .numpy import *
 
-from typing import NamedTuple
+import logging
 from threading import Thread
+from typing import NamedTuple
+
 import numpy as np
 
 from ..attribute import Attributes
@@ -18,13 +20,11 @@ from .numpy import (
     postprocess_1way,
 )
 
+logger = logging.getLogger(__name__)
+
 try:
     from .native_py import calc_marginal, calc_marginal_1way
-
 except Exception as e:
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.error(
         f"Failed importing native marginal implementation, using numpy instead (2-8x slower). Error:\n{e}"
     )
@@ -72,13 +72,33 @@ def _marginal_finalizer(base_args, per_call_args):
     base_args["mem_noncommon"].close()
 
 
+def _marginal_parallel_worker(
+    requests: list[MarginalRequest], attrs: Attributes, chunk: LazyChunk
+):
+    cols, cols_noncommon, domains = expand_table(attrs, chunk())
+
+    out = []
+    for x, p, partial in requests:
+        if x is None:
+            out.append(calc_marginal_1way(cols, cols_noncommon, domains, p))
+        else:
+            out.append(calc_marginal(cols, cols_noncommon, domains, x, p, partial))
+
+    return out
+
+
 class MarginalOracle:
     def __init__(
-        self, attrs: Attributes, data: LazyFrame, batched: bool = True
+        self,
+        attrs: Attributes,
+        data: LazyFrame,
+        batched: bool = True,
+        sequential_min: int = 1000,
     ) -> None:
         self.attrs = attrs
         self.data = data
         self.batched = batched and data.partitioned
+        self.sequential_min = sequential_min
 
         self._loaded = False
 
@@ -116,6 +136,7 @@ class MarginalOracle:
         self,
         requests: list[MarginalRequest],
         old_data: list[np.ndarray] | None = None,
+        desc: str = "Calculating marginals",
     ):
         base_args = {
             "mem_cols": self.mem_cols,
@@ -137,7 +158,7 @@ class MarginalOracle:
             per_call_args,
             base_args,
             5,
-            desc="Calculating marginals",
+            desc=desc,
             initializer=_marginal_initializer,
             finalizer=_marginal_finalizer,
         )
@@ -160,18 +181,30 @@ class MarginalOracle:
                 out.append(postprocess_1way(res))
         return out
 
-    def process(
-        self, requests: list[MarginalRequest], desc: str = "Processing partition"
-    ):
-        if not self.batched:
-            if not self._loaded:
-                self._load_batch(self.data)
-                self._swap_batch()
-                self._loaded = True
+    def _process_merged(self, requests: list[MarginalRequest], desc: str):
+        """Loads dataset into RAM and calculates marginals by placing dataset
+        in shared memory and partitioning marginals into parallel processes.
 
-            res = self._process_batch(requests)
-            return self._postprocess(requests, res)
+        Requires being able to fit dataset in RAM."""
+        if not self._loaded:
+            self._load_batch(self.data)
+            self._swap_batch()
+            self._loaded = True
 
+        res = self._process_batch(requests, desc=desc)
+        return self._postprocess(requests, res)
+
+    def _process_batched_sequential(self, requests: list[MarginalRequest], desc: str):
+        """Loads partitions sequentially into main memory and partitions marginals
+        into workers to process them. The next partition is loaded in parallel.
+
+        Only requires one partition and one running copy of marginal counts in memory.
+
+        Most memory efficient. If marginal calculations require more than the time
+        to load a partition also most time efficient.
+
+        However, for small batches of marginals, incurs having to load the dataset
+        in a non-parallelized manner, which takes minutes."""
         old = None
         partitions = list(self.data.values())
         t = Thread(target=self._load_batch, args=(partitions[0],))
@@ -192,6 +225,54 @@ class MarginalOracle:
 
         assert old is not None
         return self._postprocess(requests, old)
+
+    def _process_batched_parallel(self, requests: list[MarginalRequest], desc: str):
+        """Each worker is given one partition, which it loads, and calculates
+        all the marginals for it. The marginals for each partition are merged in
+        the end.
+
+        Requires keeping a copy of marginals in memory, which makes it less
+        efficient than `_process_batched_sequential()`. However, for low numbers
+        of marginals, loading is the main bottleneck and can be linearly
+        parallelized (using fast storage) this way."""
+
+        base_args = {"requests": requests, "attrs": self.attrs}
+        per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
+
+        res = process_in_parallel(
+            _marginal_parallel_worker, per_call_args, base_args, desc=desc
+        )
+
+        assert len(res) > 0
+        out = res[0]
+
+        for sub_arrs in piter(
+            res[1:], desc="Summing partitioned marginals", leave=False
+        ):
+            for i in range(len(out)):
+                out[i] += sub_arrs[i]
+
+        return self._postprocess(requests, out)
+
+    def process(
+        self, requests: list[MarginalRequest], desc: str = "Processing partition"
+    ):
+        if not self.batched:
+            # logger.info(
+            #     f"Processing {len(requests)} marginals by loading dataset in memory."
+            # )
+            return self._process_merged(requests, desc)
+
+        if self.sequential_min < len(requests):
+            # logger.info(
+            #     f"Processing {len(requests)} marginals by sequential loading of partitions into shared memory."
+            # )
+            return self._process_batched_sequential(requests, desc)
+
+        # logger.info(
+        #     f"Processing {len(requests)} marginals by loading partitions in parallel."
+        # )
+        return self._process_batched_parallel(requests, desc)
 
     def close(self):
         if self.batched or not self._loaded:

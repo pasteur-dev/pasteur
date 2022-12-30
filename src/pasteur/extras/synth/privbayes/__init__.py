@@ -35,7 +35,7 @@ class PrivBayesSynth(Synth):
         rebalance: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
-        batched: bool = False,
+        batched: bool = True,
         **kwargs,
     ) -> None:
         self.ep = ep

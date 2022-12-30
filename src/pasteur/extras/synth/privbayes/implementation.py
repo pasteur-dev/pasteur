@@ -315,10 +315,9 @@ def greedy_bayes(
             requests.append(MarginalRequest(x_attr, p_attrs, partial))
 
         # Process new ones
-        # new_mar = np.sum(~cached)
-        # all_mar = len(candidates)
-        # f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals"
-        marginals = oracle.process(requests)
+        new_mar = np.sum(~cached)
+        all_mar = len(candidates)
+        marginals = oracle.process(requests, desc=f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals")
         new_scores = []
         for mar in piter(marginals, desc="Calculating scores", leave=False):
             new_scores.append(calc_fun(*mar))
@@ -542,7 +541,7 @@ def calc_noisy_marginals(
             )
         )
 
-    marginals = oracle.process(requests)
+    marginals = oracle.process(requests, desc="Calculating noisy marginals.")
 
     noised_marginals = []
     for (x_attr, x, _, partial, p), (marginal, _, _) in zip(nodes, marginals):
