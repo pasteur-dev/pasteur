@@ -145,9 +145,6 @@ class MarginalOracle:
         return res
 
     def _unload_batch(self):
-        if not self.batched:
-            return
-
         self.mem_cols.close()
         self.mem_cols.unlink()
 

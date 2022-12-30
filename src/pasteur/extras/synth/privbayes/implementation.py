@@ -561,7 +561,9 @@ def sample_rows(
     out = pd.DataFrame()
 
     attr_sampled_cols: dict[str, str] = {}
-    for (x_attr, x, x_domain, partial, p), marginal in zip(nodes, marginals):
+    for (x_attr, x, x_domain, partial, p), marginal in piter(
+        zip(nodes, marginals), total=len(nodes), desc="Sampling values sequentially"
+    ):
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
@@ -576,13 +578,9 @@ def sample_rows(
             out_col = out_col.astype(get_dtype(x_domain))
         else:
             # Use conditional probability
-            m = marginal
-            m = m / m.sum(axis=0, keepdims=True)
-            m_avg = marginal.sum(axis=1) / marginal.sum()
-
             # Get groups for marginal
             mul = 1
-            dtype = get_dtype(m.shape[0] * m.shape[1])
+            dtype = get_dtype(marginal.shape[0] * marginal.shape[1])
             _sum_nd = np.zeros((n,), dtype=dtype)
             _tmp_nd = np.zeros((n,), dtype=dtype)
             for attr_name, attr in p.items():
@@ -613,12 +611,23 @@ def sample_rows(
             # Use reduced marginal if column has been sampled before
             # if `common=0` behavior is identical
             common = attrs[x_attr].common if partial else 0
+
             for group in np.unique(groups):
-                size = np.sum(groups == group)
+                m = marginal
                 m_g = m[:, group]
+                m_sum = m_g.sum()
+
                 # FIXME: find sampling strategy for this
-                if np.any(np.isnan(m_g)):
+                if m_sum < 1e-6:
+                    # If the sum of the group is zero, there are no samples
+                    # Use the average probability of the variable
+                    m_avg = marginal.sum(axis=1) / marginal.sum()
                     m_g = m_avg
+                else:
+                    # Otherwise normalize
+                    m_g = m_g / m_sum
+
+                size = np.sum(groups == group)
                 out_col[groups == group] = (
                     np.random.choice(x_domain - common, size=size, p=m_g) + common
                 )
