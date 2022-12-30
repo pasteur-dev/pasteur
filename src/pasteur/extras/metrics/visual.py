@@ -188,7 +188,10 @@ class FixedHist(ColumnMetric[list]):
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         ...
 
-    def process(self, split: int, data: pd.Series) -> list:
+    def process(self, data: pd.Series) -> list:
+        return []
+
+    def combine(self, summaries: list[list]) -> list:
         return []
 
 
@@ -327,10 +330,10 @@ class DateHist(RefColumnMetric[DateData]):
 
     def combine(self, summaries: list[DateData]) -> DateData:
         return DateData(
-            span=np.sum([s.span for s in summaries if s.span], axis=0),
-            weeks=np.sum([s.weeks for s in summaries if s.weeks], axis=0),
-            days=np.sum([s.days for s in summaries if s.days], axis=0),
-            na=np.sum([s.na for s in summaries if s.na], axis=0),
+            span=np.sum([s.span for s in summaries if s.span is not None], axis=0),
+            weeks=np.sum([s.weeks for s in summaries if s.weeks is not None], axis=0),
+            days=np.sum([s.days for s in summaries if s.days is not None], axis=0),
+            na=np.sum([s.na for s in summaries if s.na is not None], axis=0),
         )
 
     def _viz_days(self, data: dict[str, DateData]):
@@ -428,6 +431,9 @@ class TimeHist(ColumnMetric[np.ndarray]):
 
         return segments.value_counts().reindex(range(seg_len), fill_value=0).to_numpy()
 
+    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
+        return np.sum(summaries)
+
     def _visualise(self, data: dict[str, np.ndarray]) -> Figure:
         if self.span == "hour":
             seg_len = 24
@@ -487,6 +493,12 @@ class DatetimeHist(RefColumnMetric[DatetimeData]):
         date = self.date.process(data, ref)
         time = self.time.process(data)
         return DatetimeData(date, time)
+
+    def combine(self, summaries: list[DatetimeData]) -> DatetimeData:
+        return DatetimeData(
+            self.date.combine([sum.date for sum in summaries]),
+            self.time.combine([sum.time for sum in summaries]),
+        )
 
     def visualise(
         self,

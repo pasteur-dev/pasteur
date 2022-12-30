@@ -12,8 +12,8 @@ from .meta import PipelineMeta, node
 def create_dataset_pipeline(
     dataset: Dataset, tables: list[str] | None = None
 ) -> PipelineMeta:
-
-    tables = dataset.tables
+    if not tables:
+        tables = dataset.tables
     nodes = []
     outputs = []
 

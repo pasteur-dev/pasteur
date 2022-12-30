@@ -36,6 +36,7 @@ class PrivBayesSynth(Synth):
         unbounded_dp: bool = False,
         random_init: bool = False,
         batched: bool = True,
+        sequential_min: int = 1000,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -48,6 +49,7 @@ class PrivBayesSynth(Synth):
         self.unbounded_dp = unbounded_dp
         self.rebalance = rebalance
         self.batched = batched
+        self.sequential_min = sequential_min
         self.kwargs = kwargs
 
     @make_deterministic
@@ -77,7 +79,12 @@ class PrivBayesSynth(Synth):
                         )
                     )
 
-            oracle = MarginalOracle(table_attrs, table, self.batched)
+            oracle = MarginalOracle(
+                table_attrs,
+                table,
+                batched=True,  # No point in loading in memory for one calculation
+                sequential_min=self.sequential_min,
+            )
             count_arr = oracle.process(
                 reqs, desc="Calculating counts for column rebalancing"
             )
@@ -107,7 +114,13 @@ class PrivBayesSynth(Synth):
         table_name = next(iter(tables.keys()))
         table = tables[table_name]
 
-        oracle = MarginalOracle(self.attrs, table, self.batched)
+        oracle = MarginalOracle(
+            self.attrs,
+            table,
+            batched=self.batched,
+            sequential_min=self.sequential_min,
+        )
+
         # Fit network
         nodes, t = greedy_bayes(
             oracle,
@@ -123,8 +136,8 @@ class PrivBayesSynth(Synth):
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
-        self.d = len(table.keys())
         self.t = t
+        self.n, self.d = oracle.get_shape()
         self.nodes = nodes
         logger.info(self)
 
@@ -140,10 +153,14 @@ class PrivBayesSynth(Synth):
         self.partitions = len(table)
         self.n = ceil(table.shape[0] / self.partitions)
 
-        oracle = MarginalOracle(self.attrs, table, self.batched)
-        n = oracle.get_shape()[0]
+        oracle = MarginalOracle(
+            self.attrs,
+            table,
+            batched=True,  # No point in loading in memory for one calculation
+            sequential_min=self.sequential_min,
+        )
 
-        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / n
+        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0

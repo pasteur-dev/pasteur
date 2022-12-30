@@ -22,13 +22,14 @@ from .numpy import (
 
 logger = logging.getLogger(__name__)
 
+from .numpy import calc_marginal as calc_marginal_np
+
 try:
     from .native_py import calc_marginal, calc_marginal_1way
 except Exception as e:
     logger.error(
         f"Failed importing native marginal implementation, using numpy instead (2-8x slower). Error:\n{e}"
     )
-
     from .numpy import calc_marginal, calc_marginal_1way
 
 
@@ -64,6 +65,9 @@ def _marginal_worker(
     if x is None:
         return calc_marginal_1way(cols, cols_noncommon, domains, p, data)
     else:
+        if partial:
+            # Native implementation is unfinished
+            return calc_marginal_np(cols, cols_noncommon, domains, x, p, partial, data)
         return calc_marginal(cols, cols_noncommon, domains, x, p, partial, data)
 
 
@@ -82,7 +86,13 @@ def _marginal_parallel_worker(
         if x is None:
             out.append(calc_marginal_1way(cols, cols_noncommon, domains, p))
         else:
-            out.append(calc_marginal(cols, cols_noncommon, domains, x, p, partial))
+            if partial:
+                # Native implementation is unfinished
+                out.append(
+                    calc_marginal_np(cols, cols_noncommon, domains, x, p, partial)
+                )
+            else:
+                out.append(calc_marginal(cols, cols_noncommon, domains, x, p, partial))
 
     return out
 
@@ -94,11 +104,13 @@ class MarginalOracle:
         data: LazyFrame,
         batched: bool = True,
         sequential_min: int = 1000,
+        min_chunk_size: int = 100
     ) -> None:
         self.attrs = attrs
         self.data = data
         self.batched = batched and data.partitioned
         self.sequential_min = sequential_min
+        self.min_chunk_size = min_chunk_size
 
         self._loaded = False
 
@@ -157,7 +169,7 @@ class MarginalOracle:
             _marginal_worker,
             per_call_args,
             base_args,
-            5,
+            min_chunk_size=self.min_chunk_size,
             desc=desc,
             initializer=_marginal_initializer,
             finalizer=_marginal_finalizer,

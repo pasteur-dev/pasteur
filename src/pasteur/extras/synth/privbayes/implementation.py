@@ -317,7 +317,14 @@ def greedy_bayes(
         # Process new ones
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
-        marginals = oracle.process(requests, desc=f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals")
+        if new_mar > 0:
+            marginals = oracle.process(
+                requests,
+                desc=f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals",
+            )
+        else:
+            marginals = []
+
         new_scores = []
         for mar in piter(marginals, desc="Calculating scores", leave=False):
             new_scores.append(calc_fun(*mar))
@@ -456,23 +463,32 @@ def print_tree(
     t: float,
 ):
     s = f"Bayesian Network Tree:\n"
-    s += f"(PrivBayes e1={e1:.2f}, e2={e2:.2f}, theta={theta:.2f}, available t={t:.2f})"
+    s += f"(PrivBayes e1={e1:.5f}, e2={e2:.5f}, theta={theta:.2f}, available t={t:.2f})"
 
     pset_len = 57
 
-    s += f"\n┌{'─'*21}┬─────┬──────────┬{'─'*pset_len}┐"
-    s += f"\n│{'Column Nodes':>20s} │ Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
-    s += f"\n├{'─'*21}┼─────┼──────────┼{'─'*pset_len}┤"
+    tlen = len("Column Nodes")
+    for _, x, _, _, _ in nodes:
+        if len(x) > tlen:
+            tlen = len(x)
+
+    for name in attrs:
+        if len(name) > tlen:
+            tlen = len(name)
+
+    s += f"\n┌{'─'*(tlen+1)}┬──────┬──────────┬{'─'*pset_len}┐"
+    s += f"\n│{'Column Nodes'.rjust(tlen)} │  Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
+    s += f"\n├{'─'*(tlen+1)}┼──────┼──────────┼{'─'*pset_len}┤"
     for x_attr, x, domain, partial, p in nodes:
         # Show * when using a reduced marginal + correct domain
         common = attrs[x_attr].common
         if partial and common:
-            dom = f"{domain-common:>3d}*"
+            dom = f"{domain-common:>4d}*"
         else:
-            dom = f"{domain:>3d} "
+            dom = f"{domain:>4d} "
 
         # Print Line start
-        s += f"\n│{x:>20s} │ {dom}│ {t/domain:>8.2f} │"
+        s += f"\n│{x.rjust(tlen)} │ {dom}│ {t/domain:>8.2f} │"
 
         # Print Parents
         line_str = ""
@@ -487,7 +503,7 @@ def print_tree(
 
             if len(p_str) + len(line_str) >= pset_len:
                 s += f"{line_str:57s}│"
-                s += f"\n│{' '*21}│     │          │"
+                s += f"\n│{' '*(tlen+1)}│      │          │"
                 line_str = f" >{p_str}"
             else:
                 line_str += p_str
@@ -496,34 +512,34 @@ def print_tree(
 
     # Skip multi-col attr printing if there aren't any of them.
     if not any(len(attr.vals) > 1 for attr in attrs.values()):
-        s += f"\n└{'─'*21}┴─────┴──────────┴{'─'*pset_len}┘"
+        s += f"\n└{'─'*(tlen+1)}┴──────┴──────────┴{'─'*pset_len}┘"
         return s
 
     # Print mutli-column attrs
-    s += f"\n├{'─'*21}┼─────┼──────────┴{'─'*pset_len}┤"
-    s += f"\n│ {'Multi-Col Attrs':>19s} │ Cmn │ Columns   {' '*pset_len}│"
-    s += f"\n├{'─'*21}┼─────┼───────────{'─'*pset_len}┤"
+    s += f"\n├{'─'*(tlen+1)}┼──────┼──────────┴{'─'*pset_len}┤"
+    s += f"\n│{'Multi-Col Attrs'.rjust(tlen)} │  Cmn │ Columns   {' '*pset_len}│"
+    s += f"\n├{'─'*(tlen+1)}┼──────┼───────────{'─'*pset_len}┤"
 
     for name, attr in attrs.items():
         cols = attr.vals
         if len(cols) <= 1:
             continue
 
-        s += f"\n│{name:>20s} │ {attr.common:>3d} │"
+        s += f"\n│{name.rjust(tlen)} │ {attr.common:>4d} │"
         line_str = ""
         for i, col in enumerate(cols):
             c_str = f" {col}"
 
             if len(c_str) + len(line_str) >= pset_len + 11:
                 s += f"{line_str:57s}│"
-                s += f"\n│{' '*21}│     │"
+                s += f"\n│{' '*(tlen+1)}│     │"
                 line_str = f" >{c_str}"
             else:
                 line_str += c_str
 
         s += f"{line_str:68s}│"
 
-    s += f"\n└{'─'*21}┴─────┴───────────{'─'*pset_len}┘"
+    s += f"\n└{'─'*(tlen+1)}┴──────┴───────────{'─'*pset_len}┘"
     return s
 
 
