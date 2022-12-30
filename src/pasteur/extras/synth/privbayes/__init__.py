@@ -140,26 +140,28 @@ class PrivBayesSynth(Synth):
         self.partitions = len(table)
         self.n = ceil(table.shape[0] / self.partitions)
 
-        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2
+        oracle = MarginalOracle(self.attrs, table, self.batched)
+        n = oracle.get_shape()[0]
+
+        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / n
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
 
-        oracle = MarginalOracle(self.attrs, table, self.batched)
         self.marginals = calc_noisy_marginals(oracle, self.attrs, self.nodes, noise)
         oracle.close()
 
     @make_deterministic("i")
     def sample(
         self, *, n: int | None = None, i: int = 0
-    ) -> tuple[dict[str,  pd.DataFrame], dict[str,  pd.DataFrame]]:
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
         import pandas as pd
 
         from .implementation import sample_rows
 
         data = {
             self.table_name: sample_rows(
-                self.attrs, self.nodes, self.marginals, self.n if n is None else n # type: ignore
+                self.attrs, self.nodes, self.marginals, self.n if n is None else n  # type: ignore
             )
         }
         ids = {self.table_name: pd.DataFrame()}
