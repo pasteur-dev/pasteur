@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
 from .utils import LazyFrame
-from functools import partial
+from functools import partial, wraps
 
 
 if TYPE_CHECKING:
@@ -18,21 +18,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def make_deterministic(obj_func):
+def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
     """Takes an object function (with self), and if the object has a seed attribute
     it fixes the np.random.seed attribute to it and prints a random number at the end.
 
     If the algorithm sampled the same amount of numbers at the same order, then the
     numbers should be the same."""
 
+    if isinstance(obj_func, str):
+        return partial(make_deterministic, noise_kw=obj_func)
+
     import random
 
     import numpy as np
 
+    @wraps(obj_func)
     def wrapped(self, *args, **kwargs):
         if self.seed is not None:
-            np.random.seed(self.seed)
-            random.seed(self.seed)
+            seed = self.seed
+
+            if noise_kw is not None:
+                seed += kwargs[noise_kw]
+
+            np.random.seed(seed)
+            random.seed(seed)
 
         a = obj_func(self, *args, **kwargs)
 
@@ -101,13 +110,17 @@ class Synth(ModuleClass):
         raise NotImplementedError()
 
     def sample(
-        self, n: int | None = None
+        self, *, n: int | None = None, i: int = 0
     ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        """Returns data, ids dict dataframes in the same format they were provided.
+        """Returns id, table dict dataframes in the same format they were provided.
 
         Optional `n` parameter sets how many rows should be sampled. Otherwise,
         the initial size of the dataset is sampled.
-        Warning: not setting `n` technically violates DP for DP-aware algorithms."""
+        Warning: not setting `n` technically violates DP for DP-aware algorithms.
+
+        `i` is the partition number that can be used for modifying the random state
+        sampling, since deterministic sampling will always return the same data.
+        """
         raise NotImplementedError()
 
 
@@ -148,7 +161,7 @@ def synth_fit(
 
 
 def _synth_sample_part(i: int, n: int | None, model: Synth):
-    ids, tables = model.sample(n)
+    ids, tables = model.sample(n=n, i=i)
 
     return {
         "tables": {name: {f"{i:04d}": table} for name, table in tables.items()},
@@ -191,7 +204,7 @@ class IdentSynth(Synth):
         self._tables = {name: table.sample() for name, table in tables.items()}
         self.partitions = len(tables[next(iter(tables))])
 
-    def sample(self, n: int | None = None):
+    def sample(self, n: int | None = None, i: int = 0):
         return self._ids, self._tables
 
 

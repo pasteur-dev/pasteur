@@ -149,9 +149,9 @@ class PrivBayesSynth(Synth):
         self.marginals = calc_noisy_marginals(oracle, self.attrs, self.nodes, noise)
         oracle.close()
 
-    @make_deterministic
+    @make_deterministic("i")
     def sample(
-        self, n: int | None = None
+        self, *, n: int | None = None, i: int = 0
     ) -> tuple[dict[str,  pd.DataFrame], dict[str,  pd.DataFrame]]:
         import pandas as pd
 
