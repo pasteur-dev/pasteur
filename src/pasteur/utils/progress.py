@@ -126,7 +126,7 @@ def _wrap_exceptions(
 
 
 def _calc_worker(args):
-    node_name, progress_queue, initializer, fun, finalizer, base_args, chunk = args
+    node_name, progress_send, initializer, fun, finalizer, base_args, chunk = args
     set_node_name(node_name)
 
     if initializer is not None:
@@ -144,7 +144,7 @@ def _calc_worker(args):
         try:
             args = {**base_args, **op} if base_args else op
             out.append(fun(**args))
-            progress_queue.put(1)
+            progress_send.send(1)
 
             if CHECK_LEAKS:
                 # Run second so first run loads modules
@@ -171,6 +171,7 @@ def _calc_worker(args):
             )
             raise e
 
+    progress_send.close()
     return out
 
 
@@ -340,6 +341,8 @@ def process_in_parallel(
     with large size that are common in all function calls and `per_call_args` which
     change every iteration."""
 
+    from multiprocessing import Pipe
+
     if (
         # len(per_call_args) < 2 * min_chunk_size
         not MULTIPROCESS_ENABLE
@@ -367,8 +370,8 @@ def process_in_parallel(
 
     import numpy as np
 
-    pool, manager, _ = _get_pool()
-    progress_queue = manager.Queue()
+    pool, _, _ = _get_pool()
+    progress_recv, progress_send = Pipe(duplex=False)
 
     n_tasks = len(per_call_args)
     chunk_n = min(_max_workers, n_tasks // min_chunk_size + 1)
@@ -379,7 +382,7 @@ def process_in_parallel(
         args.append(
             (
                 get_node_name(),
-                progress_queue,
+                progress_send,
                 initializer,
                 fun,
                 finalizer,
@@ -393,7 +396,7 @@ def process_in_parallel(
     pbar = piter(desc=desc, leave=False, total=n_tasks)
     n = 0
     while not res.ready():
-        u = progress_queue.get()
+        u = progress_recv.recv()
         n += u
         pbar.update(u)
         if n == n_tasks:
@@ -403,6 +406,8 @@ def process_in_parallel(
     for sub_arr in res.get():
         out.extend(sub_arr)
 
+    progress_send.close()
+    progress_recv.close()
     pbar.close()
     return out
 
