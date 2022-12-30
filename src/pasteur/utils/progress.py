@@ -345,6 +345,9 @@ def process_in_parallel(
         not MULTIPROCESS_ENABLE
         or IS_SUBPROCESS
     ):
+        if initializer is not None:
+            base_args, per_call_args = initializer(base_args, per_call_args)
+
         out = []
         for args in piter(
             per_call_args,
@@ -356,6 +359,10 @@ def process_in_parallel(
                 kwargs.update(base_args)
             res = _wrap_exceptions(fun, get_node_name(), **kwargs)
             out.append(res)
+
+        if finalizer is not None:
+            finalizer(base_args, per_call_args)
+            
         return out
 
     import numpy as np

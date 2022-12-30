@@ -8,7 +8,7 @@ import numpy as np
 
 from ..attribute import Attributes
 from ..utils import LazyChunk, LazyFrame
-from ..utils.progress import piter, process_in_parallel
+from ..utils.progress import piter, process_in_parallel, IS_SUBPROCESS
 from .memory import load_from_memory, map_to_memory
 from .numpy import (
     ZERO_FILL,
@@ -72,8 +72,9 @@ def _marginal_worker(
 
 
 def _marginal_finalizer(base_args, per_call_args):
-    base_args["mem_cols"].close()
-    base_args["mem_noncommon"].close()
+    if IS_SUBPROCESS:
+        base_args["mem_cols"].close()
+        base_args["mem_noncommon"].close()
 
 
 def _marginal_parallel_worker(
@@ -270,20 +271,20 @@ class MarginalOracle:
         self, requests: list[MarginalRequest], desc: str = "Processing partition"
     ):
         if not self.batched:
-            # logger.info(
-            #     f"Processing {len(requests)} marginals by loading dataset in memory."
-            # )
+            logger.debug(
+                f"Processing {len(requests)} marginals by loading dataset in memory."
+            )
             return self._process_merged(requests, desc)
 
         if self.sequential_min < len(requests):
-            # logger.info(
-            #     f"Processing {len(requests)} marginals by sequential loading of partitions into shared memory."
-            # )
+            logger.debug(
+                f"Processing {len(requests)} marginals by sequential loading of partitions into shared memory."
+            )
             return self._process_batched_sequential(requests, desc)
 
-        # logger.info(
-        #     f"Processing {len(requests)} marginals by loading partitions in parallel."
-        # )
+        logger.debug(
+            f"Processing {len(requests)} marginals by loading partitions in parallel."
+        )
         return self._process_batched_parallel(requests, desc)
 
     def close(self):

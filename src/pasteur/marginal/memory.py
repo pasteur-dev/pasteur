@@ -11,12 +11,13 @@ class ArrayInfo(NamedTuple):
 
 
 def map_to_memory(c: dict[str, list[np.ndarray]]):
-    mem = 0
+    nbytes = 0
     for arrs in c.values():
         for arr in arrs:
-            mem += arr.nbytes
+            nbytes += arr.nbytes
 
-    mem = SharedMemory(name=None, create=True, size=mem)
+    # Allocate memory even without arrays, to avoid optional logic, with min size 1
+    mem = SharedMemory(name=None, create=True, size=max(nbytes, 1))
 
     ofs = 0
     out = {}
@@ -34,6 +35,8 @@ def map_to_memory(c: dict[str, list[np.ndarray]]):
 
             out[name].append(info)
             ofs += buf.nbytes
+    
+    assert ofs == nbytes, "Shared memory buffer overflown"
 
     return mem, out
 

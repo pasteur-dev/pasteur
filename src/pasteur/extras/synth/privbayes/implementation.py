@@ -475,6 +475,8 @@ def print_tree(
     for name in attrs:
         if len(name) > tlen:
             tlen = len(name)
+    
+    tlen += 1
 
     s += f"\n┌{'─'*(tlen+1)}┬──────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Column Nodes'.rjust(tlen)} │  Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
