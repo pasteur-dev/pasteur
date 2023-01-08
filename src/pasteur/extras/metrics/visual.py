@@ -54,7 +54,7 @@ def _gen_bar(
 
     is_log = meta.metrics.y_log == True
     for i, (name, c) in enumerate(counts.items()):
-        h = c / c.sum()
+        h = c / c.sum() if c.sum() > 0 else c
         ax.bar(
             x - 0.45 + w * i,
             h,

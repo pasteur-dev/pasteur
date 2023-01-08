@@ -37,6 +37,8 @@ class PrivBayesSynth(Synth):
         random_init: bool = False,
         batched: bool = True,
         sequential_min: int = 1000,
+        marginal_min_chunk: int = 100,
+        skip_zero_counts: bool = False,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -50,6 +52,8 @@ class PrivBayesSynth(Synth):
         self.rebalance = rebalance
         self.batched = batched
         self.sequential_min = sequential_min
+        self.marginal_min_chunk = marginal_min_chunk
+        self.skip_zero_counts = skip_zero_counts
         self.kwargs = kwargs
 
     @make_deterministic
@@ -84,12 +88,10 @@ class PrivBayesSynth(Synth):
                 table,
                 batched=True,  # No point in loading in memory for one calculation
                 sequential_min=self.sequential_min,
+                min_chunk_size=self.marginal_min_chunk,
             )
-            count_arr = oracle.process(
-                reqs, desc="Calculating counts for column rebalancing"
-            )
+            counts = oracle.get_counts(desc="Calculating counts for column rebalancing")
             oracle.close()
-            counts = {name: count for name, count in zip(cols, count_arr)}
 
             self.attrs = rebalance_attributes(
                 counts,
@@ -119,6 +121,7 @@ class PrivBayesSynth(Synth):
             table,
             batched=self.batched,
             sequential_min=self.sequential_min,
+            min_chunk_size=self.marginal_min_chunk,
         )
 
         # Fit network
@@ -131,13 +134,14 @@ class PrivBayesSynth(Synth):
             self.use_r,
             self.unbounded_dp,
             self.random_init,
+            self.skip_zero_counts,
         )
+        self.n, self.d = oracle.get_shape()
         oracle.close()
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
         self.t = t
-        self.n, self.d = oracle.get_shape()
         self.nodes = nodes
         logger.info(self)
 
@@ -158,6 +162,7 @@ class PrivBayesSynth(Synth):
             table,
             batched=True,  # No point in loading in memory for one calculation
             sequential_min=self.sequential_min,
+            min_chunk_size=self.marginal_min_chunk,
         )
 
         noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
@@ -165,7 +170,9 @@ class PrivBayesSynth(Synth):
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
 
-        self.marginals = calc_noisy_marginals(oracle, self.attrs, self.nodes, noise)
+        self.marginals = calc_noisy_marginals(
+            oracle, self.attrs, self.nodes, noise, self.skip_zero_counts
+        )
         oracle.close()
 
     @make_deterministic("i")

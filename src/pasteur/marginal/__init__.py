@@ -37,7 +37,7 @@ class MarginalRequest(NamedTuple):
     x: AttrSelector | None
     p: AttrSelectors
     partial: bool
-
+    zero_fill: float = ZERO_FILL
 
 def _marginal_initializer(base_args, per_call_args):
     cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"])
@@ -60,7 +60,7 @@ def _marginal_worker(
     data: np.ndarray | None = None,
     **_,
 ) -> np.ndarray:
-    x, p, partial = req
+    x, p, partial, _ = req
 
     if x is None:
         return calc_marginal_1way(cols, cols_noncommon, domains, p, data)
@@ -83,7 +83,7 @@ def _marginal_parallel_worker(
     cols, cols_noncommon, domains = expand_table(attrs, chunk())
 
     out = []
-    for x, p, partial in requests:
+    for x, p, partial, _ in requests:
         if x is None:
             out.append(calc_marginal_1way(cols, cols_noncommon, domains, p))
         else:
@@ -114,6 +114,7 @@ class MarginalOracle:
         self.min_chunk_size = min_chunk_size
 
         self._loaded = False
+        self.counts = None
 
     def get_domains(self):
         return get_domains(self.attrs)
@@ -189,9 +190,9 @@ class MarginalOracle:
         out = []
         for req, res in zip(requests, data):
             if req.x is not None:
-                out.append(postprocess(res))
+                out.append(postprocess(res, req.zero_fill))
             else:
-                out.append(postprocess_1way(res))
+                out.append(postprocess_1way(res, req.zero_fill))
         return out
 
     def _process_merged(self, requests: list[MarginalRequest], desc: str):
@@ -286,6 +287,29 @@ class MarginalOracle:
             f"Processing {len(requests)} marginals by loading partitions in parallel."
         )
         return self._process_batched_parallel(requests, desc)
+
+    def get_counts(self, desc: str = "Calculating counts"):
+        if self.counts:
+            return self.counts
+
+        cols = []
+        reqs = []
+        for name, attr in self.attrs.items():
+            for val in attr.vals:
+                cols.append(val)
+                reqs.append(
+                    MarginalRequest(
+                        None,
+                        {name: AttrSelector(name, attr.common, {val: 0})},
+                        False,
+                        zero_fill=0
+                    )
+                )
+        count_arr = self.process(
+            reqs, desc=desc
+        )
+        self.counts = {name: count for name, count in zip(cols, count_arr)}
+        return self.counts
 
     def close(self):
         if self.batched or not self._loaded:

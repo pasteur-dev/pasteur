@@ -13,7 +13,7 @@ from ....marginal import (
     MarginalOracle,
     MarginalRequest,
 )
-from ....utils.progress import piter, prange, process_in_parallel
+from ....utils.progress import piter, prange
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +106,7 @@ def greedy_bayes(
     use_r: bool,
     unbounded_dp: bool,
     random_init: bool,
+    skip_zero_counts: bool,
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -139,6 +140,28 @@ def greedy_bayes(
             heights.append(c.height)
             common.append(a.common)
             domain.append([c.get_domain(h) for h in range(c.height)])
+
+    # If skip_zero_counts is on, calculate domain based on non-zero values
+    domain_orig = domain
+    if skip_zero_counts:
+        domain = []
+        counts = oracle.get_counts(f"Calculating counts for nonzero domain")
+
+        for i, (an, a) in enumerate(attrs.items()):
+            for c_n, c in a.vals.items():
+                c = cast(IdxValue, c)
+
+                doms = []
+                for i in range(c.height):
+                    mapping = c.get_mapping(i)
+                    d = c.get_domain(i)
+                    count = np.zeros((d,))
+
+                    for j in range(len(counts[c_n])):
+                        count[mapping[j]] += counts[c_n][j]
+
+                    doms.append(np.count_nonzero(count))
+                domain.append(doms)
 
     def group_nodes(V: Sequence[int], x: int):
         """Groups nodes in set `V` into tuples based on their group.
@@ -445,7 +468,7 @@ def greedy_bayes(
         node = Node(
             attr=group_names[groups[x]],
             col=col_names[x],
-            domain=domain[x][0],
+            domain=domain_orig[x][0],
             partial=partial,
             p=pset_to_attr_sel(pset),
         )
@@ -475,7 +498,7 @@ def print_tree(
     for name in attrs:
         if len(name) > tlen:
             tlen = len(name)
-    
+
     tlen += 1
 
     s += f"\n┌{'─'*(tlen+1)}┬──────┬──────────┬{'─'*pset_len}┐"
@@ -546,7 +569,11 @@ def print_tree(
 
 
 def calc_noisy_marginals(
-    oracle: MarginalOracle, attrs: Attributes, nodes: Nodes, noise_scale: float
+    oracle: MarginalOracle,
+    attrs: Attributes,
+    nodes: Nodes,
+    noise_scale: float,
+    skip_zero_counts: bool,
 ):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
     requests = []
@@ -556,6 +583,7 @@ def calc_noisy_marginals(
                 AttrSelector(x_attr, attrs[x_attr].common, {x: 0}),
                 p,
                 partial,
+                zero_fill=0,
             )
         )
 
@@ -563,7 +591,13 @@ def calc_noisy_marginals(
 
     noised_marginals = []
     for (x_attr, x, _, partial, p), (marginal, _, _) in zip(nodes, marginals):
-        noise = np.random.laplace(scale=noise_scale, size=marginal.shape)
+        noise = cast(
+            np.ndarray, np.random.laplace(scale=noise_scale, size=marginal.shape)
+        )
+
+        if skip_zero_counts:
+            # Skip adding noise to zero counts
+            noise[marginal.sum(axis=1) == 0] = 0
 
         noised_marginal = (marginal + noise).clip(0)
         noised_marginal /= noised_marginal.sum()
@@ -644,7 +678,7 @@ def sample_rows(
                     # Otherwise normalize
                     m_g = m_g / m_sum
 
-                size = np.sum(groups == group)
+                size = np.count_nonzero(groups == group)
                 out_col[groups == group] = (
                     np.random.choice(x_domain - common, size=size, p=m_g) + common
                 )

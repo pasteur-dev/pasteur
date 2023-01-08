@@ -1,13 +1,12 @@
 import logging
 from itertools import combinations
 from math import ceil, log
+from typing import TypeVar
 
 import numpy as np
 import pandas as pd
 
 from .attribute import Attributes, IdxValue, Level, LevelValue, get_dtype
-
-from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 

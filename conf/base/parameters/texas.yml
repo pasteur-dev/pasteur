@@ -1,6 +1,15 @@
 texas_charges:
   algs:
     privbayes:
-      ep: 0.0001
-      e1: 0.0003
-      e2: 0.0007
+      ep: 0.1
+      e1: 0.3
+      e2: 0.7
+      theta: 10000
+      sequential_min: 4000
+      # Marginals
+      batched: False
+      rebalance: True
+      fixed: [2, 4, 8, 16, 32, 48]
+      u: 4
+      marginal_min_chunk: 4
+      skip_zero_counts: False

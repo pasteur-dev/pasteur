@@ -214,4 +214,4 @@ class TexasDataset(Dataset):
 
     @to_chunked
     def keys(self, base: LazyChunk):
-        return base(columns=[])[[]]
+        return base()[[]]
