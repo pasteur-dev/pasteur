@@ -4,6 +4,7 @@
 # context: currently kedro/config/logging.yml is too agressive and causes info
 # messages to get printed to console. Same with rich as well
 import logging
+import warnings
 
 from rich.traceback import install
 from pasteur.utils.progress import RICH_TRACEBACK_ARGS
@@ -15,6 +16,8 @@ logging.getLogger("kedro").handlers = []
 logging.root.handlers = []
 install(**RICH_TRACEBACK_ARGS)
 
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 # Instantiated project hooks.
 HOOKS = ()
 
@@ -22,8 +25,7 @@ HOOKS = ()
 DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow",)
 
 # Class that manages storing KedroSession data.
-from kedro.framework.session.store import ShelveStore
-
+# from kedro.framework.session.store import ShelveStore
 # SESSION_STORE_CLASS = ShelveStore
 # # Keyword arguments to pass to the `SESSION_STORE_CLASS` constructor.
 # SESSION_STORE_ARGS = {"path": "./sessions"}

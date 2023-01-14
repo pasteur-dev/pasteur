@@ -38,6 +38,7 @@ mimic.raw@core_transfers:
       hadm_id: Int32
       transfer_id: int32
       eventtype: category
+      careunit: category
 
 mimic.raw@core_admissions:
   <<: *mimic_csv
@@ -50,6 +51,8 @@ mimic.raw@core_admissions:
       subject_id: int32
       hadm_id: int32
       admission_type: category
+      admission_location: category
+      discharge_location: category
       insurance: category
       language: category
       marital_status: category
@@ -91,6 +94,8 @@ mimic.raw@hosp_diagnoses_icd:
     dtype:
       subject_id: int32
       hadm_id: int32
+      icd_code: category
+      icd_version: category
 
 mimic.raw@hosp_drgcodes:
   <<: *mimic_csv
@@ -303,6 +308,7 @@ mimic.raw@hosp_procedures_icd:
       subject_id: int32
       hadm_id: int32
       seq_num: int32
+      icd_code: category
       icd_version: category
 
 mimic.raw@hosp_services:
@@ -328,7 +334,7 @@ mimic.raw@icu_chartevents:
       hadm_id: int32
       stay_id: int32
       itemid: category
-      value: object
+      value: category
       valuenum: float32
       valueuom: category
       warning: bool

@@ -114,19 +114,16 @@ class TabularDataset(Dataset):
     deps = {"table": ["table"]}
     key_deps = ["table"]
 
-    def _process_chunk(self, table: pd.DataFrame):
-        return table
+    def _process_chunk(self, tables: dict[str, pd.DataFrame]):
+        return pd.concat(list(tables.values()))
 
     @to_chunked
     def ingest(self, name, **tables: LazyChunk):
-        import pandas as pd
-
         assert name == "table"
-        df = pd.concat(
-            [self._process_chunk(tables[name]()) for name in self.deps["table"]],
-            copy=False,
+        df = self._process_chunk(
+            {name: table() for name, table in tables.items()}
         ).reset_index(drop=True)
-        df.index = df.index.astype('int64').rename('id')
+        df.index = df.index.astype("int64").rename("id")
         return df
 
     @to_chunked
