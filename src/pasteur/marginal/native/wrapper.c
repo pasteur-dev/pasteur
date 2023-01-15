@@ -4,21 +4,27 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/ndarraytypes.h>
 
-void sum(
+extern void sum(
     int dom, int l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16,
     int n_u32, int *mul_u32, uint32_t **arr_u32);
 
-static PyObject *
-sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
+extern void sum_non_simd(
+    uint64_t dom, uint64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32);
+
+static PyObject *sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 {
     PyArrayObject *out;
     PyObject *ops;
+    int simd = 1;
 
-    static char *kwlist[] = {"out", "ops", NULL};
+    static char *kwlist[] = {"out", "ops", "simd", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "OO", kwlist, &out, &ops))
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "OO|p", kwlist, &out, &ops, &simd))
         return NULL;
 
     if (!PyList_Check(ops))
@@ -27,7 +33,7 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
         return NULL;
     }
 
-    int dom = PyArray_DIM(out, 0);
+    uint64_t dom = PyArray_DIM(out, 0);
 
     int n_u8 = 0;
     int mul_u8[100];
@@ -39,7 +45,7 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
     int mul_u32[100];
     uint32_t *arr_u32[100];
 
-    int l = 0;
+    uint64_t l = 0;
     for (int i = 0; i < PyList_Size(ops); i++)
     {
         PyObject *t = PyList_GetItem(ops, i);
@@ -73,7 +79,14 @@ sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 
     uint32_t *data_out = (uint32_t *)PyArray_DATA(out);
 
-    sum(dom, l, data_out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
+    if (simd)
+    {
+        sum(dom, l, data_out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
+    }
+    else
+    {
+        sum_non_simd(dom, l, data_out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
+    }
 
     Py_RETURN_NONE;
 }

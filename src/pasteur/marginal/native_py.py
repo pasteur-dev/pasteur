@@ -14,6 +14,7 @@ def calc_marginal(
     p: AttrSelectors,
     partial: bool = False,
     out: np.ndarray | None = None,
+    simd: bool = True,
 ):
     """Calculates the 1 way and 2 way marginals between the subsection of the
     hierarchical attribute x and the attributes p(arents)."""
@@ -66,7 +67,7 @@ def calc_marginal(
     else:
         out = out.reshape((-1,))
 
-    marginal(out, ops)
+    marginal(out, ops, simd)
 
     return out.reshape((x_dom, p_dom))
 
@@ -77,6 +78,7 @@ def calc_marginal_1way(
     domains: dict[str, list[int]],
     x: AttrSelectors,
     out: np.ndarray | None = None,
+    simd: bool = True,
 ):
     """Calculates the 1 way marginal of the subsections of attributes x"""
 
@@ -96,6 +98,6 @@ def calc_marginal_1way(
     if out is None:
         out = np.zeros((mul,), dtype=np.uint32)
 
-    marginal(out, ops)
+    marginal(out, ops, simd)
 
     return out

@@ -225,7 +225,7 @@ def _get_pool():
     global _pool
     if _pool is None:
         logger.warning(
-            "`Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
+            "Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
         )
         init_pool()
 

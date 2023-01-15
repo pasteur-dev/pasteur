@@ -11,9 +11,8 @@
         printf("%s: %d\n", __msg, k);       \
     }
 
-#ifdef __AVX2__
 static inline void sum_inline_u32(
-    int l, uint32_t *out,
+    uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16,
     int n_u32, int *mul_u32, uint32_t **arr_u32)
@@ -95,7 +94,7 @@ static inline void sum_inline_u32(
 }
 
 static inline void sum_inline_u16(
-    int l, uint32_t *out,
+    uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16)
 {
@@ -174,10 +173,8 @@ static inline void sum_inline_u16(
     }
 }
 
-#else
-#warning AX2 not supported by the current platform. Code will be compiled without SIMD.
-static inline void sum_inline_u16(
-    int l, uint32_t *out,
+static inline void sum_inline_u16_nonsimd(
+    uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16)
 {
@@ -197,8 +194,8 @@ static inline void sum_inline_u16(
     }
 }
 
-static inline void sum_inline_u32(
-    int l, uint32_t *out,
+static inline void sum_inline_u32_nonsimd(
+    uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16,
     int n_u32, int *mul_u32, uint32_t **arr_u32)
@@ -222,8 +219,6 @@ static inline void sum_inline_u32(
         out[idx] += 1;
     }
 }
-
-#endif
 
 #define SUM_INLINE(_i, _j, _k)                                                                  \
     if (dom > 65536 || n_u32 > 0)                                                               \
@@ -263,8 +258,26 @@ static inline void sum_inline_u32(
     SUM_RECUR_J(4)
 
 #ifndef _DEBUG
+
+void sum_non_simd(
+    uint64_t dom, uint64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32)
+{
+    if (dom > 65536 || n_u32 > 0)
+    {
+        sum_inline_u32_nonsimd(l, out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
+    }
+    else
+    {
+        sum_inline_u16_nonsimd(l, out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16);
+    }
+}
+
+#ifdef __AVX2__
 void sum(
-    int dom, int l, uint32_t *out,
+    uint64_t dom, uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
     int n_u16, int *mul_u16, uint16_t **arr_u16,
     int n_u32, int *mul_u32, uint32_t **arr_u32)
@@ -278,6 +291,17 @@ void sum(
         break;
     }
 }
+#else
+#warning AX2 not supported by the current platform. Code will be compiled without SIMD.
+void sum(
+    uint64_t dom, uint64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32)
+{
+    sum_non_simd(dom, l, out, n_u8, mul_u8, arr_u8, n_u16, mul_u16, arr_u16, n_u32, mul_u32, arr_u32);
+}
+#endif
 
 #else
 
