@@ -1,0 +1,20 @@
+tables:
+  table:
+    primary_key: charge_id
+    fields:
+      charge_id: id
+      record_id: id
+      revenue_code: categorical?|UKN
+      hcpcs_qualifier: categorical?|UKN
+      hcpcs_procedure_code: categorical?|UKN
+      modifier_1: categorical?|UKN
+      modifier_2: categorical?|UKN
+      unit_measurement_code: categorical?|UKN
+      units_of_service: numerical?
+      unit_rate: numerical?
+      chrgs_line_item: numerical
+      chrgs_non_cov: numerical
+
+ratios:
+  wrk: 0.91
+  ref: 0.05

@@ -7,6 +7,7 @@ import io
 import logging
 import sys
 from contextlib import contextmanager
+from multiprocessing.pool import AsyncResult, Pool
 from os import cpu_count, environ
 from typing import TYPE_CHECKING, Any, Callable, ParamSpec, TextIO, TypeGuard, TypeVar
 
@@ -14,7 +15,6 @@ from rich import get_console
 from tqdm import tqdm, trange
 
 if TYPE_CHECKING:
-    from multiprocessing.pool import Pool
     from multiprocessing.managers import SyncManager
 
 
@@ -109,7 +109,7 @@ def _wrap_exceptions(
 
         if CHECK_LEAKS:
             # check for leaks after first execution
-            from pasteur.utils.leaks import clear, check
+            from pasteur.utils.leaks import check, clear
 
             clear()
             a = fun(*args, **kwargs)
@@ -267,8 +267,8 @@ def close_pool():
 
 def _init_pool(max_workers: int | None = None, refresh_processes: int | None = None):
     # from multiprocessing import Pool, Manager
-    from multiprocessing import get_context
     import threading
+    from multiprocessing import get_context
 
     global _pool, _max_workers
 
@@ -326,11 +326,40 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     return _get_pool()[0].apply(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
 
 
+class AsyncResultStub(AsyncResult):
+    def __init__(self, obj):
+        super().__init__(None, None, None)  # type: ignore
+        self.obj = obj
+
+    def ready(self):
+        return True
+
+    def successful(self):
+        return True
+
+    def wait(self, timeout=None):
+        ...
+
+    def get(self, timeout=None):
+        return self.obj
+
+
+def process_async(
+    fun: Callable[P, Any], *args: P.args, **kwargs: P.kwargs
+) -> AsyncResult:
+    """Uses a separate process to complete this task, taken from the common pool."""
+    if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
+        return AsyncResultStub(fun(*args, **kwargs))
+
+    return _get_pool()[0].apply_async(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
+
+
 def process_in_parallel(
     fun: Callable[..., X],
     per_call_args: list[dict],
     base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 1,
+    max_worker_mult: int = 1,
     desc: str | None = None,
     initializer: Callable | None = None,
     finalizer: Callable[..., None] | None = None,
@@ -365,7 +394,7 @@ def process_in_parallel(
 
         if finalizer is not None:
             finalizer(base_args, per_call_args)
-            
+
         return out
 
     import numpy as np
@@ -374,7 +403,7 @@ def process_in_parallel(
     progress_recv, progress_send = Pipe(duplex=False)
 
     n_tasks = len(per_call_args)
-    chunk_n = min(_max_workers, n_tasks // min_chunk_size + 1)
+    chunk_n = min(max_worker_mult * _max_workers, n_tasks // min_chunk_size + 1)
     chunks = np.array_split(per_call_args, chunk_n)  # type: ignore
 
     args = []

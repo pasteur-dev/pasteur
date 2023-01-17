@@ -1,5 +1,6 @@
 from ....view import View
-from ....utils import get_relative_fn, to_chunked, LazyChunk
+from ....utils import get_relative_fn, to_chunked, LazyChunk, LazyFrame
+import pandas as pd
 
 
 class TexasChargesView(View):
@@ -13,6 +14,24 @@ class TexasChargesView(View):
     @to_chunked
     def ingest(self, name: str, charges: LazyChunk):
         return charges()
+
+
+class TexasBillionView(View):
+    name = "texas_billion"
+    dataset = "texas"
+    tabular = True
+
+    deps = {"table": ["charges"]}
+    parameters = get_relative_fn("./parameters_billion.yml")
+
+    @to_chunked
+    def ingest(self, name: str, charges: LazyChunk):
+        a = charges().drop(columns=["modifier_3", "modifier_4"])
+        return (
+            pd.concat([a, a, a])[:25_000_000]
+            .reset_index(drop=True)
+            .rename_axis("charge_id")
+        )
 
 
 class TexasBaseView(View):

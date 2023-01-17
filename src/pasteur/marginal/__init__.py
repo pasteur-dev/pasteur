@@ -1,14 +1,13 @@
 # from .numpy import *
 
 import logging
-from threading import Thread
 from typing import NamedTuple
 
 import numpy as np
 
 from ..attribute import Attributes
 from ..utils import LazyChunk, LazyFrame
-from ..utils.progress import piter, process_in_parallel, IS_SUBPROCESS
+from ..utils.progress import piter, process_in_parallel, process_async, IS_SUBPROCESS
 from .memory import load_from_memory, map_to_memory
 from .numpy import (
     ZERO_FILL,
@@ -39,6 +38,7 @@ class MarginalRequest(NamedTuple):
     partial: bool
     zero_fill: float = ZERO_FILL
 
+
 def _marginal_initializer(base_args, per_call_args):
     cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"])
     cols_noncommon = load_from_memory(
@@ -49,6 +49,14 @@ def _marginal_initializer(base_args, per_call_args):
     new_base_args["cols"] = cols
     new_base_args["cols_noncommon"] = cols_noncommon
 
+    if base_args["mem_marginals"] is not None:
+        marginals = load_from_memory(
+            base_args["mem_marginals"], base_args["info_marginals"]
+        )
+        new_base_args["marginals"] = marginals["data"]
+    else:
+        new_base_args["marginals"] = None
+
     return new_base_args, per_call_args
 
 
@@ -57,24 +65,38 @@ def _marginal_worker(
     cols_noncommon,
     domains,
     req: MarginalRequest,
-    data: np.ndarray | None = None,
+    i: int,
+    marginals: list[np.ndarray] | None,
     **_,
-) -> np.ndarray:
+) -> np.ndarray | None:
     x, p, partial, _ = req
 
+    if marginals is not None:
+        data = marginals[i]
+    else:
+        data = None
+
     if x is None:
-        return calc_marginal_1way(cols, cols_noncommon, domains, p, data)
+        data = calc_marginal_1way(cols, cols_noncommon, domains, p, data)
     else:
         if partial:
             # Native implementation is unfinished
-            return calc_marginal_np(cols, cols_noncommon, domains, x, p, partial, data)
-        return calc_marginal(cols, cols_noncommon, domains, x, p, partial, data)
+            data = calc_marginal_np(cols, cols_noncommon, domains, x, p, partial, data)
+        else:
+            data = calc_marginal(cols, cols_noncommon, domains, x, p, partial, data)
+
+    if marginals is None:
+        return data
 
 
 def _marginal_finalizer(base_args, per_call_args):
-    if IS_SUBPROCESS:
-        base_args["mem_cols"].close()
-        base_args["mem_noncommon"].close()
+    if not IS_SUBPROCESS:
+        return
+
+    base_args["mem_cols"].close()
+    base_args["mem_noncommon"].close()
+    if base_args["marginals"] is not None:
+        base_args["marginals"].close()
 
 
 def _marginal_parallel_worker(
@@ -98,6 +120,25 @@ def _marginal_parallel_worker(
     return out
 
 
+def _marginal_loader(attrs, data):
+    import pandas as pd
+
+    if isinstance(data, list):
+        df = pd.concat([d() for d in data])
+    else:
+        df = data()
+    cols, cols_noncommon, domains = expand_table(attrs, df)
+    del df
+
+    domains = domains
+    mem_cols, info_cols = map_to_memory(cols)
+    del cols
+    mem_noncommon, info_noncommon = map_to_memory(cols_noncommon)
+    del cols_noncommon
+
+    return domains, mem_cols, info_cols, mem_noncommon, info_noncommon
+
+
 class MarginalOracle:
     def __init__(
         self,
@@ -105,16 +146,23 @@ class MarginalOracle:
         data: LazyFrame,
         batched: bool = True,
         sequential_min: int = 1000,
-        min_chunk_size: int = 100
+        sequential_chunks: int = 1,
+        min_chunk_size: int = 100,
+        max_worker_mult: int = 3,
     ) -> None:
         self.attrs = attrs
         self.data = data
         self.batched = batched and data.partitioned
         self.sequential_min = sequential_min
+        self.sequential_chunks = sequential_chunks
         self.min_chunk_size = min_chunk_size
+        self.max_worker_mult = max_worker_mult
 
         self._loaded = False
         self.counts = None
+
+        self.mem_marginals = None
+        self.info_marginals = None
 
     def get_domains(self):
         return get_domains(self.attrs)
@@ -123,33 +171,17 @@ class MarginalOracle:
         return self.data.shape
 
     def _load_batch(self, data: LazyChunk):
-        df = data()
-        cols, cols_noncommon, domains = expand_table(self.attrs, df)
-        del df
-
-        self.new_domains = domains
-        self.new_mem_cols, self.new_info_cols = map_to_memory(cols)
-        del cols
-        self.new_mem_noncommon, self.new_info_noncommon = map_to_memory(cols_noncommon)
-        del cols_noncommon
-
-    def _swap_batch(self):
-        self.domains = self.new_domains
-        self.mem_cols = self.new_mem_cols
-        self.info_cols = self.new_info_cols
-        self.mem_noncommon = self.new_mem_noncommon
-        self.info_noncommon = self.new_info_noncommon
-
-        del self.new_domains
-        del self.new_mem_cols
-        del self.new_info_cols
-        del self.new_mem_noncommon
-        del self.new_info_noncommon
+        (
+            self.domains,
+            self.mem_cols,
+            self.info_cols,
+            self.mem_noncommon,
+            self.info_noncommon,
+        ) = _marginal_loader(self.attrs, data)
 
     def _process_batch(
         self,
         requests: list[MarginalRequest],
-        old_data: list[np.ndarray] | None = None,
         desc: str = "Calculating marginals",
     ):
         base_args = {
@@ -158,20 +190,18 @@ class MarginalOracle:
             "mem_noncommon": self.mem_noncommon,
             "info_noncommon": self.info_noncommon,
             "domains": self.domains,
+            "mem_marginals": self.mem_marginals,
+            "info_marginals": self.info_marginals,
         }
 
-        if old_data:
-            per_call_args = [
-                {"req": req, "data": old} for req, old in zip(requests, old_data)
-            ]
-        else:
-            per_call_args = [{"req": req} for req in requests]
+        per_call_args = [{"i": i, "req": req} for i, req in enumerate(requests)]
 
         res = process_in_parallel(
             _marginal_worker,
             per_call_args,
             base_args,
             min_chunk_size=self.min_chunk_size,
+            max_worker_mult=self.max_worker_mult,
             desc=desc,
             initializer=_marginal_initializer,
             finalizer=_marginal_finalizer,
@@ -185,6 +215,17 @@ class MarginalOracle:
 
         self.mem_noncommon.close()
         self.mem_noncommon.unlink()
+
+    def _load_marginals(self, data: list[np.ndarray]):
+        self.mem_marginals, self.info_marginals = map_to_memory({"data": data})
+
+    def _unload_marginals(self):
+        if self.mem_marginals is not None:
+            self.mem_marginals.close()
+            self.mem_marginals.unlink()
+
+        self.mem_marginals = None
+        self.info_marginals = None
 
     def _postprocess(self, requests: list[MarginalRequest], data: list[np.ndarray]):
         out = []
@@ -202,11 +243,11 @@ class MarginalOracle:
         Requires being able to fit dataset in RAM."""
         if not self._loaded:
             self._load_batch(self.data)
-            self._swap_batch()
             self._loaded = True
 
+        self._unload_marginals()
         res = self._process_batch(requests, desc=desc)
-        return self._postprocess(requests, res)
+        return self._postprocess(requests, res)  # type: ignore
 
     def _process_batched_sequential(self, requests: list[MarginalRequest], desc: str):
         """Loads partitions sequentially into main memory and partitions marginals
@@ -219,26 +260,51 @@ class MarginalOracle:
 
         However, for small batches of marginals, incurs having to load the dataset
         in a non-parallelized manner, which takes minutes."""
-        old = None
-        partitions = list(self.data.values())
-        t = Thread(target=self._load_batch, args=(partitions[0],))
-        t.start()
 
-        for i in piter(range(len(partitions)), desc=desc, leave=False):
-            t.join()
-            self._swap_batch()
-            if i < len(partitions) - 1:
-                t = Thread(target=self._load_batch, args=(partitions[i + 1],))
-                t.start()
+        chunks = list(self.data.values())
+        partition_n = (len(chunks) - 1) // self.sequential_chunks + 1
+        print(partition_n)
+        partitions = [
+            [chunks[i] for i in range(self.sequential_chunks * j, min(self.sequential_chunks * (j + 1), len(chunks)))]
+            for j in range(partition_n)
+        ]
+        print([len(p) for p in partitions])
+        assert len(partitions) >= 2
 
-            old = self._process_batch(
-                requests,
-                old,
-            )
+        res = process_async(_marginal_loader, self.attrs, partitions[-1])
+        (
+            self.domains,
+            self.mem_cols,
+            self.info_cols,
+            self.mem_noncommon,
+            self.info_noncommon,
+        ) = res.get()
+
+        res = process_async(_marginal_loader, self.attrs, partitions[0])
+        self._unload_marginals()
+        out = self._process_batch(requests)
+        self._load_marginals(out)  # type: ignore
+
+        for i in piter(range(len(partitions) - 1), desc=desc, leave=False):
+            (
+                self.domains,
+                self.mem_cols,
+                self.info_cols,
+                self.mem_noncommon,
+                self.info_noncommon,
+            ) = res.get()
+
+            if i < len(partitions) - 2:
+                res = process_async(_marginal_loader, self.attrs, partitions[i + 1])
+
+            self._process_batch(requests)
             self._unload_batch()
 
-        assert old is not None
-        return self._postprocess(requests, old)
+        assert self.mem_marginals is not None and self.info_marginals is not None
+        raw = load_from_memory(self.mem_marginals, self.info_marginals)
+        out = self._postprocess(requests, raw["data"])
+        self._unload_marginals()
+        return out
 
     def _process_batched_parallel(self, requests: list[MarginalRequest], desc: str):
         """Each worker is given one partition, which it loads, and calculates
@@ -254,7 +320,11 @@ class MarginalOracle:
         per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
 
         res = process_in_parallel(
-            _marginal_parallel_worker, per_call_args, base_args, desc=desc
+            _marginal_parallel_worker,
+            per_call_args,
+            base_args,
+            desc=desc,
+            max_worker_mult=self.max_worker_mult,
         )
 
         assert len(res) > 0
@@ -302,12 +372,10 @@ class MarginalOracle:
                         None,
                         {name: AttrSelector(name, attr.common, {val: 0})},
                         False,
-                        zero_fill=0
+                        zero_fill=0,
                     )
                 )
-        count_arr = self.process(
-            reqs, desc=desc
-        )
+        count_arr = self.process(reqs, desc=desc)
         self.counts = {name: count for name, count in zip(cols, count_arr)}
         return self.counts
 
