@@ -556,7 +556,6 @@ class TimeTransformer(Transformer):
 
         return out
 
-
 class DatetimeTransformer(RefTransformer):
     name = "datetime"
     deterministic = True

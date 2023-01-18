@@ -183,7 +183,7 @@ def create_transform_pipeline(
                     # FIXME: Pass proper layer properly, don't infer
                     "synth_reencoded" if retransform else "split_encoded",
                     f"{view}.{split}.{type}_{t}",
-                    ["views", type, f"{view}.{split}", t],
+                    ["synth", type, f"{view}.{split}", t],
                 )
             )
 

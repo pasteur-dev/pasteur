@@ -430,16 +430,18 @@ def rebalance_attributes(
     counts: dict[str, np.ndarray],
     attrs: Attributes,
     ep: float | None = None,
+    warn: bool = True,
     **kwargs,
 ):
     from copy import copy
 
-    if ep:
-        logger.info(f"Rebalancing columns with e_p={ep}")
-    else:
-        logger.warning(
-            f"Rebalancing columns without using Differential Privacy (e_p=inf)"
-        )
+    if warn:
+        if ep:
+            logger.info(f"Rebalancing columns with e_p={ep}")
+        else:
+            logger.warning(
+                f"Rebalancing columns without using Differential Privacy (e_p=inf)"
+            )
 
     num_cols = len(counts)
 

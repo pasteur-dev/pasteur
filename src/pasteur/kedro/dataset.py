@@ -169,6 +169,9 @@ def _save_worker(
                     logger.error(f"Error writing chunk:\n{e}")
     else:
         if protocol == "file":
+            if fs.isdir(path):
+                fs.rm(path, recursive=True, maxdepth=1)
+
             with fs.open(path, mode="wb") as fs_file:
                 chunk.to_parquet(fs_file, **save_args)
         else:
@@ -246,7 +249,7 @@ def _load_shape_worker(load_path: str, filesystem, *_, **__):
         rows += frag.count_rows()
 
     pm = data.schema.pandas_metadata  # type: ignore
-    cols = len(pm["columns"]) - len(pm["index_columns"])
+    cols = len(pm["columns"]) - len([c for c in pm["index_columns"] if isinstance(c, str)])
 
     return (rows, cols)
 
@@ -336,11 +339,6 @@ class FragmentedParquetDataset(ParquetDataSet):
     def _save(self, data: pd.DataFrame) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
 
-        # TODO: Figure out what to do with repartitioning and old partitions
-        # being left behind
-        # if self._fs.exists(save_path):
-        #     self._fs.rm(save_path, recursive=True)
-
         if (not isinstance(data, dict) and not isinstance(data, LazyDataset)) or (
             isinstance(data, LazyDataset) and not data.partitioned
         ):
@@ -393,6 +391,10 @@ class FragmentedParquetDataset(ParquetDataSet):
             with self._fs.open(save_path, mode="wb") as fs_file:
                 fs_file.write(bytes_buffer.getvalue())
 
+    def reset(self):
+        save_path = get_filepath_str(self._get_save_path(), self._protocol)
+        if self._fs.exists(save_path):
+            self._fs.rm(save_path, recursive=True, maxdepth=1)
 
 def _load_csv(
     protocol: str,

@@ -11,9 +11,15 @@ tables:
       modifier_2: categorical?|UKN
       unit_measurement_code: categorical?|UKN
       units_of_service: numerical?
-      unit_rate: numerical?
+      unit_rate:
+        type: numerical
+        nullable: True
+        min: 0
+        max: 
       chrgs_line_item: numerical
-      chrgs_non_cov: numerical
+      chrgs_non_cov:
+        type: numerical
+
 
 ratios:
   wrk: 0.91

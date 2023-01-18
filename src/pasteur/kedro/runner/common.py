@@ -30,9 +30,9 @@ def run_expanded_node(
     by `ExpandedNode` into the dictionary that gets saved in the catalog.
 
     It also handles printing exceptions."""
+    node_name = node.name.split("(")[0]
+    set_node_name(node_name)
     try:
-        node_name = node.name.split("(")[0]
-        set_node_name(node_name)
 
         t = PerformanceTracker.get("nodes")
         t.log_to_file()
@@ -64,6 +64,12 @@ def run_expanded_node(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
         raise
+
+    # Clear outputs
+    for name in node.outputs:
+        d = catalog._get_dataset(name)
+        if hasattr(d, "reset"):
+            getattr(d, "reset")()
 
     if isinstance(outputs, set):
         # TODO: Fix hooks

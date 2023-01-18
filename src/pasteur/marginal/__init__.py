@@ -396,10 +396,10 @@ class MarginalOracle:
         return self.counts
 
     def close(self):
+        logger.info(f"Processed {self.marginal_count} marginals.")
         if self.batched or not self._loaded:
             return
 
-        logger.info(f"Processed {self.marginal_count} marginals.")
         self._unload_batch()
 
     def __enter__(self):

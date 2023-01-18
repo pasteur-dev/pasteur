@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 from kedro.pipeline import Pipeline as pipeline
@@ -8,14 +9,12 @@ from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 from ...metadata import Metadata
 from ...utils import LazyFrame
 from ...utils.parser import get_params_for_pipe
-from .meta import TAGS_VIEW, TAGS_VIEW_SPLIT, TAGS_VIEW_META
+from .meta import TAGS_VIEW, TAGS_VIEW_META, TAGS_VIEW_SPLIT
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta, node
-from .utils import gen_closure, get_params_closure
+from .utils import get_params_closure
 
 if TYPE_CHECKING:
-    import pandas as pd
-
     from ...view import View
 
 
@@ -98,7 +97,7 @@ def _filter_keys(
 
 def create_keys_pipeline(view: View, splits: list[str]):
     fun = get_params_closure(
-        gen_closure(_filter_keys, view, splits, _fn="split_keys"),
+        partial(_filter_keys, view, splits),
         str(view),
         "ratios",
         "random_state",
@@ -134,9 +133,9 @@ def create_filter_pipeline(view: View, splits: list[str]):
         for table in tables:
             nodes.append(
                 node(
-                    func=gen_closure(
-                        view.filter_table, table, _fn=f"filter_{table}_{split}"
-                    ),
+                    func=view.filter_table,
+                    args=[table],
+                    name=f"filter_{table}_{split}",
                     inputs={
                         "keys": f"keys.{split}",
                         table: f"view.{table}",

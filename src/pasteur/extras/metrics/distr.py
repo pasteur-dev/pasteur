@@ -99,7 +99,9 @@ class ChiSquareMetric(
         assert res, "Received empty data"
 
         cols = res[0].keys()
-        return {col: np.sum([r[col] for r in res], axis=0) for col in cols}
+        a = {col: np.sum([r[col] for r in res], axis=0) for col in cols}
+        # Normalize result
+        return {n: r / np.sum(r) for n, r in a.items()}
 
     def preprocess(
         self, wrk: TableData, ref: TableData
@@ -214,7 +216,9 @@ class KullbackLeiblerMetric(
         assert res, "Received empty data"
 
         pairs = res[0].keys()
-        return {pair: np.sum([r[pair] for r in res], axis=0) for pair in pairs}
+        a = {pair: np.sum([r[pair] for r in res], axis=0) for pair in pairs}
+        # Normalize result
+        return {n: r / np.sum(r) for n, r in a.items()}
 
     def preprocess(
         self, wrk: TableData, ref: TableData

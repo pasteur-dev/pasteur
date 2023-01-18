@@ -1,7 +1,9 @@
+from functools import partial
+
 import pandas as pd
 
-from ....view import TabularView, View
-from ....utils import get_relative_fn, LazyChunk, to_chunked
+from ....utils import LazyChunk, LazyFrame, get_relative_fn, to_chunked
+from ....view import TabularView, View, filter_by_keys_merged
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:
     # # Calculate rel patient date
@@ -70,3 +72,91 @@ class MimicTabAdmissions(TabularView):
     def ingest(self, name, **tables: LazyChunk):
         assert name == "table"
         return tab_join_tables(tables["core_patients"](), tables["core_admissions"]())
+
+
+def _ingest_chunk(
+    part_id,
+    duplicates: int,
+    partitions: int,
+    core_patients: LazyChunk,
+    icu_icustays: LazyChunk,
+    icu_chartevents: LazyChunk,
+):
+    patients = core_patients()
+    stays = icu_icustays()
+    events = icu_chartevents()
+
+    birth_year = patients["anchor_year"] - patients["anchor_age"]
+    birth_year_date = pd.to_datetime(birth_year, format="%Y")
+
+    table = (
+        events.drop(columns=["itemid"]).join(
+            stays.drop(columns=["subject_id", "hadm_id", "los"]), how="inner", on="stay_id"
+        )
+        .join(
+            patients.drop(
+                columns=["anchor_age", "anchor_year", "anchor_year_group"]
+            ).assign(birth_year=birth_year_date),
+            how="inner",
+            on="subject_id",
+        )
+        .drop(columns=["hadm_id", "stay_id"])
+    ).rename_axis("id")
+
+    n = (table.shape[0] - 1) // partitions + 1
+
+    out = {}
+    for i in range(partitions):
+        for j in range(duplicates):
+            out[f"{part_id}_{i}_{j}"] = table[i * n : min((i + 1) * n, len(table))]
+
+    return out
+
+def _remove_empty_partitions(func):
+    """Purges empty partitions returned by func"""
+    res = func()
+    assert isinstance(res, dict)
+
+    out = {}
+    for name, part in res.items():
+        if len(part):
+            out[name] = part
+    return out
+
+class MimicBillion(TabularView):
+    """The mimic core admissions table, merged with the patients table."""
+
+    name = "mimic_billion"
+    dataset = "mimic"
+    deps = {
+        "table": ["core_patients", "icu_icustays", "icu_chartevents"],
+    }
+    parameters = get_relative_fn("parameters_billion.yml")
+
+    def ingest(
+        self,
+        name,
+        core_patients: LazyFrame,
+        icu_icustays: LazyFrame,
+        icu_chartevents: LazyFrame,
+    ):
+        assert name == "table"
+
+        # from ...utils import ColumnResampler
+        # ColumnResampler(icu_chartevents.sample(), )
+
+        funs = set()
+        for part_id, (patients, stays, events) in LazyFrame.zip(
+            core_patients, icu_icustays, icu_chartevents
+        ).items():
+            funs.add(partial(_ingest_chunk, part_id, 3, 4, patients, stays, events))
+        return funs
+
+    def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
+        n = keys.shape[0]
+
+        if n < 11_000_000:
+            return filter_by_keys_merged(keys, tables[name], reset_index=True)
+
+        funcs = super().filter_table(name, keys, **tables)
+        return {partial(_remove_empty_partitions, func) for func in funcs} # type: ignore

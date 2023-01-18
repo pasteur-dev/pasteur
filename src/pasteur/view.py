@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, overload
 
 from .module import Module
 from .utils import LazyFrame, LazyChunk, to_chunked
+from .utils.progress import process_in_parallel
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -93,6 +94,30 @@ def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame
         return table.loc[mask]
 
 
+def _runner(func):
+    return func()
+
+
+def filter_by_keys_merged(keys: LazyFrame, table: LazyFrame, reset_index: bool = False):
+    import pandas as pd
+
+    tasks = filter_by_keys(keys, table)
+
+    res = process_in_parallel(_runner, [{"func": task} for task in tasks], desc="Filtering and merging...")  # type: ignore
+
+    # Sort to ensure determinism
+    res_dict = {}
+    for d in res:
+        for n, v in d.items():
+            res_dict[n] = v
+    data = pd.concat([res_dict[n] for n in sorted(res_dict)])  # type: ignore
+
+    if reset_index:
+        data = data.reset_index(drop=True).rename_axis("id")
+    
+    return data
+
+
 class View(Module):
     """A class for a View named <name> based on dataset <dataset> that creates
     a set of tables based on the provided dependencies, where here they are
@@ -137,7 +162,11 @@ class View(Module):
         raise NotImplementedError()
 
     def split_keys(
-        self, keys: LazyFrame, req_splits: list[str] | None, splits: dict[str, Any], random_state: int
+        self,
+        keys: LazyFrame,
+        req_splits: list[str] | None,
+        splits: dict[str, Any],
+        random_state: int,
     ):
         """Takes the key frame and splits it into the portions specified by `splits`. Then, return
         the split with names in `req_splits`.
