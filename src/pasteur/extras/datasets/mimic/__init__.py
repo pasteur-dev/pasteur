@@ -43,8 +43,9 @@ def _partition_table(
 
 
 class MimicDataset(Dataset):
-    def __init__(self, **_) -> None:
+    def __init__(self, n_partitions: int = 5, **_) -> None:
         super().__init__(**_)
+        self._n_partitions = n_partitions
 
     _mimic_tables_single = [
         "core_patients",

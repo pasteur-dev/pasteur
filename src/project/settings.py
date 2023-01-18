@@ -51,4 +51,7 @@ CONFIG_LOADER_ARGS = {
 # from kedro.io import DataCatalog
 # DATA_CATALOG_CLASS = DataCatalog
 
-PASTEUR_MODULES = None
+from pasteur.extras import get_recommended_modules
+from pasteur.extras.synth.pgm import AIM
+
+PASTEUR_MODULES = get_recommended_modules() + [AIM.get_factory()]

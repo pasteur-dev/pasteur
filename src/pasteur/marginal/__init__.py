@@ -37,6 +37,7 @@ class MarginalRequest(NamedTuple):
     p: AttrSelectors
     partial: bool
     zero_fill: float = ZERO_FILL
+    postprocess: bool = True
 
 
 def _marginal_initializer(base_args, per_call_args):
@@ -69,7 +70,7 @@ def _marginal_worker(
     marginals: list[np.ndarray] | None,
     **_,
 ) -> np.ndarray | None:
-    x, p, partial, _ = req
+    x, p, partial, _, _ = req
 
     if marginals is not None:
         data = marginals[i]
@@ -105,7 +106,7 @@ def _marginal_parallel_worker(
     cols, cols_noncommon, domains = expand_table(attrs, chunk())
 
     out = []
-    for x, p, partial, _ in requests:
+    for x, p, partial, _, _ in requests:
         if x is None:
             out.append(calc_marginal_1way(cols, cols_noncommon, domains, p))
         else:
@@ -163,6 +164,8 @@ class MarginalOracle:
 
         self.mem_marginals = None
         self.info_marginals = None
+
+        self.marginal_count = 0
 
     def get_domains(self):
         return get_domains(self.attrs)
@@ -230,10 +233,15 @@ class MarginalOracle:
     def _postprocess(self, requests: list[MarginalRequest], data: list[np.ndarray]):
         out = []
         for req, res in zip(requests, data):
+            if not req.postprocess:
+                out.append(res.copy())
+                continue
+
             if req.x is not None:
                 out.append(postprocess(res, req.zero_fill))
             else:
                 out.append(postprocess_1way(res, req.zero_fill))
+
         return out
 
     def _process_merged(self, requests: list[MarginalRequest], desc: str):
@@ -265,7 +273,13 @@ class MarginalOracle:
         partition_n = (len(chunks) - 1) // self.sequential_chunks + 1
         print(partition_n)
         partitions = [
-            [chunks[i] for i in range(self.sequential_chunks * j, min(self.sequential_chunks * (j + 1), len(chunks)))]
+            [
+                chunks[i]
+                for i in range(
+                    self.sequential_chunks * j,
+                    min(self.sequential_chunks * (j + 1), len(chunks)),
+                )
+            ]
             for j in range(partition_n)
         ]
         print([len(p) for p in partitions])
@@ -341,6 +355,8 @@ class MarginalOracle:
     def process(
         self, requests: list[MarginalRequest], desc: str = "Processing partition"
     ):
+        self.marginal_count += len(requests)
+
         if not self.batched:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading dataset in memory."
@@ -383,8 +399,14 @@ class MarginalOracle:
         if self.batched or not self._loaded:
             return
 
+        logger.info(f"Processed {self.marginal_count} marginals.")
         self._unload_batch()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
 __all__ = [
     "AttrSelector",

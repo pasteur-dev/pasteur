@@ -29,6 +29,3 @@ mlflow
 
 tqdm
 xgboost
-
-jax
-jaxlib

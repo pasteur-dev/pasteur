@@ -329,7 +329,7 @@ def bootstrap(
         params = ctx.params
         raw_location = params["raw_location"]
         base_location = params["base_location"]
-        
+
         with logging_redirect_pbar(), init_pool():
             for name in datasets:
                 ds = dataset_modules[name]
@@ -348,12 +348,54 @@ def bootstrap(
                 ds.bootstrap(ds_raw_location, bootstrap_location)
 
 
+@click.command()
+@click.argument(
+    "dataset",
+    type=str,
+)
+@click.argument(
+    "output",
+    type=str,
+)
+def export(
+    dataset: str,
+    output: str,
+):
+    """Exports a kedro dataset with name `dataset` into file `output`. Format is chosen based on filename."""
+    import pyarrow as pa
+    import pyarrow.csv as csv
+
+    # Setup logging and params with kedro
+    with KedroSession.create() as session:
+        ctx = session.load_context()
+
+        ds = ctx.catalog.load(dataset)
+        if callable(ds):
+            ds = ds()
+
+        if output.endswith(".csv.gz"):
+            table = pa.Table.from_pandas(ds)
+            with pa.CompressedOutputStream(output, "gzip") as out:
+                csv.write_csv(table, out)
+        elif output.endswith(".csv"):
+            table = pa.Table.from_pandas(ds)
+            csv.write_csv(table, output)
+        elif output.endswith(".pq") or output.endswith(".parquet"):
+            ds.to_parquet(output)
+        else:
+            assert (
+                False
+            ), f"Unsupported file format: '{output[output.index('.'):]}' of file '{output}'"
+
+
 @click.group(name="Pasteur")
 def cli():
     """Command line tools for manipulating a Kedro project."""
 
 
 cli.add_command(bootstrap)
+cli.add_command(export)
+
 cli.add_command(download)
 cli.add_command(pipe)
 cli.add_command(sweep)

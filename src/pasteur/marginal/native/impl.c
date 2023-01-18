@@ -42,7 +42,7 @@ static inline void sum_inline_u32(
         }
     }
 
-    for (int i = 0; i < l - 7; i += 1 << 3)
+    for (uint64_t i = 0; i < l - 7; i += 1 << 3)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -115,7 +115,7 @@ static inline void sum_inline_u16(
         }
     }
 
-    for (int i = 0; i < l - 15; i += 1 << 4)
+    for (uint64_t i = 0; i < l - 15; i += 1 << 4)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -179,7 +179,7 @@ static inline void sum_inline_u16_nonsimd(
     int n_u16, int *mul_u16, uint16_t **arr_u16)
 {
     uint16_t idx;
-    for (int i = 0; i < l; i++)
+    for (uint64_t i = 0; i < l; i++)
     {
         idx = 0;
         for (int j = 0; j < n_u8; j++)
@@ -201,7 +201,7 @@ static inline void sum_inline_u32_nonsimd(
     int n_u32, int *mul_u32, uint32_t **arr_u32)
 {
     unsigned int idx;
-    for (int i = 0; i < l; i++)
+    for (uint64_t i = 0; i < l; i++)
     {
         idx = 0;
         for (int j = 0; j < n_u8; j++)

@@ -359,8 +359,8 @@ def process_in_parallel(
     per_call_args: list[dict],
     base_args: dict[str, Any] | None = None,
     min_chunk_size: int = 1,
-    max_worker_mult: int = 1,
     desc: str | None = None,
+    max_worker_mult: int = 1,
     initializer: Callable | None = None,
     finalizer: Callable[..., None] | None = None,
 ) -> list[X]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from functools import reduce
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 KL_ZERO_FILL = 1e-24
 FONT_SIZE = "13px"
 
+logger = logging.getLogger(__name__)
 
 def calc_marginal_1way(
     data: np.ndarray,
@@ -262,6 +264,7 @@ class KullbackLeiblerMetric(
                     "mlen",
                 ],
             )
+            logger.info(f"Split {name} mean norm KL={results[name]['kl_norm'].mean():.5f}.")
 
         kl_formatters = {"kl_norm": {"precision": 3}}
         style = color_dataframe(
