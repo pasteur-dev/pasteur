@@ -149,7 +149,7 @@ class MarginalOracle:
         sequential_min: int = 1000,
         sequential_chunks: int = 1,
         min_chunk_size: int = 100,
-        max_worker_mult: int = 3,
+        max_worker_mult: int = 1,
     ) -> None:
         self.attrs = attrs
         self.data = data
