@@ -13,13 +13,13 @@ from pasteur.utils import LazyDataset, LazyPartition
 from pasteur.utils.progress import init_pool
 
 Ns = [
-    1,
-    10,
-    100,
-    1_000,
-    2_000,
-    5_000,
+    # 1,
+    # 10,
+    # 100,
+    # 1_000,
+    # 2_000,
     10_000,
+    5_000,
     # 20_000
 ]
 
