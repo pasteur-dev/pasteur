@@ -101,7 +101,7 @@ def _ingest_chunk(
             on="subject_id",
         )
         .drop(columns=["hadm_id", "stay_id"])
-    ).rename_axis("id")
+    ).rename_axis("id").sample(frac=1, random_state=53)
 
     n = (table.shape[0] - 1) // partitions + 1
 
@@ -124,7 +124,7 @@ def _remove_empty_partitions(func):
     return out
 
 class MimicBillion(TabularView):
-    """The mimic core admissions table, merged with the patients table."""
+    """The mimic icu chart events, with additional columns from patients, icu stays."""
 
     name = "mimic_billion"
     dataset = "mimic"

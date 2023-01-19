@@ -13,30 +13,29 @@ from pasteur.utils import LazyDataset, LazyPartition
 from pasteur.utils.progress import init_pool
 
 Ns = [
-    # 1,
-    # 10,
-    # 100,
-    # 1_000,
-    # 2_000,
-    10_000,
+    1,
+    10,
+    100,
+    1_000,
+    2_000,
     5_000,
+    10_000,
     # 20_000
 ]
 
-typ_1 = {
-    "revenue_code": 7,
-    "hcpcs_qualifier": 2,
-    "hcpcs_procedure_code": 8,
-    "modifier_1": 6,
-    "modifier_2": 4,
-    "unit_measurement_code": 1,
-    "units_of_service": 3,
-    "unit_rate": 3,
-    "chrgs_line_item": 3,
+mar = {
+    "gender": AttrSelector("gender", 0, {"gender": 0}),
+    "warning": AttrSelector("warning", 0, {"warning": 0}),
+    "intime": AttrSelector("intime", 0, {"intime_day": 1}),
+    "outtime": AttrSelector("outtime", 0, {"outtime_day": 1}),
+    "charttime": AttrSelector(
+        "charttime", 0, {"charttime_day": 0, "charttime_time": 2}
+    ),
+    "first_careunit": AttrSelector("first_careunit", 0, {"first_careunit": 2}),
+    "valueuom": AttrSelector("valueuom", 0, {"valueuom": 5}),
 }
-req = MarginalRequest(
-    None, {n: AttrSelector(n, 0, {n: h}) for n, h in typ_1.items()}, False
-)
+
+req = MarginalRequest(None, mar, False)
 
 
 def bench_oracle(oracle: MarginalOracle, workers: int, desc: str):
@@ -50,7 +49,9 @@ def bench_oracle(oracle: MarginalOracle, workers: int, desc: str):
             end = time.perf_counter()
 
             duration = end - start
-            print(f"########\n{desc}, workers={workers:2d} N={N:10d}: {int(duration // 60)}:{duration % 60:06.3f}")
+            print(
+                f"########\n{desc}, workers={workers:2d} N={N:10d}: {int(duration // 60)}:{duration % 60:06.3f}"
+            )
 
 
 def load_inmemory(new_attrs, wrk, min_chunk_size):
@@ -82,38 +83,37 @@ def benchmark(
     parallel: bool,
     sequential: bool,
 ):
-    attrs = catalog.load("texas_billion.trn.table")["idx"].get_attributes()
-    wrk = catalog.load("texas_billion.wrk.idx_table")
+    old_attrs = catalog.load("mimic_billion.trn.table")["idx"].get_attributes()
+    wrk = catalog.load("mimic_billion.wrk.idx_table")
 
-    m = MarginalOracle(attrs, wrk)
+    m = MarginalOracle(old_attrs, wrk)
     counts = m.get_counts()
     m.close()
 
-    new_attrs = rebalance_attributes(counts, attrs, fixed=[2, 4, 8, 16, 32, 48], u=4)
+    attrs = rebalance_attributes(counts, old_attrs, fixed=[2, 4, 8, 16, 32, 48], u=4)
 
     print("#########\nAttributes")
-    for name, attr in new_attrs.items():
+    for name, attr in attrs.items():
         for val_name, val in attr.vals.items():
             print(
                 f"{val_name:>25s} | {', '.join(f'{h}:{val.get_domain(h):3d}' for h in range(val.height))}"
             )
 
-    tst = typ_1
-
     def get_dom(cols):
         dom = 1
-        for n, h in cols.items():
-            dom *= new_attrs[n][n].get_domain(h)
+        for sel in cols.values():
+            for n, h in sel.cols.items():
+                dom *= attrs[sel.name][n].get_domain(h)
         return dom
 
-    print(f"\n#########\nMarginal Domain: {get_dom(tst):,}")
+    print(f"{get_dom(mar):,}")
 
     if inmemory:
-        oracle = load_inmemory(new_attrs, wrk, min_chunk_size)
+        oracle = load_inmemory(attrs, wrk, min_chunk_size)
         desc = "Inmemory"
     elif parallel:
         oracle = MarginalOracle(
-            new_attrs,
+            attrs,
             wrk,
             batched=True,
             sequential_min=100_000,
@@ -124,7 +124,7 @@ def benchmark(
         desc = "Parallel"
     elif sequential:
         oracle = MarginalOracle(
-            new_attrs,
+            attrs,
             wrk,
             batched=True,
             sequential_min=0,
