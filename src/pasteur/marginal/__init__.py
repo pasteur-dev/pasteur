@@ -39,6 +39,15 @@ class MarginalRequest(NamedTuple):
     zero_fill: float = ZERO_FILL
     postprocess: bool = True
 
+def _find_columns(reqs: list[MarginalRequest]) -> list[str] | None:
+    cols = set()
+    for req in reqs:
+        if req.x is not None:
+            cols.update(req.x.cols.keys())
+        for p in req.p.values():
+            cols.update(p.cols.keys())
+    
+    return sorted(list(cols)) or None
 
 def _marginal_initializer(base_args, per_call_args):
     cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"])
@@ -96,14 +105,14 @@ def _marginal_finalizer(base_args, per_call_args):
 
     base_args["mem_cols"].close()
     base_args["mem_noncommon"].close()
-    if base_args["marginals"] is not None:
-        base_args["marginals"].close()
+    if base_args["mem_marginals"] is not None:
+        base_args["mem_marginals"].close()
 
 
 def _marginal_parallel_worker(
     requests: list[MarginalRequest], attrs: Attributes, chunk: LazyChunk
 ):
-    cols, cols_noncommon, domains = expand_table(attrs, chunk())
+    cols, cols_noncommon, domains = expand_table(attrs, chunk(columns=_find_columns(requests)))
 
     out = []
     for x, p, partial, _, _ in requests:
@@ -121,13 +130,14 @@ def _marginal_parallel_worker(
     return out
 
 
-def _marginal_loader(attrs, data):
+def _marginal_loader(attrs, data, columns):
     import pandas as pd
 
     if isinstance(data, list):
-        df = pd.concat([d() for d in data])
+        df = pd.concat([d(columns=columns) for d in data])
     else:
-        df = data()
+        df = data(columns=columns)
+    
     cols, cols_noncommon, domains = expand_table(attrs, df)
     del df
 
@@ -146,7 +156,7 @@ class MarginalOracle:
         attrs: Attributes,
         data: LazyFrame,
         batched: bool = True,
-        sequential_min: int = 1000,
+        sequential_min: int = 10000000,
         sequential_chunks: int = 1,
         min_chunk_size: int = 100,
         max_worker_mult: int = 1,
@@ -180,7 +190,7 @@ class MarginalOracle:
             self.info_cols,
             self.mem_noncommon,
             self.info_noncommon,
-        ) = _marginal_loader(self.attrs, data)
+        ) = _marginal_loader(self.attrs, data, columns=None)
 
     def _process_batch(
         self,
@@ -269,6 +279,7 @@ class MarginalOracle:
         However, for small batches of marginals, incurs having to load the dataset
         in a non-parallelized manner, which takes minutes."""
 
+        cols = _find_columns(requests)
         chunks = list(self.data.values())
         partition_n = (len(chunks) - 1) // self.sequential_chunks + 1
         print(partition_n)
@@ -285,7 +296,7 @@ class MarginalOracle:
         print([len(p) for p in partitions])
         assert len(partitions) >= 2
 
-        res = process_async(_marginal_loader, self.attrs, partitions[-1])
+        res = process_async(_marginal_loader, self.attrs, partitions[-1], columns=cols)
         (
             self.domains,
             self.mem_cols,
@@ -294,7 +305,7 @@ class MarginalOracle:
             self.info_noncommon,
         ) = res.get()
 
-        res = process_async(_marginal_loader, self.attrs, partitions[0])
+        res = process_async(_marginal_loader, self.attrs, partitions[0], columns=cols)
         self._unload_marginals()
         out = self._process_batch(requests)
         self._load_marginals(out)  # type: ignore
@@ -309,7 +320,7 @@ class MarginalOracle:
             ) = res.get()
 
             if i < len(partitions) - 2:
-                res = process_async(_marginal_loader, self.attrs, partitions[i + 1])
+                res = process_async(_marginal_loader, self.attrs, partitions[i + 1], columns=cols)
 
             self._process_batch(requests)
             self._unload_batch()

@@ -228,7 +228,7 @@ class MlflowTrackingHook:
             self._log_param(k, v)
 
         if ratios:
-            self._log_param("ratios", ratios)
+            self._log_param("ratios", dict(sorted(ratios.items())))
 
         # And for good measure, store all parameters as a yml file
         mlflow.log_dict(self.params, f"_raw/params_all.yml")

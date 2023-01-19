@@ -237,9 +237,9 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         logger.info("Only 1 run executed, skipping summary.")
         return
 
-    with KedroSession.create() as session:
-        session.load_context()
-        log_parent_run(parent_name, runs)
+    # with KedroSession.create() as session:
+    #     session.load_context()
+    #     log_parent_run(parent_name, runs)
 
 
 @click.command()

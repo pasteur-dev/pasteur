@@ -153,9 +153,11 @@ class IdxTransformer(Transformer):
             if self.nullable:
                 out = out.where(col != 0, pd.NA).cat.remove_categories([0])
             if self.unknown_value is not None:
-                out = out.cat.add_categories([self.unknown_value]).where(
-                    col != (1 if self.nullable else 0), self.unknown_value
-                ).cat.remove_categories([1 if self.nullable else 0])
+                out = (
+                    out.cat.add_categories([self.unknown_value])
+                    .where(col != (1 if self.nullable else 0), self.unknown_value)
+                    .cat.remove_categories([1 if self.nullable else 0])
+                )
 
             return out
         else:
@@ -397,10 +399,12 @@ class DateTransformer(RefTransformer):
                 )
             case "week":
                 out = rf + pd.to_timedelta(
-                    np.round(vals[f"{col}_week"]).clip(0) * 7
-                    + (vals[f"{col}_day"] - ofs).clip(0, 6).astype("uint16")
-                    - rf_day
-                    + 1,
+                    (
+                        np.round(vals[f"{col}_week"]).astype("int32").clip(0) * 7
+                        + (vals[f"{col}_day"] - ofs).clip(0, 6).astype("int32")
+                        - rf_day
+                        + 1
+                    ).clip(0),
                     unit="days",
                 )
             case "day":
@@ -555,6 +559,7 @@ class TimeTransformer(Transformer):
             out.name = col
 
         return out
+
 
 class DatetimeTransformer(RefTransformer):
     name = "datetime"

@@ -65,6 +65,9 @@ def expand_table(
                 domain = col.get_domain(height)
                 col_dom.append(domain)
 
+                if name not in table:
+                    continue
+
                 col_lvl = col.get_mapping(height)[table[name]]
                 col_lvl = col_lvl.astype(get_dtype(domain))
                 col_hier.append(col_lvl)
@@ -218,6 +221,7 @@ def calc_marginal_1way(
         out = counts
 
     return out
+
 
 def postprocess(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
     margin = counts.astype("float32")

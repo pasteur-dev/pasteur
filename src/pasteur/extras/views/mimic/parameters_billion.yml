@@ -3,13 +3,13 @@ tables:
     primary_key: id
     fields:
       birth_year: fixed|date
-      dod:
-        type: date
-        span: year
-        ref: birth_year
-        nullable: True
-        max_len: 99
-        bins: 32
+      # dod:
+      #   type: date
+      #   span: year
+      #   ref: birth_year
+      #   nullable: True
+      #   max_len: 99
+      #   bins: 32
 
       intime:
         type: datetime
@@ -20,17 +20,17 @@ tables:
 
       outtime:
         type: datetime
-        span: day.hour
+        span: week.hour
         ref: intime
-        max_len: 32
-        bins: 16
+        max_len: 8
+        bins: 8
       
       charttime:
         type: datetime
-        span: day.hour
+        span: week.hour
         ref: intime
-        max_len: 32
-        bins: 16
+        max_len: 12
+        bins: 12
 
       # itemid: categorical|UKN
       # value: categorical?|ukn
@@ -46,7 +46,3 @@ tables:
       first_careunit: categorical|ukn
       last_careunit: categorical|ukn
       gender: categorical
-
-algs:
-  privbayes:
-    theta: 7

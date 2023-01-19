@@ -269,6 +269,7 @@ class KullbackLeiblerMetric(
                 ],
             )
             logger.info(f"Split {name} mean norm KL={results[name]['kl_norm'].mean():.5f}.")
+            mlflow.log_metric(f"kl_norm.{name}", results[name]['kl_norm'].mean())
 
         kl_formatters = {"kl_norm": {"precision": 3}}
         style = color_dataframe(

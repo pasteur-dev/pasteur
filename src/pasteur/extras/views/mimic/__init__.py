@@ -153,7 +153,7 @@ class MimicBillion(TabularView):
         return funs
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
-        n = keys.shape[0]
+        n = tables[name].shape[0]
 
         if n < 11_000_000:
             return filter_by_keys_merged(keys, tables[name], reset_index=True)
