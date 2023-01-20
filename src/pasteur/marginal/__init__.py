@@ -7,7 +7,13 @@ import numpy as np
 
 from ..attribute import Attributes
 from ..utils import LazyChunk, LazyFrame
-from ..utils.progress import piter, process_in_parallel, process_async, IS_SUBPROCESS
+from ..utils.progress import (
+    piter,
+    process_in_parallel,
+    process_async,
+    IS_SUBPROCESS,
+    PROGRESS_STEP_NS,
+)
 from .memory import load_from_memory, map_to_memory
 from .numpy import (
     ZERO_FILL,
@@ -39,6 +45,7 @@ class MarginalRequest(NamedTuple):
     zero_fill: float = ZERO_FILL
     postprocess: bool = True
 
+
 def _find_columns(reqs: list[MarginalRequest]) -> list[str] | None:
     cols = set()
     for req in reqs:
@@ -46,8 +53,9 @@ def _find_columns(reqs: list[MarginalRequest]) -> list[str] | None:
             cols.update(req.x.cols.keys())
         for p in req.p.values():
             cols.update(p.cols.keys())
-    
+
     return sorted(list(cols)) or None
+
 
 def _marginal_initializer(base_args, per_call_args):
     cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"])
@@ -110,11 +118,21 @@ def _marginal_finalizer(base_args, per_call_args):
 
 
 def _marginal_parallel_worker(
-    requests: list[MarginalRequest], attrs: Attributes, chunk: LazyChunk
+    requests: list[MarginalRequest],
+    attrs: Attributes,
+    chunk: LazyChunk,
+    progress_lock,
+    progress_send,
 ):
-    cols, cols_noncommon, domains = expand_table(attrs, chunk(columns=_find_columns(requests)))
+    from time import time_ns
+
+    cols, cols_noncommon, domains = expand_table(
+        attrs, chunk(columns=_find_columns(requests))
+    )
 
     out = []
+    u = 0
+    last_updated = time_ns()
     for x, p, partial, _, _ in requests:
         if x is None:
             out.append(calc_marginal_1way(cols, cols_noncommon, domains, p))
@@ -127,6 +145,16 @@ def _marginal_parallel_worker(
             else:
                 out.append(calc_marginal(cols, cols_noncommon, domains, x, p, partial))
 
+        u += 1
+        if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
+            last_updated = curr_time
+            with progress_lock:
+                progress_send.send(u)
+            u = 0
+
+    if u > 0:
+        with progress_lock:
+            progress_send.send(u)
     return out
 
 
@@ -137,7 +165,7 @@ def _marginal_loader(attrs, data, columns):
         df = pd.concat([d(columns=columns) for d in data])
     else:
         df = data(columns=columns)
-    
+
     cols, cols_noncommon, domains = expand_table(attrs, df)
     del df
 
@@ -183,20 +211,21 @@ class MarginalOracle:
     def get_shape(self):
         return self.data.shape
 
-    def _load_batch(self, data: LazyChunk):
+    def _load_batch(self, data: LazyChunk | list[LazyChunk], columns=None):
         (
             self.domains,
             self.mem_cols,
             self.info_cols,
             self.mem_noncommon,
             self.info_noncommon,
-        ) = _marginal_loader(self.attrs, data, columns=None)
+        ) = _marginal_loader(self.attrs, data, columns=columns)
 
     def _process_batch(
         self,
         requests: list[MarginalRequest],
         desc: str = "Calculating marginals",
     ):
+
         base_args = {
             "mem_cols": self.mem_cols,
             "info_cols": self.info_cols,
@@ -208,7 +237,6 @@ class MarginalOracle:
         }
 
         per_call_args = [{"i": i, "req": req} for i, req in enumerate(requests)]
-
         res = process_in_parallel(
             _marginal_worker,
             per_call_args,
@@ -282,32 +310,21 @@ class MarginalOracle:
         cols = _find_columns(requests)
         chunks = list(self.data.values())
         partition_n = (len(chunks) - 1) // self.sequential_chunks + 1
-        print(partition_n)
         partitions = [
-            [
-                chunks[i]
-                for i in range(
-                    self.sequential_chunks * j,
-                    min(self.sequential_chunks * (j + 1), len(chunks)),
-                )
+            chunks[
+                self.sequential_chunks
+                * j : min(self.sequential_chunks * (j + 1), len(chunks))
             ]
             for j in range(partition_n)
         ]
-        print([len(p) for p in partitions])
         assert len(partitions) >= 2
 
-        res = process_async(_marginal_loader, self.attrs, partitions[-1], columns=cols)
-        (
-            self.domains,
-            self.mem_cols,
-            self.info_cols,
-            self.mem_noncommon,
-            self.info_noncommon,
-        ) = res.get()
-
-        res = process_async(_marginal_loader, self.attrs, partitions[0], columns=cols)
         self._unload_marginals()
+        self._load_batch(partitions[-1], columns=cols)
+        res = process_async(_marginal_loader, self.attrs, partitions[0], columns=cols)
+
         out = self._process_batch(requests)
+        self._unload_batch()
         self._load_marginals(out)  # type: ignore
 
         for i in piter(range(len(partitions) - 1), desc=desc, leave=False):
@@ -320,7 +337,9 @@ class MarginalOracle:
             ) = res.get()
 
             if i < len(partitions) - 2:
-                res = process_async(_marginal_loader, self.attrs, partitions[i + 1], columns=cols)
+                res = process_async(
+                    _marginal_loader, self.attrs, partitions[i + 1], columns=cols
+                )
 
             self._process_batch(requests)
             self._unload_batch()
@@ -341,7 +360,31 @@ class MarginalOracle:
         of marginals, loading is the main bottleneck and can be linearly
         parallelized (using fast storage) this way."""
 
-        base_args = {"requests": requests, "attrs": self.attrs}
+        from multiprocessing import Pipe
+        from threading import Thread
+        from pasteur.utils.progress import get_manager
+
+        progress_recv, progress_send = Pipe(duplex=False)
+        progress_lock = get_manager().Lock()
+
+        def track_progress():
+            l = len(requests) * len(self.data)
+
+            pbar = piter(desc="Calculating submarginals", total=l, leave=False)
+            n = 0
+            while n < l and (u := progress_recv.recv()) is not None:
+                n += u
+                pbar.update(u)
+
+        t = Thread(target=track_progress)
+        t.start()
+
+        base_args = {
+            "requests": requests,
+            "attrs": self.attrs,
+            "progress_send": progress_send,
+            "progress_lock": progress_lock,
+        }
         per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
 
         res = process_in_parallel(
@@ -351,6 +394,11 @@ class MarginalOracle:
             desc=desc,
             max_worker_mult=self.max_worker_mult,
         )
+
+        progress_send.send(None)
+        progress_send.close()
+        progress_recv.close()
+        t.join()
 
         assert len(res) > 0
         out = res[0]
@@ -418,6 +466,7 @@ class MarginalOracle:
 
     def __exit__(self, type, value, traceback):
         self.close()
+
 
 __all__ = [
     "AttrSelector",

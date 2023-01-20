@@ -6,6 +6,7 @@ import functools
 import io
 import logging
 import sys
+import time
 from contextlib import contextmanager
 from multiprocessing.pool import AsyncResult, Pool
 from os import cpu_count, environ
@@ -38,6 +39,7 @@ RICH_TRACEBACK_ARGS = {
     # "max_frames": 10,
     "suppress": ["kedro", "click"],
 }
+PROGRESS_STEP_NS = 50_000_000
 
 # Disable multiprocessing when debugging due to process launch debug overhead
 MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
@@ -126,7 +128,16 @@ def _wrap_exceptions(
 
 
 def _calc_worker(args):
-    node_name, progress_send, initializer, fun, finalizer, base_args, chunk = args
+    (
+        node_name,
+        progress_send,
+        progress_lock,
+        initializer,
+        fun,
+        finalizer,
+        base_args,
+        chunk,
+    ) = args
     set_node_name(node_name)
 
     if initializer is not None:
@@ -139,12 +150,13 @@ def _calc_worker(args):
             )
             raise e
 
+    last_update = time.perf_counter_ns()
     out = []
+    u = 0
     for i, op in enumerate(chunk):
         try:
             args = {**base_args, **op} if base_args else op
             out.append(fun(**args))
-            progress_send.send(1)
 
             if CHECK_LEAKS:
                 # Run second so first run loads modules
@@ -161,6 +173,14 @@ def _calc_worker(args):
             )
             raise e
 
+        u += 1
+        curr_time = time.perf_counter_ns()
+        if curr_time - last_update > PROGRESS_STEP_NS:
+            with progress_lock:
+                progress_send.send(u)
+            last_update = curr_time
+            u = 0
+
     if finalizer is not None:
         try:
             finalizer(base_args, chunk)
@@ -171,7 +191,10 @@ def _calc_worker(args):
             )
             raise e
 
-    progress_send.close()
+    if u != 0:
+        with progress_lock:
+            progress_send.send(u)
+    # progress_send.close()
     return out
 
 
@@ -231,6 +254,10 @@ def _get_pool():
 
     assert _pool is not None
     return _pool
+
+
+def get_manager():
+    return _get_pool()[1]
 
 
 _node_name: Any | None = None
@@ -370,7 +397,7 @@ def process_in_parallel(
     with large size that are common in all function calls and `per_call_args` which
     change every iteration."""
 
-    from multiprocessing import Pipe
+    from multiprocessing import Pipe, Lock
 
     if (
         # len(per_call_args) < 2 * min_chunk_size
@@ -397,14 +424,23 @@ def process_in_parallel(
 
         return out
 
-    import numpy as np
-
-    pool, _, _ = _get_pool()
+    pool, manager, _ = _get_pool()
     progress_recv, progress_send = Pipe(duplex=False)
+    progress_lock = manager.Lock()
 
     n_tasks = len(per_call_args)
-    chunk_n = min(max_worker_mult * _max_workers, n_tasks // min_chunk_size + 1)
-    chunks = np.array_split(per_call_args, chunk_n)  # type: ignore
+    if n_tasks == 0:
+        return []
+
+    chunk_n_suggestion = min(
+        max_worker_mult * _max_workers, (n_tasks - 1) // min_chunk_size + 1
+    )
+    chunk_len = (n_tasks - 1) // chunk_n_suggestion + 1
+    chunk_n = (n_tasks - 1) // chunk_len + 1
+    chunks = [
+        per_call_args[chunk_len * j : min(chunk_len * (j + 1), n_tasks)]
+        for j in range(chunk_n)
+    ]
 
     args = []
     for chunk in chunks:
@@ -412,6 +448,7 @@ def process_in_parallel(
             (
                 get_node_name(),
                 progress_send,
+                progress_lock,
                 initializer,
                 fun,
                 finalizer,

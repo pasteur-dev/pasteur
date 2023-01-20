@@ -9,3 +9,7 @@ mimic_billion:
       u: 4
       sequential_min: 1000000
       
+# mimic_tab_admissions:
+#   algs:
+#     privbayes:
+#       theta: 15

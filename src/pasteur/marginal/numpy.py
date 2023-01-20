@@ -56,6 +56,9 @@ def expand_table(
     domains = {}
     for attr in attrs.values():
         for name, col in attr.vals.items():
+            if name not in table:
+                continue
+
             col = cast(IdxValue, col)
             col_hier = []
             col_noncommon = []
@@ -64,9 +67,6 @@ def expand_table(
             for height in range(col.height):
                 domain = col.get_domain(height)
                 col_dom.append(domain)
-
-                if name not in table:
-                    continue
 
                 col_lvl = col.get_mapping(height)[table[name]]
                 col_lvl = col_lvl.astype(get_dtype(domain))

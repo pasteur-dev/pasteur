@@ -14,17 +14,3 @@ default:
       rebalance: True
       unbounded_dp: True
       random_init: False
-
-    aim:
-      dir: ${private_pgm}
-      venv: ${private_pgm}/venv
-      e: 1
-      c: 1.5
-      rebalance: True
-
-    mrf:
-      dir: ${privmrf}
-      venv: ${privmrf}/venv
-      e: 1.120
-      c: 1.5
-      rebalance: True

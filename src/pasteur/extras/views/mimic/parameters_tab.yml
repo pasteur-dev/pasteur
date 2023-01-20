@@ -34,7 +34,3 @@ tables:
       ethnicity: categorical
       hospital_expire_flag: categorical
       gender: categorical
-
-algs:
-  privbayes:
-    theta: 7
