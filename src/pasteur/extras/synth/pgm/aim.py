@@ -10,6 +10,7 @@ from ....utils import LazyFrame
 
 if TYPE_CHECKING:
     from ....attribute import Attributes
+    from ....marginal import MarginalOracle
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,10 @@ class AIM(Synth):
         degree: int = 2,
         max_cells: int = 2**16,
         rounds: int = 50,
+        marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         seed: int | None = None,
+        n: int | None = None,
+        partitions: int | None = None,
         **kwargs,
     ) -> None:
         self.e = e
@@ -40,7 +44,11 @@ class AIM(Synth):
         self.max_cells = max_cells
         self.rounds = rounds
         self.seed = seed
+        self.n = n
+        self.partitions = partitions
+        self.marginal_mode: "MarginalOracle.MODES" = marginal_mode
         self.kwargs = kwargs
+
 
     @make_deterministic
     def preprocess(
@@ -76,11 +84,11 @@ class AIM(Synth):
         from .common import OracleDataset
 
         table = tables[self.table]
-        self.partitions = len(table)
-        self.n = table.shape[0] // self.partitions
+        self.partitions = self.partitions or len(table)
+        self.n = self.n or (table.shape[0] // self.partitions)
 
         with MarginalOracle(
-            self.attrs[self.table], tables[self.table], batched=False
+            self.attrs[self.table], tables[self.table], mode=self.marginal_mode
         ) as o:
             data = OracleDataset(o)
 
@@ -96,6 +104,7 @@ class AIM(Synth):
 
             workload = [(cl, 1.0) for cl in workload]
             mech = AIMimpl(self.e, self.delta, rounds=self.rounds)
+
             self.model = mech.run(data, workload)
 
     @make_deterministic("i")

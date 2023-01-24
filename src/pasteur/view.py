@@ -74,7 +74,7 @@ def split_keys(
 
 
 @to_chunked
-def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame:
+def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk, drop_index: bool = False) -> pd.DataFrame:
     # Sort to ensure consistent split every time
     # Dataframe should consist of up to 1 column (which is the key) or an index
 
@@ -91,6 +91,8 @@ def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk) -> pd.DataFrame
     else:
         mask = table[col].isin(keys.index)
         del keys
+        if drop_index:
+            table = table.drop(columns=[col])
         return table.loc[mask]
 
 
@@ -98,10 +100,10 @@ def _runner(func):
     return func()
 
 
-def filter_by_keys_merged(keys: LazyFrame, table: LazyFrame, reset_index: bool = False):
+def filter_by_keys_merged(keys: LazyFrame, table: LazyFrame, reset_index: bool = False, drop_index: bool = False):
     import pandas as pd
 
-    tasks = filter_by_keys(keys, table)
+    tasks = filter_by_keys(keys, table, drop_index=drop_index)
 
     res = process_in_parallel(_runner, [{"func": task} for task in tasks], desc="Filtering and merging...")  # type: ignore
 

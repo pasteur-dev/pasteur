@@ -7,7 +7,7 @@ from .transformers import IdxTransformer, OrdinalTransformer
 
 
 class ColumnResampler:
-    def __init__(self, col: pd.Series, height: int, ordinal: bool) -> None:
+    def __init__(self, col: pd.Series, height: int, ordinal: bool = False) -> None:
         import numpy as np
 
         name = cast(str, col.name)

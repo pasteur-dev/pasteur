@@ -11,6 +11,7 @@ conf/**/*credentials*
 
 # ignore everything in the following folders
 data
+external
 data/**
 raw/**
 logs/**

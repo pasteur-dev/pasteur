@@ -104,16 +104,18 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         partitions = list(self.values())
         if len(partitions) == 0:
             return tuple()
+        if len(partitions) == 1:
+            return partitions[0].shape
 
         shape = list(partitions[0].shape)
         for part in partitions[1:]:
             shape[0] += part.shape[0]
 
-        return shape
+        return tuple(shape)
 
     @property
     def partitioned(self):
-        return self._partitions
+        return self._partitions is not None and len(self._partitions) > 1
 
     @property
     def sample(self):

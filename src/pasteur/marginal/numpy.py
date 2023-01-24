@@ -16,9 +16,13 @@ class AttrSelector(NamedTuple):
 
 AttrSelectors = dict[str, AttrSelector]
 
-
+ 
 def expand_table(
-    attrs: Attributes, table: pd.DataFrame
+    attrs: Attributes,
+    table: pd.DataFrame,
+    *,
+    out_cols: dict[str, list[np.ndarray]] | None = None,
+    out_noncommon: dict[str, list[np.ndarray]] | None = None
 ) -> tuple[
     dict[str, list[np.ndarray]], dict[str, list[np.ndarray]], dict[str, list[int]]
 ]:
@@ -70,17 +74,24 @@ def expand_table(
 
                 col_lvl = col.get_mapping(height)[table[name]]
                 col_lvl = col_lvl.astype(get_dtype(domain))
-                col_hier.append(col_lvl)
+                if out_cols:
+                    out_cols[name][height][:] = col_lvl
+                else:
+                    col_hier.append(col_lvl)
 
                 if attr.common > 0:
                     nc = np.where(col_lvl > attr.common, col_lvl - attr.common, 0)
-                    col_noncommon.append(nc)
+
+                    if out_noncommon:
+                        out_noncommon[name][height][:] = col_lvl
+                    else:
+                        col_noncommon.append(nc)
 
             domains[name] = col_dom
             cols[name] = col_hier
             cols_noncommon[name] = col_noncommon
 
-    return cols, cols_noncommon, domains
+    return out_cols or cols, out_noncommon or cols_noncommon, domains
 
 
 def get_domains(attrs: Attributes) -> dict[str, list[int]]:
@@ -223,7 +234,7 @@ def calc_marginal_1way(
     return out
 
 
-def postprocess(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
+def normalize(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
     margin = counts.astype("float32")
 
     margin /= margin.sum()
@@ -238,7 +249,7 @@ def postprocess(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
     return j_mar, x_mar, p_mar
 
 
-def postprocess_1way(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
+def normalize_1way(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
     margin = counts.astype("float32")
 
     margin /= margin.sum()

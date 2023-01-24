@@ -13,7 +13,7 @@ from ....marginal import (
     MarginalOracle,
     MarginalRequest,
 )
-from ....utils.progress import piter, prange
+from ....utils.progress import piter, prange, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,102 @@ def add_multiple_to_pset(s: tuple, x: Sequence[int], h: list[int]):
         y[x[i]] = h[i]
     return tuple(s)
 
+def find_maximal_parents(heights, domain, common, A, tau, partial):
+
+    def maximal_parents(
+        A: tuple[tuple[int], ...], tau: float, partial: bool = False
+    ) -> list[tuple[int]]:
+        """Given a set V containing hierarchical attributes (by int) and a tau
+        score that is divided by the size of the domain, return a set of all
+        possible combinations of attributes, such that if t > 1 there isn't an
+        attribute that can be indexed in a higher level
+
+        If `partial` is true the first set domain will be reduced by common"""
+
+        if not A:
+            return [EMPTY_PSET]
+
+        a_full = A[0]
+        cmn = common[a_full[0]]
+
+        A = A[1:]
+        S = []
+        U_global = set()
+        U = set()
+
+        # First do single combinations, they are simplified
+        not_first = False
+        for x in a_full:
+            U = set()
+            # Only the first variable can have a only common domain (last height)
+            # (all last heights are equivalent for the same attribute; skip to prevent bias)
+            for h in range(heights[x] - not_first):
+                # Find domain
+                l_dom = domain[x][h] - (cmn if partial else 0)
+
+                # Run check to skip recursion
+                if tau < l_dom:
+                    continue
+
+                for z in maximal_parents(A, tau / l_dom):
+                    if z not in U:
+                        U_global.add(z)
+                        U.add(z)
+                        S.append(add_to_pset(z, x, h))
+            not_first = True
+
+        a_full_n = len(a_full)
+        if a_full_n > 1:
+            for l in range(2, a_full_n + 1):
+                for a in combinations(a_full, r=l):
+                    U = set()
+
+                    # Compensating for multi-domain attrs is more complicated
+                    curr_attrs = list(EMPTY_LIST)
+                    has_combs = True
+
+                    while has_combs:
+                        # Find domain
+                        l_dom = 1
+                        for i in range(l):
+                            dom = domain[a[i]][curr_attrs[i]]
+                            l_dom *= dom - cmn
+                        if not partial:
+                            l_dom += cmn
+                        # print(curr_attrs[:a_n], l_dom)
+
+                        # Run check to skip recursion
+                        if tau > l_dom:
+                            for z in maximal_parents(A, tau / l_dom):
+                                if z not in U:
+                                    U_global.add(z)
+                                    U.add(z)
+                                    S.append(add_multiple_to_pset(z, a, curr_attrs))
+
+                        # Simple counter structure without iterators that will iterate over
+                        # all attribute height combinations
+                        for i in range(l):
+                            # In multi-attr mode, none of the variables cah have
+                            # a common only domain (last height)
+                            if curr_attrs[i] < heights[a[i]] - 2:
+                                curr_attrs[i] += 1
+                                break
+                            else:
+                                curr_attrs[i] = 0
+                                # Detect overflow and break
+                                # Placing check on with condition would make it run every time
+                                if i == l - 1:
+                                    has_combs = False
+
+        # As in the default privbayes maximal_parents, add all combinations that don't include
+        # parents
+        for z in maximal_parents(A, tau):
+            if z not in U_global:
+                S.append(z)
+
+        return S
+    
+    return maximal_parents(A, tau, partial)
 
 def greedy_bayes(
     oracle: MarginalOracle,
@@ -191,99 +287,6 @@ def greedy_bayes(
 
         return A
 
-    def maximal_parents(
-        A: tuple[tuple[int], ...], tau: float, partial: bool = False
-    ) -> list[tuple[int]]:
-        """Given a set V containing hierarchical attributes (by int) and a tau
-        score that is divided by the size of the domain, return a set of all
-        possible combinations of attributes, such that if t > 1 there isn't an
-        attribute that can be indexed in a higher level
-
-        If `partial` is true the first set domain will be reduced by common"""
-
-        if not A:
-            return [EMPTY_PSET]
-
-        a_full = A[0]
-        cmn = common[a_full[0]]
-
-        A = A[1:]
-        S = []
-        U_global = set()
-        U = set()
-
-        # First do single combinations, they are simplified
-        not_first = False
-        for x in a_full:
-            U = set()
-            # Only the first variable can have a only common domain (last height)
-            # (all last heights are equivalent for the same attribute; skip to prevent bias)
-            for h in range(heights[x] - not_first):
-                # Find domain
-                l_dom = domain[x][h] - (cmn if partial else 0)
-
-                # Run check to skip recursion
-                if tau < l_dom:
-                    continue
-
-                for z in maximal_parents(A, tau / l_dom):
-                    if z not in U:
-                        U_global.add(z)
-                        U.add(z)
-                        S.append(add_to_pset(z, x, h))
-            not_first = True
-
-        a_full_n = len(a_full)
-        if a_full_n > 1:
-            for l in range(2, a_full_n + 1):
-                for a in combinations(a_full, r=l):
-                    U = set()
-
-                    # Compensating for multi-domain attrs is more complicated
-                    curr_attrs = list(EMPTY_LIST)
-                    has_combs = True
-
-                    while has_combs:
-                        # Find domain
-                        l_dom = 1
-                        for i in range(l):
-                            dom = domain[a[i]][curr_attrs[i]]
-                            l_dom *= dom - cmn
-                        if not partial:
-                            l_dom += cmn
-                        # print(curr_attrs[:a_n], l_dom)
-
-                        # Run check to skip recursion
-                        if tau > l_dom:
-                            for z in maximal_parents(A, tau / l_dom):
-                                if z not in U:
-                                    U_global.add(z)
-                                    U.add(z)
-                                    S.append(add_multiple_to_pset(z, a, curr_attrs))
-
-                        # Simple counter structure without iterators that will iterate over
-                        # all attribute height combinations
-                        for i in range(l):
-                            # In multi-attr mode, none of the variables cah have
-                            # a common only domain (last height)
-                            if curr_attrs[i] < heights[a[i]] - 2:
-                                curr_attrs[i] += 1
-                                break
-                            else:
-                                curr_attrs[i] = 0
-                                # Detect overflow and break
-                                # Placing check on with condition would make it run every time
-                                if i == l - 1:
-                                    has_combs = False
-
-        # As in the default privbayes maximal_parents, add all combinations that don't include
-        # parents
-        for z in maximal_parents(A, tau):
-            if z not in U_global:
-                S.append(z)
-
-        return S
-
     #
     # Implement misc functions for summating the scores
     #
@@ -341,17 +344,14 @@ def greedy_bayes(
         new_mar = np.sum(~cached)
         all_mar = len(candidates)
         if new_mar > 0:
-            marginals = oracle.process(
+            new_scores: list[float] = oracle.process(
                 requests,
                 desc=f"Calculating {new_mar}/{all_mar} ({all_mar/new_mar:.1f}x w/ cache) marginals",
+                postprocess=calc_fun,
             )
         else:
-            marginals = []
-
-        new_scores = []
-        for mar in piter(marginals, desc="Calculating scores", leave=False):
-            new_scores.append(calc_fun(*mar))
-
+            new_scores = []
+            
         # Update cache
         scores[~cached] = new_scores
         for i, candidate in enumerate(candidates):
@@ -395,22 +395,20 @@ def greedy_bayes(
         # Pick x1 based on entropy
         # consumes some privacy budget, but starting with a bad choice can lead
         # to a bad network.
+        reqs = [
+            {
+                group_names[groups[x]]: AttrSelector(
+                    group_names[groups[x]], 0, {col_names[x]: 0}
+                )
+            }
+            for x in range(d)
+        ]
+
         vals = list(
             map(
                 calc_entropy,
                 oracle.process(
-                    [
-                        MarginalRequest(
-                            None,
-                            {
-                                group_names[groups[x]]: AttrSelector(
-                                    group_names[groups[x]], 0, {col_names[x]: 0}
-                                )
-                            },
-                            False,
-                        )
-                        for x in range(d)
-                    ],
+                    reqs,
                     desc="Choosing first node based on entropy",
                 ),
             )
@@ -445,13 +443,32 @@ def greedy_bayes(
 
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
+        
+        base_args = {
+            "heights": heights,
+            "domain": domain,
+            "common": common
+        } 
+        per_call_args = []
+        info = []
 
-        for x in piter(A, leave=False, desc="Finding Maximal Parent sets: "):
+        for x in A:
             partial = groups[x] in V_groups
             Vg = group_nodes(V, x)
-
             new_tau = t / (domain[x][0] - (common[x] if partial else 0))
-            psets = maximal_parents(Vg, new_tau, partial)
+
+            per_call_args.append({
+                "A": Vg,
+                "partial": partial,
+                "tau": new_tau
+            })
+            info.append((x, partial))
+        
+        node_psets = process_in_parallel(
+            find_maximal_parents, per_call_args, base_args, desc="Finding Maximal Parent sets"
+        )
+
+        for (x, partial), psets in zip(info, node_psets):
             for pset in psets:
                 O.append((x, partial, pset))
             if not psets:
@@ -583,11 +600,12 @@ def calc_noisy_marginals(
                 AttrSelector(x_attr, attrs[x_attr].common, {x: 0}),
                 p,
                 partial,
-                zero_fill=0,
             )
         )
 
-    marginals = oracle.process(requests, desc="Calculating noisy marginals.")
+    marginals = oracle.process(
+        requests, desc="Calculating noisy marginals.", zero_fill=None
+    )
 
     noised_marginals = []
     for (x_attr, x, _, partial, p), (marginal, _, _) in zip(nodes, marginals):

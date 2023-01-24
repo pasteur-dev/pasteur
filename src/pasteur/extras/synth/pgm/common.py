@@ -4,7 +4,7 @@ from typing import cast
 from mbi import Dataset, Domain
 
 from ....attribute import IdxValue
-from ....marginal import AttrSelector, MarginalOracle, MarginalRequest
+from ....marginal import AttrSelector, MarginalOracle
 
 logger = logging.getLogger(__name__)
 
@@ -63,31 +63,17 @@ class OracleDataset(Dataset):
         else:
             assert not self.force_cache
 
-        return self.o.process(
-            [
-                MarginalRequest(
-                    None,
-                    {col: AttrSelector(col, 0, {col: 0}) for col in self.domain.attrs},
-                    False,
-                    0,
-                    False,
-                )
-            ]
-        )[0]
+        req = [{col: AttrSelector(col, 0, {col: 0}) for col in self.domain.attrs}]
+        return self.o.process(req, "", normalize=False)[0]
 
     def cache_marginals(self, requests: list[tuple[str]]):
         non_cached_req = [req for req in requests if req not in self.cache]
         marginals = self.o.process(
             [
-                MarginalRequest(
-                    None,
-                    {col: AttrSelector(col, 0, {col: 0}) for col in cols},
-                    False,
-                    0,
-                    False,
-                )
+                {col: AttrSelector(col, 0, {col: 0}) for col in cols}
                 for cols in non_cached_req
-            ]
+            ],
+            normalize=False,
         )
 
         for req, mar in zip(non_cached_req, marginals):

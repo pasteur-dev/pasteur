@@ -99,7 +99,9 @@ class NumericalHist(ColumnMetric[np.ndarray]):
 
         # In the case the column is NA, x_min and x_max will be NA
         # Disable visualiser
-        self.disabled = np.isnan(x_max) or np.isnan(x_min)
+        self.disabled = (
+            x_max is None or x_min is None or np.isnan(x_max) or np.isnan(x_min)
+        )
         if self.disabled:
             return
 

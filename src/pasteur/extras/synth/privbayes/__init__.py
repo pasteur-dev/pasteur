@@ -4,7 +4,7 @@ import logging
 from math import ceil
 from typing import TYPE_CHECKING
 
-from ....marginal import AttrSelector, MarginalOracle, MarginalRequest
+from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame
 
@@ -35,8 +35,8 @@ class PrivBayesSynth(Synth):
         rebalance: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
-        batched: bool = True,
-        sequential_min: int = 1000,
+        marginal_mode: MarginalOracle.MODES = "out_of_core",
+        marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
         skip_zero_counts: bool = False,
         **kwargs,
@@ -50,9 +50,9 @@ class PrivBayesSynth(Synth):
         self.random_init = random_init
         self.unbounded_dp = unbounded_dp
         self.rebalance = rebalance
-        self.batched = batched
-        self.sequential_min = sequential_min
+        self.marginal_mode: MarginalOracle.MODES = marginal_mode
         self.marginal_min_chunk = marginal_min_chunk
+        self.marginal_worker_mult = marginal_worker_mult
         self.skip_zero_counts = skip_zero_counts
         self.kwargs = kwargs
 
@@ -70,28 +70,14 @@ class PrivBayesSynth(Synth):
         table_attrs = attrs[table_name]
 
         if self.rebalance:
-            cols = []
-            reqs = []
-            for name, attr in table_attrs.items():
-                for val in attr.vals:
-                    cols.append(val)
-                    reqs.append(
-                        MarginalRequest(
-                            None,
-                            {name: AttrSelector(name, attr.common, {val: 0})},
-                            False,
-                        )
-                    )
-
-            oracle = MarginalOracle(
+            with MarginalOracle(
                 table_attrs,
                 table,
-                batched=True,  # No point in loading in memory for one calculation
-                sequential_min=self.sequential_min,
+                mode=self.marginal_mode,
                 min_chunk_size=self.marginal_min_chunk,
-            )
-            counts = oracle.get_counts(desc="Calculating counts for column rebalancing")
-            oracle.close()
+                max_worker_mult=self.marginal_worker_mult,
+            ) as o:
+                counts = o.get_counts(desc="Calculating counts for column rebalancing")
 
             self.attrs = rebalance_attributes(
                 counts,
@@ -116,28 +102,26 @@ class PrivBayesSynth(Synth):
         table_name = next(iter(tables.keys()))
         table = tables[table_name]
 
-        oracle = MarginalOracle(
+        with MarginalOracle(
             self.attrs,
             table,
-            batched=self.batched,
-            sequential_min=self.sequential_min,
+            mode=self.marginal_mode,
             min_chunk_size=self.marginal_min_chunk,
-        )
-
-        # Fit network
-        nodes, t = greedy_bayes(
-            oracle,
-            self.attrs,
-            self.e1,
-            self.e2,
-            self.theta,
-            self.use_r,
-            self.unbounded_dp,
-            self.random_init,
-            self.skip_zero_counts,
-        )
-        self.n, self.d = oracle.get_shape()
-        oracle.close()
+            max_worker_mult=self.marginal_worker_mult,
+        ) as oracle:
+            self.n, self.d = oracle.get_shape()
+            # Fit network
+            nodes, t = greedy_bayes(
+                oracle,
+                self.attrs,
+                self.e1,
+                self.e2,
+                self.theta,
+                self.use_r,
+                self.unbounded_dp,
+                self.random_init,
+                self.skip_zero_counts,
+            )
 
         # Nodes are a tuple of a x attribute
         self.table_name = table_name
@@ -157,23 +141,21 @@ class PrivBayesSynth(Synth):
         self.partitions = len(table)
         self.n = ceil(table.shape[0] / self.partitions)
 
-        oracle = MarginalOracle(
-            self.attrs,
-            table,
-            batched=True,  # No point in loading in memory for one calculation
-            sequential_min=self.sequential_min,
-            min_chunk_size=self.marginal_min_chunk,
-        )
-
         noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
 
-        self.marginals = calc_noisy_marginals(
-            oracle, self.attrs, self.nodes, noise, self.skip_zero_counts
-        )
-        oracle.close()
+        with MarginalOracle(
+            self.attrs,
+            table,
+            mode=self.marginal_mode,
+            min_chunk_size=self.marginal_min_chunk,
+            max_worker_mult=self.marginal_worker_mult,
+        ) as o:
+            self.marginals = calc_noisy_marginals(
+                o, self.attrs, self.nodes, noise, self.skip_zero_counts
+            )
 
     @make_deterministic("i")
     def sample(

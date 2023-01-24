@@ -3,7 +3,8 @@ from functools import partial
 import pandas as pd
 
 from ....utils import LazyChunk, LazyFrame, get_relative_fn, to_chunked
-from ....view import TabularView, View, filter_by_keys_merged
+from ....view import TabularView, View, filter_by_keys, filter_by_keys_merged
+
 
 def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.DataFrame:
     # # Calculate rel patient date
@@ -89,19 +90,28 @@ def _ingest_chunk(
     birth_year = patients["anchor_year"] - patients["anchor_age"]
     birth_year_date = pd.to_datetime(birth_year, format="%Y")
 
+    # Join tables
     table = (
-        events.drop(columns=["itemid"]).join(
-            stays.drop(columns=["subject_id", "hadm_id", "los"]), how="inner", on="stay_id"
+        events.drop(columns=["itemid", "storetime", "value"])
+        .join(
+            stays.drop(columns=["subject_id", "hadm_id", "los"]),
+            how="inner",
+            on="stay_id",
         )
         .join(
             patients.drop(
-                columns=["anchor_age", "anchor_year", "anchor_year_group"]
+                columns=["anchor_age", "anchor_year", "anchor_year_group", "dod"]
             ).assign(birth_year=birth_year_date),
             how="inner",
             on="subject_id",
         )
         .drop(columns=["hadm_id", "stay_id"])
-    ).rename_axis("id").sample(frac=1, random_state=53)
+    )
+
+    # Change to rangeindex (saves space) and shuffle table (helps marginal calc.)
+    table = (
+        table.reset_index(drop=True).rename_axis("id").sample(frac=1, random_state=53)
+    )
 
     n = (table.shape[0] - 1) // partitions + 1
 
@@ -111,6 +121,7 @@ def _ingest_chunk(
             out[f"{part_id}_{i}_{j}"] = table[i * n : min((i + 1) * n, len(table))]
 
     return out
+
 
 def _remove_empty_partitions(func):
     """Purges empty partitions returned by func"""
@@ -122,6 +133,7 @@ def _remove_empty_partitions(func):
         if len(part):
             out[name] = part
     return out
+
 
 class MimicBillion(TabularView):
     """The mimic icu chart events, with additional columns from patients, icu stays."""
@@ -153,10 +165,12 @@ class MimicBillion(TabularView):
         return funs
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
-        n = tables[name].shape[0]
+        n = keys.shape[0]
 
-        if n < 11_000_000:
-            return filter_by_keys_merged(keys, tables[name], reset_index=True)
+        if n < 2000:
+            return filter_by_keys_merged(
+                keys, tables[name], reset_index=True, drop_index=True
+            )
 
-        funcs = super().filter_table(name, keys, **tables)
-        return {partial(_remove_empty_partitions, func) for func in funcs} # type: ignore
+        funcs = filter_by_keys(keys, tables[name], drop_index=True)
+        return {partial(_remove_empty_partitions, func) for func in funcs}  # type: ignore

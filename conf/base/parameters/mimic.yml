@@ -9,7 +9,8 @@ mimic_billion:
       u: 4
       sequential_min: 1000000
       
-# mimic_tab_admissions:
-#   algs:
-#     privbayes:
-#       theta: 15
+mimic_tab_admissions:
+  algs:
+    privbayes:
+      theta: 7
+      marginal_min_chunk: 1000
