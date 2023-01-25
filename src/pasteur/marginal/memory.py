@@ -96,9 +96,9 @@ def load_from_memory(
             shape, dtype, ofs = info
             # TODO: fix performance issue with shared_memory and remove .copy()
             a = np.ndarray(shape, dtype, buffer=mem.buf, offset=ofs)
-            if copy:
-                a = a.copy()
             if range is not None:
                 a = a[range[0]:range[1]]
+            if copy:
+                a = a.copy()
             out[name].append(a)
     return out

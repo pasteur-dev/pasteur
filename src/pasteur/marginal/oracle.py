@@ -194,9 +194,9 @@ def _marginal_batch_worker(
             domains,
             chunk_range,
         ) = shared
-        cols = load_from_memory(mem_cols, info_cols, range=chunk_range)
+        cols = load_from_memory(mem_cols, info_cols, range=chunk_range, copy=True)
         cols_noncommon = load_from_memory(
-            mem_noncommon, info_noncommon, range=chunk_range
+            mem_noncommon, info_noncommon, range=chunk_range, copy=True
         )
 
     out = []
@@ -245,9 +245,9 @@ def _marginal_batch_worker_1way(
             domains,
             chunk_range,
         ) = shared
-        cols = load_from_memory(mem_cols, info_cols, range=chunk_range)
+        cols = load_from_memory(mem_cols, info_cols, range=chunk_range, copy=True)
         cols_noncommon = load_from_memory(
-            mem_noncommon, info_noncommon, range=chunk_range
+            mem_noncommon, info_noncommon, range=chunk_range, copy=True
         )
 
     out = []
@@ -378,7 +378,7 @@ class MarginalOracle:
             "info_cols": self.info_cols,
             "mem_noncommon": self.mem_noncommon,
             "info_noncommon": self.info_noncommon,
-            "copy": self.mode == "inmemory_shared",
+            "copy": self.mode == "inmemory_copy",
             "domains": self.domains,
             "normalize": normalize,
             "zero_fill": zero_fill,
@@ -424,9 +424,44 @@ class MarginalOracle:
         progress_recv, progress_send = Pipe(duplex=False)
         progress_lock = get_manager().Lock()
 
-        def track_progress():
-            l = len(requests) * len(self.data)
+        base_args = {
+            "attrs": self.attrs,
+            "progress_send": progress_send,
+            "progress_lock": progress_lock,
+        }
+        if is_1way:
+            base_args["X"] = requests
+        else:
+            base_args["requests"] = requests
 
+        if self.mode == "out_of_core":
+            base_args["shared"] = None
+            per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
+            l = len(requests) * len(self.data)
+        else:
+            self.load_data()
+            base_args["chunk"] = None
+            shared_base = (
+                self.mem_cols,
+                self.info_cols,
+                self.mem_noncommon,
+                self.info_noncommon,
+                self.domains,
+            )
+            n = self.data.shape[0]
+            chunk_n_suggestion = min(n, self.repartitions)
+            chunk_len = (n - 1) // chunk_n_suggestion + 1
+            chunk_n = (n - 1) // chunk_len + 1
+            chunk_ranges = [
+                (chunk_len * j, min(chunk_len * (j + 1), n)) for j in range(chunk_n)
+            ]
+            per_call_args = [
+                {"shared": (*shared_base, chunk_range)}
+                for chunk_range in chunk_ranges
+            ]
+            l = len(requests) * chunk_n
+
+        def track_progress():
             pbar = None
             n = 0
             while n < l and (u := progress_recv.recv()) is not None:
@@ -439,42 +474,6 @@ class MarginalOracle:
         t = Thread(target=track_progress)
         try:
             t.start()
-
-            base_args = {
-                "attrs": self.attrs,
-                "progress_send": progress_send,
-                "progress_lock": progress_lock,
-            }
-            if is_1way:
-                base_args["X"] = requests
-            else:
-                base_args["requests"] = requests
-
-            if self.mode == "out_of_core":
-                base_args["shared"] = None
-                per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
-            else:
-                self.load_data()
-                base_args["chunk"] = None
-                shared_base = (
-                    self.mem_cols,
-                    self.info_cols,
-                    self.mem_noncommon,
-                    self.info_noncommon,
-                    self.domains,
-                )
-                n = self.data.shape[0]
-
-                chunk_n_suggestion = min(n, self.repartitions)
-                chunk_len = (n - 1) // chunk_n_suggestion + 1
-                chunk_n = (n - 1) // chunk_len + 1
-                chunk_ranges = [
-                    (chunk_len * j, min(chunk_len * (j + 1), n)) for j in range(chunk_n)
-                ]
-                per_call_args = [
-                    {"shared": (*shared_base, chunk_range)}
-                    for chunk_range in chunk_ranges
-                ]
 
             res = process_in_parallel(
                 _marginal_batch_worker_1way if is_1way else _marginal_batch_worker,
