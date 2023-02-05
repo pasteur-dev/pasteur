@@ -373,6 +373,7 @@ def export(
         if callable(ds):
             ds = ds()
 
+        logger.info(f"Starting export of '{dataset}' to '{output}'.")
         if output.endswith(".csv.gz"):
             table = pa.Table.from_pandas(ds)
             with pa.CompressedOutputStream(output, "gzip") as out:
@@ -386,6 +387,7 @@ def export(
             assert (
                 False
             ), f"Unsupported file format: '{output[output.index('.'):]}' of file '{output}'"
+        logger.info("Finished export.")
 
 
 @click.group(name="Pasteur")

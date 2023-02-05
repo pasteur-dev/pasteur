@@ -413,16 +413,21 @@ class MarginalOracle:
         assert self.mode in ("inmemory_batched", "out_of_core")
 
         from multiprocessing import Pipe
-        from threading import Thread
+        from threading import Thread, Lock
 
-        from pasteur.utils.progress import get_manager
+        from pasteur.utils.progress import get_manager, MULTIPROCESS_ENABLE
 
         if len(requests) == 0:
             return []
         is_1way = not isinstance(requests[0], MarginalRequest)
 
         progress_recv, progress_send = Pipe(duplex=False)
-        progress_lock = get_manager().Lock()
+        if MULTIPROCESS_ENABLE:
+            progress_lock = get_manager().Lock()
+        else:
+            # Use a thread lock to prevent launching a pool with multiprocess
+            # disabled
+            progress_lock = Lock()
 
         base_args = {
             "attrs": self.attrs,

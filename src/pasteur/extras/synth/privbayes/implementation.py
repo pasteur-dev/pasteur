@@ -631,7 +631,7 @@ def sample_rows(
 
     attr_sampled_cols: dict[str, str] = {}
     for (x_attr, x, x_domain, partial, p), marginal in piter(
-        zip(nodes, marginals), total=len(nodes), desc="Sampling values sequentially"
+        zip(nodes, marginals), total=len(nodes), desc="Sampling values sequentially", leave=False
     ):
         if len(p) == 0:
             # No parents = use 1-way marginal

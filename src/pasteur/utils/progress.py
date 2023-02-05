@@ -247,6 +247,7 @@ def _init_subprocess(log_queue):
 def _get_pool():
     global _pool
     if _pool is None:
+        assert MULTIPROCESS_ENABLE, "Multiprocessing has been disabled. Preventing pool creation."
         logger.warning(
             "Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
         )

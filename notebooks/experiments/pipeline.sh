@@ -41,6 +41,11 @@ case $VIEW in
                 PARAMS="ratios.wrk=0.98 ratios.ref=0.02 alg.e1=0.0003 alg.e2=0.0007 alg.e=0.001"
                 SUFFIX=1b.
                 ;;
+            500Msingle)
+                PARAMS="ratios.wrk=0.5 ratios.ref=0.02 alg.e1=0.0006 alg.e2=0.0014 alg.e=0.002" # AIM -> "random_state=512"
+                SUFFIX=500m.
+                export _DEBUG=1
+                ;;
         esac
         ;;
     texas_billion)
@@ -49,6 +54,9 @@ case $VIEW in
         SUFFIX=1b.
         ;;
 esac
+
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+$SCRIPT_DIR/ramuse.sh &
 
 function pause(){
    read -p "Finished $*, press [Enter] key to continue..."
@@ -72,3 +80,5 @@ rm -r data/synth
 
 time $PASTEUR p $VIEW.aim $PARAMS --synth
 rm -r data/synth
+
+pkill -P $$
