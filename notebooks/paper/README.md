@@ -36,6 +36,17 @@ pip install -r src/requirements.lock
 pip install --no-deps -e ./src
 ```
 
+### Configuration
+Update the raw and base location directories with where you want them.
+It is required to use absolute paths for the notebooks to work due to a Kedro issue
+with this version.
+```bash
+echo "\
+base_location: $PWD/data
+raw_location: $PWD/raw\
+" > conf/local/globals.yml
+```
+
 ### AIM and MST (optional)
 Run the following commands to install AIM and MST for their experiments.
 ```bash
@@ -54,8 +65,10 @@ echo $PWD/external/private-pgm/experiments > venv/lib/python3.10/site-packages/p
 pip install autodp==0.2 disjoint_set==0.7
 
 # Copy slightly modified aim.py and mst.py mechanisms to private-pgm
-cp notebooks/paper/ppgm/aim.py external/private-pgm/experiments
-cp notebooks/paper/ppgm/mst.py external/private-pgm/experiments
+# command removes cp aliases (ex. -i interactive) to overwrite
+command cp notebooks/paper/ppgm/aim.py \
+   notebooks/paper/ppgm/mst.py \
+   external/private-pgm/mechanisms
 ```
 
 ## Experiments
@@ -67,8 +80,8 @@ Future versions of Pasteur will use the latest version.
 You can download the datasets from their authors using a built-in downloader and
 the following commands:
 ```bash
-pasteur download adult
-pasteur download mimic_iv_1_0
+pasteur download --accept adult
+pasteur download --accept mimic_iv_1_0
 ```
 > Warning: MIMIC requires credentialed access from [physionet](https://physionet.org/content/mimiciv/2.2/).
 > You will be asked for your account credentials. 
@@ -161,6 +174,7 @@ kedro viz
 ```
 
 ### Module System
+The module definitions are found below:
 ``` bash
 src/pasteur/
     # You can find the module definition here
@@ -169,8 +183,20 @@ src/pasteur/
     -- dataset.py
     -- transform.py
     -- encode.py
-    -- metric.py
     -- synth.py
+    -- metric.py
+```
+You can edit which modules are enabled in [src/project/settings.py](../../src/project/settings.py).
+```python
+from pasteur.extras import get_recommended_modules
+from pasteur.extras.synth.pgm import AIM, MST
+from pasteur.extras.views.mimic import MimicBillion
+
+PASTEUR_MODULES = get_recommended_modules() + [
+    AIM.get_factory(),
+    MST.get_factory(),
+    MimicBillion(),
+]
 ```
 
 ### Texas Dataset
@@ -185,6 +211,5 @@ pasteur bootstrap texas
 
 pasteur p texas.ingest
 pasteur p texas_billion.ingest
-
 pasteur p texas_billion.privbayes --synth
 ```

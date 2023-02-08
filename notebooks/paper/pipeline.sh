@@ -2,6 +2,7 @@
 VIEW=${1:-tab_adult}
 SIZE=${2:-500k}
 PASTEUR=${PASTEUR:-venv/bin/pasteur}
+MST=""
 
 case $VIEW in
     tab_adult)
@@ -36,6 +37,7 @@ case $VIEW in
             1B)
                 PARAMS="ratios.wrk=0.98 ratios.ref=0.02 alg.e1=0.0003 alg.e2=0.0007 alg.e=0.001"
                 SUFFIX=1b.
+                MST="-w 20"
                 ;;
             500Msingle)
                 PARAMS="ratios.wrk=0.5 ratios.ref=0.02 alg.e1=0.0006 alg.e2=0.0014 alg.e=0.002" # AIM -> "random_state=512"
@@ -71,6 +73,10 @@ rm -r data/synth
 
 time $PASTEUR p $VIEW.privbayes $PARAMS alg.rebalance=True --synth
 pause Privbayes rebalance=True
+rm -r data/synth
+
+time $PASTEUR p $VIEW.mst $PARAMS --synth $MST
+pause mst
 rm -r data/synth
 
 time $PASTEUR p $VIEW.aim $PARAMS --synth
