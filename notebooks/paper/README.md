@@ -1,7 +1,16 @@
-# **Reproduce** "Synthesizing 1 Billion rows: Pasteur, a system for Scalable and Reproducible data synthesis"
+<picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../../res/logo/logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="../../res/logo/logo_light.svg">
+    <img alt="Pasteur Logo" src="../../res/logo/logo_light.svg" height="150px" align="left">
+</picture>
+<h1>
+    <i>Reproduce:</i>
+    "Synthesizing 1 Billion rows: Pasteur, a system for Scalable and Reproducible data synthesis"
+</h1>
+
 This readme explains how to reproduce the experiments from the paper with the
 above title.
-In its directory, you will find the scripts relevant to executing the experiments.
+In its directory, you will find the scripts relevant to executing the experiments
 
 ## Prerequisites
 
