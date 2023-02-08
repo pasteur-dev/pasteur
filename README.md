@@ -8,8 +8,7 @@
 
 Pasteur is a system for data synthesis.
 This readme will contain relevant information soon.
-For now, head to the section below to reproduce the experiments.
+For now, head to the link below to reproduce the experiments.
 
 ## Reproducibility
-
-...
+[Reproducibility Readme](notebooks/paper)

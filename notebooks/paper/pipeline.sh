@@ -55,20 +55,19 @@ case $VIEW in
         ;;
 esac
 
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-$SCRIPT_DIR/ramuse.sh &
+# SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+# $SCRIPT_DIR/ramuse.sh &
 
 function pause(){
    read -p "Finished $*, press [Enter] key to continue..."
 }
 
-# time $PASTEUR p $DATASET.ingest
+echo Run the following command once to load the dataset
+echo time $PASTEUR p $DATASET.ingest
+pause Printing dataset message
+
 time $PASTEUR p $VIEW.ingest $PARAMS
 pause ingest
-
-mkdir -p external
-echo $PASTEUR export $VIEW.wrk.idx_table external/$VIEW.${SUFFIX}csv.gz
-pause export
 
 time $PASTEUR p $VIEW.privbayes $PARAMS alg.rebalance=False --synth
 pause Privbayes rebalance=False
@@ -81,4 +80,4 @@ rm -r data/synth
 time $PASTEUR p $VIEW.aim $PARAMS --synth
 rm -r data/synth
 
-pkill -P $$
+# pkill -P $$
