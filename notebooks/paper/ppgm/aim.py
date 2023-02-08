@@ -68,8 +68,6 @@ class AIM(Mechanism):
 
         if hasattr(data, "cache_marginals"):
             data.cache_marginals(candidates)
-        
-            print(data.o.marginal_count)
 
         answers = { cl : data.project(cl).datavector() for cl in candidates }
 
