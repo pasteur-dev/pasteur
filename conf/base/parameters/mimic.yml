@@ -1,4 +1,8 @@
 mimic_billion:
+  ratios:
+    wrk: 0.98
+    ref: 0.02
+    
   algs:
     privbayes:
       e1: 0.3

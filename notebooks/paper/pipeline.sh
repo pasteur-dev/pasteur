@@ -17,10 +17,6 @@ case $VIEW in
     mimic_billion)
         DATASET=mimic
         case $SIZE in
-            500k)
-                PARAMS="ratios.wrk=0.0005 ratios.ref=0.0005 alg.e1=0.6 alg.e2=1.4 alg.e=2 alg.batched=False"
-                SUFFIX=500k.
-                ;;
             1M)
                 PARAMS="ratios.wrk=0.001 ratios.ref=0.001 alg.e1=0.3 alg.e2=0.7 alg.e=1 alg.batched=False"
                 SUFFIX=1m.
@@ -62,9 +58,9 @@ function pause(){
    read -p "Finished $*, press [Enter] key to continue..."
 }
 
-echo Run the following command once to load the dataset
+echo Run the following command once to load the dataset and write down the time:
 echo time $PASTEUR p $DATASET.ingest
-pause Printing dataset message
+pause printing dataset message
 
 time $PASTEUR p $VIEW.ingest $PARAMS
 pause ingest

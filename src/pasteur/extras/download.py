@@ -26,6 +26,9 @@ datasets = {
         desc="license: https://www.dshs.texas.gov/THCIC/Hospitals/Download.shtm",
     ),
     # Physionet
+    "mimic_iv_1_0": DS(
+        "https://physionet.org/files/mimiciv/1.0/", "mimiciv_1_0", True, physio
+    ),
     "mimic_iv": DS(
         "https://physionet.org/files/mimiciv/2.0/", "mimiciv_2_0", True, physio
     ),

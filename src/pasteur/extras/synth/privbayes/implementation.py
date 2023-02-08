@@ -503,6 +503,8 @@ def print_tree(
     t: float,
 ):
     s = f"Bayesian Network Tree:\n"
+    e1 = e1 or -1
+    e2 = e2 or -1
     s += f"(PrivBayes e1={e1:.5f}, e2={e2:.5f}, theta={theta:.2f}, available t={t:.2f})"
 
     pset_len = 57

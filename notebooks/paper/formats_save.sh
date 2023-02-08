@@ -15,3 +15,5 @@ echo idx.csv.gz
 time pasteur export mimic_billion.wrk.idx_table ./external/mimic_billion.wrk.idx.1b.csv.gz
 echo idx.pq
 time pasteur export mimic_billion.wrk.idx_table ./external/mimic_billion.wrk.idx.1b.pq
+
+ls -lah external
