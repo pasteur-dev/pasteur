@@ -61,7 +61,7 @@ class OracleDataset(Dataset):
         if cols in self.cache:
             return self.cache[cols]
         else:
-            assert not self.force_cache
+            assert not self.force_cache, "You set to force use cache and marginal is not in cache."
 
         req = [{col: AttrSelector(col, 0, {col: 0}) for col in self.domain.attrs}]
         return self.o.process(req, "", normalize=False)[0]

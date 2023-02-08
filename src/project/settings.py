@@ -52,7 +52,11 @@ CONFIG_LOADER_ARGS = {
 # DATA_CATALOG_CLASS = DataCatalog
 
 from pasteur.extras import get_recommended_modules
-from pasteur.extras.synth.pgm import AIM
+from pasteur.extras.synth.pgm import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion
 
-PASTEUR_MODULES = get_recommended_modules() + [AIM.get_factory(), MimicBillion()]
+PASTEUR_MODULES = get_recommended_modules() + [
+    AIM.get_factory(),
+    MST.get_factory(),
+    MimicBillion(),
+]
