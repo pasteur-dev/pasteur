@@ -10,7 +10,7 @@
 
 This readme explains how to reproduce the experiments from the paper with the
 above title.
-In its directory, you will find the scripts relevant to executing the experiments
+In its directory, you will find the scripts relevant to executing the experiments.
 
 ## Prerequisites
 
@@ -74,7 +74,7 @@ echo $PWD/external/private-pgm/experiments > venv/lib/python3.10/site-packages/p
 pip install autodp==0.2 disjoint_set==0.7
 
 # Copy slightly modified aim.py and mst.py mechanisms to private-pgm
-# command removes cp aliases (ex. -i interactive) to overwrite
+# `command` removes `cp` aliases (ex. -i interactive) to overwrite
 command cp notebooks/paper/ppgm/aim.py \
    notebooks/paper/ppgm/mst.py \
    external/private-pgm/mechanisms
@@ -142,7 +142,7 @@ The synthesis executions table (Table 4) was generated from [pipeline.sh](pipeli
 Run the following commands to reproduce all of the table.
 The results have to be extracted manually from the logs.
 The system will print out how many marginals are computed during synthesis
-and the combined KL measure for the ref(erence) and w(o)rk sets.
+and the combined KL measure for the ref(erence) and syn(thetic) sets.
 
 ```bash
 # Assumes you created a virtual environment in venv
@@ -165,7 +165,7 @@ and the combined KL measure for the ref(erence) and w(o)rk sets.
 ## Final Notes
 ### Pasteur commands
 ```bash
-# `pip` supports easier overrides, example (don't use DP for baking):
+# `pipe` (or `p`) supports easier overrides than `pipeline`, example (don't use DP for baking):
 pasteur pipe mimic_tab_admissions.privbayes alg.e1=None
 # In this case, all nodes that are affected hyperparameters will run
 # Adding --synth will only run synthetic nodes
