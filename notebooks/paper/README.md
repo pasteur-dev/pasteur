@@ -80,6 +80,60 @@ command cp notebooks/paper/ppgm/aim.py \
    external/private-pgm/mechanisms
 ```
 
+### JAX (Optional)
+One of the methods in the paper showcases marginal calculation with JAX using
+both CPU and GPU modes.
+To reproduce it you need JAX and (for gpu) a JAX compatible GPU.
+We provide instructions for NVIDIA below.
+
+#### Installing Nvidia drivers, CUDA and libcudnn (optional; Ubuntu only)
+If you have installed nvidia drivers before and you are facing apt issues, run the following to purge the current nvidia driver packages:
+```bash
+# Only run me if facing issues
+sudo apt purge "*nvidia*" "*cuda*"
+sudo apt autoremove
+sudo apt-key del 7fa2af80
+```
+
+> Warning: **NEVER** install the meta-packages `nvidia-headless-XXX`, 
+> `nvidia-driver-XXX`,`nvidia-driver-XXX-server`, `nvidia-utils-XXX` directly
+> (which will mark them as manually installed).
+> They will break apt when nvidia releases new drivers.
+> Only the `cuda` package is required to install all nvidia drivers.
+
+JAX is not bundled with a version of cuda or cudnn currently and requires them
+to be installed in the system.
+JAX supports GPU only in linux environments.
+Head to https://developer.nvidia.com/cuda-downloads select your distribution,
+and execute the commands for `deb (network)`.
+
+
+They are similar to the following, with version numbers:
+```bash
+# wget https://developer.download.nvidia.com/compute/cuda/repos/$distr/$arch/cuda-keyring_X.X-X_all.deb
+# sudo dpkg -i cuda-keyring_X.X-X_all.deb
+sudo apt-get update
+sudo apt-get -y install cuda
+```
+
+Jax requires libcudnn8 and as of this writing doesn't support CUDA 12.
+NVIDIA allows for multiple versions of CUDA to be installed at a time.
+Install cudnn and the latest cuda version 
+[listed](https://github.com/google/jax#installation) as supported by JAX.
+```bash
+sudo apt install libcudnn8 cuda-11-8
+```
+
+#### Installing JAX
+Run one of the following commands.
+```bash
+# CUDA
+pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# CPU
+pip install --upgrade "jax[cpu]"
+```
+
+
 ## Experiments
 
 ### Downloading the Datasets
