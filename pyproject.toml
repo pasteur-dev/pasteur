@@ -1,6 +1,25 @@
+[project]
+name = "pasteur"
+version = "0.0.3"
+authors = [
+  { name="Kapenekakis Antheas", email="antheas@cs.aau.dk" },
+]
+description = "A system for reproducible and scalable data synthesis."
+readme = "README_PYPI.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://pasteur.dev"
+"Bug Tracker" = "https://github.com/pasteur-dev/pasteur/issues"
+
 [tool.kedro]
 package_name = "project"
-project_name = "Pasteur"
+project_name = "Pasteur Testing Project"
 project_version = "0.18.3"
 
 [tool.isort]
@@ -22,4 +41,5 @@ show_missing = true
 exclude_lines = ["pragma: no cover", "raise NotImplementedError"]
 
 [build-system]
-requires = ["setuptools", "wheel", "numpy >= 1.15"]
+requires = ["setuptools>=61.0", "wheel", "numpy >= 1.15"]
+build-backend = "setuptools.build_meta"
