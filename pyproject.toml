@@ -1,6 +1,6 @@
 [project]
 name = "pasteur"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
   { name="Kapenekakis Antheas", email="antheas@cs.aau.dk" },
 ]
@@ -13,9 +13,71 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+dependencies = [
+  # Core
+  "kedro>=0.18.3",
+  "mlflow",
+  "pyarrow",
+  "tqdm",
+  # Comp. Libs
+  "numpy",
+  "pandas",
+  "scipy",
+  "scikit-learn",
+]
+
+[project.optional-dependencies]
+opt = [
+  "ipython>=7.31.1",
+  "jupyter~=1.0",
+  "jupyterlab~=3.0",
+  "kedro-viz",
+  "black~=22.0",
+  "flake8>=3.7.9, <4.0",
+  "isort~=5.0",
+  "parquet-tools",
+]
+test = [
+  "pytest-cov~=3.0",
+  "pytest-mock>=1.7.1, <2.0",
+  "pytest~=6.2",
+]
+cls = [
+  "xgboost"
+]
+docs = [
+  "docutils<0.18.0",
+  "sphinx~=3.4.3",
+  "sphinx_rtd_theme==0.5.1",
+  "nbsphinx==0.8.1",
+  "recommonmark==0.7.1",
+  "sphinx-autodoc-typehints==1.11.1",
+  "sphinx_copybutton==0.3.1",
+  "ipykernel>=5.3, <7.0",
+  "Jinja2<3.1.0",
+]
+
 [project.urls]
 "Homepage" = "https://pasteur.dev"
 "Bug Tracker" = "https://github.com/pasteur-dev/pasteur/issues"
+
+[project.entry-points."console_scripts"]
+pasteur = "pasteur.__main__:main"
+
+[project.entry-points."kedro.hooks"]
+pasteur = "pasteur.kedro.hooks:pasteur"
+pasteur_mlflow = "pasteur.kedro.hooks:mlflow"
+
+[project.entry-points."kedro.project_commands"]
+pasteur = "pasteur.cli:cli"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "numpy>=1.15"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]  # list of folders that contain the packages (["."] by default)
+include = ["pasteur*"]  # package names should match these glob patterns (["*"] by default)
 
 [tool.kedro]
 package_name = "project"
@@ -39,7 +101,3 @@ addopts = """
 fail_under = 0
 show_missing = true
 exclude_lines = ["pragma: no cover", "raise NotImplementedError"]
-
-[build-system]
-requires = ["setuptools>=61.0", "wheel", "numpy >= 1.15"]
-build-backend = "setuptools.build_meta"
