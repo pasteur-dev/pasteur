@@ -18,15 +18,21 @@
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 import re
+from pathlib import Path
 
 from recommonmark.transform import AutoStructify
 
-from pasteur import __version__ as release
 
 # -- Project information -----------------------------------------------------
 
 project = "pasteur"
 author = "Kapenekakis Antheas"
+
+TOML_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
+with open(TOML_PATH, "r") as f:
+    match = re.search(r"version = \"(.+?)\"", f.read())
+    assert match, "Version string not found in pyproject.toml"
+    release = match.group(1)
 
 # The short X.Y version.
 version = re.match(r"^([0-9]+\.[0-9]+).*", release).group(1)  # type: ignore
@@ -219,7 +225,6 @@ def skip(app, what, name, obj, skip, options):
 
 def find_stylesheets():  # pragma: no cover
     """Fetch all stylesheets used in the official Kedro documentation"""
-    from pathlib import Path
 
     css_path = Path(__file__).resolve().parents[1] / "html" / "_static" / "css"
     return (
