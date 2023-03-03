@@ -29,6 +29,19 @@ pasteur new --starter=pasteur
 
 The `pasteur` command is aliased to `kedro`, so you can use them interchangeably.
 Within your new project, you can now begin working with Pasteur.
+Create a virtual environment to install
+```bash
+# Create a Virtual environment
+cd <myproject>
+python3.10 -m venv venv
+source venv/bin/activate
+# Freeze your dependencies to allow reproducible installs between colleagues
+# and install the default project dependencies.
+pip install pip-tools
+pip-compile src/requirements.txt src/requirements.lock
+pip install -r src/requirements.lock
+```
+You can now download and synthesize datasets!
 ```bash
 pasteur download --accept adult
 pasteur p adult.ingest
@@ -42,6 +55,7 @@ git clone github.com/pasteur-dev/pasteur pasteur
 
 cd pasteur
 python3.11 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
