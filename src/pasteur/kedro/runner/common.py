@@ -42,9 +42,9 @@ def run_expanded_node(
         session_id = cast(str, session_id)
 
         for name in node.inputs:
-            hook_manager.hook.before_dataset_loaded(dataset_name=name)  # type: ignore
+            hook_manager.hook.before_dataset_loaded(node=node, dataset_name=name)  # type: ignore
             inputs[name] = catalog.load(name)
-            hook_manager.hook.after_dataset_loaded(dataset_name=name, data=inputs[name])  # type: ignore
+            hook_manager.hook.after_dataset_loaded(node=node, dataset_name=name, data=inputs[name])  # type: ignore
 
         is_async = False
 
@@ -83,9 +83,9 @@ def run_expanded_node(
     else:
         try:
             for name, data in outputs.items():
-                hook_manager.hook.before_dataset_saved(dataset_name=name, data=data)  # type: ignore
+                hook_manager.hook.before_dataset_saved(node=node, dataset_name=name, data=data)  # type: ignore
                 catalog.save(name, data)
-                hook_manager.hook.after_dataset_saved(dataset_name=name, data=data)  # type: ignore
+                hook_manager.hook.after_dataset_saved(node=node, dataset_name=name, data=data)  # type: ignore
         except Exception as e:
             if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
                 # Prevent printing traceback for subprocesses that crash

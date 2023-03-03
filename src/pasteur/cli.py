@@ -8,7 +8,7 @@ else:
     import logging
 
     logger = logging.getLogger(__name__)
-    logger.warn(
+    logger.warning(
         "Pasteur project not found in the current directory "
         + "(settings.py file doesn't contain `PASTEUR_MODULES = ...`). "
         + "Disabling Pasteur commands."

@@ -26,6 +26,6 @@ def get_pasteur_modules() -> Callable | list[type] | None:
 
     if settings.PASTEUR_MODULES == sentinel:
         return None
-    if settings.PASTEUR_MODULES is None:
+    if settings.PASTEUR_MODULES is None or settings.PASTEUR_MODULES == ...:
         return get_recommended_modules
     return settings.PASTEUR_MODULES
