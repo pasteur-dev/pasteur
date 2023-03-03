@@ -19,7 +19,6 @@
 #
 import re
 
-from kedro.framework.cli.utils import find_stylesheets
 from recommonmark.transform import AutoStructify
 
 from pasteur import __version__ as release
@@ -30,7 +29,7 @@ project = "pasteur"
 author = "Kapenekakis Antheas"
 
 # The short X.Y version.
-version = re.match(r"^([0-9]+\.[0-9]+).*", release).group(1)
+version = re.match(r"^([0-9]+\.[0-9]+).*", release).group(1)  # type: ignore
 
 # -- General configuration ---------------------------------------------------
 
@@ -77,7 +76,7 @@ master_doc = "index"
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = 'en'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -99,12 +98,12 @@ html_theme = "haiku"
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
-html_theme_options = {"collapse_navigation": False, "style_external_links": True}
+html_theme_options = {}  # {"collapse_navigation": False, "style_external_links": True}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = ["_static"]
+html_static_path = [] #["_static"]
 
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
@@ -147,13 +146,13 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (
-        master_doc,
-        "pasteur.tex",
-        "pasteur Documentation",
-        "Kedro",
-        "manual",
-    )
+    # (
+    #     master_doc,
+    #     "pasteur.tex",
+    #     "pasteur Documentation",
+    #     "Kedro",
+    #     "manual",
+    # )
 ]
 
 # -- Options for manual page output ------------------------------------------
@@ -179,10 +178,10 @@ texinfo_documents = [
     (
         master_doc,
         "pasteur",
-        "pasteur Documentation",
+        "Pasteur Documentation",
         author,
-        "pasteur",
-        "Project pasteur codebase.",
+        "Pasteur",
+        "Documentation about the library Pasteur.",
         "Data-Science",
     )
 ]
@@ -218,12 +217,24 @@ def skip(app, what, name, obj, skip, options):
     return skip
 
 
+def find_stylesheets():  # pragma: no cover
+    """Fetch all stylesheets used in the official Kedro documentation"""
+    from pathlib import Path
+
+    css_path = Path(__file__).resolve().parents[1] / "html" / "_static" / "css"
+    return (
+        str(css_path / "copybutton.css"),
+        str(css_path / "qb1-sphinx-rtd.css"),
+        str(css_path / "theme-overrides.css"),
+    )
+
+
 def setup(app):
     app.connect("autodoc-process-docstring", autodoc_process_docstring)
     app.connect("autodoc-skip-member", skip)
     # add Kedro stylesheets
-    for stylesheet in find_stylesheets():
-        app.add_css_file(stylesheet)
+    # for stylesheet in find_stylesheets():
+    #     app.add_css_file(stylesheet)
     # enable rendering RST tables in Markdown
     app.add_config_value("recommonmark_config", {"enable_eval_rst": True}, True)
     app.add_transform(AutoStructify)

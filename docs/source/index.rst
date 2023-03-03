@@ -2,13 +2,12 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to project pasteur's API docs!
+Welcome to Pasteur's API docs!
 =============================================
 
 .. toctree::
    :maxdepth: 4
 
-   modules
 
 
 Indices and tables
@@ -18,4 +17,4 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
-* :ref:`spec`
+.. * :ref:`spec`

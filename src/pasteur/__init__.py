@@ -12,3 +12,4 @@ except ImportError:
     import importlib_metadata as metadata
 
 version = metadata.version("pasteur")
+__version__ = version

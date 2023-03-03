@@ -33,7 +33,7 @@ Create a virtual environment to install the project's dependencies.
 ```bash
 # Create a Virtual environment
 cd <myproject>
-python3.10 -m venv venv
+python3.10 -m venv venv # Python 3.10+ required.
 source venv/bin/activate
 # Freeze your dependencies to allow reproducible installs between colleagues
 # and install the default project dependencies.
@@ -61,7 +61,7 @@ To contribute, clone this repository and install the frozen requirements.
 git clone github.com/pasteur-dev/pasteur pasteur
 
 cd pasteur
-python3.11 -m venv venv
+python3.10 -m venv venv # Python 3.10+ required.
 source venv/bin/activate
 pip install -r requirements.txt
 ```
