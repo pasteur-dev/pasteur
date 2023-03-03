@@ -1,1 +1,1 @@
--e .[opt,test,cls,docs]
+-e file:.[opt,test,cls,docs]

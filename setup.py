@@ -11,7 +11,10 @@ def get_c_files(dr: str):
         if fn.endswith(".c") or fn.endswith(".h")
     ]
 
+
 setup(
+    # We don't ship wheels, marginal calculation is compiled for the target
+    # machine, for now with `-march=native`.
     ext_modules=[
         Extension(
             "pasteur.marginal.native",
