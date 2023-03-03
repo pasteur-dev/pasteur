@@ -29,7 +29,7 @@ pasteur new --starter=pasteur
 
 The `pasteur` command is aliased to `kedro`, so you can use them interchangeably.
 Within your new project, you can now begin working with Pasteur.
-Create a virtual environment to install
+Create a virtual environment to install the project's dependencies.
 ```bash
 # Create a Virtual environment
 cd <myproject>
@@ -45,6 +45,7 @@ You can now download and synthesize datasets!
 ```bash
 pasteur download --accept adult
 pasteur p adult.ingest
+pasteur p tab_adult.ingest
 pasteur p tab_adult.privbayes --synth
 ```
 
@@ -82,5 +83,6 @@ You can start testing Pasteur by running commands.
 ```bash
 pasteur download --accept adult
 pasteur p adult.ingest
+pasteur p tab_adult.ingest
 pasteur p tab_adult.privbayes --synth
 ```
