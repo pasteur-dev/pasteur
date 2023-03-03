@@ -1,0 +1,5 @@
+# You can find Pasteur's recommended extensions in
+# https://github.com/pasteur-dev/pasteur/blob/master/pyproject.toml
+# as a reference for your own config file.
+kedro~={{ cookiecutter.kedro_version }}
+pasteur[opt,test,docs]

@@ -1,0 +1,11 @@
+# Use this catalog to add raw data sources for your new datasets to the Kedro catalog
+# i.e. the data in your raw directory.
+#
+# Pasteur automatically creates and manages all other catalog objects.
+# In addition, built-in datasets define a catalog for their raw data sources as well,
+# which they expect to find in `<raw_dir>/<dataset_folder>_<version>`.
+# Once you bundle your dataset for sharing, you will move its raw entries from 
+# here on a catalog file alongside it.
+#
+# Documentation for this file format can be found in "The Data Catalog"
+# Link: https://kedro.readthedocs.io/en/stable/data/data_catalog.html

@@ -5,7 +5,7 @@
         <img alt="Pasteur Logo with text. Tagline reads: 'Sanitize Your Data'" src="./res/logo/logo_text_light.svg" width="90%">
     </picture>
 </h1>
-Pasteur is a library for performing end-to-end data synthesis.
+Pasteur is a library for performing privacy-aware end-to-end data synthesis.
 Gather your raw data and preprocess, synthesize, and evaluate it within a single
 project.
 Use the tools you're familiar with: numpy, pandas, scikit-learn, scipy or any other.

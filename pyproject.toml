@@ -70,6 +70,9 @@ pasteur_mlflow = "pasteur.kedro.hooks:mlflow"
 [project.entry-points."kedro.project_commands"]
 pasteur = "pasteur.cli:cli"
 
+[project.entry-points."kedro.starters"]
+pasteur = "pasteur.kedro.starters:starters"
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel", "numpy>=1.15"]
 build-backend = "setuptools.build_meta"
@@ -81,7 +84,7 @@ include = ["pasteur*"]  # package names should match these glob patterns (["*"] 
 [tool.kedro]
 package_name = "project"
 project_name = "Pasteur Testing Project"
-project_version = "0.18.3"
+kedro_init_version = "0.18.5"
 
 [tool.isort]
 multi_line_output = 3

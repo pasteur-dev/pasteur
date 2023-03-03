@@ -1,0 +1,124 @@
+version: 1
+disable_existing_loggers: False
+formatters:
+    simple:
+        format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+handlers:
+    # For logging to the console, Pasteur adopts rich alongside Kedro
+    # with a shorter format.
+    rich:
+        class: rich.logging.RichHandler
+        enable_link_path: False
+        log_time_format: "[%X]"
+        level: INFO
+    
+    # Pasteur logs all messages to a special directory in mlflow, so you can
+    # see each execution's logs combined with its artifacts.
+
+    # We define 3 handlers:
+    # - user: displays what the user saw
+    # - error: should be empty and logs only errors
+    # - debug: logs everything. 
+    #          Inspect it from time to time to find bugs such as division by 0 (numpy).
+
+    # Logs the console view as the user would see it
+    # Sans the loading bars
+    user:
+        class: pasteur.utils.logging.MlflowHandler
+        name: user
+
+        level: INFO
+        formatter: simple
+
+    # Debug and error log the exact output of the console
+    debug:
+        class: pasteur.utils.logging.MlflowHandler
+        name: debug
+
+        level: DEBUG
+        formatter: simple
+
+    error:
+        class: pasteur.utils.logging.MlflowHandler
+        name: error
+
+        level: ERROR
+        formatter: simple
+
+# Below you will find a set of annoying messages that have been muted from the
+# user output. They are always logged by the debug handler, so you
+# can inspect it if something goes wrong.
+loggers:
+    anyconfig:
+        level: DEBUG
+        handlers: [debug, error]
+        propagate: no
+
+    numexpr.utils:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    IPKernelApp:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    blib2to3.pgen2.driver:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.io.data_catalog:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.io:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.extras.extensions.ipython:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.pipeline.node:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.config.common:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.framework.session.session:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    kedro.pipeline:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    dummy:
+        level: NOTSET
+        propagate: no
+
+    git.cmd:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    pasteur.kedro.runner:
+        level: NOTSET
+        handlers: [rich, user, debug, error]
+        propagate: no
+
+root:
+    level: NOTSET
+    handlers: [rich, user, debug, error]
