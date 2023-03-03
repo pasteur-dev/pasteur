@@ -9,6 +9,7 @@
 name: Upload Pasteur to PYPI
 
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -17,8 +18,8 @@ permissions:
 
 jobs:
   deploy:
-
     runs-on: ubuntu-latest
+    environment: prod
 
     steps:
     - uses: actions/checkout@v3
