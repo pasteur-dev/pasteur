@@ -1,8 +1,8 @@
 <h1 align="center">
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="./res/logo/logo_text_dark.svg" width="90%">
-        <source media="(prefers-color-scheme: light)" srcset="./res/logo/logo_text_light.svg" width="90%">
-        <img alt="Pasteur Logo with text. Tagline reads: 'Sanitize Your Data'" src="./res/logo/logo_text_light.svg" width="90%">
+        <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pasteur-dev/pasteur/master/res/logo/text_dark.svg" width="90%">
+        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pasteur-dev/pasteur/master/res/logo/text_light.svg" width="90%">
+        <img alt="Pasteur Logo with text. Tagline reads: 'Sanitize Your Data'" src="https://raw.githubusercontent.com/pasteur-dev/pasteur/master/res/logo/text_light.svg" width="90%">
     </picture>
 </h1>
 Pasteur is a library for performing privacy-aware end-to-end data synthesis.
