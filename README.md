@@ -48,6 +48,12 @@ pasteur p adult.ingest
 pasteur p tab_adult.privbayes --synth
 ```
 
+Access Kedro viz and mlflow to preview runs and quality reports:
+```bash
+kedro viz
+mlflow ui --backend-store-uri data/reporting/flow/ 
+```
+
 ## Contributing
 To contribute, clone this repository and install the frozen requirements.
 ```bash
