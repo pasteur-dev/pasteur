@@ -22,18 +22,18 @@ You can install Pasteur with pip.
 pip install pasteur
 ```
 
-By default, Pasteur is disabled. To use it with a kedro project, add the
-`PASTEUR_MODULES` keyword in your `settings.py` file, which will enable it.
-```python
-from pasteur.extras import get_recommended_modules
-
-PASTEUR_MODULES = get_recommended_modules()
+Following, you can create a Pasteur project with:
+```bash
+pasteur new --starter=pasteur
 ```
 
-Currently, there does not exist a template project from which to start upon.
-This repository is a working Pasteur project and is what was used to develop it.
-The module `./src/project` is a kedro project with configs in `./conf` and it is 
-the one that was used to develop pasteur.
+The `pasteur` command is aliased to `kedro`, so you can use them interchangeably.
+Within your new project, you can now begin working with Pasteur.
+```bash
+pasteur download --accept adult
+pasteur p adult.ingest
+pasteur p tab_adult.privbayes --synth
+```
 
 ## Contributing
 To contribute, clone this repository and install the frozen requirements.
