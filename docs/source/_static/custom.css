@@ -1,0 +1,20 @@
+html[data-theme=light] {
+    --pst-color-text-base: #5e5936 !important;
+    --pst-color-background: #fffffb !important;
+    --pst-color-on-background: #fffffb !important;
+    --pst-color-primary: #e7ca56 !important;
+    --pst-link-color: var(pst-color-primary) !important;
+    --pst-color-link: var(pst-color-primary) !important;
+    --pst-color-primary: var(pst-color-primary) !important;
+    --pst-color-link-hover: #f3d55d !important;
+}
+
+html[data-theme=dark] {
+    --pst-color-background: #13120e !important;
+    --pst-color-on-background: #13120e !important;
+    --pst-color-primary: #e2e1b9 !important;
+    --pst-link-color: var(pst-color-primary) !important;
+    --pst-color-link: var(pst-color-primary) !important;
+    --pst-color-primary: var(pst-color-primary) !important;
+    --pst-color-link-hover: #fdfcb7 !important;
+}

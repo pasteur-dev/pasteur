@@ -48,7 +48,7 @@ cls = [
 docs = [
   "docutils",
   "sphinx",
-  "sphinx_rtd_theme",
+  "sphinx-book-theme",
   "nbsphinx",
   "recommonmark",
   "sphinx-autodoc-typehints",

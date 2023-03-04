@@ -25,10 +25,11 @@ from recommonmark.transform import AutoStructify
 
 # -- Project information -----------------------------------------------------
 
-project = "pasteur"
-author = "Kapenekakis Antheas"
+project = "Pasteur"
+author = ""
 
-TOML_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
+PROJECT_PATH = Path(__file__).resolve().parents[2]
+TOML_PATH = PROJECT_PATH / "pyproject.toml"
 with open(TOML_PATH, "r") as f:
     match = re.search(r"version = \"(.+?)\"", f.read())
     assert match, "Version string not found in pyproject.toml"
@@ -56,11 +57,12 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx.ext.ifconfig",
     "sphinx.ext.viewcode",
-    "sphinx.ext.mathjax",
     "nbsphinx",
     "recommonmark",
     "sphinx_copybutton",
 ]
+
+github_url = "https://github.com/pasteur-dev/pasteur"
 
 # enable autosummary plugin (table of contents for modules/classes/class
 # methods)
@@ -82,7 +84,7 @@ master_doc = "index"
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = 'en'
+language = "en"
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
@@ -97,19 +99,28 @@ pygments_style = "sphinx"
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-# html_theme = "sphinx_rtd_theme"
-html_theme = "haiku"
+html_theme = "sphinx_book_theme"
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
-html_theme_options = {}  # {"collapse_navigation": False, "style_external_links": True}
+html_theme_options = {
+    "repository_url": "https://github.com/pasteur-dev/pasteur",
+    "use_repository_button": True,
+    "logo": {
+        "image_dark": str(PROJECT_PATH / "res" / "logo" / "text_dark.svg"),
+    },
+}
+
+html_logo = str(PROJECT_PATH / "res" / "logo" / "text_light.svg")
+html_favicon = str(PROJECT_PATH / "res" / "logo" / "favicon.ico")
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
-html_static_path = [] #["_static"]
+html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.
@@ -223,23 +234,9 @@ def skip(app, what, name, obj, skip, options):
     return skip
 
 
-def find_stylesheets():  # pragma: no cover
-    """Fetch all stylesheets used in the official Kedro documentation"""
-
-    css_path = Path(__file__).resolve().parents[1] / "html" / "_static" / "css"
-    return (
-        str(css_path / "copybutton.css"),
-        str(css_path / "qb1-sphinx-rtd.css"),
-        str(css_path / "theme-overrides.css"),
-    )
-
-
 def setup(app):
     app.connect("autodoc-process-docstring", autodoc_process_docstring)
     app.connect("autodoc-skip-member", skip)
-    # add Kedro stylesheets
-    # for stylesheet in find_stylesheets():
-    #     app.add_css_file(stylesheet)
     # enable rendering RST tables in Markdown
     app.add_config_value("recommonmark_config", {"enable_eval_rst": True}, True)
     app.add_transform(AutoStructify)
