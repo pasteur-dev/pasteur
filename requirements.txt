@@ -6,6 +6,8 @@
 #
 -e file:.
     # via -r requirements.in
+accessible-pygments==0.0.3
+    # via pydata-sphinx-theme
 aiofiles==22.1.0
     # via
     #   kedro-viz
@@ -47,11 +49,14 @@ attrs==22.2.0
 babel==2.12.1
     # via
     #   jupyterlab-server
+    #   pydata-sphinx-theme
     #   sphinx
 backcall==0.2.0
     # via ipython
 beautifulsoup4==4.11.2
-    # via nbconvert
+    # via
+    #   nbconvert
+    #   pydata-sphinx-theme
 binaryornot==0.4.4
     # via cookiecutter
 black==22.12.0
@@ -95,6 +100,7 @@ colorama==0.4.6
     #   halo
     #   log-symbols
     #   parquet-tools
+    #   sphinx-autobuild
 comm==0.1.2
     # via ipykernel
 commonmark==0.9.1
@@ -123,9 +129,9 @@ docutils==0.18.1
     # via
     #   nbsphinx
     #   pasteur
+    #   pydata-sphinx-theme
     #   recommonmark
     #   sphinx
-    #   sphinx-rtd-theme
 dynaconf==3.1.12
     # via kedro
 entrypoints==0.4
@@ -306,6 +312,8 @@ kedro-viz==5.3.0
     # via pasteur
 kiwisolver==1.4.4
     # via matplotlib
+livereload==2.6.3
+    # via sphinx-autobuild
 llvmlite==0.39.1
     # via numba
 log-symbols==0.0.14
@@ -408,6 +416,7 @@ packaging==23.0
     #   matplotlib
     #   mlflow
     #   nbconvert
+    #   pydata-sphinx-theme
     #   pytest
     #   pytoolconfig
     #   qtpy
@@ -435,7 +444,9 @@ pickleshare==0.7.5
 pillow==9.4.0
     # via matplotlib
 pip-tools==6.12.3
-    # via kedro
+    # via
+    #   kedro
+    #   pasteur
 platformdirs==3.0.0
     # via
     #   black
@@ -479,13 +490,17 @@ pycparser==2.21
     # via cffi
 pydantic==1.10.5
     # via fastapi
+pydata-sphinx-theme==0.13.1
+    # via sphinx-book-theme
 pyflakes==2.3.1
     # via flake8
 pygments==2.14.0
     # via
+    #   accessible-pygments
     #   ipython
     #   jupyter-console
     #   nbconvert
+    #   pydata-sphinx-theme
     #   qtconsole
     #   rich
     #   sphinx
@@ -600,6 +615,7 @@ six==1.16.0
     #   bleach
     #   databricks-cli
     #   halo
+    #   livereload
     #   python-dateutil
     #   querystring-parser
     #   rfc3339-validator
@@ -618,15 +634,19 @@ sphinx==6.1.3
     # via
     #   nbsphinx
     #   pasteur
+    #   pydata-sphinx-theme
     #   recommonmark
+    #   sphinx-autobuild
     #   sphinx-autodoc-typehints
+    #   sphinx-book-theme
     #   sphinx-copybutton
-    #   sphinx-rtd-theme
+sphinx-autobuild==2021.3.14
+    # via pasteur
 sphinx-autodoc-typehints==1.22
     # via pasteur
-sphinx-copybutton==0.5.1
+sphinx-book-theme==1.0.0
     # via pasteur
-sphinx-rtd-theme==1.2.0
+sphinx-copybutton==0.5.1
     # via pasteur
 sphinxcontrib-applehelp==1.0.4
     # via sphinx
@@ -634,8 +654,6 @@ sphinxcontrib-devhelp==1.0.2
     # via sphinx
 sphinxcontrib-htmlhelp==2.0.1
     # via sphinx
-sphinxcontrib-jquery==2.0.0
-    # via sphinx-rtd-theme
 sphinxcontrib-jsmath==1.0.1
     # via sphinx
 sphinxcontrib-qthelp==1.0.3
@@ -699,6 +717,7 @@ tornado==6.2
     #   jupyter-client
     #   jupyter-server
     #   jupyterlab
+    #   livereload
     #   nbclassic
     #   notebook
     #   terminado

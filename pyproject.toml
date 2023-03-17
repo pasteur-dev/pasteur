@@ -36,6 +36,7 @@ opt = [
   "flake8>=3.7.9, <4.0",
   "isort~=5.0",
   "parquet-tools",
+  "pip-tools",
 ]
 test = [
   "pytest-cov~=3.0",
@@ -54,6 +55,7 @@ docs = [
   "sphinx-autodoc-typehints",
   "sphinx_copybutton",
   "Jinja2",
+  "sphinx-autobuild",
 ]
 
 [project.urls]
