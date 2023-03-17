@@ -22,7 +22,10 @@ sphinx:
 # Optionally declare the Python requirements required to build your docs
 python:
    install:
-    - method: pip
-      path: .
-      extra_requirements:
-        - docs
+    # Use frozen dependencies to create the documentation
+    - requirements: requirements.txt
+    # # Alternative: dynamically only install doc requirements
+    # - method: pip
+    #   path: .
+    #   extra_requirements:
+    #     - docs
