@@ -49,6 +49,7 @@ version = re.match(r"^([0-9]+\.[0-9]+).*", release).group(1)  # type: ignore
 # ones.
 extensions = [
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx_autodoc_typehints",
     "sphinx.ext.doctest",
@@ -67,6 +68,8 @@ github_url = "https://github.com/pasteur-dev/pasteur"
 # enable autosummary plugin (table of contents for modules/classes/class
 # methods)
 autosummary_generate = True
+autosummary_generate_overwrite = False
+napoleon_include_init_with_doc = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
