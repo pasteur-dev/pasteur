@@ -24,8 +24,8 @@ class Encoder(ModuleClass):
     It is up to the encoder to filter it prior to processing. `data` should
     not be mutated."""
 
-    name: str
-    attr: Attribute
+    name: str = ""
+    attr: Attribute = Attribute("", {})
     _factory = EncoderFactory
 
     def fit(self, attr: Attribute, data: pd.DataFrame | None) -> Attribute:

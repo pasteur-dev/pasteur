@@ -20,7 +20,7 @@ API documentation
 =================
 
 .. autosummary::
-   :toctree: packages
+   :toctree: api
    :caption: API documentation
    :template: autosummary/module.rst
    :recursive:

@@ -18,7 +18,7 @@ class Module:
     and there can be multiple visualizations for a certain column type.
     """
 
-    name: str
+    name: str = ""
 
 
 class ModuleClass:

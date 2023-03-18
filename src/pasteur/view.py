@@ -143,7 +143,7 @@ class View(Module):
     defaults for the view (such as metadata). Useful for packaging.
     Use `utils.get_relative_fn()` from datasets."""
 
-    dataset: str
+    dataset: str = ""
     """The name of the View's Dataset. If the Dataset is not loaded, the View
     is disabled."""
 

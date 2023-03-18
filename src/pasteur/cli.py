@@ -1,3 +1,5 @@
+""" Provides the `cli` entrypoint for kedro. """
+
 # from .kedro.utils import get_pasteur_modules
 
 # if get_pasteur_modules():
