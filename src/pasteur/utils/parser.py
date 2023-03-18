@@ -1,3 +1,5 @@
+""" Parsing related utility functions. """
+
 from typing import Any, TypeVar
 
 from ..module import Module

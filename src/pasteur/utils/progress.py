@@ -1,6 +1,9 @@
-"""Wraps the tqdm module so the same modules are used across the project.
+""" This utility module provides constants and functions for multiprocessing
+and progress monitoring in Pasteur.
 
-Deals with vs code jupyter not supporting multiple progress bars."""
+In most cases, the functions and constants are simple wrappers around existing libraries.
+The common use of the primitives in the codebase allows for using different
+implementations in the future."""
 
 import functools
 import io

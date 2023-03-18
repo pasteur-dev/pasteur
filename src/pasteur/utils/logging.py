@@ -1,3 +1,5 @@
+""" Logging logic that stores loges in mlflow runs. """
+
 from io import StringIO
 from logging import Handler, getLevelName
 from os import path

@@ -1,3 +1,7 @@
+""" Mlflow utility functions.
+
+@TODO: refactor and clean the functions provided by this module."""
+
 from io import BytesIO
 
 import pandas as pd

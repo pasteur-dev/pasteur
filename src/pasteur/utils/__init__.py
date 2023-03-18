@@ -1,3 +1,7 @@
+""" Base utility module for Pasteur.
+
+Pasteur provides a range of utilities in separate modules, based on their functionality."""
+
 from .data import (
     LazyPartition,
     LazyChunk,

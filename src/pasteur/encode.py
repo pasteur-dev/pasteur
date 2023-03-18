@@ -1,3 +1,5 @@
+""" Provides the base definition for Encoder modules"""
+
 import pandas as pd
 
 from .attribute import Attribute

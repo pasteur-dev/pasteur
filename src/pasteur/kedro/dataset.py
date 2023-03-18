@@ -1,3 +1,8 @@
+""" This module provides kedro datasets that have been customized to suit Pasteur's needs.
+
+The most notable additions are that the datasets lazy load data through `PartitionedDataset`
+and can partition save data through custom `Node` return types. """
+
 import logging
 import os
 import re

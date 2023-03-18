@@ -1,3 +1,9 @@
+""" Pasteur's data utilities. The main funcitonality provided by this module
+is `LazyPartition` and `LazyDataset`, with their specializations for `pandas`:
+`LazyFrame`, `LazyChunk`.
+
+These data types allow for loading dataset partitions on command, and when the
+data is no longer useful, evacuating it from RAM using the `del` keyword."""
 from __future__ import annotations
 
 from functools import partial, update_wrapper

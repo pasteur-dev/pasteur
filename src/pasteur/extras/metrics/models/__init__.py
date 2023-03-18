@@ -1,3 +1,7 @@
+""" This module provides Model based metrics. 
+
+Currently, this translates to classifiers. """
+
 from __future__ import annotations
 
 from .base import BaseModel, ModelMetric

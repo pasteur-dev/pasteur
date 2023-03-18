@@ -1,3 +1,4 @@
+""" Simple style for matplotlib that looks good in mlflow. """
 from os import path
 
 import matplotlib.pyplot as plt

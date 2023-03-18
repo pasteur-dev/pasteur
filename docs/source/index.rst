@@ -22,7 +22,7 @@ API documentation
 .. autosummary::
    :toctree: api
    :caption: API documentation
-   :template: autosummary/module.rst
+   :template: autosummary/pasteur.rst
    :recursive:
 
    pasteur

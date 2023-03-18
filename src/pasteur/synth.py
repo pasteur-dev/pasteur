@@ -1,3 +1,8 @@
+""" Contains the base definition for Synth(esizer modules).
+
+In addition, a test Synthesizer (IdentSynth) is provided, which returns
+the data it was provided as is. """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

@@ -1,3 +1,5 @@
+""" This module contains the Kedro starters for Pasteur. """
+
 from pathlib import Path
 
 from kedro.framework.cli.starters import KedroStarterSpec

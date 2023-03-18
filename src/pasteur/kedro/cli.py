@@ -1,3 +1,7 @@
+""" In this module, all Pasteur related cli commands are defined.
+
+You can access them through `pasteur <command>` or `kedro <command>`. """
+
 import logging
 from typing import Any, Iterable
 

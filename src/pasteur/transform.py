@@ -1,3 +1,5 @@
+""" Contains the definition for Transformer and ReferenceTransformer modules. """
+
 import logging
 import pandas as pd
 

@@ -1,4 +1,4 @@
-""" Simple wrapper that helps with finding memory leaks.
+""" Simple wrapper module that helps with finding memory leaks.
 
 >>> from pasteur.utils.leaks import clear, check, graph
 >>> clear()

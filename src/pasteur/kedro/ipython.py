@@ -1,3 +1,4 @@
+""" This module extends Kedro's ipython functionality. """
 from pathlib import Path
 
 from IPython import get_ipython
