@@ -239,7 +239,7 @@ def skip(app, what, name, obj, skip, options):
 
 def setup(app):
     app.connect("autodoc-process-docstring", autodoc_process_docstring)
-    app.connect("autodoc-skip-member", skip)
+    # app.connect("autodoc-skip-member", skip)
     # enable rendering RST tables in Markdown
     app.add_config_value("recommonmark_config", {"enable_eval_rst": True}, True)
     app.add_transform(AutoStructify)

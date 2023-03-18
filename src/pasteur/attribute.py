@@ -1,9 +1,33 @@
+"""This module implements the base abstractions of Attribute and Value, 
+which are used to encapsulate the information of complex types.
+
+Values are separated into CatValues (Categorical; defined by an index) and 
+NumValues (Numerical). In addition, we define StratifiedValue as a special
+CatValue that holds a Stratification.
+
+The Stratification represents a tree, created through Grouping nodes.
+Groupings are essentially lists with special functions.
+We separate groupings based on whether they are categorical (child order irrelevant)
+or ordinal (nearby children are more similar to each other).
+
+The leafs of the tree represent the values the Value can take.
+They take the form of strings that describe each value, but are essentially placeholders.
+The Value is an integer. To map leafs to integers, the Tree is searched with Depth
+First Search, respecting child order to be deterministic.
+
+An Attribute holds multiple values and a set of common conditions. When a common
+condition is active, all of the Attribute's Values are expected to have the same
+value."""
+
 import numpy as np
 from typing import Any, Literal, TypeVar
 from copy import copy
 
 
 def get_dtype(domain: int):
+    """Returns the smallest NumPy unsigned integer dtype that will fit integers
+    up to `domain` - 1."""
+
     # uint16 is 2x as fast as uint32 (5ms -> 3ms), use with marginals.
     # Marginal domain can not exceed max(uint16) size 65535 + 1
     if domain <= 1 << 8:
@@ -15,14 +39,17 @@ def get_dtype(domain: int):
     return np.uint64
 
 
-LI = TypeVar("LI", "Level", int)
+GI = TypeVar("GI", "Grouping", int)
 
 
-class Level(list[LI]):
-    def __init__(self, type: Literal["cat", "ord"], arr: list["Level" | Any]):
+class Grouping(list[GI]):
+    """ An enchanced form of list that holds the type of grouping (categorical, ordinal),
+    and implements helper functions and an enchanced string representation."""
+
+    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping" | Any]):
         lvls = []
         for a in arr:
-            if isinstance(a, Level):
+            if isinstance(a, Grouping):
                 lvls.append(a)
             else:
                 lvls.append(str(a))
@@ -46,11 +73,11 @@ class Level(list[LI]):
     def height(self) -> int:
         if not self:
             return 0
-        return max(lvl.height if isinstance(lvl, Level) else 0 for lvl in self) + 1
+        return max(g.height if isinstance(g, Grouping) else 0 for g in self) + 1
 
     @property
     def size(self) -> int:
-        return sum(lvl.size if isinstance(lvl, Level) else 1 for lvl in self)
+        return sum(g.size if isinstance(g, Grouping) else 1 for g in self)
 
     def get_domain(self, height: int):
         return len(self.get_groups(height))
@@ -58,7 +85,7 @@ class Level(list[LI]):
     def _get_groups_by_level(self, lvl: int, ofs: int = 0):
         groups: list[list | int] = []
         for l in self:
-            if isinstance(l, Level):
+            if isinstance(l, Grouping):
                 g, ofs = l._get_groups_by_level(lvl - 1, ofs)
 
                 if lvl == 0:
@@ -97,14 +124,16 @@ class Level(list[LI]):
     def get_human_values(self) -> list[str]:
         out = []
         for lvl in self:
-            if isinstance(lvl, Level):
+            if isinstance(lvl, Grouping):
                 out.extend(lvl.get_human_values())
             else:
                 out.append(str(lvl))
         return out
 
     @staticmethod
-    def from_str(a: str, nullable: bool = False, ukn_val: Any | None = None) -> "Level":
+    def from_str(
+        a: str, nullable: bool = False, ukn_val: Any | None = None
+    ) -> "Grouping":
         stack = [[]]
         is_ord = [False]
         bracket_closed = False
@@ -141,30 +170,39 @@ class Level(list[LI]):
                 case "}":
                     children = stack.pop()
                     assert not is_ord.pop(), "Unmatched '[' bracket, found '}'"
-                    stack[-1].append(Level("cat", children))
+                    stack[-1].append(Grouping("cat", children))
                 case "[":
                     stack.append([])
                     is_ord.append(True)
                 case "]":
                     children = stack.pop()
                     assert is_ord.pop(), "Unmatched '{' bracket, found ']'"
-                    stack[-1].append(Level("ord", children))
+                    stack[-1].append(Grouping("ord", children))
 
         lvl_attrs = stack[0]
         if len(lvl_attrs) == 1:
             lvl = lvl_attrs[0]
         else:
-            lvl = Level("cat", lvl_attrs)
+            lvl = Grouping("cat", lvl_attrs)
 
         return lvl
 
 
 class Value:
+    """ Base value class """
     name: str | None = None
     common: int = 0
 
 
-class IdxValue(Value):
+class CatValue(Value):
+    """ Class for a Categorical Value.
+    
+    Each Categorical Value is represented by an unsigned integer.
+    It can also group its different values together based on an integer parameter
+    named height.
+    The implementation of this class remains abstract, and is expanded in
+    the StratifiedValue class. """
+
     def get_domain(self, height: int = 0) -> int:
         """Returns the domain of the attribute in the given height."""
         raise NotImplementedError()
@@ -176,7 +214,7 @@ class IdxValue(Value):
 
     @property
     def height(self) -> int:
-        """Returns the maximum height of this column."""
+        """Returns the maximum height of this value."""
         return 0
 
     @property
@@ -184,22 +222,31 @@ class IdxValue(Value):
         return self.get_domain(0)
 
     def is_ordinal(self) -> bool:
-        """Returns whether this column is ordinal, other than for the elements
+        """Returns whether this value is ordinal, other than for the elements
         it shares in common with the other attributes."""
         return False
 
-    def downsample(self, column: np.ndarray, height: int):
+    def downsample(self, value: np.ndarray, height: int):
+        """ Receives an array named `value` and downsamples it based on the provided
+        height, by grouping certain values together. The proper implementation
+        is provided by pasteur.hierarchy."""
         if height == 0:
-            return column
-        return self.get_mapping(height)[column]
+            return value
+        return self.get_mapping(height)[value]
 
-    def upsample(self, column: np.ndarray, height: int, deterministic: bool = True):
+    def upsample(self, value: np.ndarray, height: int, deterministic: bool = True):
+        """Does the opposite of downsample. If deterministic is True, for each
+        group at a given height one of its values is chosen arbitrarily to represent
+        all children of the group.
+        
+        If deterministic is False, the group is sampled based on this Value's
+        histogram (not implemented in this class; see pasteur.hierarchy)."""
         if height == 0:
-            return column
+            return value
 
         assert (
             deterministic
-        ), "Current column doesn't contain a histogram, can't upsample"
+        ), "Current value doesn't contain a histogram, can't upsample"
 
         d = self.get_domain(height)
         mapping = self.get_mapping(height)
@@ -210,18 +257,22 @@ class IdxValue(Value):
             c = (mapping == i).argmax()
             reverse_map[i] = c
 
-        return reverse_map[column]
+        return reverse_map[value]
 
     def select_height(self) -> int:
         return 0
 
 
-class LevelValue(IdxValue):
-    """A specific type of IdxColumn, which contains a hierarchical attribute
-    structure based on a tree."""
+class StratifiedValue(CatValue):
+    """A version of CategoricalValue which uses a Stratification to represent 
+    the domain knowledge of the Value. 
+    
+    Each unique value is mapped to a tree
+    with nodes where the child order matters.
+    By traversing the tree in DFS, each leaf is mapped to an integer."""
 
-    def __init__(self, lvl: Level, common: int = 0) -> None:
-        self.head = lvl
+    def __init__(self, head: Grouping, common: int = 0) -> None:
+        self.head = head
         self.common = common
 
     def __str__(self) -> str:
@@ -252,47 +303,41 @@ class LevelValue(IdxValue):
         return self.head.height
 
 
-class CatValue(LevelValue):
-    """Initializer for LevelColumn, which initializes a single level Categorical column."""
+def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
+    arr = []
+    common = 0
+    if na:
+        arr.append(None)
+        common += 1
+    if ukn_val is not None:
+        arr.append(ukn_val)
+        common += 1
+    arr.extend(vals)
 
-    def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
+    return StratifiedValue(Grouping("cat", arr))
+
+
+def _create_strat_value_ord(vals, na: bool = False, ukn_val: Any | None = None):
+    g = Grouping("ord", vals)
+    common = 0
+
+    if na or ukn_val is not None:
         arr = []
-        common = 0
         if na:
+            common += 1
             arr.append(None)
-            common += 1
         if ukn_val is not None:
-            arr.append(ukn_val)
             common += 1
-        arr.extend(vals)
+            arr.append(ukn_val)
+        arr.append(g)
 
-        super().__init__(Level("cat", arr))
+        g = Grouping("cat", arr)
 
-
-class OrdValue(LevelValue):
-    """Initializer for LevelColumn, which initializes a single level Ordinal column, which might have common values."""
-
-    def __init__(self, vals, na: bool = False, ukn_val: Any | None = None):
-        lvl = Level("ord", vals)
-        common = 0
-
-        if na or ukn_val is not None:
-            arr = []
-            if na:
-                common += 1
-                arr.append(None)
-            if ukn_val is not None:
-                common += 1
-                arr.append(ukn_val)
-            arr.append(lvl)
-
-            lvl = Level("cat", arr)
-
-        super().__init__(lvl, common)
+    return StratifiedValue(g, common)
 
 
 class NumValue(Value):
-    """Numerical Column, its value can be represented with a number, which might be NaN.
+    """Numerical Value: its value can be represented with a number, which might be NaN.
 
     TODO: handle multiple common values (1 is assumed to be NA), appropriately."""
 
@@ -317,17 +362,23 @@ V = TypeVar("V", bound=Value)
 
 
 class Attribute:
+    """Attribute class which holds multiple values in a dictionary."""
+
     def __init__(
         self,
         name: str,
         vals: dict[str, V],
         na: bool = False,
         ukn_val: bool = False,
+        common: int | None = None,
     ) -> None:
         self.name = name
         self.na = na
         self.ukn_val = ukn_val
-        self.common = self.na + self.ukn_val
+        if common is None:
+            self.common = self.na + self.ukn_val
+        else:
+            self.common = common
 
         self.update_vals(vals)
 
@@ -352,31 +403,45 @@ class Attribute:
 Attributes = dict[str, Attribute]
 
 
-class OrdAttribute(Attribute):
-    def __init__(
-        self, name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
-    ) -> None:
-        cols = {name: OrdValue(vals, na, ukn_val)}
-
-        super().__init__(name, cols, na, ukn_val is not None)
-
-
-class CatAttribute(Attribute):
-    def __init__(
-        self, name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
-    ) -> None:
-        cols = {name: OrdValue(vals, na, ukn_val)}
-
-        super().__init__(name, cols, na, ukn_val is not None)
+def OrdAttribute(
+    name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
+):
+    """Returns an Attribute holding a single Stratified Value where its children
+    are ordinal, based on the provided data."""
+    cols = {name: _create_strat_value_ord(vals, na, ukn_val)}
+    return Attribute(name, cols, na, ukn_val is not None)
 
 
-class NumAttribute(Attribute):
-    def __init__(
-        self,
-        name: str,
-        bins: int,
-        min: int | float | None,
-        max: int | float | None,
-        nullable: bool = False,
-    ) -> None:
-        super().__init__(name, {name: NumValue(bins, min, max)}, nullable, False)
+def CatAttribute(
+    name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
+):
+    """Returns an Attribute holding a single Stratified Value where its children
+    are categorical, based on the provided data."""
+    cols = {name: _create_strat_value_cat(vals, na, ukn_val)}
+    return Attribute(name, cols, na, ukn_val is not None)
+
+
+def NumAttribute(
+    name: str,
+    bins: int,
+    min: int | float | None,
+    max: int | float | None,
+    nullable: bool = False,
+):
+    """Returns an Attribute holding a single NumValue with the provided data."""
+    return Attribute(name, {name: NumValue(bins, min, max)}, nullable, False)
+
+
+__all__ = [
+    "get_dtype",
+    "Grouping",
+    "Value",
+    "CatValue",
+    "NumValue",
+    "StratifiedValue",
+    "Attribute",
+    "Attributes",
+    "OrdAttribute",
+    "CatAttribute",
+    "NumAttribute",
+]
