@@ -102,7 +102,7 @@ class Dataset(Module):
 
         @warning: all partitioned tables should have the same partitions.
         Some tables may not be partitioned.
-
+        
         Tip: use a `match` statement to fork based on table name to per-table functions."""
         raise NotImplemented()
 
@@ -148,6 +148,19 @@ class TabularDataset(Dataset):
         assert len(tables) == 1 and "table" in tables
 
         return tables["table"]()
+
+class TypedDataset(Dataset):
+    """Extend from to create an intermediary step in ingestion, where the table
+    is loaded from `<dataset>.raw@<table>` to a parquet one `<dataset>.typed.<table>.
+
+    Useful for multiple reads to raw tables. You can also override the `type()` function to make
+    minor changes to the dataset. By default it's the identity.
+
+    Since parquet files don't support chunked loading it's unused."""
+
+    def type(self, table: Any):
+        return table
+
 
 
 __all__ = ["Dataset", "TabularDataset"]

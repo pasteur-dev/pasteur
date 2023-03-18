@@ -25,8 +25,8 @@ def create_synth_pipeline(
     tables = view.tables
 
     tags: list[str] = list(TAGS_SYNTH)
-    if fr.gpu:
-        tags.append(TAG_GPU)
+    # if fr.gpu:
+    #     tags.append(TAG_GPU)
 
     pipe = pipeline(
         [

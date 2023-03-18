@@ -5,7 +5,7 @@ from typing import NamedTuple, Sequence, cast
 import numpy as np
 import pandas as pd
 
-from ....attribute import Attributes, IdxValue, get_dtype
+from ....attribute import Attributes, CatValue, get_dtype
 from ....marginal import (
     ZERO_FILL,
     AttrSelector,
@@ -230,7 +230,7 @@ def greedy_bayes(
     for i, (an, a) in enumerate(attrs.items()):
         group_names.append(an)
         for c_n, c in a.vals.items():
-            c = cast(IdxValue, c)
+            c = cast(CatValue, c)
             col_names.append(c_n)
             groups.append(i)
             heights.append(c.height)
@@ -245,7 +245,7 @@ def greedy_bayes(
 
         for i, (an, a) in enumerate(attrs.items()):
             for c_n, c in a.vals.items():
-                c = cast(IdxValue, c)
+                c = cast(CatValue, c)
 
                 doms = []
                 for i in range(c.height):
@@ -660,7 +660,7 @@ def sample_rows(
                 p_partial = partial and attr_name == x_attr
                 for i, (col_name, h) in enumerate(attr.cols.items()):
                     col = attrs[attr_name].vals[col_name]
-                    col = cast(IdxValue, col)
+                    col = cast(CatValue, col)
                     mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 

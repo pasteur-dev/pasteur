@@ -1,3 +1,6 @@
+""" This package contains reference implementations for Pasteur modules, which
+may be extracted to a separate package in the future."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING

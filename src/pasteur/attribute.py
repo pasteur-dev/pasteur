@@ -262,6 +262,7 @@ class CatValue(Value):
     def select_height(self) -> int:
         return 0
 
+IdxValue = CatValue
 
 class StratifiedValue(CatValue):
     """A version of CategoricalValue which uses a Stratification to represent 

@@ -3,7 +3,7 @@ from typing import NamedTuple, cast
 import numpy as np
 import pandas as pd
 
-from ..attribute import Attributes, get_dtype, IdxValue
+from ..attribute import Attributes, get_dtype, CatValue
 
 ZERO_FILL = 1e-24
 
@@ -63,7 +63,7 @@ def expand_table(
             if name not in table:
                 continue
 
-            col = cast(IdxValue, col)
+            col = cast(CatValue, col)
             col_hier = []
             col_noncommon = []
             col_dom = []
@@ -98,7 +98,7 @@ def get_domains(attrs: Attributes) -> dict[str, list[int]]:
     domains = {}
     for attr in attrs.values():
         for name, col in attr.vals.items():
-            col = cast(IdxValue, col)
+            col = cast(CatValue, col)
             col_dom = []
 
             for height in range(col.height):

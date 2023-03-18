@@ -1,19 +1,26 @@
 from copy import copy
+from typing import cast
 
 import numpy as np
 import pandas as pd
 
-from ..attribute import Attribute, IdxValue, NumValue, OrdValue, get_dtype
+from ..attribute import (
+    Attribute,
+    CatValue,
+    NumValue,
+    _create_strat_value_ord,
+    get_dtype,
+)
 from ..encode import Encoder
 
 
 class DiscretizationColumnTransformer:
     """Converts a numerical column into an ordinal one using histograms."""
 
-    def fit(self, attr: NumValue, data: pd.Series) -> IdxValue:
+    def fit(self, attr: NumValue, data: pd.Series) -> CatValue:
         self.in_attr = attr
         assert data.name
-        self.col = data.name
+        self.col = cast(str, data.name)
 
         rng = (
             (attr.min, attr.max)
@@ -26,7 +33,7 @@ class DiscretizationColumnTransformer:
         self.vals = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.float32)
 
         if attr.common <= 1:
-            self.attr = OrdValue(self.vals, na=attr.common == 1)
+            self.attr = _create_strat_value_ord(self.vals, na=attr.common == 1)
         else:
             assert (
                 False
@@ -117,7 +124,7 @@ class NumEncoder(Encoder):
         skip_common = False
         if len(attr.vals) == 1:
             v = next(iter(attr.vals.values()))
-            if isinstance(v, IdxValue) and v.is_ordinal:
+            if isinstance(v, CatValue) and v.is_ordinal:
                 skip_common = True
 
         if not skip_common:
@@ -127,7 +134,7 @@ class NumEncoder(Encoder):
         for name, col in attr.vals.items():
             if isinstance(col, NumValue):
                 cols[name] = col
-            elif isinstance(col, IdxValue):
+            elif isinstance(col, CatValue):
                 if col.is_ordinal():
                     cols[name] = NumValue()
                 else:
@@ -150,14 +157,14 @@ class NumEncoder(Encoder):
         skip_common = False
         if len(a.vals) == 1:
             v = next(iter(a.vals.values()))
-            if isinstance(v, IdxValue) and v.is_ordinal:
+            if isinstance(v, CatValue) and v.is_ordinal:
                 skip_common = True
 
         for i in range(a.common) if not skip_common else []:
             cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}", dtype=np.float32)
 
             for name, col in a.vals.items():
-                if isinstance(col, IdxValue):
+                if isinstance(col, CatValue):
                     cmn_col += data[name] == i
                 elif isinstance(col, NumValue) and only_has_na:
                     # Numerical values are expected to be NA for all common values
@@ -170,7 +177,7 @@ class NumEncoder(Encoder):
         for name, col in a.vals.items():
             if isinstance(col, NumValue):
                 cols.append(data[name])
-            elif isinstance(col, IdxValue):
+            elif isinstance(col, CatValue):
                 # TODO add proper encodings other than one hot
 
                 # Handle ordinal values

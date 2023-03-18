@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.special import rel_entr
 from scipy.stats import chisquare
 
-from ...attribute import Attributes, IdxValue, get_dtype
+from ...attribute import Attributes, CatValue, get_dtype
 from ...metric import Summaries, TableData, TableMetric
 from ...utils.progress import process_in_parallel
 
@@ -70,7 +70,7 @@ class ChiSquareMetric(
         self.domain = {}
         for attr in table_attrs.values():
             for name, val in attr.vals.items():
-                assert isinstance(val, IdxValue)
+                assert isinstance(val, CatValue)
                 self.domain[name] = val.domain
 
     def process_chunk(
@@ -187,7 +187,7 @@ class KullbackLeiblerMetric(
         self.domain = {}
         for attr in table_attrs.values():
             for name, val in attr.vals.items():
-                assert isinstance(val, IdxValue)
+                assert isinstance(val, CatValue)
                 self.domain[name] = val.domain
 
     def process_chunk(

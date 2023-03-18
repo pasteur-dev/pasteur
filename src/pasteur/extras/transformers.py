@@ -7,12 +7,12 @@ from pandas.api.types import is_categorical_dtype
 from ..attribute import (
     Attribute,
     CatAttribute,
-    Level,
-    LevelValue,
+    Grouping,
+    CatValue,
     NumAttribute,
     NumValue,
     OrdAttribute,
-    OrdValue,
+    _create_strat_value_ord as OrdValue,
     get_dtype,
 )
 from ..transform import RefTransformer, Transformer
@@ -443,7 +443,7 @@ class TimeTransformer(Transformer):
                 hours.append(f"{hour:02d}:00")
             elif span == "halfhour":
                 hours.append(
-                    Level(
+                    Grouping(
                         "ord",
                         [f"{hour:02d}:00", f"{hour:02d}:30"],
                     )
@@ -455,7 +455,7 @@ class TimeTransformer(Transformer):
                         mins.append(f"{hour:02d}:{min:02d}")
                     if span == "halfminute":
                         mins.append(
-                            Level(
+                            Grouping(
                                 "ord",
                                 [
                                     f"{hour:02d}:{min:02d}:00",
@@ -467,17 +467,17 @@ class TimeTransformer(Transformer):
                         secs = []
                         for sec in range(60):
                             secs.append(f"{hour:02d}:{min:02d}:{sec:02d}")
-                        mins.append(Level("ord", secs))
+                        mins.append(Grouping("ord", secs))
 
-                hours.append(Level("ord", mins))
-        lvl = Level("ord", hours)
+                hours.append(Grouping("ord", mins))
+        lvl = Grouping("ord", hours)
         if self.nullable:
-            lvl = Level("cat", [None, lvl])
+            lvl = Grouping("cat", [None, lvl])
 
         self.domain = lvl.size
 
         self.attr = Attribute(
-            cast(str, data.name), {f"{data.name}_time": LevelValue(lvl)}, self.nullable
+            cast(str, data.name), {f"{data.name}_time": CatValue(lvl)}, self.nullable
         )
         return self.attr
 

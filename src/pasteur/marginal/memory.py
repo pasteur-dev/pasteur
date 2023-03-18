@@ -3,7 +3,7 @@ from typing import Any, NamedTuple, cast
 
 import numpy as np
 
-from ..attribute import Attributes, get_dtype, IdxValue
+from ..attribute import Attributes, get_dtype, CatValue
 from ..utils import LazyFrame
 
 class ArrayInfo(NamedTuple):
@@ -36,7 +36,7 @@ def allocate_memory(data: LazyFrame, attrs: Attributes, *, common: bool = False)
             continue
 
         for name, col in attr.vals.items():
-            col = cast(IdxValue, col)
+            col = cast(CatValue, col)
             info[name] = []
             for height in range(col.height):
                 shape = (n, )
