@@ -37,20 +37,24 @@ IntegerArray               2        +1 < suspicious
 
 import logging
 
-try:
-    import objgraph
-except:
-    print("Module 'objgraph' is required to use this module.")
-    raise
+def _get_obj():
+    try:
+        import objgraph # type: ignore
+        return objgraph
+    except:
+        print("Module 'objgraph' is required to use this module.")
+        raise
 
 logger = logging.getLogger(__name__)
 
 
 def clear():
+    objgraph = _get_obj()
     objgraph.growth()
 
 
 def check(info: str):
+    objgraph = _get_obj()
     result = objgraph.growth(1000)
     if not result:
         return
@@ -63,6 +67,7 @@ def check(info: str):
 
 
 def graph(name: str):
+    objgraph = _get_obj()
     import random
     from io import StringIO
     from urllib.parse import quote

@@ -1,10 +1,14 @@
+""" This module contains a base class `Metadata` which is used to wrap, type, 
+and check all View parameters provided to kedro.
+
+@TODO: refactor this file. """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple, overload
 
 if TYPE_CHECKING:
     import pandas as pd
-    from .utils import LazyFrame
 
 import logging
 
@@ -173,7 +177,7 @@ class TableMeta:
         return self.__dict__.__str__()
 
 
-class DatasetMeta:
+class ViewMeta:
     TABLE_CLS = TableMeta
 
     def __init__(
@@ -226,5 +230,5 @@ class DatasetMeta:
         return self.__dict__.__str__()
 
 
-class Metadata(DatasetMeta):
+class Metadata(ViewMeta):
     pass

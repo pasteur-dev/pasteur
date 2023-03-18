@@ -258,6 +258,7 @@ def _get_pool():
 
 
 def get_manager():
+    """ Returns the manager of the current process pool. """
     return _get_pool()[1]
 
 
@@ -534,6 +535,13 @@ __all__ = [
     "MULTIPROCESS_ENABLE",
     "piter",
     "prange",
+    "process",
+    "process_async",
     "process_in_parallel",
     "logging_redirect_pbar",
+    "init_pool",
+    "close_pool",
+    "get_manager",
+    "set_node_name",
+    "get_node_name"
 ]

@@ -50,7 +50,7 @@ class MlflowHandler(Handler):
         self.name = name
         self.logdir = logdir
 
-        self.interval = interval
+        self.interval = int(interval)
         self.last_sent = time()
 
         self.stream = StringIO()
@@ -98,3 +98,5 @@ class MlflowHandler(Handler):
     def __repr__(self):
         level = getLevelName(self.level)
         return "<Mlflow handler %s(%s)>" % (self.name, level)
+
+__all__ = ["MlflowHandler"]

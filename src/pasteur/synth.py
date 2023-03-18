@@ -60,22 +60,11 @@ class SynthFactory(ModuleFactory["Synth"]):
     def __init__(self, cls: type[Synth], *args, name: str | None = None, **_) -> None:
         super().__init__(cls, *args, name=name, **_)
         self.type = cls.type
-        self.tabular = cls.tabular
-        self.multimodal = cls.multimodal
-        self.timeseries = cls.timeseries
-        self.gpu = cls.gpu
-        self.parallel = cls.parallel
 
 
 class Synth(ModuleClass):
     type = "idx"
-    tabular = True
-    multimodal = False
-    timeseries = False
     partitions = 1
-    gpu = False
-    parallel = False
-
     _factory = SynthFactory
 
     def preprocess(
@@ -143,8 +132,8 @@ def synth_fit(
     attrs = {n: t[factory.type].get_attributes() for n, t in trns.items()}
     model = factory.build(**args, seed=meta.seed)
 
-    if factory.gpu:
-        tracker.use_gpu()
+    # if factory.gpu:
+    #     tracker.use_gpu()
 
     tracker.start("preprocess")
     model.preprocess(attrs, ids, tables)
@@ -182,10 +171,6 @@ class IdentSynth(Synth):
 
     name = "ident_idx"
     type = "idx"
-
-    tabular = True
-    multimodal = True
-    timeseries = True
     partitions = 1
 
     def preprocess(
@@ -208,4 +193,4 @@ class IdentSynth(Synth):
         return self._ids, self._tables
 
 
-__all__ = ["Synth", "synth_fit", "synth_sample"]
+__all__ = ["Synth", "SynthFactory", "IdentSynth", "make_deterministic"]

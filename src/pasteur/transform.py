@@ -6,16 +6,6 @@ from .attribute import Attribute
 
 logger = logging.getLogger(__name__)
 
-"""Package with base transformers. 
-
-Contains transformers that convert raw data into 2 types (with name suffix):
-    - numerical (num): floating point values (float32), including NaN
-    - discrete (idx): integer values (uintX) with metadata that make them:
-        - categorical: integer values from 0-N with columns with no relations
-        - ordinal: integer values from 0-N where `k` val is closer to `k + 1` than other vals.
-        - hierarchical: contains a hierarchy of ordinal and categorical values.
-"""
-
 
 class TransformerFactory(ModuleFactory):
     ...

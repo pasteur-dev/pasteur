@@ -1,3 +1,17 @@
+""" Contains the logic for handling multiple tables, and holding transformers and
+encoders.
+
+The functionality is achieved through a class named `ReferenceManager`, which
+is used to generate the ID tables, and the `TransformHolder`, which holds
+everything required to encode and transform a table.
+
+The `TransformHolder` holds a `TableTransformer` which hosts the Table's transformers
+and multiple `TableEncoder`s, which can be accesed with array syntax (ex. `['idx']`),
+one for each supported encoding.
+
+Once the TransformHolder is fit, it can be loaded and used to transform, encode,
+reverse, and decode table partitions."""
+
 import logging
 
 import pandas as pd
@@ -7,13 +21,13 @@ from .encode import Encoder, EncoderFactory
 from .metadata import Metadata
 from .module import Module, get_module_dict
 from .transform import RefTransformer, Transformer, TransformerFactory
-from .utils import LazyChunk, LazyFrame
+from .utils import LazyChunk
 
 logger = logging.getLogger(__file__)
 
 
 class ReferenceManager:
-    """Manages the foreign relationships of a table"""
+    """Manages the foreign relationships of a table/"""
 
     def __init__(
         self,

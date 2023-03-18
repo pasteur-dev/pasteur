@@ -1,12 +1,16 @@
+""" Highly experimental and unpublished class for rebalancing Stratified Values
+with Differential Privacy.
+
+@TODO: Documentation."""
+
 import logging
 from itertools import combinations
 from math import ceil, log
 from typing import TypeVar
 
 import numpy as np
-import pandas as pd
 
-from .attribute import Attributes, IdxValue, Level, LevelValue, get_dtype
+from .attribute import Attributes, CatValue, Grouping, StratifiedValue, get_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,7 @@ class CatNode(list):
 
 
 def create_tree(
-    node: Level, common: int = 0, ofs: int = 0, n: int | None = None
+    node: Grouping, common: int = 0, ofs: int = 0, n: int | None = None
 ) -> list:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
@@ -37,7 +41,7 @@ def create_tree(
     for child in node:
         if ofs < common:
             out.append(None)
-        elif isinstance(child, Level):
+        elif isinstance(child, Grouping):
             out.append(create_tree(child, common, ofs, n))
         else:
             out.append(set([ofs]))
@@ -220,7 +224,7 @@ def create_node_to_group_map(tree: list, grouping: np.ndarray, ofs: int = 0):
     return ofs
 
 
-def make_grouping(counts: np.ndarray, head: Level, common: int = 0) -> np.ndarray:
+def make_grouping(counts: np.ndarray, head: Grouping, common: int = 0) -> np.ndarray:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
@@ -305,11 +309,11 @@ def generate_domain_list(
     return new_domains
 
 
-class RebalancedValue(IdxValue):
+class RebalancedValue(CatValue):
     def __init__(
         self,
         counts: np.ndarray,
-        col: LevelValue,
+        col: StratifiedValue,
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
@@ -406,7 +410,7 @@ class RebalancedValue(IdxValue):
 
 def rebalance_value(
     counts: np.ndarray,
-    col: LevelValue,
+    col: StratifiedValue,
     num_cols: int = 1,
     ep: float | None = None,
     gaussian: bool = False,
@@ -422,7 +426,7 @@ def rebalance_value(
         noise = np.random.laplace(scale=noise_scale, size=counts.shape)
         counts = counts + noise
 
-    assert isinstance(col, LevelValue)
+    assert isinstance(col, StratifiedValue)
     return RebalancedValue(counts, col, **kwargs)
 
 
@@ -449,7 +453,7 @@ def rebalance_attributes(
     for name, attr in attrs.items():
         cols = {}
         for col_name, col in attr.vals.items():
-            assert isinstance(col, LevelValue)
+            assert isinstance(col, StratifiedValue)
             cols[col_name] = rebalance_value(
                 counts[col_name],
                 col,

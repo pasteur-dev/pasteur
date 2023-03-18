@@ -1,6 +1,10 @@
+""" This module provides the definitions for Metric Modules.
+Metric modules can fit to a column, a table, or a whole View.
+In each case, modules are instanciated as required (for columns one is instantiated
+per column type, for tables one per table and View metrics are instantiated once)."""
+
 import logging
-from collections import defaultdict
-from typing import Generic, TypeVar, cast, TypedDict, NamedTuple, Any
+from typing import Generic, TypeVar, TypedDict, Any
 
 import pandas as pd
 
@@ -9,7 +13,7 @@ from .metadata import ColumnMeta, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
 from .utils import LazyChunk, LazyFrame
-from .utils.progress import process, process_in_parallel
+from .utils.progress import process_in_parallel
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +48,9 @@ class TableMetricFactory(ModuleFactory["TableMetric"]):
         self.encodings = cls.encodings
 
 
-class DatasetMetricFactory(ModuleFactory["DatasetMetric"]):
+class ViewMetricFactory(ModuleFactory["ViewMetric"]):
     def __init__(
-        self, cls: type["DatasetMetric"], *args, name: str | None = None, **kwargs
+        self, cls: type["ViewMetric"], *args, name: str | None = None, **kwargs
     ) -> None:
         super().__init__(cls, *args, name=name, **kwargs)
         self.encodings = cls.encodings
@@ -228,8 +232,8 @@ class ColumnMetricHolder(
         ids = data["ids"]
         tables = data["tables"].copy()
         tables["ids"] = ids
-        part = next(iter(LazyFrame.zip_values(**tables))) # FIXME: incorrect type
-        self._fit_chunk(table, meta, part, part["ids"]) #type: ignore
+        part = next(iter(LazyFrame.zip_values(**tables)))  # FIXME: incorrect type
+        self._fit_chunk(table, meta, part, part["ids"])  # type: ignore
 
     def _process_chunk(
         self,
@@ -276,12 +280,12 @@ class ColumnMetricHolder(
             wrk_sum[name] = []
             ref_sum[name] = []
             for i, metric in enumerate(metrics):
-                wrk_sum[name].append(metric.combine(
-                    [chunk[name][i] for chunk in summaries_wrk]
-                ))
-                ref_sum[name].append(metric.combine(
-                    [chunk[name][i] for chunk in summaries_ref]
-                ))
+                wrk_sum[name].append(
+                    metric.combine([chunk[name][i] for chunk in summaries_wrk])
+                )
+                ref_sum[name].append(
+                    metric.combine([chunk[name][i] for chunk in summaries_ref])
+                )
 
         return Summaries(wrk_sum, ref_sum)
 
@@ -299,9 +303,9 @@ class ColumnMetricHolder(
         for name, metrics in self.metrics.items():
             syn_sum[name] = []
             for i, metric in enumerate(metrics):
-                syn_sum[name].append(metric.combine(
-                    [chunk[name][i] for chunk in summaries]
-                ))
+                syn_sum[name].append(
+                    metric.combine([chunk[name][i] for chunk in summaries])
+                )
 
         return pre.replace(syn=syn_sum)
 
@@ -357,19 +361,19 @@ class TableMetric(Metric[TableData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMAR
         return f"{self.type}_{self.name}_{self.table}"
 
 
-class DatasetData(TypedDict):
+class ViewData(TypedDict):
     tables: dict[str, dict[str, LazyFrame]]
     ids: dict[str, LazyFrame]
 
 
-class DatasetMetric(Metric[DatasetData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
-    _factory = DatasetMetricFactory
+class ViewMetric(Metric[ViewData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
+    _factory = ViewMetricFactory
     type = "dst"
     table: str
     encodings: list[str] = ["raw"]
 
     def fit(
-        self, meta: Metadata, attrs: dict[str, dict[str, Attributes]], data: DatasetData
+        self, meta: Metadata, attrs: dict[str, dict[str, Attributes]], data: ViewData
     ):
         raise NotImplementedError()
 
@@ -407,10 +411,10 @@ def fit_table_metric(
 
 
 def fit_dataset_metric(
-    fs: DatasetMetricFactory,
+    fs: ViewMetricFactory,
     meta: Metadata,
     trns: dict[str, TransformHolder],
-    data: DatasetData,
+    data: ViewData,
 ):
     enc = fs.encodings
     attrs = {
@@ -432,3 +436,20 @@ def log_metric(metric: Metric[Any, Any, _SUMMARY], summary: _SUMMARY):
     mlflow_log_artifacts(
         "metrics", metric.unique_name(), metric=metric, summary=summary
     )
+
+
+DatasetMetric = ViewMetric
+DatasetMetricFactory = ViewMetricFactory
+
+__all__ = [
+    "ColumnMetricFactory",
+    "RefColumnMetricFactory",
+    "TableMetricFactory",
+    "ViewMetricFactory",
+    "Metric",
+    "Summaries",
+    "ColumnMetric",
+    "RefColumnMetric",
+    "TableMetric",
+    "ViewMetric",
+]

@@ -1,6 +1,9 @@
+""" This module holds the definitions for the View module, which appropriately
+preprocesses Datasets in Pasteur. """
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any
 
 from .module import Module
 from .utils import LazyFrame, LazyChunk, to_chunked

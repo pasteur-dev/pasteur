@@ -1,16 +1,18 @@
-from typing import TypeVar, Any
+from typing import Any, TypeVar
+
+from ..module import Module
 
 
 def _try_convert_to_numeric(value: str):
     """Taken from kedro.framework.cli.utils"""
     try:
-        value = float(value)
+        value = float(value) # type: ignore
     except ValueError:
         return value
-    return int(value) if value.is_integer() else value
+    return int(value) if value.is_integer() else value # type: ignore
 
 
-def _try_convert_primitive(value: any):
+def _try_convert_primitive(value: Any):
     """Converts string value to integer/float/bool/None."""
     if value == "True":
         return True
@@ -26,7 +28,7 @@ def _try_convert_eval(value: str, locals: dict[str, object]):
 
 
 def _update_value_nested_dict(
-    nested_dict: dict[str, any], value: any, walking_path: list[str]
+    nested_dict: dict[str, Any], value: Any, walking_path: list[str]
 ) -> dict:
     """Taken from kedro.framework.cli.utils"""
     key = walking_path.pop(0)
@@ -39,7 +41,7 @@ def _update_value_nested_dict(
     return nested_dict
 
 
-def str_params_to_dict(params: list[str], locals: dict[str, any] = {}):
+def str_params_to_dict(params: list[str], locals: dict[str, Any] = {}):
     """Converts a list of format ["a.b.c=5", "c=b"] to {a: {b: {c:5}}, c: 'b'}.
 
     Note the number conversion."""
@@ -59,7 +61,7 @@ def str_params_to_dict(params: list[str], locals: dict[str, any] = {}):
     return param_dict
 
 
-def eval_params(params: list[str], locals: dict[str, any] = {}):
+def eval_params(params: list[str], locals: dict[str, Any] = {}):
     return {
         name: _try_convert_eval(value, locals)
         for name, value in map(lambda x: x.split("=", 1), params)
@@ -75,7 +77,7 @@ def merge_params(params: dict[str, Any]):
     return param_dict
 
 
-def flat_params_to_dict(params: dict[str, any]):
+def flat_params_to_dict(params: dict[str, Any]):
     """Converts a list of format {a.b.c: 5, c: b} to {a: {b: {c:5}}, c: 'b'}.
 
     Note the number conversion."""
@@ -90,7 +92,7 @@ def flat_params_to_dict(params: dict[str, any]):
     return param_dict
 
 
-def dict_to_flat_params(params: dict[str, any]) -> dict[str, str]:
+def dict_to_flat_params(params: dict[str, Any]) -> dict[str, str]:
     out = {}
     for param, val in params.items():
         if not isinstance(val, dict):
@@ -102,7 +104,7 @@ def dict_to_flat_params(params: dict[str, any]) -> dict[str, str]:
     return out
 
 
-CLS = TypeVar("CLS")
+CLS = TypeVar("CLS", bound=Module)
 
 
 def _find_subclasses(cls: type[CLS]) -> dict[str, type[CLS]]:
@@ -153,7 +155,7 @@ def get_params_for_pipe(name: str, params: dict):
 
     This allows the user to set default values for all views in the `default`
     namespace, view specific overriding params in the `<view>` namespace and
-    override any of them using the `--params` argument without having to use
+    override Any of them using the `--params` argument without having to use
     the parameter namespace"""
     view = name.split(".")[0]
     return merge_dicts(params.get("default", {}), params.get(view, {}), params)

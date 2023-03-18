@@ -1,3 +1,6 @@
+""" This module holds the definitions for the Dataset module, the initial entrypoint
+for data in Pasteur. """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
@@ -99,7 +102,7 @@ class Dataset(Module):
 
         @warning: all partitioned tables should have the same partitions.
         Some tables may not be partitioned.
-        
+
         Tip: use a `match` statement to fork based on table name to per-table functions."""
         raise NotImplemented()
 

@@ -1,3 +1,9 @@
+""" Contains the module definitions in Pasteur, the base classes all
+Pasteur modules extend from. 
+
+In Pasteur, all functionality is achieved through the use of modules.
+You should not interact with this module directly, but rather through its children."""
+
 from collections import defaultdict
 from typing import Generic, TypeVar
 
@@ -17,7 +23,11 @@ class Module:
 
 class ModuleClass:
     """Modules which need to be instantiated multiple times extend from ModuleClass and define
-    a Factory to act as their module"""
+    a Factory to act as their module.
+
+    For the module types provided by pasteur, you can call the classmethod `get_factory()`.
+    `get_factory()` also acts as a closure, allowing you to provide parameters to
+    the module's init function."""
 
     name: str
     _factory: type["ModuleFactory"]
@@ -43,7 +53,7 @@ class ModuleFactory(Module, Generic[A]):
     """Some modules (such as transformers) require multiple instances in the system. In this case,
     it's not possible to provide a module instance for them.
 
-    `ModuleFactory` is used to provide a wrapper instance to that module class."""
+    For those types, their instance is based on `ModuleFactory`."""
 
     def __init__(self, cls: type[A], *args, name: str | None = None, **kwargs) -> None:
         self._cls = cls
@@ -82,3 +92,12 @@ def get_module_dict_multiple(
         if isinstance(module, parent):
             out[module.name].append(module)
     return out
+
+
+__all__ = [
+    "Module",
+    "ModuleClass",
+    "ModuleFactory",
+    "get_module_dict",
+    "get_module_dict_multiple",
+]
