@@ -141,27 +141,40 @@ class View(Module):
     Use `utils.get_relative_fn()` from datasets."""
 
     dataset: str
+    """The name of the View's Dataset. If the Dataset is not loaded, the View
+    is disabled."""
+
     deps: dict[str, list[str]] = {}
+    """ Defines the Tables of the View and their Dataset dependencies, ex.:
+    
+    ```python
+    {"table1": ["master_table1", "master_table2"], "table2": ["master_table3"]}
+    ```
+    """
     trn_deps: dict[str, list[str]] = {}
     parameters: dict[str, Any] | str | None = None
-    tabular: bool = False
 
     def __init__(self, **_) -> None:
         pass
 
     @property
     def dataset_tables(self):
+        """Returns the dataset tables required by the View."""
         from functools import reduce
 
         return list(dict.fromkeys(reduce(lambda a, b: a + b, self.deps.values(), [])))
 
     @property
     def tables(self):
+        """Returns the table names of the view."""
         return list(self.deps.keys())
-
-    def ingest(self, name, **tables: LazyFrame):
-        """Creates the table <name> using the tables provided based on the dependencies."""
-        raise NotImplementedError()
+    
+    def query(self, name, **tables: LazyFrame):
+        """ Equivalent to ingest in Dataset. """
+        if hasattr(self, "ingest"):
+            # Original name for function was ingest.
+            return getattr(self, "ingest")(name, **tables)
+        raise NotImplemented()
 
     def split_keys(
         self,
@@ -187,8 +200,10 @@ class View(Module):
 
 
 class TabularView(View):
+    """Boilerplate for views that are based on tabular datasets.
+    Has one table, named `table`, which is a copy of the table `table` of its
+    Dataset."""
     deps = {"table": ["table"]}
-    tabular: bool = True
 
     @to_chunked
     def ingest(self, name, **tables: LazyChunk):
@@ -196,4 +211,4 @@ class TabularView(View):
         return tables["table"]()
 
 
-__all__ = ["View", "TabularView", "filter_by_keys"]
+__all__ = ["View", "TabularView", "split_keys", "filter_by_keys"]

@@ -42,29 +42,55 @@ class Dataset(Module):
     @Warning: having a table named raw is not allowed."""
 
     deps: dict[str, list[str]] = {}
+    """ Defines the Tables of the dataset and their dependencies, ex.:
+    
+    ```python
+    {"table1": ["raw1", "raw2"], "table2": ["raw3", "raw4"]}
+    ```
+    """
+
     key_deps: list[str] = []
+    """ Provides the table dependencies (Table, not raw) that are used to create 
+    the keys of the dataset. """
 
     folder_name: str | None = None
+    """ Specifies the name of the folder in the raw directory that will be used
+    for the dataset's raw sources. If the folder does not exist, the dataset
+    is disabled (used for packaging)."""
     catalog: dict[str, Any] | str | None = None
+    """ A kedro catalog that represents the dataset's sources. Can be provided
+    as a dictionary to be used as is, or as a filepath, in which case
+    the path will be loaded and processed, by replacing the paths with appropriate
+    ones based on the raw directory and folder name."""
+
     bootstrap: Callable[[str, str], None] | None = None
+    """ An optional function that is used for one-time tasks (such as extraction).
+    Can be run with `pasteur bootstrap <dataset_name>`. 
+    
+    Is provided with 2 paths: the raw directory of the dataset and another 
+    directory dedicated to the dataset named bootstrap.
+    If the dataset has any archives, extract them from the raw directory to 
+    bootstrap and then use the bootstrap directory as a base in the catalog."""
 
     def __init__(self, **_) -> None:
         pass
 
     @property
     def raw_tables(self):
+        """Returns the raw dependency names of the dataset."""
         from functools import reduce
 
         return list(dict.fromkeys(reduce(lambda a, b: a + b, self.deps.values(), [])))
 
     @property
     def tables(self):
+        """Returns the table names of the dataset."""
         return list(self.deps.keys())
 
     def ingest(self, name, **tables: Any) -> LazyFrame:
         """Creates the table <name> using the tables provided based on the dependencies.
 
-        The dependencies may be any and should be defined in the catalog.
+        The dependencies may be anything and should be defined in the catalog.
         The raw tables of a dataset are the only kedro datasets explicitly
         defined by the user.
 
@@ -72,36 +98,23 @@ class Dataset(Module):
         If it's a dict, the table will be partitioned using the dict keys.
 
         @warning: all partitioned tables should have the same partitions.
-        Some tables may not be partitioned."""
+        Some tables may not be partitioned.
+        
+        Tip: use a `match` statement to fork based on table name to per-table functions."""
         raise NotImplemented()
 
     def keys(self, **tables: LazyFrame) -> pd.DataFrame:
-        """Returns a set of keys which split the current dataset (or partition).
+        """Returns a set of keys which split the current dataset.
 
         Keys do not need to be unique per partition, since splitting will also
         be partition based.
+        Gets a set of table partitions based on `key_deps`.
 
-        Gets a set of table partitions based on `key_deps`. All tables are the
-        same partition. If a table is not partitioned, it's the whole DataFrame.
-
-        Shouldn't return a callable."""
+        Use the `to_chunked` operator to handle partitions."""
         raise NotImplemented()
 
     def __str__(self) -> str:
         return self.name
-
-
-class TypedDataset(Dataset):
-    """Extend from to create an intermediary step in ingestion, where the table
-    is loaded from `<dataset>.raw@<table>` to a parquet one `<dataset>.typed.<table>.
-
-    Useful for multiple reads to raw tables. You can also override the `type()` function to make
-    minor changes to the dataset. By default it's the identity.
-
-    Since parquet files don't support chunked loading it's unused."""
-
-    def type(self, table: Any):
-        return table
 
 
 class TabularDataset(Dataset):

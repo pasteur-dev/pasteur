@@ -35,8 +35,8 @@ def create_view_pipeline(view: View):
         pipeline(
             [
                 node(
-                    func=view.ingest,
-                    name=f"ingest_{t}",
+                    func=view.query,
+                    name=f"query_{t}",
                     args=[t],
                     inputs={dep: f"{view.dataset}.{dep}" for dep in view.deps[t]},
                     namespace=f"{view}.view",
