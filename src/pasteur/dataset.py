@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from .module import Module
-from .utils import LazyChunk, LazyFrame, to_chunked
+from .utils import LazyChunk, LazyFrame, to_chunked, RawSource
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -55,7 +55,7 @@ class Dataset(Module):
     key_deps: list[str] = []
     """ Provides the table dependencies (Table, not raw) that are used to create 
     the keys of the dataset. """
-
+    
     folder_name: str | None = None
     """ Specifies the name of the folder in the raw directory that will be used
     for the dataset's raw sources. If the folder does not exist, the dataset
@@ -65,6 +65,10 @@ class Dataset(Module):
     as a dictionary to be used as is, or as a filepath, in which case
     the path will be loaded and processed, by replacing the paths with appropriate
     ones based on the raw directory and folder name."""
+    raw_sources: dict[str, RawSource] | RawSource | None = None
+    """ A raw source that can be used to download the dataset.
+    
+    Optionally, multiple sources can be supplied and downloaded with `pasteur download <name>`."""
 
     bootstrap: Callable[[str, str], None] | None = None
     """ An optional function that is used for one-time tasks (such as extraction).
@@ -163,4 +167,4 @@ class TypedDataset(Dataset):
 
 
 
-__all__ = ["Dataset", "TabularDataset"]
+__all__ = ["RawSource", "Dataset", "TabularDataset"]

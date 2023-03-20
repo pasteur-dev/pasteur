@@ -12,6 +12,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    NamedTuple,
     TypeVar,
     Generic,
     overload,
@@ -29,6 +30,24 @@ P = ParamSpec("P")
 
 logger = logging.getLogger(__name__)
 
+class RawSource(NamedTuple):
+    """ Represents a raw data source that can be downloaded.
+
+    `files` is a list or a single URI that points to an S3 directory, index listing,
+    or file.
+
+    Files will be saved to `<raw_directory>/<save_name>` or the raw source name/dataset
+    name if not provided..
+    HTTP basic auth is supported and can be enabled by setting `credentials` to True.
+    `description` is shown by the command `pasteur download` and should contain
+    licensing information.
+    
+    @warning: Experimental API, subject to change."""
+    
+    files: str | list[str]
+    save_name: str | None = None
+    credentials: bool = False
+    desc: str | None = None
 
 class LazyPartition(Generic[A]):
     def __init__(

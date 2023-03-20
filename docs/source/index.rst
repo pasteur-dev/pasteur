@@ -35,10 +35,6 @@ This documentation is a work-in-progress!
 
    tutorial/*
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Modules
-
 
 API documentation
 =================

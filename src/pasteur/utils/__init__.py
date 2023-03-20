@@ -3,13 +3,14 @@
 Pasteur provides a range of utilities in separate modules, based on their functionality."""
 
 from .data import (
-    LazyPartition,
     LazyChunk,
     LazyDataset,
     LazyFrame,
-    gen_closure,
-    to_chunked,
+    LazyPartition,
+    RawSource,
     apply_fun,
+    gen_closure,
+    get_relative_fn,
     list_unique,
-    get_relative_fn
+    to_chunked,
 )

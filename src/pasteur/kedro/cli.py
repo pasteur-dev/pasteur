@@ -9,8 +9,8 @@ import click
 from kedro.framework.session import KedroSession
 
 from ..utils.parser import eval_params, merge_params, str_params_to_dict
-from .runner import SimpleRunner
 from ..utils.progress import init_pool
+from .runner import SimpleRunner
 
 logger = logging.getLogger(__name__)
 
@@ -278,15 +278,33 @@ def download(
     Uses `wget` and `boto3` to download files.
 
     Only downloads missing files, can be ran to verify dataset is downloaded correctly."""
-    from ..extras.download import get_description, main
+    from ..dataset import Dataset
+    from ..extras.download import datasets as EXTRA_DATASETS
+    from ..module import get_module_dict
+    from ..utils.download import get_description, main
 
     # Setup logging and params with kedro
     with KedroSession.create() as session:
         ctx = session.load_context()
 
-        logger.info(get_description())
+        dataset_modules = get_module_dict(Dataset, getattr(ctx, "pasteur").modules)
+        all_datasets = dict(EXTRA_DATASETS)
+        for name, ds in dataset_modules.items():
+            if isinstance(ds.raw_sources, dict):
+                all_datasets.update(ds.raw_sources)
+            elif ds.raw_sources is not None:
+                all_datasets[name] = ds.raw_sources
+
+        logger.info(get_description(all_datasets))
         if not datasets:
             return
+
+        sel_datasets = {}
+        for ds in datasets:
+            if ds not in all_datasets:
+                logger.error(f"Raw sources for {ds} not found.")
+                return
+            sel_datasets[ds] = all_datasets[ds]
 
         download_dir = download_dir or ctx.params.get("raw_location", None)
         assert download_dir, f"Download dir is empty"
@@ -296,7 +314,7 @@ def download(
                 "You have to accept to the license of the data stores you're about to download from (--accept/-a)."
             )
         else:
-            main(download_dir, datasets, user)
+            main(download_dir, sel_datasets, user)
 
 
 @click.command()

@@ -13,3 +13,9 @@ except ImportError:
 
 version = metadata.version("pasteur")
 __version__ = version
+
+def load_ipython_extension(ipython):
+    """ Allows loading ipython functionality with `load_ext pasteur` """
+    from pasteur.kedro.ipython import load_ipython_extension as ld
+
+    ld(ipython)
