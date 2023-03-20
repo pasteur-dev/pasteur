@@ -28,6 +28,14 @@ Welcome to Pasteur's documentation!
 
 This documentation is a work-in-progress!
 
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Preliminaries
+   :glob:
+
+   preliminaries/*
+
 .. toctree::
    :maxdepth: 2
    :caption: Tutorial
