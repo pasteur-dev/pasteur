@@ -5,6 +5,14 @@
         <img alt="Pasteur Logo with text. Tagline reads: 'Sanitize Your Data'" src="https://raw.githubusercontent.com/pasteur-dev/pasteur/master/res/logo/text_light.svg" width="90%">
     </picture>
 </h1>
+
+[![PyPI package version](https://badge.fury.io/py/pasteur.svg)](https://pypi.org/project/pasteur/)
+[![Docs build status](https://readthedocs.org/projects/pasteur/badge/?version=latest)](https://docs.pasteur.dev/)
+[![License is Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-informational.svg)](https://opensource.org/license/apache2-0-php/)
+[![Python version 3.10+](https://img.shields.io/badge/python-3.10%2B-informational.svg)](https://pypi.org/project/pasteur/)
+[![Code style is Black](https://img.shields.io/badge/code%20style-black-black.svg)](https://github.com/psf/black)
+<!-- [![]()]() -->
+
 Pasteur is a library for performing privacy-aware end-to-end data synthesis.
 Gather your raw data and preprocess, synthesize, and evaluate it within a single
 project.
