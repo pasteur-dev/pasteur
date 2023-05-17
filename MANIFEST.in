@@ -1,0 +1,2 @@
+recursive-include src/pasteur *.yml
+graft src/pasteur/templates
