@@ -46,7 +46,7 @@ class Grouping(list[GI]):
     """ An enchanced form of list that holds the type of grouping (categorical, ordinal),
     and implements helper functions and an enchanced string representation."""
 
-    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping" | Any]):
+    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping | Any"]):
         lvls = []
         for a in arr:
             if isinstance(a, Grouping):
