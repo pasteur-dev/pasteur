@@ -81,19 +81,24 @@ def _pipe_magic(line):
     _pipe(pipe_str, params_str, params)
 
 
-def register_kedro():
+def register_kedro(path: str | None = None):
+    from kedro.ipython import _find_kedro_project, reload_kedro
+    import logging
+
+    top_level = Path(path) if path else Path.cwd()
+    proj_path = _find_kedro_project(top_level)
+
     ipy = get_ipython()
     ipy.register_magic_function(_pipe_magic, "line", "pipe")  # type: ignore
     ipy.register_magic_function(_pipe_magic, "line", "p")  # type: ignore
 
-    import logging
-
-    from kedro.ipython import _find_kedro_project, reload_kedro
-
     # Disable path message
     logging.getLogger().handlers = []
     _reconfigure_rich()
-    reload_kedro(_find_kedro_project(Path.cwd()))  # type: ignore
+    if not proj_path:
+        raise Exception(f"Kedro project not found along path: '{top_level}'")
+    else:
+        reload_kedro(proj_path)  # type: ignore
     _reconfigure_rich()
 
 
