@@ -4,16 +4,17 @@ In each case, modules are instanciated as required (for columns one is instantia
 per column type, for tables one per table and View metrics are instantiated once)."""
 
 import logging
-from typing import Generic, TypeVar, TypedDict, Any
+from typing import Any, Generic, TypedDict, TypeVar, cast
 
 import pandas as pd
 
 from .attribute import Attributes
-from .metadata import ColumnMeta, Metadata
+from .metadata import ColumnMeta, ColumnRef, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
 from .utils import LazyChunk, LazyFrame
 from .utils.progress import process_in_parallel
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +138,16 @@ class ColumnMetric(Metric[Any, Any, Summaries[A]], Generic[A]):
     type = "col"
     _factory = ColumnMetricFactory
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+    def fit(
+        self,
+        table: str,
+        col: str | tuple[str],
+        meta: ColumnMeta,
+        data: pd.Series | pd.DataFrame,
+    ):
         raise NotImplementedError()
 
-    def process(self, data: pd.Series) -> A:
+    def process(self, data: pd.Series | pd.DataFrame) -> A:
         raise NotImplementedError()
 
     def combine(self, summaries: list[A]) -> A:
@@ -151,14 +158,18 @@ class RefColumnMetric(ColumnMetric[A], Generic[A]):
     def fit(
         self,
         table: str,
-        col: str,
+        col: str | tuple[str],
         meta: ColumnMeta,
-        data: pd.Series,
-        ref: pd.Series | None = None,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
     ):
         raise NotImplementedError()
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None) -> A:
+    def process(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
+    ) -> A:
         raise NotImplementedError()
 
 
@@ -179,7 +190,7 @@ class ColumnMetricHolder(
     def __init__(self, modules: dict[str, list[ColumnMetricFactory]]) -> None:
         self.table = ""
         self.modules = modules
-        self.metrics: dict[str, list[ColumnMetric]] = {}
+        self.metrics: dict[str | tuple[str], list[ColumnMetric]] = {}
 
     def _fit_chunk(
         self, table: str, meta: Metadata, tables: dict[str, LazyChunk], ids: LazyChunk
@@ -194,8 +205,34 @@ class ColumnMetricHolder(
             self.metrics[name] = []
             for fs in self.modules.get(col.type, []):
                 m = fs.build()
-                if col.ref:
-                    rtable, rcol = col.ref.table, col.ref.col
+                cref = col.ref
+
+                if cref and isinstance(cref, list):
+                    assert isinstance(m, RefColumnMetric)
+                    table_cols = defaultdict(list)
+
+                    for ref in cref:
+                        table_cols[ref.table].append(ref.col)
+
+                    dfs = []
+                    for rtable, refs in table_cols.items():
+                        if rtable:
+                            assert ids and rtable in tables
+                            if rtable not in cached:
+                                cached[rtable] = tables[rtable]()
+
+                            df = cached_ids.join(cached[rtable][refs], on=rtable)[
+                                refs
+                            ].add_prefix(f"{rtable}.")
+                            dfs.append(df)
+                        else:
+                            dfs.append(cached[table][refs])
+
+                    ref_cols = pd.concat(dfs)
+                    m.fit(table, name, col, cached[table][name], ref_cols)
+                elif col.ref:
+                    ref = cast(ColumnRef, col.ref)
+                    rtable, rcol = ref.table, ref.col
                     assert rcol and isinstance(m, RefColumnMetric)
 
                     if rtable:
@@ -244,9 +281,33 @@ class ColumnMetricHolder(
         out = {}
         for name, metrics in self.metrics.items():
             out[name] = []
-            ref = self.meta[self.table][name].ref
+            cref = self.meta[self.table][name].ref
             for m in metrics:
-                if ref:
+                if cref and isinstance(cref, list):
+                    assert isinstance(m, RefColumnMetric)
+                    table_cols = defaultdict(list)
+
+                    for ref in cref:
+                        table_cols[ref.table].append(ref.col)
+
+                    dfs = []
+                    for rtable, refs in table_cols.items():
+                        if rtable:
+                            assert cached_ids and rtable in tables
+                            if rtable not in cached:
+                                cached[rtable] = tables[rtable]()
+
+                            df = cached_ids.join(cached[rtable][refs], on=rtable)[
+                                refs
+                            ].add_prefix(f"{rtable}.")
+                            dfs.append(df)
+                        else:
+                            dfs.append(cached[self.table][refs])
+
+                    ref_cols = pd.concat(dfs)
+                    a = m.process(cached[self.table][name], ref_cols)
+                elif cref:
+                    ref = cast(ColumnRef, cref)
                     rtable, rcol = ref.table, ref.col
                     assert rcol and isinstance(m, RefColumnMetric)
 
@@ -259,7 +320,7 @@ class ColumnMetricHolder(
                 else:
                     a = m.process(cached[self.table][name])
 
-                out[name].append(a)
+                out[name if isinstance(name, str) else ','.join(name)].append(a)
 
         return out
 
@@ -281,10 +342,10 @@ class ColumnMetricHolder(
             ref_sum[name] = []
             for i, metric in enumerate(metrics):
                 wrk_sum[name].append(
-                    metric.combine([chunk[name][i] for chunk in summaries_wrk])
+                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries_wrk])
                 )
                 ref_sum[name].append(
-                    metric.combine([chunk[name][i] for chunk in summaries_ref])
+                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries_ref])
                 )
 
         return Summaries(wrk_sum, ref_sum)
@@ -304,7 +365,7 @@ class ColumnMetricHolder(
             syn_sum[name] = []
             for i, metric in enumerate(metrics):
                 syn_sum[name].append(
-                    metric.combine([chunk[name][i] for chunk in summaries])
+                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries])
                 )
 
         return pre.replace(syn=syn_sum)

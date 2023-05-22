@@ -32,6 +32,8 @@ class ColumnRef(NamedTuple):
 
 
 class ColumnMeta:
+    ref: ColumnRef | list[ColumnRef] | None
+
     def __init__(self, **kwargs):
         type_val: str = kwargs["type"]
 
@@ -47,36 +49,49 @@ class ColumnMeta:
 
         # Ref can be set both by the ref keyword or by extended syntax
         ref = type_ref[1] if len(type_ref) > 1 else None
-        ref = kwargs.get("ref", ref)
-
+        refs = kwargs.get("ref", kwargs.get("refs", ref))
+            
         # Basic type and dtype data
         self.type = type
         self.dtype = kwargs.get("dtype", None)
 
         # Add reference column, used for dates and IDs
         # Format: <table>.<col>
+        # Can contain multiple columns, in the form of an array, or a string
         if ref is not None:
-            if isinstance(ref, str):
-                d = ref.split(".")
-                if len(d) == 2:
-                    table = d[0]
-                    col = d[1]
-                # For ids, if . is omitted, the format is assumed:
-                # <table>
-                elif self.type == "id":
-                    table = d[0]
-                    col = None
-                # For other types of columns (such as dates) the format is:
-                # <col> (the column might be in the same table).
-                else:
-                    table = None
-                    col = d[0]
-            elif isinstance(ref, dict):
-                table = ref.get("table", None)
-                col = ref["col"]
+            if isinstance(ref, list):
+                ref_arr = ref
+            elif isinstance(ref, str):
+                ref_arr = [r.strip() for r in ref.split(',')]
             else:
-                assert False, f"Unsupported ref format: {ref}"
-            self.ref = ColumnRef(table, col)
+                ref_arr = [ref]
+            
+            refs: list[ColumnRef] = []
+            for ref in ref_arr:
+                if isinstance(ref, str):
+                    d = ref.split(".")
+                    if len(d) == 2:
+                        table = d[0]
+                        col = d[1]
+                    # For ids, if . is omitted, the format is assumed:
+                    # <table>
+                    elif self.type == "id":
+                        table = d[0]
+                        col = None
+                    # For other types of columns (such as dates) the format is:
+                    # <col> (the column might be in the same table).
+                    else:
+                        table = None
+                        col = d[0]
+                elif isinstance(ref, dict):
+                    table = ref.get("table", None)
+                    col = ref["col"]
+                else:
+                    assert False, f"Unsupported ref format: {ref}"
+                
+                refs.append(ColumnRef(table, col))
+
+            self.ref = refs if len(refs) > 1 else refs[0]
         else:
             self.ref = None
 
@@ -140,23 +155,27 @@ class TableMeta:
         else:
             self.metrics = TableMetrics()
 
-        self._columns = {}
+        self._columns: dict[str | tuple[str, ...], ColumnMeta] = {}
 
         fields = meta["fields"]
-        for name, field in fields.items():
+        for name_str, field in fields.items():
+            names = tuple(n.strip() for n in name_str.split(','))
+            if len(names) == 1:
+                names = names[0]
+
             if isinstance(field, str):
                 args = {"type": field}
             else:
                 args = field.copy()
 
-            self._columns[name] = self.COLUMN_CLS(**args)
+            self._columns[names] = self.COLUMN_CLS(**args)
 
     @property
-    def columns(self) -> dict[str, ColumnMeta]:
+    def columns(self) -> dict[str | tuple[str], ColumnMeta]:
         return self._columns
 
     @property
-    def cols(self) -> dict[str, ColumnMeta]:
+    def cols(self) -> dict[str | tuple[str], ColumnMeta]:
         return self.columns
 
     def __getitem__(self, col) -> ColumnMeta:

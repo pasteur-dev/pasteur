@@ -13,12 +13,14 @@ Once the TransformHolder is fit, it can be loaded and used to transform, encode,
 reverse, and decode table partitions."""
 
 import logging
+from collections import defaultdict
+from typing import cast
 
 import pandas as pd
 
 from .attribute import Attribute, Attributes
 from .encode import Encoder, EncoderFactory
-from .metadata import Metadata
+from .metadata import Metadata, ColumnRef
 from .module import Module, get_module_dict
 from .transform import RefTransformer, Transformer, TransformerFactory
 from .utils import LazyChunk
@@ -47,7 +49,9 @@ class ReferenceManager:
         meta = self.meta[table]
         for name, col in meta.cols.items():
             if col.is_id():
+                assert isinstance(name, str), "ids only require one column"
                 if col.ref:
+                    assert not isinstance(col.ref, list), "ids only have 1 reference"
                     ref_table = col.ref.table
                     assert ref_table
                     ref_col = col.ref.col
@@ -99,7 +103,9 @@ class ReferenceManager:
         meta = self.meta[name]
 
         for col in meta.cols.values():
-            if not col.is_id() and col.ref is not None and col.ref.table is not None:
+            if not col.is_id() and col.ref is not None:
+                assert not isinstance(col.ref, list), 'ids can only have one reference'
+                assert col.ref.table is not None, 'ids with a reference should have one on a foreign table'
                 return True
         return False
 
@@ -119,7 +125,7 @@ class TableTransformer:
         self.name = name
         self.meta = meta
 
-        self.transformers: dict[str, Transformer] = {}
+        self.transformers: dict[str | tuple[str], Transformer] = {}
         self.transformer_cls = transformers
         self.fitted = False
 
@@ -159,8 +165,29 @@ class TableTransformer:
 
             # Add foreign column if required
             ref_col = None
-            if col.ref:
-                f_table, f_col = col.ref.table, col.ref.col
+            cref = col.ref
+            if cref and isinstance(cref, list):
+                table_cols = defaultdict(list)
+
+                for ref in cref:
+                    table_cols[ref.table].append(ref.col)
+
+                dfs = []
+                for rtable, refs in table_cols.items():
+                    if rtable:
+                        assert ids and rtable in tables
+
+                        df = ids.join(tables[rtable][refs], on=rtable)[
+                            refs
+                        ].add_prefix(f"{rtable}.")
+                        dfs.append(df)
+                    else:
+                        dfs.append(table[refs])
+
+                ref_col = pd.concat(dfs)
+            elif cref:
+                ref = cast(ColumnRef, cref)
+                f_table, f_col = ref.table, ref.col
                 assert f_col
                 if f_table:
                     assert ids is not None
@@ -190,7 +217,7 @@ class TableTransformer:
 
     def transform(
         self,
-        tables: dict[str, pd.DataFrame] | dict[str, LazyChunk],
+        tables: dict[str, pd.DataFrame] | dict[str, LazyChunk] | LazyChunk | pd.DataFrame,
         ids: pd.DataFrame | LazyChunk | None = None,
     ):
         assert self.fitted
@@ -203,6 +230,8 @@ class TableTransformer:
             }
             table = cached_tables[self.name]
         else:
+            # provide a catch to allow passing in a dataframe for a single table
+            # without wrapping it in a dictionary
             cached_tables = {self.name: tables() if callable(tables) else tables}
             table = cached_tables[self.name]
 
@@ -225,11 +254,37 @@ class TableTransformer:
         for name, col in meta.cols.items():
             if col.is_id():
                 continue
-
+            
+            trn = self.transformers[name]
+            
             # Add foreign column if required
             ref_col = None
-            if col.ref:
-                f_table, f_col = col.ref.table, col.ref.col
+            cref = col.ref
+            if cref and isinstance(cref, list):
+                table_cols = defaultdict(list)
+
+                for ref in cref:
+                    table_cols[ref.table].append(ref.col)
+
+                dfs = []
+                for rtable, refs in table_cols.items():
+                    if rtable:
+                        assert cached_ids and rtable in cached_tables
+
+                        df = cached_ids.join(cached_tables[rtable][refs], on=rtable)[
+                            refs
+                        ].add_prefix(f"{rtable}.")
+                        dfs.append(df)
+                    else:
+                        dfs.append(table[refs])
+
+                ref_cols = pd.concat(dfs)
+
+                assert isinstance(trn, RefTransformer), "Reference column included for a transformer without a reference"
+                tt = trn.transform(table[name].copy(), ref_cols)
+            elif cref:
+                ref = cast(ColumnRef, cref)
+                f_table, f_col = ref.table, ref.col
                 assert f_col
                 if f_table:
                     assert cached_ids is not None
@@ -241,11 +296,11 @@ class TableTransformer:
                     # Local column, duplicate and rename
                     ref_col = table[f_col]
 
-            t = self.transformers[name]
-            if isinstance(t, RefTransformer) and ref_col is not None:
-                tt = t.transform(table[name].copy(), ref_col)
+                assert isinstance(trn, RefTransformer), "Reference column included for a transformer without a reference"
+                tt = trn.transform(table[name].copy(), ref_col)
             else:
-                tt = t.transform(table[name].copy())
+                tt = trn.transform(table[name].copy())
+
             tts.append(tt)
             del ref_col, tt
 
@@ -275,52 +330,79 @@ class TableTransformer:
 
         meta = self.meta[self.name]
 
-        # Process columns with no intra-table dependencies first
+        # Process columns using a for loop based topological sort 
+        completed_cols = set()
         tts = {}
-        for name, col in meta.cols.items():
-            if col.is_id():
-                continue
-            if col.ref is not None and col.ref.table is None:
-                # Intra-table dependencies
-                continue
+        while len(tts) < len(meta.cols):
+            processed_col = False
+            for name, col in meta.cols.items():
+                # Skip already processed columns
+                if name in completed_cols:
+                    continue
+                # Skip ids
+                if col.is_id():
+                    continue
 
-            ref_col = None
-            if col.ref is not None:
-                f_table, f_col = col.ref.table, col.ref.col
-                assert cached_ids and cached_parents and f_col and f_table
-                assert (
-                    f_table in cached_parents
-                ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
-                ref_col = cached_ids.join(cached_parents[f_table][f_col], on=f_table)[
-                    f_col
-                ]
+                ref_col = None
+                cref = col.ref
+                if cref and isinstance(cref, list):
+                    # Check ref requirements met
+                    unmet_requirements = False
+                    for ref in cref:
+                        if not ref.table and not ref.col in completed_cols:
+                            unmet_requirements = True
+                            break
+                    if unmet_requirements:
+                        continue
 
-            t = transformers[name]
-            if isinstance(t, RefTransformer) and ref_col is not None:
-                tt = t.reverse(cached_table, ref_col)
-            else:
-                tt = t.reverse(cached_table)
-            tts[name] = tt
+                    table_cols = defaultdict(list)
 
-        # Process columns with intra-table dependencies afterwards.
-        # fix-me: assumes no nested dependencies within the same table
-        for name, col in meta.cols.items():
-            if col.is_id() or col.ref is None:
-                # Columns with no dependencies have been processed
-                continue
-            if col.ref is not None and col.ref.table is not None:
-                # Columns with inter-table dependencies have been processed
-                continue
+                    for ref in cref:
+                        table_cols[ref.table].append(ref.col)
 
-            assert col.ref.col
-            ref_col = tts[col.ref.col]
-            t = transformers[name]
-            if isinstance(t, RefTransformer):
-                tt = t.reverse(cached_table, ref_col)
-            else:
-                tt = t.reverse(cached_table)
-            tts[name] = tt
+                    dfs = []
+                    for rtable, refs in table_cols.items():
+                        if rtable:
+                            assert cached_ids and rtable in cached_parents
 
+                            df = cached_ids.join(cached_parents[rtable][refs], on=rtable)[
+                                refs
+                            ].add_prefix(f"{rtable}.")
+                            dfs.append(df)
+                        else:
+                            dfs.append(tts[refs])
+
+                    ref_col = pd.concat(dfs)
+                elif cref:
+                    ref = cast(ColumnRef, cref)
+                    # Check ref requirements met
+                    if not ref.table and ref.col not in completed_cols:
+                        continue
+
+                    f_table, f_col = ref.table, ref.col
+                    assert cached_ids and cached_parents and f_col and f_table
+                    assert (
+                        f_table in cached_parents
+                    ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
+                    ref_col = cached_ids.join(cached_parents[f_table][f_col], on=f_table)[
+                        f_col
+                    ]
+
+                t = transformers[name]
+                if isinstance(t, RefTransformer) and ref_col is not None:
+                    tt = t.reverse(cached_table, ref_col)
+                else:
+                    tt = t.reverse(cached_table)
+
+                tts[name] = tt
+                processed_col = True
+                if isinstance(name, str):
+                    completed_cols.add(name)
+                else:
+                    completed_cols.update(name)
+            
+            assert processed_col, f"Did not process column in this loop. There are columns with cyclical dependencies."
+            
         # Re-add ids
         # If an id references another table it will be merged from the ids
         # dataframe. Otherwise, it will be set to 0 (irrelevant to data synthesis).
@@ -332,7 +414,7 @@ class TableTransformer:
                 continue
 
             if col.ref is not None:
-                assert col.ref.table and cached_ids is not None
+                assert not isinstance(col.ref, list) and col.ref.table and cached_ids is not None
                 dec_table[name] = cached_ids[col.ref.table]
             else:
                 dec_table[name] = 0

@@ -28,15 +28,15 @@ class Transformer(ModuleClass):
     def __init__(self, **_) -> None:
         pass
 
-    def fit(self, data: pd.Series) -> Attribute | None:
+    def fit(self, data: pd.Series | pd.DataFrame) -> Attribute | None:
         """Fits to the provided data"""
         pass
 
-    def fit_transform(self, data: pd.Series) -> pd.DataFrame:
+    def fit_transform(self, data: pd.Series | pd.DataFrame) -> pd.DataFrame:
         self.fit(data)
         return self.transform(data)
 
-    def transform(self, data: pd.Series) -> pd.DataFrame:
+    def transform(self, data: pd.Series | pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError()
 
     def reverse(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -58,21 +58,21 @@ class RefTransformer(Transformer):
 
     def fit(
         self,
-        data: pd.Series,
-        ref: pd.Series | None = None,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
     ) -> Attribute | None:
         pass
 
     def fit_transform(
-        self, data: pd.Series, ref: pd.Series | None = None
+        self, data: pd.Series | pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None
     ) -> pd.DataFrame:
         self.fit(data, ref)
         return self.transform(data, ref)
 
-    def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
+    def transform(self, data: pd.Series | pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None) -> pd.DataFrame:
         raise NotImplementedError()
 
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.DataFrame:
+    def reverse(self, data: pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have
         to be decoded first."""
