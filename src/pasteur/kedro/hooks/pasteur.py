@@ -3,7 +3,6 @@ from os import path
 from typing import Any, Callable
 
 import yaml
-from kedro_datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
@@ -11,7 +10,7 @@ from kedro.io import DataCatalog, Version
 from kedro.io.memory_dataset import MemoryDataSet
 
 from ...module import Module
-from ..dataset import FragmentedParquetDataset
+from ..dataset import FragmentedParquetDataset, PickleDataSet
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 

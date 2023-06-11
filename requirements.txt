@@ -312,11 +312,8 @@ jupyterlab-widgets==3.0.7
     # via ipywidgets
 kedro==0.18.10
     # via
-    #   kedro-datasets
     #   kedro-viz
     #   pasteur
-kedro-datasets==1.4.0
-    # via pasteur
 kedro-viz==6.3.0
     # via pasteur
 kiwisolver==1.4.4
