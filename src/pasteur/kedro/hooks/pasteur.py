@@ -3,7 +3,7 @@ from os import path
 from typing import Any, Callable
 
 import yaml
-from kedro.extras.datasets.pickle import PickleDataSet
+from kedro_datasets.pickle import PickleDataSet
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines

@@ -12,8 +12,8 @@ from typing import Callable
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-from kedro.extras.datasets.pandas.csv_dataset import CSVDataSet
-from kedro.extras.datasets.pandas.parquet_dataset import ParquetDataSet
+from kedro_datasets.pandas.csv_dataset import CSVDataSet
+from kedro_datasets.pandas.parquet_dataset import ParquetDataSet
 from kedro.io.core import PROTOCOL_DELIMITER, get_filepath_str
 from kedro.io.partitioned_dataset import PartitionedDataSet
 
@@ -40,6 +40,7 @@ class PatternDataSet(PartitionedDataSet):
         replace_pattern: str = "",
         replace_format: str = "",
     ):
+        
         super().__init__(
             path,
             dataset,
