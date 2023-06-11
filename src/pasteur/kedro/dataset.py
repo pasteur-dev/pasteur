@@ -179,7 +179,7 @@ def _save_worker(
             w.write(pa.Table.from_pandas(p0, schema=schema))
             del p0
 
-            for p in chunk:
+            for p in chunk: # type: ignore
                 try:
                     w.write(pa.Table.from_pandas(p, schema=schema))
                 except Exception as e:

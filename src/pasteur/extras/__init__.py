@@ -23,7 +23,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         # Views and Datasets
         AdultDataset(),
         MimicDataset(),
-        TexasDataset(),
+        # TexasDataset(),
         # TexasChargesView(),
         # TexasBaseView(),
         TabAdultView(),
