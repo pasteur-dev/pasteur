@@ -275,7 +275,10 @@ def _load_shape_worker(load_path: str, filesystem, *_, **__):
 
 class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
     """Modified kedro parquet dataset that acts similarly to a partitioned dataset
-    and implements lazy loading.
+    and implements lazy loading. 
+    
+    In the future, this dataset will automatically handle pickling, pyarrow 
+    Tables, DataFrames, and Tensors automatically based on what is saved.
 
     `save()` data can be a table, a callable, or a dictionary combination of both.
 

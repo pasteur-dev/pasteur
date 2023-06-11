@@ -10,7 +10,7 @@ from kedro.io import DataCatalog, Version
 from kedro.io.memory_dataset import MemoryDataSet
 
 from ...module import Module
-from ..dataset import FragmentedParquetDataset, PickleDataSet
+from ..dataset import FragmentedParquetDataset, PickleDataSet, PatternDataSet
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
@@ -104,18 +104,31 @@ class PasteurHook:
             return Version(load_version, self.save_version)
         return None
 
-    def add_set(self, layer, name, path_seg, versioned=False):
-        self.catalog.add(
-            name,
-            FragmentedParquetDataset(
-                path.join(
-                    self.base_location,
-                    *path_seg[:-1],
-                    path_seg[-1] + ".pq",
-                ),
+    def add_set(self, layer, name, path_seg, versioned=False, multi=False):
+        fn = path.join(
+            self.base_location,
+            *path_seg[:-1],
+            path_seg[-1],
+        )
+        if multi:
+            ds = PatternDataSet(
+                fn,
+                {
+                    "type": FragmentedParquetDataset,
+                    "save_args": self.pq_save_args,
+                    "version": self.get_version(name, versioned),
+                },
+            )
+        else:
+            ds = FragmentedParquetDataset(
+                fn + ".pq",
                 save_args=self.pq_save_args,
                 version=self.get_version(name, versioned),  # type: ignore
-            ),
+            )
+
+        self.catalog.add(
+            name,
+            ds,
         )
         if layer:
             self.catalog.layers[layer].add(name)
@@ -213,6 +226,8 @@ class PasteurHook:
                     self.add_pkl(d.layer, d.name, d.str_path, d.versioned)
                 case "pq":
                     self.add_set(d.layer, d.name, d.str_path, d.versioned)
+                case "mpq":
+                    self.add_set(d.layer, d.name, d.str_path, d.versioned, multi=True)
                 case "mem":
                     self.add_mem(d.layer, d.name)
                 case _:
