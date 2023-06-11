@@ -94,7 +94,7 @@ class Dataset(Module):
         """Returns the table names of the dataset."""
         return list(self.deps.keys())
 
-    def ingest(self, name, **tables: Any) -> LazyFrame:
+    def ingest(self, name, **tables: Any) -> LazyFrame | pd.DataFrame:
         """Creates the table <name> using the tables provided based on the dependencies.
 
         The dependencies may be anything and should be defined in the catalog.
@@ -110,7 +110,7 @@ class Dataset(Module):
         Tip: use a `match` statement to fork based on table name to per-table functions."""
         raise NotImplemented()
 
-    def keys(self, **tables: LazyFrame) -> pd.DataFrame:
+    def keys(self, **tables: LazyFrame) -> LazyFrame | pd.DataFrame:
         """Returns a set of keys which split the current dataset.
 
         Keys do not need to be unique per partition, since splitting will also
