@@ -4,6 +4,7 @@ The most notable additions are that the datasets lazy load data through `Partiti
 and can partition save data through custom `Node` return types."""
 
 from .auto import AutoDataset
+from .multi import Multiset
 from .modified import FragmentedCSVDataset, PatternDataSet, PickleDataSet
 
 """ Backwards compatibility. `AutoDataset` replaces `FragmentedParquetDataset`"""
@@ -15,4 +16,5 @@ __all__ = [
     "FragmentedParquetDataset",
     "PatternDataSet",
     "PickleDataSet",
+    "Multiset",
 ]

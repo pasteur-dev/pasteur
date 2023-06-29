@@ -10,7 +10,7 @@ from kedro.io import DataCatalog, Version
 from kedro.io.memory_dataset import MemoryDataSet
 
 from ...module import Module
-from ..dataset import FragmentedParquetDataset, PickleDataSet, PatternDataSet
+from ..dataset import AutoDataset, PickleDataSet, Multiset
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
@@ -111,16 +111,16 @@ class PasteurHook:
             path_seg[-1],
         )
         if multi:
-            ds = PatternDataSet(
+            ds = Multiset(
                 fn,
                 {
-                    "type": FragmentedParquetDataset,
+                    "type": AutoDataset,
                     "save_args": self.pq_save_args,
                     "version": self.get_version(name, versioned),
                 },
             )
         else:
-            ds = FragmentedParquetDataset(
+            ds = AutoDataset(
                 fn + ".pq",
                 save_args=self.pq_save_args,
                 version=self.get_version(name, versioned),  # type: ignore
@@ -227,6 +227,10 @@ class PasteurHook:
                 case "pq":
                     self.add_set(d.layer, d.name, d.str_path, d.versioned)
                 case "mpq":
+                    self.add_set(d.layer, d.name, d.str_path, d.versioned, multi=True)
+                case "auto":
+                    self.add_set(d.layer, d.name, d.str_path, d.versioned)
+                case "multi":
                     self.add_set(d.layer, d.name, d.str_path, d.versioned, multi=True)
                 case "mem":
                     self.add_mem(d.layer, d.name)

@@ -400,17 +400,6 @@ class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
 
         self._invalidate_cache()
 
-    def _save_no_buff(self, save_path: str, data: pd.DataFrame):
-        if self._protocol == "file":
-            with self._fs.open(save_path, mode="wb") as fs_file:
-                data.to_parquet(fs_file, **self._save_args)
-        else:
-            bytes_buffer = BytesIO()
-            data.to_parquet(bytes_buffer, **self._save_args) # type: ignore
-
-            with self._fs.open(save_path, mode="wb") as fs_file:
-                fs_file.write(bytes_buffer.getvalue())
-
     def reset(self):
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
         if self._fs.exists(save_path):
