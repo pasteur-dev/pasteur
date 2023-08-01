@@ -1,36 +1,57 @@
 """ Provides the base definition for Encoder modules"""
 
+from typing import Any, Generic, TypeVar
+
 import pandas as pd
 
-from .attribute import Attribute
+from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
+from .utils import LazyFrame, LazyPartition
 
 
 class EncoderFactory(ModuleFactory["Encoder"]):
-    """ Factory base class for encoders. Use isinstance with this class
-    to filter the Pasteur module list into only containing Encoders. """
+    """Factory base class for encoders. Use isinstance with this class
+    to filter the Pasteur module list into only containing Encoders."""
+
     ...
 
 
-class Encoder(ModuleClass):
+META = TypeVar("META")
+
+
+class AttributeEncoder(ModuleClass, Generic[META]):
     """Encapsulates a special way to encode an Attribute.
-    
-    One encoder is instantiated per module and its `fit` function is called to
-    fit it to the base layer data.
-    
-    After that, the module may be serialized, unserialized, and its encode
-    and decode methods may be called arbitrarily from different processes to encode
-    and decode sets of columns.
-    
+
+    One encoder is instantiated per attribute and its `fit` function is called to
+    adjust it to the base layer data.
+
+    For partitioned datasets, the `fit` method is called once per partition with
+    a different instance of AttributeEncoder, and then `reduce` is called by the
+    different instances to perform a reduciton.
+
     The `data` value may contain a superset of columns than that of the encoder.
     It is up to the encoder to filter it prior to processing. `data` should
-    not be mutated."""
+    not be mutated.
+
+    If the input data of the synthesis algorithm are in Dataframe form and referencing
+    other tables is not required, it is natural to use an `AttributeEncoder` to
+    handle encoding per-attribute.
+
+    @Warning: after fitting, the module may be serialized, unserialized, and its encode
+    and decode methods may be called arbitrarily from different processes to encode
+    and decode sets of columns.
+    """
 
     name: str = ""
-    attr: Attribute = Attribute("", {})
     _factory = EncoderFactory
 
-    def fit(self, attr: Attribute, data: pd.DataFrame | None) -> Attribute:
+    def fit(self, attr: Attribute, data: pd.DataFrame | None):
+        raise NotImplementedError()
+
+    def reduce(self, other: "AttributeEncoder"):
+        pass
+
+    def get_metadata(self) -> META:
         raise NotImplementedError()
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -40,4 +61,43 @@ class Encoder(ModuleClass):
         raise NotImplementedError()
 
 
-__all__ = ["EncoderFactory", "Encoder"]
+""" Backwards Compatibility, renamed to AttributeEncoder. """
+Encoder = AttributeEncoder
+
+
+class TableEncoder(ModuleClass, Generic[META]):
+    name: str = ""
+    _factory = EncoderFactory
+
+    def fit(
+        self,
+        attrs: dict[str, Attributes],
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, LazyFrame],
+        ids: LazyFrame,
+    ):
+        raise NotImplementedError()
+
+    def get_metadata(self) -> META:
+        raise NotImplementedError()
+
+    def encode(
+        self,
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, LazyFrame],
+        ids: LazyFrame,
+    ) -> dict[str, Any | LazyPartition[Any]]:
+        raise NotImplementedError()
+
+    def decode(
+        self,
+        data: dict[str, LazyPartition[Any]],
+    ) -> tuple[
+        LazyFrame | pd.DataFrame,
+        dict[str, LazyFrame | pd.DataFrame],
+        LazyFrame | pd.DataFrame,
+    ]:
+        raise NotImplementedError()
+
+
+__all__ = ["EncoderFactory", "Encoder", "TableEncoder", "AttributeEncoder"]

@@ -58,8 +58,7 @@ def get_group_size(counts: np.ndarray, g: set) -> float:
     programming cache, which is used to save the size of each group."""
     s = 0
     for i in g:
-        s += counts[i]
-
+        s += int(counts[i])
     return s
 
 

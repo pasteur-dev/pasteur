@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 
 from .module import ModuleClass, ModuleFactory
-from .attribute import Attribute
+from .attribute import Attribute, Attributes
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,9 @@ class Transformer(ModuleClass):
 
     def fit(self, data: pd.Series | pd.DataFrame) -> Attribute | None:
         """Fits to the provided data"""
+        pass
+
+    def reduce(self, other: "Transformer"):
         pass
 
     def fit_transform(self, data: pd.Series | pd.DataFrame) -> pd.DataFrame:
@@ -63,16 +66,81 @@ class RefTransformer(Transformer):
     ) -> Attribute | None:
         pass
 
+    def reduce(self, other: "RefTransformer"):
+        pass
+
     def fit_transform(
-        self, data: pd.Series | pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         self.fit(data, ref)
         return self.transform(data, ref)
 
-    def transform(self, data: pd.Series | pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None) -> pd.DataFrame:
+    def transform(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
         raise NotImplementedError()
 
-    def reverse(self, data: pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None) -> pd.DataFrame:
+    def reverse(
+        self, data: pd.DataFrame, ref: pd.Series | pd.DataFrame | None = None
+    ) -> pd.DataFrame:
+        """When reversing, the data column contains encoded data, whereas the ref
+        column contains decoded/original data. Therefore, the referred columns have
+        to be decoded first."""
+        raise NotImplementedError()
+
+
+class SeqTransformer(Transformer):
+    """Sequence Transformers are a generalised version of Reference Transformers
+    that can be used to process event data.
+
+    Sequence Transformers receive unprocessed parent columns, references and the ID table.
+    Then, it is up to them to process the data and return the encoded version.
+    They can also push columns upstream to parents, through context tables.
+    """
+
+    def fit(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
+        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ids: pd.DataFrame | None = None,
+    ) -> tuple[Attributes, dict[str, Attributes]] | None:
+        pass
+
+    def reduce(self, other: "SeqTransformer"):
+        pass
+
+    def fit_transform(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
+        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ids: pd.DataFrame | None = None,
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+        self.fit(data, ref)
+        return self.transform(data, ref)
+
+    def transform(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: pd.Series | pd.DataFrame | None = None,
+        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ids: pd.DataFrame | None = None,
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+        raise NotImplementedError()
+
+    def reverse(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ctx: dict[str, pd.Series | pd.DataFrame],
+        ref: pd.Series | pd.DataFrame | None = None,
+        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ids: pd.DataFrame | None = None,
+    ) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have
         to be decoded first."""

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def split_keys(
     key_chunk: LazyChunk,
     req_splits: list[str] | None,
-    splits: dict[str, Any],
+    splits: dict[str, float],
     random_state: int | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Splits keys according to the split dictionary.
@@ -62,18 +62,18 @@ def split_keys(
     np.random.shuffle(np_keys)
 
     # Split array into the required chunks
-    splits = {}
+    out_splits = {}
     i = 0
     for name, n in ns.items():
         keys_split = np_keys[i : i + n]
         i += n
-        splits[name] = pd.DataFrame(index=keys_split)
+        out_splits[name] = pd.DataFrame(index=keys_split)
         if idx_name is not None:
-            splits[name].index.name = idx_name
+            out_splits[name].index.name = idx_name
 
     if req_splits:
-        return {name: splits[name] for name in req_splits}
-    return splits
+        return {name: out_splits[name] for name in req_splits}
+    return out_splits
 
 
 @to_chunked
@@ -183,16 +183,16 @@ class View(Module):
         self,
         keys: LazyFrame,
         req_splits: list[str] | None,
-        splits: dict[str, Any],
+        splits: dict[str, float],
         random_state: int,
-    ):
+    ) -> dict[str, pd.DataFrame | LazyFrame]:
         """Takes the key frame and splits it into the portions specified by `splits`. Then, return
         the split with names in `req_splits`.
 
         Should produce the same results each run regardless of the value of `split`,
         because it will be ran once per split."""
         ...
-        return split_keys(keys, req_splits, splits, random_state)
+        return split_keys(keys, req_splits, splits, random_state) # type: ignore
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         """Filters the table using the keys provided."""
