@@ -19,7 +19,7 @@ from typing import cast
 import pandas as pd
 
 from .attribute import Attribute, Attributes
-from .encode import Encoder, EncoderFactory
+from .encode import ColumnEncoder, TableEncoder, EncoderFactory
 from .metadata import Metadata, ColumnRef
 from .module import Module, get_module_dict
 from .transform import RefTransformer, Transformer, TransformerFactory
@@ -169,9 +169,10 @@ class TableTransformer:
             ref_col = None
             cref = col.ref
             if cref and isinstance(cref, list):
-                table_cols = defaultdict(list)
+                table_cols: dict[str | None, list[str]] = defaultdict(list)
 
                 for ref in cref:
+                    assert ref.col is not None
                     table_cols[ref.table].append(ref.col)
 
                 dfs = []
@@ -266,9 +267,10 @@ class TableTransformer:
             ref_col = None
             cref = col.ref
             if cref and isinstance(cref, list):
-                table_cols = defaultdict(list)
+                table_cols: dict[str | None, list[str]] = defaultdict(list)
 
                 for ref in cref:
+                    assert ref.col is not None
                     table_cols[ref.table].append(ref.col)
 
                 dfs = []
@@ -382,9 +384,10 @@ class TableTransformer:
                     if unmet_requirements:
                         continue
 
-                    table_cols = defaultdict(list)
+                    table_cols: dict[str | None, list[str]] = defaultdict(list)
 
                     for ref in cref:
+                        assert ref.col is not None
                         table_cols[ref.table].append(ref.col)
 
                     dfs = []
@@ -461,11 +464,11 @@ class TableTransformer:
         return self.ref.find_foreign_ids(self.name, tables)
 
 
-class TableEncoder:
+class ColumnEncoderHolder(TableEncoder):
     """Receives tables that have been encoded by the base transformers and have
     attributes, and reformats them to fit a specific model."""
 
-    encoders: dict[str, Encoder]
+    encoders: dict[str, ColumnEncoder]
 
     def __init__(self, encoder: EncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
@@ -537,7 +540,7 @@ class TransformHolder:
         self.fitted = False
 
         self.encoders = {
-            name: TableEncoder(encoder) for name, encoder in encoders.items()
+            name: ColumnEncoderHolder(encoder) for name, encoder in encoders.items()
         }
 
     def find_ids(self, tables: dict[str, pd.DataFrame]):

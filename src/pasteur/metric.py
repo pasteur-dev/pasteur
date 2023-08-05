@@ -12,25 +12,11 @@ from .attribute import Attributes
 from .metadata import ColumnMeta, ColumnRef, Metadata
 from .module import ModuleClass, ModuleFactory
 from .table import TransformHolder
-from .utils import LazyChunk, LazyFrame
+from .utils import LazyChunk, LazyFrame, LazyDataset, LazyPartition
 from .utils.progress import process_in_parallel
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
-
-# Column metric -> receives one column, can't be encoded.
-# RefColumn metric -> one col + ref, can't be encoded
-
-# Table metric -> receives one table and its parents
-# Dataset metric -> receives the whole dataset
-
-# One node is allocated per dataset metric
-# One node is allocated per table metric
-# kedro only knows about tables. For column metrics, one node is allocated per table
-# and runs the metrics for all its columns.
-
-# For column metrics, the name of the metric corresponds to column type, for the rest
-# it corresponts to their name.
 
 
 class ColumnMetricFactory(ModuleFactory["ColumnMetric"]):
@@ -62,14 +48,15 @@ A = TypeVar("A")
 _DATA = TypeVar("_DATA")
 _INGEST = TypeVar("_INGEST")
 _SUMMARY = TypeVar("_SUMMARY")
+_META = TypeVar("_META")
 
 
-class Metric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
+class Metric(ModuleClass, Generic[_META, _DATA, _INGEST, _SUMMARY]):
     """Encapsulates a special way to visualize results."""
 
     type: str
 
-    def fit(self, *args, **kwargs):
+    def fit(self, meta: _META, data: _DATA):
         """Fit is used to capture information about the table or column the metric
         will process. It should be used to store information such as column value names,
         which is common among different executions of the view."""
@@ -134,55 +121,50 @@ class Summaries(Generic[A]):
         return type(self)(**params)
 
 
-class ColumnMetric(Metric[Any, Any, Summaries[A]], Generic[A]):
-    type = "col"
-    _factory = ColumnMetricFactory
-
-    def fit(
-        self,
-        table: str,
-        col: str | tuple[str],
-        meta: ColumnMeta,
-        data: pd.Series | pd.DataFrame,
-    ):
-        raise NotImplementedError()
-
-    def process(self, data: pd.Series | pd.DataFrame) -> A:
-        raise NotImplementedError()
-
-    def combine(self, summaries: list[A]) -> A:
-        raise NotImplementedError()
-
-
-class RefColumnMetric(ColumnMetric[A], Generic[A]):
-    def fit(
-        self,
-        table: str,
-        col: str | tuple[str],
-        meta: ColumnMeta,
-        data: pd.Series | pd.DataFrame,
-        ref: pd.Series | pd.DataFrame | None = None,
-    ):
-        raise NotImplementedError()
-
-    def process(
-        self,
-        data: pd.Series | pd.DataFrame,
-        ref: pd.Series | pd.DataFrame | None = None,
-    ) -> A:
-        raise NotImplementedError()
+class ColumnMeta(TypedDict):
+    table: str
+    col: str | tuple[str]
+    meta: ColumnMeta
 
 
 class ColumnData(TypedDict):
-    ids: LazyFrame
-    tables: dict[str, LazyFrame]
+    data: pd.Series | pd.DataFrame
+    ref: pd.Series | pd.DataFrame | None
+
+
+class ColumnMetric(
+    Metric[ColumnMeta, ColumnData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]
+):
+    type = "col"
+    _factory = ColumnMetricFactory
+
+    def reduce(self, other: "ColumnMetric"):
+        pass
+
+    def combine(self, summaries: list[_SUMMARY]) -> _SUMMARY:
+        raise NotImplementedError()
 
 
 ColumnSummary = dict[str, list[Any]]
 
 
+class ColumnHolderMeta(TypedDict):
+    table: str
+    meta: Metadata
+
+
+class ColumnHolderData(TypedDict):
+    tables: dict[str, LazyFrame]
+    ids: LazyFrame
+
+
 class ColumnMetricHolder(
-    Metric[ColumnData, Summaries[ColumnSummary], Summaries[ColumnSummary]]
+    Metric[
+        ColumnHolderMeta,
+        ColumnHolderData,
+        list[Any],
+        list[Any],
+    ]
 ):
     name = "holder"
     type = "col"
@@ -320,7 +302,7 @@ class ColumnMetricHolder(
                 else:
                     a = m.process(cached[self.table][name])
 
-                out[name if isinstance(name, str) else ','.join(name)].append(a)
+                out[name if isinstance(name, str) else ",".join(name)].append(a)
 
         return out
 
@@ -342,10 +324,20 @@ class ColumnMetricHolder(
             ref_sum[name] = []
             for i, metric in enumerate(metrics):
                 wrk_sum[name].append(
-                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries_wrk])
+                    metric.combine(
+                        [
+                            chunk[name if isinstance(name, str) else ",".join(name)][i]
+                            for chunk in summaries_wrk
+                        ]
+                    )
                 )
                 ref_sum[name].append(
-                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries_ref])
+                    metric.combine(
+                        [
+                            chunk[name if isinstance(name, str) else ",".join(name)][i]
+                            for chunk in summaries_ref
+                        ]
+                    )
                 )
 
         return Summaries(wrk_sum, ref_sum)
@@ -365,7 +357,12 @@ class ColumnMetricHolder(
             syn_sum[name] = []
             for i, metric in enumerate(metrics):
                 syn_sum[name].append(
-                    metric.combine([chunk[name if isinstance(name, str) else ','.join(name)][i] for chunk in summaries])
+                    metric.combine(
+                        [
+                            chunk[name if isinstance(name, str) else ",".join(name)][i]
+                            for chunk in summaries
+                        ]
+                    )
                 )
 
         return pre.replace(syn=syn_sum)
@@ -398,12 +395,10 @@ class ColumnMetricHolder(
         return f"{self.type}_{self.name}_{self.table}"
 
 
-class TableData(TypedDict):
-    ids: LazyFrame
-    tables: dict[str, dict[str, LazyFrame]]
-
-
-class TableMetric(Metric[TableData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
+class TableMetric(
+    Metric[dict[str, Any], dict[str, dict[str, LazyDataset]], _INGEST, _SUMMARY],
+    Generic[_INGEST, _SUMMARY],
+):
     _factory = TableMetricFactory
     type = "tbl"
     table: str
@@ -422,21 +417,14 @@ class TableMetric(Metric[TableData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMAR
         return f"{self.type}_{self.name}_{self.table}"
 
 
-class ViewData(TypedDict):
-    tables: dict[str, dict[str, LazyFrame]]
-    ids: dict[str, LazyFrame]
-
-
-class ViewMetric(Metric[ViewData, _INGEST, _SUMMARY], Generic[_INGEST, _SUMMARY]):
+class ViewMetric(
+    Metric[dict[str, Any], dict[str, dict[str, LazyDataset]], _INGEST, _SUMMARY],
+    Generic[_INGEST, _SUMMARY],
+):
     _factory = ViewMetricFactory
     type = "dst"
     table: str
     encodings: list[str] = ["raw"]
-
-    def fit(
-        self, meta: Metadata, attrs: dict[str, dict[str, Attributes]], data: ViewData
-    ):
-        raise NotImplementedError()
 
 
 def fit_column_holder(
@@ -510,7 +498,6 @@ __all__ = [
     "Metric",
     "Summaries",
     "ColumnMetric",
-    "RefColumnMetric",
     "TableMetric",
     "ViewMetric",
 ]

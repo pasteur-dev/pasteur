@@ -5,13 +5,13 @@ the data it was provided as is. """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial, wraps
+from typing import TYPE_CHECKING, Any, TypeVar, Generic
 
 from .module import ModuleClass, ModuleFactory
-from .table import TransformHolder
-from .utils import LazyFrame
-from functools import partial, wraps
+from .utils import LazyDataset
 
+META = TypeVar("META")
 
 if TYPE_CHECKING:
     from .attribute import Attributes
@@ -67,24 +67,23 @@ class SynthFactory(ModuleFactory["Synth"]):
         self.type = cls.type
 
 
-class Synth(ModuleClass):
+class Synth(ModuleClass, Generic[META]):
     type = "idx"
     partitions = 1
     _factory = SynthFactory
 
     def preprocess(
         self,
-        attrs: dict[str, Attributes],
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
+        meta: dict[str, META],
+        data: dict[str, dict[str, LazyDataset]],
     ):
         """Runs any preprocessing required, such as domain reduction."""
         raise NotImplementedError()
 
     def bake(
         self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
+        meta: dict[str, META],
+        data: dict[str, dict[str, LazyDataset]],
     ):
         """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
@@ -95,17 +94,15 @@ class Synth(ModuleClass):
 
     def fit(
         self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
+        meta: dict[str, META],
+        data: dict[str, dict[str, LazyDataset]],
     ):
         """Fits the model based on the provided data.
 
         Data and Ids are dictionaries containing the dataframes with the data."""
         raise NotImplementedError()
 
-    def sample(
-        self, *, n: int | None = None, i: int = 0
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    def sample_partition(self, *, n: int | None = None, i: int = 0) -> dict[str, Any]:
         """Returns id, table dict dataframes in the same format they were provided.
 
         Optional `n` parameter sets how many rows should be sampled. Otherwise,
@@ -117,13 +114,14 @@ class Synth(ModuleClass):
         """
         raise NotImplementedError()
 
+    def sample(self, *, n: int | None = None) -> dict[str, dict[str, LazyDataset | Any]]:
+        raise NotImplementedError()
+
 
 def synth_fit(
     factory: SynthFactory,
     metadata: Metadata,
-    ids: dict[str, LazyFrame],
-    tables: dict[str, LazyFrame],
-    trns: dict[str, TransformHolder],
+    data: dict[str, LazyDataset],
 ):
     from .utils.perf import PerformanceTracker
 
@@ -141,15 +139,15 @@ def synth_fit(
     #     tracker.use_gpu()
 
     tracker.start("preprocess")
-    model.preprocess(attrs, ids, tables)
+    model.preprocess(data)
     tracker.stop("preprocess")
 
     tracker.start("bake")
-    model.bake(ids, tables)
+    model.bake(data)
     tracker.stop("bake")
 
     tracker.start("fit")
-    model.fit(ids, tables)
+    model.fit(data)
     tracker.stop("fit")
     return model
 
@@ -181,15 +179,15 @@ class IdentSynth(Synth):
     def preprocess(
         self,
         attrs: dict[str, Attributes],
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
+        ids: dict[str, LazyDataset],
+        tables: dict[str, LazyDataset],
     ):
         pass
 
-    def bake(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
+    def bake(self, ids: dict[str, LazyDataset], tables: dict[str, LazyDataset]):
         pass
 
-    def fit(self, ids: dict[str, LazyFrame], tables: dict[str, LazyFrame]):
+    def fit(self, ids: dict[str, LazyDataset], tables: dict[str, LazyDataset]):
         self._ids = {name: table.sample() for name, table in ids.items()}
         self._tables = {name: table.sample() for name, table in tables.items()}
         self.partitions = len(tables[next(iter(tables))])
