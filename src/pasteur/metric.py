@@ -394,9 +394,12 @@ class ColumnMetricHolder(
     def unique_name(self) -> str:
         return f"{self.type}_{self.name}_{self.table}"
 
+class TableMeta(TypedDict):
+    table: str
+    meta: dict[str, Any]
 
 class TableMetric(
-    Metric[dict[str, Any], dict[str, dict[str, LazyDataset]], _INGEST, _SUMMARY],
+    Metric[TableMeta, dict[str, dict[str, LazyDataset]], _INGEST, _SUMMARY],
     Generic[_INGEST, _SUMMARY],
 ):
     _factory = TableMetricFactory
@@ -418,7 +421,12 @@ class TableMetric(
 
 
 class ViewMetric(
-    Metric[dict[str, Any], dict[str, dict[str, LazyDataset]], _INGEST, _SUMMARY],
+    Metric[
+        dict[str, dict[str, Any]],
+        dict[str, dict[str, dict[str, LazyDataset]]],
+        _INGEST,
+        _SUMMARY,
+    ],
     Generic[_INGEST, _SUMMARY],
 ):
     _factory = ViewMetricFactory

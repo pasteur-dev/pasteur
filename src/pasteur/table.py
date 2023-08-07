@@ -14,22 +14,34 @@ reverse, and decode table partitions."""
 
 import logging
 from collections import defaultdict
-from typing import cast
+from typing import Any, Callable, cast
 
 import pandas as pd
 
 from .attribute import Attribute, Attributes
-from .encode import ColumnEncoder, TableEncoder, EncoderFactory
-from .metadata import Metadata, ColumnRef
+from .encode import AttributeEncoder, EncoderFactory, ViewEncoder
+from .metadata import ColumnRef, Metadata
 from .module import Module, get_module_dict
-from .transform import RefTransformer, Transformer, TransformerFactory
-from .utils import LazyChunk
+from .transform import RefTransformer, SeqTransformer, Transformer, TransformerFactory
+from .utils import LazyChunk, LazyFrame, LazyPartition, to_chunked
+from .utils.progress import process_in_parallel, reduce
 
 logger = logging.getLogger(__file__)
 
 
+_IDKEY = "__ids_lkjhasndsfnewr"
+
+def _reduce_inner(
+    a: dict[str | tuple[str], Transformer],
+    b: dict[str | tuple[str], Transformer],
+):
+    for key in a.keys():
+        a[key].reduce(b[key])
+    return a
+
+
 class ReferenceManager:
-    """Manages the foreign relationships of a table/"""
+    """Manages the foreign relationships of a table."""
 
     def __init__(
         self,
@@ -39,7 +51,7 @@ class ReferenceManager:
         self.name = name
         self.meta = meta
 
-    def find_parents(self, table: str):
+    def find_parents(self, table: str) -> list[tuple[str, str, str]]:
         """Finds the reference cols that link a table to its parents and
         returns tuples with the name of that column, the name of the parent table
         and the name of the parent key column (usually the primary key)."""
@@ -78,12 +90,12 @@ class ReferenceManager:
         """Returns the id columns of a table with a foreign reference."""
         return table[self.get_id_cols(name, True)]
 
-    def find_foreign_ids(self, name: str, tables: dict[str, pd.DataFrame]):
+    def find_foreign_ids(self, name: str, get_table: Callable[[str], pd.DataFrame]):
         """Creates an id lookup table for the provided table.
 
         The id lookup table is composed of columns that have the foreign table name and
         contain its index key to join on."""
-        ids = self.get_foreign_keys(name, tables[name])
+        ids = self.get_foreign_keys(name, get_table(name))
 
         for col, table, foreign_col in self.find_parents(name):
             assert (
@@ -91,7 +103,7 @@ class ReferenceManager:
             ), "Only referencing primary keys supported for now."
 
             ids = ids.rename(columns={col: table})
-            foreign_ids = self.find_foreign_ids(table, tables)
+            foreign_ids = self.find_foreign_ids(table, get_table)
             ids = ids[~pd.isna(ids[table])].join(foreign_ids, on=table, how="inner")
 
         return ids
@@ -111,9 +123,97 @@ class ReferenceManager:
                 return True
         return False
 
-    def find_ids(self, tables: dict[str, pd.DataFrame]):
-        return self.find_foreign_ids(self.name, tables)
+def _lazy_load_tables(tables: dict[str, LazyChunk | pd.DataFrame]):
+    """ Lazy loads partitions and keeps them in-memory in a closure.
+    
+    Once the functions go out of scope, the partitions are released."""
+    cached_tables = {}
 
+    def _get_table(name: str):
+        if name in cached_tables:
+            return cached_tables[name]
+        
+        candidate = tables[name]
+        if callable(candidate):
+            table = candidate()
+        else:
+            table = candidate
+
+        cached_tables[name] = table
+        return table
+    
+    return _get_table
+
+
+def _calc_joined_refs(
+    name: str,
+    get_table: Callable[[str], pd.DataFrame],
+    ids: pd.DataFrame | None,
+    cref: list[ColumnRef] | ColumnRef | None,
+):
+    """ Returns a dataframe where for each row in the original data,
+    reference values are provided matching the ones in cref.
+    
+    In the case of one reference, a series is returned.
+    If no references are provided, returns None. """
+    table = get_table(name)
+    ref_col = None
+
+    if cref and isinstance(cref, list):
+        table_cols: dict[str | None, list[str]] = defaultdict(list)
+
+        for ref in cref:
+            assert ref.col is not None
+            table_cols[ref.table].append(ref.col)
+
+        dfs = []
+        for rtable, refs in table_cols.items():
+            if rtable:
+                assert ids is not None
+                df = ids.join(get_table(rtable)[refs], on=rtable)[refs].add_prefix(
+                    f"{rtable}."
+                )
+                dfs.append(df)
+            else:
+                dfs.append(table[refs])
+
+        ref_col = pd.concat(dfs)
+    elif cref:
+        ref = cast(ColumnRef, cref)
+        f_table, f_col = ref.table, ref.col
+        assert f_col
+        if f_table:
+            # Foreign column from another table
+            assert ids is not None
+            ref_col = ids.join(get_table(f_table)[f_col], on=f_table)[f_col]
+        else:
+            # Local column, duplicate and rename
+            ref_col = table[f_col]
+
+    return ref_col
+
+
+def _calc_unjoined_refs(
+    name: str,
+    get_table: Callable[[str], pd.DataFrame],
+    cref: list[ColumnRef] | ColumnRef | None,
+):
+    """ Returns a dictionary containing columns from all upstream parents,
+    as required by `cref`.
+    
+    If `cref` is None, None is returned."""
+    table_cols: dict[str, list[str]] = defaultdict(list)
+
+    if cref and isinstance(cref, list):
+        for ref in cref:
+            assert ref.col is not None
+            table_cols[ref.table or name].append(ref.col)
+    elif cref:
+        ref = cast(ColumnRef, cref)
+        assert ref.col is not None
+        table_cols[ref.table or name].append(ref.col)
+
+    return {k: get_table(name)[v] for k, v in table_cols.items()} or None 
 
 class TableTransformer:
     def __init__(
@@ -133,27 +233,39 @@ class TableTransformer:
 
     def fit(
         self,
-        tables: dict[str, pd.DataFrame],
-        ids: pd.DataFrame | None = None,
+        tables: dict[str, LazyFrame],
+        ids: LazyFrame | None = None,
     ):
+        if ids is not None:
+            tables = {_IDKEY: ids, **tables}
+
+        per_call = []
+        for _, chunks in LazyFrame.zip(tables).items():
+            ids_chunk = chunks.pop(_IDKEY, None)
+            per_call.append({"ids": ids_chunk, "tables": chunks})
+
+        transformer_chunks: list[
+            dict[str | tuple[str], Transformer]
+        ] = process_in_parallel(
+            self.fit_chunk,
+            per_call,
+            desc=f"Fitting transformers for table '{self.name}'",
+        )
+
+        self.transformers = reduce(_reduce_inner, transformer_chunks)
+        self.fitted = True
+
+    def fit_chunk(
+        self,
+        tables: dict[str, LazyChunk],
+        ids: LazyChunk | None = None,
+    ):
+        get_table = _lazy_load_tables(tables) # type: ignore
+        loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
-        if isinstance(tables, dict):
-            table = tables[self.name]
-        else:
-            table = tables
-        transformers = self.transformer_cls
-
-        if self.ref.table_has_reference():
-            if ids is None:
-                ids = self.ref.find_foreign_ids(self.name, tables)
-
-            # If we do have foreign relationships drop all rows that don't have
-            # parents and warn
-            if len(ids) < len(table):
-                logger.warning(
-                    f"Found {len(table) - len(ids)} rows without ids on table {self.name}. Dropping before fitting..."
-                )
-                table = table.loc[ids.index]
+        table = get_table(self.name)
+            
+        transformers = {}
 
         if not meta.primary_key == table.index.name:
             assert (
@@ -165,158 +277,86 @@ class TableTransformer:
             if col.is_id():
                 continue
 
-            # Add foreign column if required
-            ref_col = None
-            cref = col.ref
-            if cref and isinstance(cref, list):
-                table_cols: dict[str | None, list[str]] = defaultdict(list)
-
-                for ref in cref:
-                    assert ref.col is not None
-                    table_cols[ref.table].append(ref.col)
-
-                dfs = []
-                for rtable, refs in table_cols.items():
-                    if rtable:
-                        assert ids and rtable in tables
-
-                        df = ids.join(tables[rtable][refs], on=rtable)[refs].add_prefix(
-                            f"{rtable}."
-                        )
-                        dfs.append(df)
-                    else:
-                        dfs.append(table[refs])
-
-                ref_col = pd.concat(dfs)
-            elif cref:
-                ref = cast(ColumnRef, cref)
-                f_table, f_col = ref.table, ref.col
-                assert f_col
-                if f_table:
-                    assert ids is not None
-                    # Foreign column from another table
-                    ref_col = ids.join(tables[f_table][f_col], on=f_table)[f_col]
-                else:
-                    # Local column, duplicate and rename
-                    ref_col = table[f_col]
-
             assert (
-                col.type in transformers
-            ), f"Column type {col.type} not in transformers:\n{list(transformers.keys())}"
+                col.type in self.transformer_cls
+            ), f"Column type {col.type} not in transformers:\n{list(self.transformer_cls.keys())}"
 
             # Fit transformer
             if "main_param" in col.args:
-                t = transformers[col.type].build(col.args["main_param"], **col.args)
+                t = self.transformer_cls[col.type].build(
+                    col.args["main_param"], **col.args
+                )
             else:
-                t = transformers[col.type].build(**col.args)
+                t = self.transformer_cls[col.type].build(**col.args)
 
-            if isinstance(t, RefTransformer) and ref_col is not None:
-                t.fit(table[name], ref_col)
+            if isinstance(t, SeqTransformer):
+                # Add foreign column if required
+                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+
+                assert loaded_ids is not None
+                t.fit(table[name], ref_cols, loaded_ids)
+            elif isinstance(t, RefTransformer):
+                # Add foreign column if required
+                assert loaded_ids is not None
+                ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
+                t.fit(table[name], ref_cols)
             else:
                 t.fit(table[name])
-            self.transformers[name] = t
+            transformers[name] = t
 
-        self.fitted = True
+        return transformers
 
-    def transform(
+    def _load_ids(self, ids: LazyChunk | pd.DataFrame | None, get_table: Callable[[str], pd.DataFrame]):
+        """ Loads ids only if required. If `ids` is None, it calculates them anew using
+        `get_table` and the reference manager. """
+        if not self.ref.table_has_reference():
+            return None
+        
+        if callable(ids):
+            return ids()
+    
+        return self.ref.find_foreign_ids(self.name, get_table)
+
+    def transform_chunk(
         self,
-        tables: dict[str, pd.DataFrame]
-        | dict[str, LazyChunk]
-        | LazyChunk
-        | pd.DataFrame,
-        ids: pd.DataFrame | LazyChunk | None = None,
+        tables: dict[str, LazyChunk],
+        ids: LazyChunk | None = None,
     ):
         assert self.fitted
 
+        get_table = _lazy_load_tables(tables) # type: ignore
+        loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
-        if isinstance(tables, dict):
-            cached_tables = {
-                name: part() if callable(part) else part
-                for name, part in tables.items()
-            }
-            table = cached_tables[self.name]
-        else:
-            # provide a catch to allow passing in a dataframe for a single table
-            # without wrapping it in a dictionary
-            cached_tables = {self.name: tables() if callable(tables) else tables}
-            table = cached_tables[self.name]
-
-        # Only load foreign keys if required by column
-        cached_ids = None
-        if self.ref.table_has_reference():
-            if ids is None:
-                cached_ids = self.ref.find_foreign_ids(self.name, cached_tables)
-            else:
-                cached_ids = ids() if callable(ids) else ids
-            # If we do have foreign relationships drop all rows that don't have
-            # parents and warn
-            if len(cached_ids) < len(table):
-                logger.warning(
-                    f"Found {len(table) - len(cached_ids)} rows without ids on table {self.name}. Dropping before transforming..."
-                )
-                table = table.loc[cached_ids.index]
-
+        table = get_table(self.name)
         tts = []
+
         for name, col in meta.cols.items():
             if col.is_id():
                 continue
 
             trn = self.transformers[name]
-
-            # Add foreign column if required
-            ref_col = None
-            cref = col.ref
-            if cref and isinstance(cref, list):
-                table_cols: dict[str | None, list[str]] = defaultdict(list)
-
-                for ref in cref:
-                    assert ref.col is not None
-                    table_cols[ref.table].append(ref.col)
-
-                dfs = []
-                for rtable, refs in table_cols.items():
-                    if rtable:
-                        assert cached_ids and rtable in cached_tables
-
-                        df = cached_ids.join(cached_tables[rtable][refs], on=rtable)[
-                            refs
-                        ].add_prefix(f"{rtable}.")
-                        dfs.append(df)
-                    else:
-                        dfs.append(table[refs])
-
-                ref_cols = pd.concat(dfs)
-
-                assert isinstance(
-                    trn, RefTransformer
-                ), "Reference column included for a transformer without a reference"
-                tt = trn.transform(table[name].copy(), ref_cols)
-            elif cref:
-                ref = cast(ColumnRef, cref)
-                f_table, f_col = ref.table, ref.col
-                assert f_col
-                if f_table:
-                    assert cached_ids is not None
-                    # Foreign column from another table
-                    ref_col = cached_ids.join(
-                        cached_tables[f_table][f_col], on=f_table
-                    )[f_col]
-                else:
-                    # Local column, duplicate and rename
-                    ref_col = table[f_col]
-
-                assert isinstance(
-                    trn, RefTransformer
-                ), "Reference column included for a transformer without a reference"
-                tt = trn.transform(table[name].copy(), ref_col)
+            if isinstance(trn, SeqTransformer):
+                # Add foreign column if required
+                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+                assert loaded_ids is not None
+                tt = trn.transform(table[name], ref_cols, loaded_ids)
+            elif isinstance(trn, RefTransformer):
+                # Add foreign column if required
+                ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
+                tt = trn.transform(table[name], ref_cols)
             else:
-                tt = trn.transform(table[name].copy())
+                tt = trn.transform(table[name])
 
             tts.append(tt)
-            del ref_col, tt
 
-        del cached_ids, cached_tables, table
         return pd.concat(tts, axis=1, copy=False, join="inner")
+
+    def transform(
+        self,
+        tables: dict[str, LazyFrame],
+        ids: LazyFrame | None = None,
+    ):
+        return to_chunked(self.transform_chunk)(tables, ids) #type: ignore
 
     def reverse(
         self,
@@ -440,7 +480,7 @@ class TableTransformer:
         assert (
             len(tts) == decoded_cols
         ), f"Did not process column in this loop. There are columns with cyclical dependencies."
-        
+
         # Create decoded table
         del cached_table, cached_parents
         dec_table = pd.concat(tts.values(), axis=1, copy=False, join="inner")
@@ -464,18 +504,24 @@ class TableTransformer:
         return self.ref.find_foreign_ids(self.name, tables)
 
 
-class ColumnEncoderHolder(TableEncoder):
+class AttributeEncoderHolder(TableEncoder):
     """Receives tables that have been encoded by the base transformers and have
     attributes, and reformats them to fit a specific model."""
 
-    encoders: dict[str, ColumnEncoder]
+    encoders: dict[str, AttributeEncoder]
 
     def __init__(self, encoder: EncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
         self._encoder_fr = encoder
         self.encoders = {}
 
-    def fit(self, attrs: Attributes, data: pd.DataFrame | None = None) -> Attributes:
+    def fit(
+        self,
+        attrs: dict[str, Attributes],
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, LazyFrame],
+        ids: LazyFrame,
+    ) -> Attributes:
         self.encoders = {}
 
         for n, a in attrs.items():
@@ -485,7 +531,9 @@ class ColumnEncoderHolder(TableEncoder):
 
         return self.attrs
 
-    def encode(self, data: LazyChunk | pd.DataFrame) -> pd.DataFrame:
+    def encode(
+        self, tables: dict[str, LazyFrame], ctx: dict[str, LazyFrame], ids: LazyFrame
+    ) -> pd.DataFrame:
         cols = []
         table = data() if callable(data) else data
 
@@ -495,7 +543,14 @@ class ColumnEncoderHolder(TableEncoder):
         del table
         return pd.concat(cols, axis=1, copy=False, join="inner")
 
-    def decode(self, enc: LazyChunk | pd.DataFrame) -> pd.DataFrame:
+    def decode(
+        self,
+        data: dict[str, LazyPartition[Any]],
+    ) -> tuple[
+        LazyFrame | pd.DataFrame,
+        dict[str, LazyFrame | pd.DataFrame],
+        LazyFrame | pd.DataFrame,
+    ]:
         cols = []
         table = enc() if callable(enc) else enc
 

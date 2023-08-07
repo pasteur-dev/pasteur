@@ -11,6 +11,7 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
+from functools import reduce
 from multiprocessing.pool import AsyncResult, Pool
 from os import cpu_count, environ
 from typing import TYPE_CHECKING, Any, Callable, ParamSpec, TextIO, TypeGuard, TypeVar
@@ -402,7 +403,7 @@ def process_in_parallel(
     with large size that are common in all function calls and `per_call_args` which
     change every iteration."""
 
-    from multiprocessing import Pipe, Lock
+    from multiprocessing import Lock, Pipe
 
     if (
         # len(per_call_args) < 2 * min_chunk_size
@@ -546,5 +547,6 @@ __all__ = [
     "close_pool",
     "get_manager",
     "set_node_name",
-    "get_node_name"
+    "get_node_name",
+    "reduce"
 ]

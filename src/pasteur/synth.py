@@ -9,7 +9,7 @@ from functools import partial, wraps
 from typing import TYPE_CHECKING, Any, TypeVar, Generic
 
 from .module import ModuleClass, ModuleFactory
-from .utils import LazyDataset
+from .utils import LazyDataset, to_chunked
 
 META = TypeVar("META")
 
@@ -69,21 +69,25 @@ class SynthFactory(ModuleFactory["Synth"]):
 
 class Synth(ModuleClass, Generic[META]):
     type = "idx"
-    partitions = 1
     _factory = SynthFactory
+
+    # Fill in for `sample` function to work
+    _n: int | None = None
+    # Fill in for `sample` function to work
+    _partitions: int | None = None
 
     def preprocess(
         self,
-        meta: dict[str, META],
-        data: dict[str, dict[str, LazyDataset]],
+        meta: META,
+        data: dict[str, LazyDataset],
     ):
         """Runs any preprocessing required, such as domain reduction."""
         raise NotImplementedError()
 
     def bake(
         self,
-        meta: dict[str, META],
-        data: dict[str, dict[str, LazyDataset]],
+        meta: META,
+        data: dict[str, LazyDataset],
     ):
         """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
@@ -94,19 +98,18 @@ class Synth(ModuleClass, Generic[META]):
 
     def fit(
         self,
-        meta: dict[str, META],
-        data: dict[str, dict[str, LazyDataset]],
+        meta: META,
+        data: dict[str, LazyDataset],
     ):
         """Fits the model based on the provided data.
 
         Data and Ids are dictionaries containing the dataframes with the data."""
         raise NotImplementedError()
 
-    def sample_partition(self, *, n: int | None = None, i: int = 0) -> dict[str, Any]:
-        """Returns id, table dict dataframes in the same format they were provided.
+    def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
+        """Returns synthetic data in the same format they were provided.
 
-        Optional `n` parameter sets how many rows should be sampled. Otherwise,
-        the initial size of the dataset is sampled.
+        `n` sets how many rows should be sampled. Otherwise,
         Warning: not setting `n` technically violates DP for DP-aware algorithms.
 
         `i` is the partition number that can be used for modifying the random state
@@ -114,8 +117,30 @@ class Synth(ModuleClass, Generic[META]):
         """
         raise NotImplementedError()
 
-    def sample(self, *, n: int | None = None) -> dict[str, dict[str, LazyDataset | Any]]:
-        raise NotImplementedError()
+    def sample(
+        self, *, n: int | None = None, partitions: int | None = None
+    ):
+        """ Samples `n` samples across `partitions` partitions.
+
+        The return value should be finalized to `dict[str, Any]`, which
+        matches the format of `data` provided to the fitting function.
+        Since this 
+        
+        A default implementation is provided, that packages `sample_partition()`
+        in such a way that pasteur can sample and save partitions in parallel. """
+        n = n or self._n
+        partitions = partitions or self._partitions
+
+        assert (
+            n and partitions
+        ), "Either `n` or `partitions` was not provided.\nFill in `_n` and `_partitions` based on `fit` data."
+
+        n_chunk = n // partitions
+
+        return {
+            partial(self.sample_partition, i=i, n=n_chunk)
+            for i in range(partitions)
+        } 
 
 
 def synth_fit(
@@ -149,24 +174,8 @@ def synth_fit(
     tracker.start("fit")
     model.fit(data)
     tracker.stop("fit")
+
     return model
-
-
-def _synth_sample_part(i: int, n: int | None, model: Synth):
-    ids, tables = model.sample(n=n, i=i)
-
-    return {
-        "tables": {name: {f"{i:04d}": table} for name, table in tables.items()},
-        "ids": {name: {f"{i:04d}": table} for name, table in ids.items()},
-    }
-
-
-def synth_sample(model: Synth, n: int | None = None, partitions: int | None = None):
-    # TODO: Track synth speed
-    return {
-        partial(_synth_sample_part, i, n, model)
-        for i in range(partitions or model.partitions)
-    }
 
 
 class IdentSynth(Synth):

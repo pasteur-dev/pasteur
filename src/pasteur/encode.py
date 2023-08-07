@@ -6,20 +6,23 @@ import pandas as pd
 
 from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
-from .utils import LazyFrame, LazyPartition
+from .utils import LazyFrame, LazyDataset
 
 
 class EncoderFactory(ModuleFactory["Encoder"]):
     """Factory base class for encoders. Use isinstance with this class
     to filter the Pasteur module list into only containing Encoders."""
-
     ...
 
 
 META = TypeVar("META")
 
 
-class AttributeEncoder(ModuleClass, Generic[META]):
+class Encoder(ModuleClass, Generic[META]):
+    pass
+
+
+class AttributeEncoder(Encoder[dict[str, META]], Generic[META]):
     """Encapsulates a special way to encode an Attribute.
 
     One encoder is instantiated per attribute and its `fit` function is called to
@@ -61,11 +64,7 @@ class AttributeEncoder(ModuleClass, Generic[META]):
         raise NotImplementedError()
 
 
-""" Backwards Compatibility, renamed to AttributeEncoder. """
-Encoder = AttributeEncoder
-
-
-class TableEncoder(ModuleClass, Generic[META]):
+class ViewEncoder(Encoder[META], Generic[META]):
     name: str = ""
     _factory = EncoderFactory
 
@@ -73,7 +72,8 @@ class TableEncoder(ModuleClass, Generic[META]):
         self,
         attrs: dict[str, Attributes],
         tables: dict[str, LazyFrame],
-        ctx: dict[str, LazyFrame],
+        ctx_attrs: dict[str, dict[str, Attributes]],
+        ctx: dict[str, dict[str, LazyFrame]],
         ids: LazyFrame,
     ):
         raise NotImplementedError()
@@ -84,14 +84,14 @@ class TableEncoder(ModuleClass, Generic[META]):
     def encode(
         self,
         tables: dict[str, LazyFrame],
-        ctx: dict[str, LazyFrame],
+        ctx: dict[str, dict[str, LazyFrame]],
         ids: LazyFrame,
-    ) -> dict[str, Any | LazyPartition[Any]]:
+    ) -> dict[str, Any | LazyDataset[Any]]:
         raise NotImplementedError()
 
     def decode(
         self,
-        data: dict[str, LazyPartition[Any]],
+        data: dict[str, LazyDataset[Any]],
     ) -> tuple[
         LazyFrame | pd.DataFrame,
         dict[str, LazyFrame | pd.DataFrame],
@@ -100,4 +100,4 @@ class TableEncoder(ModuleClass, Generic[META]):
         raise NotImplementedError()
 
 
-__all__ = ["EncoderFactory", "Encoder", "TableEncoder", "AttributeEncoder"]
+__all__ = ["EncoderFactory", "Encoder", "ViewEncoder", "AttributeEncoder"]

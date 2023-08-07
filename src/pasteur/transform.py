@@ -105,8 +105,7 @@ class SeqTransformer(Transformer):
     def fit(
         self,
         data: pd.Series | pd.DataFrame,
-        ref: pd.Series | pd.DataFrame | None = None,
-        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
     ) -> tuple[Attributes, dict[str, Attributes]] | None:
         pass
@@ -117,8 +116,7 @@ class SeqTransformer(Transformer):
     def fit_transform(
         self,
         data: pd.Series | pd.DataFrame,
-        ref: pd.Series | pd.DataFrame | None = None,
-        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         self.fit(data, ref)
@@ -127,18 +125,16 @@ class SeqTransformer(Transformer):
     def transform(
         self,
         data: pd.Series | pd.DataFrame,
-        ref: pd.Series | pd.DataFrame | None = None,
-        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         raise NotImplementedError()
 
     def reverse(
         self,
-        data: pd.Series | pd.DataFrame,
-        ctx: dict[str, pd.Series | pd.DataFrame],
-        ref: pd.Series | pd.DataFrame | None = None,
-        parents: dict[str, pd.Series | pd.DataFrame] | None = None,
+        data: pd.DataFrame,
+        ctx: dict[str, pd.DataFrame],
+        ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
