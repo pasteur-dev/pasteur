@@ -19,9 +19,10 @@ An Attribute holds multiple values and a set of common conditions. When a common
 condition is active, all of the Attribute's Values are expected to have the same
 value."""
 
-import numpy as np
-from typing import Any, Literal, TypeVar
 from copy import copy
+from typing import Any, Literal, Mapping, TypeVar
+
+import numpy as np
 
 
 def get_dtype(domain: int):
@@ -401,7 +402,7 @@ class Attribute:
         return self.vals[col]
 
 
-Attributes = dict[str, Attribute]
+Attributes = Mapping[str | tuple[str], Attribute]
 
 
 def OrdAttribute(

@@ -14,7 +14,7 @@ reverse, and decode table partitions."""
 
 import logging
 from collections import defaultdict
-from typing import Any, Callable, cast
+from typing import Any, Callable, Generic, Mapping, TypeVar, cast
 
 import pandas as pd
 
@@ -28,12 +28,14 @@ from .utils.progress import process_in_parallel, reduce
 
 logger = logging.getLogger(__file__)
 
-
+A = TypeVar("A", bound="Any")
+META = TypeVar("META")
 _IDKEY = "__ids_lkjhasndsfnewr"
 
+
 def _reduce_inner(
-    a: dict[str | tuple[str], Transformer],
-    b: dict[str | tuple[str], Transformer],
+    a: dict[str | tuple[str], A],
+    b: dict[str | tuple[str], A],
 ):
     for key in a.keys():
         a[key].reduce(b[key])
@@ -123,16 +125,17 @@ class ReferenceManager:
                 return True
         return False
 
-def _lazy_load_tables(tables: dict[str, LazyChunk | pd.DataFrame]):
-    """ Lazy loads partitions and keeps them in-memory in a closure.
-    
+
+def _lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):
+    """Lazy loads partitions and keeps them in-memory in a closure.
+
     Once the functions go out of scope, the partitions are released."""
-    cached_tables = {}
+    cached_tables: dict[str, pd.DataFrame] = {}
 
     def _get_table(name: str):
         if name in cached_tables:
             return cached_tables[name]
-        
+
         candidate = tables[name]
         if callable(candidate):
             table = candidate()
@@ -141,7 +144,7 @@ def _lazy_load_tables(tables: dict[str, LazyChunk | pd.DataFrame]):
 
         cached_tables[name] = table
         return table
-    
+
     return _get_table
 
 
@@ -151,11 +154,11 @@ def _calc_joined_refs(
     ids: pd.DataFrame | None,
     cref: list[ColumnRef] | ColumnRef | None,
 ):
-    """ Returns a dataframe where for each row in the original data,
+    """Returns a dataframe where for each row in the original data,
     reference values are provided matching the ones in cref.
-    
+
     In the case of one reference, a series is returned.
-    If no references are provided, returns None. """
+    If no references are provided, returns None."""
     table = get_table(name)
     ref_col = None
 
@@ -198,9 +201,9 @@ def _calc_unjoined_refs(
     get_table: Callable[[str], pd.DataFrame],
     cref: list[ColumnRef] | ColumnRef | None,
 ):
-    """ Returns a dictionary containing columns from all upstream parents,
+    """Returns a dictionary containing columns from all upstream parents,
     as required by `cref`.
-    
+
     If `cref` is None, None is returned."""
     table_cols: dict[str, list[str]] = defaultdict(list)
 
@@ -213,22 +216,23 @@ def _calc_unjoined_refs(
         assert ref.col is not None
         table_cols[ref.table or name].append(ref.col)
 
-    return {k: get_table(name)[v] for k, v in table_cols.items()} or None 
+    return {k: get_table(name)[v] for k, v in table_cols.items()} or None
+
 
 class TableTransformer:
     def __init__(
         self,
-        ref: ReferenceManager,
         meta: Metadata,
         name: str,
-        transformers: dict[str, TransformerFactory],
+        modules: list[Module],
     ) -> None:
-        self.ref = ref
         self.name = name
         self.meta = meta
 
+        self.transformer_cls = get_module_dict(TransformerFactory, modules)
+        self.ref = ReferenceManager(meta, name)
+
         self.transformers: dict[str | tuple[str], Transformer] = {}
-        self.transformer_cls = transformers
         self.fitted = False
 
     def fit(
@@ -260,11 +264,11 @@ class TableTransformer:
         tables: dict[str, LazyChunk],
         ids: LazyChunk | None = None,
     ):
-        get_table = _lazy_load_tables(tables) # type: ignore
+        get_table = _lazy_load_tables(tables)  # type: ignore
         loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
         table = get_table(self.name)
-            
+
         transformers = {}
 
         if not meta.primary_key == table.index.name:
@@ -306,15 +310,19 @@ class TableTransformer:
 
         return transformers
 
-    def _load_ids(self, ids: LazyChunk | pd.DataFrame | None, get_table: Callable[[str], pd.DataFrame]):
-        """ Loads ids only if required. If `ids` is None, it calculates them anew using
-        `get_table` and the reference manager. """
+    def _load_ids(
+        self,
+        ids: LazyChunk | pd.DataFrame | None,
+        get_table: Callable[[str], pd.DataFrame],
+    ):
+        """Loads ids only if required. If `ids` is None, it calculates them anew using
+        `get_table` and the reference manager."""
         if not self.ref.table_has_reference():
             return None
-        
+
         if callable(ids):
             return ids()
-    
+
         return self.ref.find_foreign_ids(self.name, get_table)
 
     def transform_chunk(
@@ -324,11 +332,12 @@ class TableTransformer:
     ):
         assert self.fitted
 
-        get_table = _lazy_load_tables(tables) # type: ignore
+        get_table = _lazy_load_tables(tables)  # type: ignore
         loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
         table = get_table(self.name)
         tts = []
+        ctxs = defaultdict(list)
 
         for name, col in meta.cols.items():
             if col.is_id():
@@ -339,7 +348,10 @@ class TableTransformer:
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
                 assert loaded_ids is not None
-                tt = trn.transform(table[name], ref_cols, loaded_ids)
+                tt, ctx = trn.transform(table[name], ref_cols, loaded_ids)
+
+                for n, c in ctx.items():
+                    ctxs[n].append(c)
             elif isinstance(trn, RefTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
@@ -349,35 +361,46 @@ class TableTransformer:
 
             tts.append(tt)
 
-        return pd.concat(tts, axis=1, copy=False, join="inner")
+        return pd.concat(tts, axis=1, copy=False, join="inner"), {
+            n: pd.concat(c, axis=1, copy=False, join="inner") for n, c in ctxs.items()
+        }
+
+    @to_chunked
+    def _transform_chunk(
+        self,
+        tables: dict[str, LazyChunk],
+        ids: LazyChunk | None = None,
+    ):
+        return self.transform_chunk(tables, ids)
 
     def transform(
         self,
         tables: dict[str, LazyFrame],
         ids: LazyFrame | None = None,
     ):
-        return to_chunked(self.transform_chunk)(tables, ids) #type: ignore
+        return self._transform_chunk(tables, ids)  # type: ignore
 
-    def reverse(
+    @to_chunked
+    def _reverse_chunk(
         self,
-        table: LazyChunk | pd.DataFrame,
-        ids: pd.DataFrame | LazyChunk | None = None,
-        parent_tables: dict[str, LazyChunk] | dict[str, pd.DataFrame] | None = None,
+        data: LazyChunk,
+        ctx: dict[str, LazyChunk],
+        ids: LazyChunk | None = None,
+        parent_tables: dict[str, LazyChunk] | None = None,
     ):
         # If there are no ids that reference a foreign table, the ids and
         # parent_table parameters can be set to None (ex. tabular data).
         assert self.fitted
-        transformers = self.transformers
 
-        cached_table = table() if callable(table) else table
-        cached_ids = (ids() if callable(ids) else ids) if ids is not None else None
-        if parent_tables:
-            cached_parents = {
-                name: part() if callable(part) else part
-                for name, part in parent_tables.items()
-            }
-        else:
-            cached_parents = {}
+        cached_table = data()
+        cached_ids = ids() if ids is not None else pd.DataFrame()
+        cached_ctx = {n: c() for n, c in ctx.items()}
+
+        get_parent = (
+            _lazy_load_tables(parent_tables)
+            if parent_tables
+            else lambda _: pd.DataFrame()
+        )
 
         meta = self.meta[self.name]
 
@@ -404,6 +427,7 @@ class TableTransformer:
         processed_col = True
         while processed_col:
             processed_col = False
+
             for name, col in meta.cols.items():
                 # Skip already processed columns
                 if name in completed_cols:
@@ -412,7 +436,7 @@ class TableTransformer:
                 if col.is_id():
                     continue
 
-                ref_col = None
+                # Check column requirements
                 cref = col.ref
                 if cref and isinstance(cref, list):
                     # Check ref requirements met
@@ -423,43 +447,18 @@ class TableTransformer:
                             break
                     if unmet_requirements:
                         continue
-
-                    table_cols: dict[str | None, list[str]] = defaultdict(list)
-
-                    for ref in cref:
-                        assert ref.col is not None
-                        table_cols[ref.table].append(ref.col)
-
-                    dfs = []
-                    for rtable, refs in table_cols.items():
-                        if rtable:
-                            assert cached_ids and rtable in cached_parents
-
-                            df = cached_ids.join(
-                                cached_parents[rtable][refs], on=rtable
-                            )[refs].add_prefix(f"{rtable}.")
-                            dfs.append(df)
-                        else:
-                            dfs.append(tts[refs])
-
-                    ref_col = pd.concat(dfs)
                 elif cref:
                     ref = cast(ColumnRef, cref)
                     # Check ref requirements met
                     if not ref.table and ref.col not in completed_cols:
                         continue
 
-                    f_table, f_col = ref.table, ref.col
-                    assert cached_ids and cached_parents and f_col and f_table
-                    assert (
-                        f_table in cached_parents
-                    ), f"Attempted to reverse table {self.name} before reversing {f_table}, which is required by it."
-                    ref_col = cached_ids.join(
-                        cached_parents[f_table][f_col], on=f_table
-                    )[f_col]
-
-                t = transformers[name]
-                if isinstance(t, RefTransformer) and ref_col is not None:
+                t = self.transformers[name]
+                if isinstance(t, SeqTransformer):
+                    ref_col = _calc_unjoined_refs(self.name, get_parent, cref)
+                    tt = t.reverse(cached_table, cached_ctx, ref_col, cached_ids)
+                elif isinstance(t, RefTransformer):
+                    ref_col = _calc_joined_refs(self.name, get_parent, cached_ids, cref)
                     tt = t.reverse(cached_table, ref_col)
                 else:
                     tt = t.reverse(cached_table)
@@ -482,7 +481,7 @@ class TableTransformer:
         ), f"Did not process column in this loop. There are columns with cyclical dependencies."
 
         # Create decoded table
-        del cached_table, cached_parents
+        del cached_table, cached_ids, get_parent
         dec_table = pd.concat(tts.values(), axis=1, copy=False, join="inner")
         del tts
         # Re-order columns to metadata based order
@@ -490,164 +489,226 @@ class TableTransformer:
         dec_table = dec_table[cols]
 
         return dec_table
+    
 
-    def get_attributes(self) -> dict[str, Attribute]:
+    def reverse(
+        self,
+        data: LazyFrame,
+        ctx: dict[str, LazyFrame],
+        ids: LazyFrame | None = None,
+        parent_tables: dict[str, LazyFrame] | None = None,
+    ):
+        return self._reverse_chunk(data, ctx, ids, parent_tables)  # type: ignore
+
+    def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
         """Returns information about the transformed columns and their hierarchical attributes."""
         assert self.fitted
 
         attrs = {}
+        ctx_attrs = defaultdict(dict)
         for t in self.transformers.values():
-            attrs[t.attr.name] = t.attr
-        return attrs
+            if isinstance(t, SeqTransformer):
+                t_attrs, t_ctx_attrs = t.get_attributes()
+                for n, c in t_ctx_attrs.items():
+                    ctx_attrs[n].update(c)
+            else:
+                t_attrs = t.get_attributes()
+            attrs.update(t_attrs)
 
-    def find_ids(self, tables: dict[str, pd.DataFrame]):
-        return self.ref.find_foreign_ids(self.name, tables)
+        return attrs, dict(ctx_attrs)
+
+def _fit_encoders_for_table(
+    factory: EncoderFactory[AttributeEncoder], attrs: Attributes, data: LazyChunk
+):
+    table = data()
+    encs = {}
+
+    for name, attr in attrs.items():
+        enc = factory.build()
+        enc.fit(attr, table)
+        encs[name] = enc
+
+    return encs
 
 
-class AttributeEncoderHolder(TableEncoder):
+@to_chunked
+def _return_df(name: str, df: LazyChunk):
+    return {name: df()}
+
+@to_chunked
+def _return_ids(name: str, df: LazyChunk):
+    return {}, {}, {name: df()}
+
+class AttributeEncoderHolder(
+    ViewEncoder[dict[str, dict[str | tuple[str], META]]], Generic[META]
+):
     """Receives tables that have been encoded by the base transformers and have
     attributes, and reformats them to fit a specific model."""
 
-    encoders: dict[str, AttributeEncoder]
+    table_encoders: dict[str, dict[str | tuple[str], AttributeEncoder[META]]]
+    ctx_encoders: dict[str, dict[str, dict[str | tuple[str], AttributeEncoder[META]]]]
 
     def __init__(self, encoder: EncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
         self._encoder_fr = encoder
-        self.encoders = {}
+        self.table_encoders = {}
+        self.ctx_encoders = {}
 
     def fit(
         self,
         attrs: dict[str, Attributes],
         tables: dict[str, LazyFrame],
-        ctx: dict[str, LazyFrame],
-        ids: LazyFrame,
-    ) -> Attributes:
+        ctx_attrs: dict[str, dict[str, Attributes]],
+        ctx: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
+    ):
         self.encoders = {}
 
-        for n, a in attrs.items():
-            t = self._encoder_fr.build(**self.kwargs)
-            t.fit(a, data)
-            self.encoders[n] = t
+        base_args = {"factory": self._encoder_fr}
+        per_call = []
+        per_call_meta = []
 
-        return self.attrs
+        # Create granular tasks for all table partitions
+        for name in tables:
+            for pid, part in tables[name].items():
+                per_call.append({"attrs": attrs[name], "data": part})
+                per_call_meta.append({"ctx": False, "table": name, "pid": pid})
+
+        for creator, ctxs in ctx.items():
+            for name in ctxs:
+                for pid, part in ctxs[name].items():
+                    per_call.append({"attrs": ctx_attrs[creator][name], "data": part})
+                    per_call_meta.append(
+                        {"ctx": True, "creator": creator, "table": name, "pid": pid}
+                    )
+
+        # Process them
+        out = process_in_parallel(
+            _fit_encoders_for_table, per_call, base_args, desc="Fitting encoders"
+        )
+
+        # Entangle output
+        table_enc = defaultdict(list)
+        ctx_enc = defaultdict(lambda: defaultdict(list))
+        for enc, meta in zip(out, per_call_meta):
+            if meta["ctx"]:
+                ctx_enc[meta["creator"]][meta["table"]].append(enc)
+            else:
+                table_enc[meta["table"]].append(enc)
+
+        # Reduce resulting encoders
+        self.table_encoders = {}
+        self.ctx_encoders = {}
+
+        for name, encs in table_enc.items():
+            self.table_encoders[name] = reduce(_reduce_inner, encs)
+
+        for creator, ctx_encs in ctx_enc.items():
+            for name, encs in ctx_encs.items():
+                self.ctx_encoders[creator][name] = reduce(_reduce_inner, encs)
+
+        self.fitted = True
+
+    @to_chunked
+    def encode_chunk(self, name: str, table: LazyChunk, ctx: dict[str, LazyChunk]):
+        tts = []
+
+        cached_table = table()
+        cached_ctx = {n: c() for n, c in ctx.items()}
+
+        for enc in self.table_encoders[name].values():
+            tts.append(enc.encode(cached_table))
+
+        for creator, ctx_encs in self.ctx_encoders.items():
+            if name not in ctx_encs:
+                continue
+
+            for enc in ctx_encs[name].values():
+                tts.append(enc.encode(cached_ctx[creator]))
+
+        return {name: pd.concat(tts, axis=1, copy=False, join="inner")}
 
     def encode(
-        self, tables: dict[str, LazyFrame], ctx: dict[str, LazyFrame], ids: LazyFrame
-    ) -> pd.DataFrame:
-        cols = []
-        table = data() if callable(data) else data
+        self,
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
+    ):
+        lazies = set()
+        for name in tables:
+            table_ctx = {}
 
-        for t in self.encoders.values():
-            cols.append(t.encode(table))
+            for creator, child_ctx in ctx.items():
+                if name in child_ctx:
+                    table_ctx[creator] = child_ctx[name]
 
-        del table
-        return pd.concat(cols, axis=1, copy=False, join="inner")
+            lazies |= self.encode_chunk(name, tables[name], table_ctx)
+
+        # Passthrough ids
+        for name, tid in ids.items():
+            lazies |= _return_df(name + '_ids', tid)
+
+        return lazies
+
+    @to_chunked
+    def decode_chunk(
+        self, name: str, data: LazyChunk
+    ) -> tuple[
+        dict[str, pd.DataFrame],
+        dict[str, dict[str, pd.DataFrame]],
+        dict[str, pd.DataFrame],
+    ]:
+        table = data()
+
+        # Decode main table
+        tts = []
+        for enc in self.table_encoders[name].values():
+            tts.append(enc.decode(table))
+        tables = {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+
+        # Decode context tables
+        ctx_tts: dict[str, list] = defaultdict(list)
+        for creator, ctx_encs in self.ctx_encoders.items():
+            if name not in ctx_encs:
+                continue
+
+            for ctx_enc in ctx_encs[name].values():
+                ctx_tts[creator].append(ctx_enc.decode(table))
+
+        ctx = {
+            creator: {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+            for creator, tts in ctx_tts.items()
+        }
+
+        return tables, ctx, {}
 
     def decode(
         self,
-        data: dict[str, LazyPartition[Any]],
-    ) -> tuple[
-        LazyFrame | pd.DataFrame,
-        dict[str, LazyFrame | pd.DataFrame],
-        LazyFrame | pd.DataFrame,
-    ]:
-        cols = []
-        table = enc() if callable(enc) else enc
-
-        for t in self.encoders.values():
-            cols.append(t.decode(table))
-
-        del table
-        return pd.concat(cols, axis=1, copy=False, join="inner")
-
-    @property
-    def attrs(self):
-        return {a.name: a for a in [t.attr for t in self.encoders.values()]}
-
-    def get_attributes(self):
-        return self.attrs
-
-
-class TransformHolder:
-    """Handles transforming and encoding a table."""
-
-    def __init__(
-        self,
-        meta: Metadata,
-        name: str,
-        transformers: dict[str, TransformerFactory] | None = None,
-        encoders: dict[str, EncoderFactory] | None = None,
-        modules: list[Module] | None = None,
-    ) -> None:
-        self.name = name
-        self.meta = meta
-
-        if modules:
-            transformers = get_module_dict(TransformerFactory, modules)
-            encoders = get_module_dict(EncoderFactory, modules)
-        else:
-            assert (
-                transformers and encoders
-            ), "Either modules or transformers and encoders should be provided."
-
-        self.ref = ReferenceManager(meta, name)
-        self.transformer = TableTransformer(self.ref, meta, name, transformers)
-        self.fitted = False
-
-        self.encoders = {
-            name: ColumnEncoderHolder(encoder) for name, encoder in encoders.items()
-        }
-
-    def find_ids(self, tables: dict[str, pd.DataFrame]):
-        return self.ref.find_foreign_ids(self.name, tables)
-
-    def transform(
-        self,
-        tables: dict[str, pd.DataFrame] | dict[str, LazyChunk],
-        ids: pd.DataFrame | LazyChunk | None = None,
+        data: dict[str, LazyFrame],
     ):
-        return self.transformer.transform(tables, ids)
+        lazies = set()
 
-    def reverse(
-        self,
-        table: pd.DataFrame | LazyChunk,
-        ids: pd.DataFrame | LazyChunk | None = None,
-        parent_tables: dict[str, LazyChunk] | dict[str, pd.DataFrame] | None = None,
-    ):
-        return self.transformer.reverse(table, ids, parent_tables)
+        for name, table in data.items():
+            lazies |= self.decode_chunk(name, table)
+        
+        # Passthrough ids
+        for name, tid in data.items():
+            if name.endswith('_ids'):
+                lazies |= _return_ids(name.replace('_ids', ''), tid)
+        
+        return lazies
 
-    def fit_transform(
-        self,
-        tables: dict[str, pd.DataFrame] | dict[str, LazyChunk],
-        ids: pd.DataFrame | LazyChunk | None = None,
-    ):
-        """Fits the base transformer and the encoding transformers.
 
-        The data has to be encoded using the base transformer to make this possible.
-        So it's returned by the function, and there's no `fit` only function."""
-        cached_tables = {
-            name: table() if callable(table) else table
-            for name, table in tables.items()
-        }
-        cached_ids = (ids() if callable(ids) else ids) if ids is not None else None
+    def get_metadata(self) -> dict[str, dict[str | tuple[str], META]]:
+        out = defaultdict(dict)
 
-        if self.ref.table_has_reference() and ids is None:
-            cached_ids = self.ref.find_foreign_ids(self.name, cached_tables)
+        for table, encs in self.table_encoders.items():
+            for name, enc in encs.items():
+                out[table][name] = enc.get_metadata()
 
-        self.transformer.fit(cached_tables, cached_ids)
+        for cencs in self.ctx_encoders.values():
+            for table, encs in cencs.items():
+                for name, enc in encs.items():
+                    out[table][name] = enc.get_metadata()
 
-        attrs = self.transformer.get_attributes()
-        table = self.transformer.transform(cached_tables, cached_ids)
-
-        for encoder in self.encoders.values():
-            encoder.fit(attrs, table)
-
-        self.fitted = True
-        return table, ids
-
-    def get_attributes(self) -> dict[str, Attribute]:
-        return self.transformer.get_attributes()
-
-    def __getitem__(self, type):
-        assert self.fitted
-        return self.encoders[type]
+        return out

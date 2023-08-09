@@ -23,14 +23,15 @@ class Transformer(ModuleClass):
     stateful = False
     "Transformer fits variables."
 
-    attr: Attribute
-
     def __init__(self, **_) -> None:
         pass
 
     def fit(self, data: pd.Series | pd.DataFrame) -> Attribute | None:
         """Fits to the provided data"""
         pass
+
+    def get_attributes(self) -> Attributes:
+        raise NotImplementedError()
 
     def reduce(self, other: "Transformer"):
         pass
@@ -112,6 +113,9 @@ class SeqTransformer(Transformer):
 
     def reduce(self, other: "SeqTransformer"):
         pass
+
+    def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
+        raise NotImplementedError()
 
     def fit_transform(
         self,

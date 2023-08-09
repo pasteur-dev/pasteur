@@ -8,8 +8,9 @@ from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
 from .utils import LazyFrame, LazyDataset
 
+ENC = TypeVar("ENC", bound="Encoder")
 
-class EncoderFactory(ModuleFactory["Encoder"]):
+class EncoderFactory(ModuleFactory[ENC], Generic[ENC]):
     """Factory base class for encoders. Use isinstance with this class
     to filter the Pasteur module list into only containing Encoders."""
     ...
@@ -46,7 +47,7 @@ class AttributeEncoder(Encoder[dict[str, META]], Generic[META]):
     """
 
     name: str = ""
-    _factory = EncoderFactory
+    _factory = EncoderFactory["AttributeEncoder"]
 
     def fit(self, attr: Attribute, data: pd.DataFrame | None):
         raise NotImplementedError()
@@ -66,7 +67,7 @@ class AttributeEncoder(Encoder[dict[str, META]], Generic[META]):
 
 class ViewEncoder(Encoder[META], Generic[META]):
     name: str = ""
-    _factory = EncoderFactory
+    _factory = EncoderFactory["ViewEncoder"]
 
     def fit(
         self,
@@ -74,7 +75,7 @@ class ViewEncoder(Encoder[META], Generic[META]):
         tables: dict[str, LazyFrame],
         ctx_attrs: dict[str, dict[str, Attributes]],
         ctx: dict[str, dict[str, LazyFrame]],
-        ids: LazyFrame,
+        ids: dict[str, LazyFrame],
     ):
         raise NotImplementedError()
 
@@ -85,7 +86,7 @@ class ViewEncoder(Encoder[META], Generic[META]):
         self,
         tables: dict[str, LazyFrame],
         ctx: dict[str, dict[str, LazyFrame]],
-        ids: LazyFrame,
+        ids: dict[str, LazyFrame],
     ) -> dict[str, Any | LazyDataset[Any]]:
         raise NotImplementedError()
 
@@ -93,9 +94,9 @@ class ViewEncoder(Encoder[META], Generic[META]):
         self,
         data: dict[str, LazyDataset[Any]],
     ) -> tuple[
-        LazyFrame | pd.DataFrame,
-        dict[str, LazyFrame | pd.DataFrame],
-        LazyFrame | pd.DataFrame,
+        dict[str, LazyFrame],
+        dict[str, dict[str, LazyFrame]],
+        dict[str, LazyFrame],
     ]:
         raise NotImplementedError()
 

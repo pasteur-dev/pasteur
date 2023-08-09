@@ -434,9 +434,9 @@ def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable] | Callable:
 
 def to_chunked(
     func: Callable[P, A], /
-) -> Callable[P, Callable[P, A] | dict[str, Callable[P, A]]]:
+) -> Callable[P, set[Callable[..., A]]]:
     """Makes wrapped function lazy evaluate. If args contain forms of
-    `LazyDataset`, a dictionary of lazy functions are returned, each one loading
+    `LazyDataset`, a set of lazy functions are returned, each one loading
     one partition."""
 
     def wrapper(*args, _canary=False, _partition: str | None = None, **kwargs):
@@ -474,27 +474,27 @@ def to_chunked(
 
     update_wrapper(wrapper, func)
 
-    # Update annotations
-    new_annotations = {}
-    for param, orig in getattr(func, "__annotations__", {}).items():
-        annotation = str(orig)
+    # # Update annotations
+    # new_annotations = {}
+    # for param, orig in getattr(func, "__annotations__", {}).items():
+    #     annotation = str(orig)
 
-        if annotation == "LazyChunk":
-            annotation = "LazyFrame"
-        elif annotation == "LazyFrame":
-            raise AttributeError("Can't wrap a LazyFrame with to_chunked")
-        elif annotation.startswith("LazyDataset"):
-            raise AttributeError("Can't wrap a LazyDataset with to_chunked")
-        elif annotation.startswith("LazyPartition"):
-            annotation = "LazyDataset" + annotation[len("LazyPartition") :]
-        else:
-            annotation = (
-                orig  # preserve annotation object if it's not one of the lazies
-            )
+    #     if annotation == "LazyChunk":
+    #         annotation = "LazyFrame"
+    #     elif annotation == "LazyFrame":
+    #         raise AttributeError("Can't wrap a LazyFrame with to_chunked")
+    #     elif annotation.startswith("LazyDataset"):
+    #         raise AttributeError("Can't wrap a LazyDataset with to_chunked")
+    #     elif annotation.startswith("LazyPartition"):
+    #         annotation = "LazyDataset" + annotation[len("LazyPartition") :]
+    #     else:
+    #         annotation = (
+    #             orig  # preserve annotation object if it's not one of the lazies
+    #         )
 
-        new_annotations[param] = annotation
+    #     new_annotations[param] = annotation
 
-    wrapper.__annotations__ = new_annotations
+    # wrapper.__annotations__ = new_annotations
 
     return wrapper  # type: ignore
 
