@@ -708,7 +708,7 @@ class AttributeEncoderHolder(
 
         for cencs in self.ctx_encoders.values():
             for table, encs in cencs.items():
-                for name, enc in encs.items():
-                    out[table][name] = enc.get_metadata()
+                for enc in encs.values():
+                    out[table].update(enc.get_metadata())
 
         return out

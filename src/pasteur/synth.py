@@ -10,18 +10,32 @@ from typing import TYPE_CHECKING, Any, TypeVar, Generic
 
 from .encode import ViewEncoder
 from .module import ModuleClass, ModuleFactory
-from .utils import LazyDataset, to_chunked
+from .utils import LazyDataset, LazyFrame
 
 META = TypeVar("META")
-
-if TYPE_CHECKING:
-    from .attribute import Attributes
-    from .metadata import Metadata
-    import pandas as pd
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def data_to_tables(
+    data: dict[str, LazyDataset]
+) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
+    # Use old format
+    ids = {}
+    tables = {}
+    for name, datum in data:
+        if name.endswith("_ids"):
+            ids[name[:-4]] = datum
+        else:
+            tables[name] = datum
+
+    return ids, tables
+
+
+def tables_to_data(ids: dict[str, Any], tables: dict[str, Any]):
+    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables}
 
 
 def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
@@ -87,7 +101,6 @@ class Synth(ModuleClass, Generic[META]):
 
     def bake(
         self,
-        meta: META,
         data: dict[str, LazyDataset],
     ):
         """Bakes the model based on the data provided (such as creating and
@@ -99,7 +112,6 @@ class Synth(ModuleClass, Generic[META]):
 
     def fit(
         self,
-        meta: META,
         data: dict[str, LazyDataset],
     ):
         """Fits the model based on the provided data.
@@ -164,11 +176,11 @@ def synth_fit(
     tracker.stop("preprocess")
 
     tracker.start("bake")
-    model.bake(meta, data)
+    model.bake(data)
     tracker.stop("bake")
 
     tracker.start("fit")
-    model.fit(meta, data)
+    model.fit(data)
     tracker.stop("fit")
 
     return model

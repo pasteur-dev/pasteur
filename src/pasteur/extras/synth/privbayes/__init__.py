@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 from math import ceil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ....marginal import MarginalOracle
-from ....synth import Synth, make_deterministic
+from ....synth import Synth, data_to_tables, make_deterministic, tables_to_data
 from ....utils import LazyFrame
 
 if TYPE_CHECKING:
@@ -57,14 +57,11 @@ class PrivBayesSynth(Synth):
         self.kwargs = kwargs
 
     @make_deterministic
-    def preprocess(
-        self,
-        attrs: dict[str, Attributes],
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
+    def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
         from ....hierarchy import rebalance_attributes
 
+        attrs = meta
+        _, tables = data_to_tables(data)
         table_name = next(iter(tables.keys()))
         table = tables[table_name]
         table_attrs = attrs[table_name]
@@ -90,12 +87,10 @@ class PrivBayesSynth(Synth):
             self.attrs = table_attrs
 
     @make_deterministic
-    def bake(
-        self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
+    def bake(self, data: dict[str, LazyFrame]):
         from .implementation import greedy_bayes
+
+        _, tables = data_to_tables(data)
 
         assert len(tables) == 1, "Only tabular data supported for now"
 
@@ -130,13 +125,10 @@ class PrivBayesSynth(Synth):
         logger.info(self)
 
     @make_deterministic
-    def fit(
-        self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
+    def fit(self, data: dict[str, LazyFrame]):
         from .implementation import MAX_EPSILON, calc_noisy_marginals
 
+        _, tables = data_to_tables(data)
         table = tables[self.table_name]
         self.partitions = len(table)
         self.n = ceil(table.shape[0] / self.partitions)
@@ -158,21 +150,19 @@ class PrivBayesSynth(Synth):
             )
 
     @make_deterministic("i")
-    def sample(
-        self, *, n: int | None = None, i: int = 0
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
         import pandas as pd
 
         from .implementation import sample_rows
 
-        data = {
+        tables = {
             self.table_name: sample_rows(
                 self.attrs, self.nodes, self.marginals, self.n if n is None else n  # type: ignore
             )
         }
         ids = {self.table_name: pd.DataFrame()}
 
-        return ids, data
+        return tables_to_data(ids, tables)
 
     def __str__(self) -> str:
         from .implementation import print_tree

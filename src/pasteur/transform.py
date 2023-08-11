@@ -26,7 +26,7 @@ class Transformer(ModuleClass):
     def __init__(self, **_) -> None:
         pass
 
-    def fit(self, data: pd.Series | pd.DataFrame) -> Attribute | None:
+    def fit(self, data: pd.Series | pd.DataFrame):
         """Fits to the provided data"""
         pass
 

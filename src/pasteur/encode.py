@@ -10,9 +10,11 @@ from .utils import LazyFrame, LazyDataset
 
 ENC = TypeVar("ENC", bound="Encoder")
 
+
 class EncoderFactory(ModuleFactory[ENC], Generic[ENC]):
     """Factory base class for encoders. Use isinstance with this class
     to filter the Pasteur module list into only containing Encoders."""
+
     ...
 
 
@@ -20,10 +22,11 @@ META = TypeVar("META")
 
 
 class Encoder(ModuleClass, Generic[META]):
-    pass
+    def get_metadata(self) -> META:
+        raise NotImplementedError()
 
 
-class AttributeEncoder(Encoder[dict[str, META]], Generic[META]):
+class AttributeEncoder(Encoder[dict[str | tuple[str], META]], Generic[META]):
     """Encapsulates a special way to encode an Attribute.
 
     One encoder is instantiated per attribute and its `fit` function is called to
@@ -55,9 +58,6 @@ class AttributeEncoder(Encoder[dict[str, META]], Generic[META]):
     def reduce(self, other: "AttributeEncoder"):
         pass
 
-    def get_metadata(self) -> META:
-        raise NotImplementedError()
-
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError()
 
@@ -77,9 +77,6 @@ class ViewEncoder(Encoder[META], Generic[META]):
         ctx: dict[str, dict[str, LazyFrame]],
         ids: dict[str, LazyFrame],
     ):
-        raise NotImplementedError()
-
-    def get_metadata(self) -> META:
         raise NotImplementedError()
 
     def encode(

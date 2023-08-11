@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 import pandas as pd
 
-from ....synth import Synth, make_deterministic
+from pasteur.attribute import Attribute
+from pasteur.utils import LazyDataset
+
+from ....synth import Synth, data_to_tables, make_deterministic, tables_to_data
 from ....utils import LazyFrame
 
 if TYPE_CHECKING:
@@ -15,7 +18,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-class AIM(Synth):
+
+class AIM(Synth[dict[str, Attributes]]):
     name = "aim"
     type = "idx"
     tabular = True
@@ -49,32 +53,17 @@ class AIM(Synth):
         self.marginal_mode: "MarginalOracle.MODES" = marginal_mode
         self.kwargs = kwargs
 
+    @make_deterministic
+    def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
+        self.table = next(iter(meta))
+        self.attrs = meta
 
     @make_deterministic
-    def preprocess(
-        self,
-        attrs: dict[str, Attributes],
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
-        self.table = next(iter(attrs))
-        self.attrs = attrs
+    def bake(self, data: dict[str, LazyFrame]):
         pass
 
     @make_deterministic
-    def bake(
-        self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
-        pass
-
-    @make_deterministic
-    def fit(
-        self,
-        ids: dict[str, LazyFrame],
-        tables: dict[str, LazyFrame],
-    ):
+    def fit(self, data: dict[str, LazyFrame]):
         import itertools
 
         import numpy as np
@@ -83,6 +72,7 @@ class AIM(Synth):
         from ....marginal import MarginalOracle
         from .common import OracleDataset
 
+        ids, tables = data_to_tables(data)
         table = tables[self.table]
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
@@ -108,8 +98,6 @@ class AIM(Synth):
             self.model = mech.run(data, workload)
 
     @make_deterministic("i")
-    def sample(
-        self, *, n: int | None = None, i: int = 0
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
         data = self.model.synthetic_data(n or self.n)
-        return {self.table: pd.DataFrame()}, {self.table: data.df}
+        return tables_to_data({self.table: pd.DataFrame()}, {self.table: data.df})

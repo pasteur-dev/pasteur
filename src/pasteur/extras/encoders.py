@@ -4,6 +4,8 @@ from typing import cast
 import numpy as np
 import pandas as pd
 
+from pasteur.attribute import Attribute
+
 from ..attribute import (
     Attribute,
     CatValue,
@@ -11,7 +13,7 @@ from ..attribute import (
     _create_strat_value_ord,
     get_dtype,
 )
-from ..encode import Encoder
+from ..encode import AttributeEncoder
 
 
 class DiscretizationColumnTransformer:
@@ -60,10 +62,10 @@ class DiscretizationColumnTransformer:
         return pd.Series(v, index=enc.index, name=self.col)
 
 
-class IdxEncoder(Encoder):
+class IdxEncoder(AttributeEncoder[Attribute]):
     name = "idx"
 
-    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
+    def fit(self, attr: Attribute, data: pd.DataFrame):
         self.transformers: dict[str, DiscretizationColumnTransformer] = {}
 
         # FIXME: not out-of-core
@@ -84,7 +86,9 @@ class IdxEncoder(Encoder):
 
         self.attr = copy(attr)
         self.attr.update_vals(cols)
-        return self.attr
+    
+    def get_metadata(self) -> dict[str | tuple[str], Attribute]:
+        return {self.attr.name: self.attr}
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         if len(self.attr.vals) == 0:
@@ -111,10 +115,10 @@ class IdxEncoder(Encoder):
         return dec
 
 
-class NumEncoder(Encoder):
+class NumEncoder(AttributeEncoder[Attribute]):
     name = "num"
 
-    def fit(self, attr: Attribute, data: pd.DataFrame) -> Attribute:
+    def fit(self, attr: Attribute, data: pd.DataFrame):
         self.in_attr = attr
 
         cols = {}
@@ -144,7 +148,9 @@ class NumEncoder(Encoder):
 
         self.attr = copy(attr)
         self.attr.update_vals(cols)
-        return self.attr
+    
+    def get_metadata(self) -> dict[str | tuple[str], Attribute]:
+        return {self.attr.name: self.attr}
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
         a = self.in_attr

@@ -4,11 +4,13 @@ import numpy as np
 import pandas as pd
 from pandas.api.types import is_categorical_dtype
 
+from pasteur.attribute import Attributes
+
 from ..attribute import (
     Attribute,
     CatAttribute,
     Grouping,
-    CatValue,
+    StratifiedValue,
     NumAttribute,
     NumValue,
     OrdAttribute,
@@ -111,7 +113,9 @@ class IdxTransformer(Transformer):
         self.type = data.dtype
         cls = OrdAttribute if self.ordinal else CatAttribute
         self.attr = cls(cast(str, data.name), vals, self.nullable, self.unknown_value)
-        return self.attr
+    
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
         mapping = self.mapping
@@ -147,7 +151,7 @@ class IdxTransformer(Transformer):
         col = data.loc[:, self.col]
         if self.type.name == "category":
             out = col.astype(
-                pd.CategoricalDtype(range(self.domain))
+                pd.CategoricalDtype(list(range(self.domain)))
             ).cat.rename_categories(self.vals)
 
             if self.nullable:
@@ -256,7 +260,8 @@ class DateTransformer(RefTransformer):
                     self.nullable,
                 )
 
-        return self.attr
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     @staticmethod
     def iso_year_start(iso_year):
@@ -477,9 +482,11 @@ class TimeTransformer(Transformer):
         self.domain = lvl.size
 
         self.attr = Attribute(
-            cast(str, data.name), {f"{data.name}_time": CatValue(lvl)}, self.nullable
+            cast(str, data.name), {f"{data.name}_time": StratifiedValue(lvl)}, self.nullable
         )
-        return self.attr
+
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     def transform(self, date: pd.Series) -> pd.DataFrame:
         out = pd.DataFrame(index=date.index)
@@ -583,7 +590,9 @@ class DatetimeTransformer(RefTransformer):
         cdt = self.dt.fit(data, ref)
         ctt = self.tt.fit(data)
         self.attr = Attribute(self.col, vals={**cdt.vals, **ctt.vals}, na=self.nullable)
-        return self.attr
+
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         date_enc = self.dt.transform(data, ref)
@@ -639,7 +648,9 @@ class FixedValueTransformer(Transformer):
         self.col = data.name
 
         self.attr = Attribute(cast(str, self.col), {})
-        return self.attr
+
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
         return pd.DataFrame(index=data.index)
