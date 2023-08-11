@@ -5,13 +5,12 @@ and check all View parameters provided to kedro.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple, overload
+from typing import TYPE_CHECKING, NamedTuple, cast, overload
 
 if TYPE_CHECKING:
     import pandas as pd
 
 import logging
-
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ class ColumnMeta:
     ref: ColumnRef | list[ColumnRef] | None
 
     def __init__(self, **kwargs):
-        type_val: str = kwargs["type"]
+        type_val = cast(str, kwargs["type"])
 
         # Check for type extended syntax
         # <type><?>|<main-param>:<ref>
@@ -203,7 +202,7 @@ class ViewMeta:
         self,
         meta: dict,
     ):
-        self._tables = {
+        self._tables: dict[str, ViewMeta.TABLE_CLS] = {
             name: self.TABLE_CLS(tmeta) for name, tmeta in meta["tables"].items()
         }
 

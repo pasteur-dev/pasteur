@@ -27,11 +27,13 @@ if TYPE_CHECKING:
 A = TypeVar("A")
 B = TypeVar("B")
 P = ParamSpec("P")
+G = TypeVar("G", bound=list)
 
 logger = logging.getLogger(__name__)
 
+
 class RawSource(NamedTuple):
-    """ Represents a raw data source that can be downloaded.
+    """Represents a raw data source that can be downloaded.
 
     `files` is a list or a single URI that points to an S3 directory, index listing,
     or file.
@@ -41,13 +43,14 @@ class RawSource(NamedTuple):
     HTTP basic auth is supported and can be enabled by setting `credentials` to True.
     `description` is shown by the command `pasteur download` and should contain
     licensing information.
-    
+
     @warning: Experimental API, subject to change."""
-    
+
     files: str | list[str]
     save_name: str | None = None
     credentials: bool = False
     desc: str | None = None
+
 
 class LazyPartition(Generic[A]):
     def __init__(
@@ -68,14 +71,12 @@ class LazyPartition(Generic[A]):
     ) -> A:
         new_kw = {}
         if columns is not None:
-            new_kw['columns'] = columns
+            new_kw["columns"] = columns
         if chunksize is not None:
-            new_kw['chunksize'] = chunksize
+            new_kw["chunksize"] = chunksize
 
         try:
-            return self.fun(
-                *self.args, **self.kwargs, **new_kw
-            )
+            return self.fun(*self.args, **self.kwargs, **new_kw)
         except TypeError:
             return self.fun(*self.args, **self.kwargs)
 
@@ -191,6 +192,11 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
     @staticmethod
     @overload
+    def zip(datasets: G, /) -> dict[str, G]:
+        ...
+
+    @staticmethod
+    @overload
     def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyPartition[B]]]:
         ...
 
@@ -207,11 +213,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         ...
 
     @staticmethod
-    def zip(
-        *positional, **keyword: LazyDataset[B]
-    ) -> dict[str, dict[str, LazyPartition[B]]] | dict[
-        str, list[LazyPartition[B]]
-    ] | dict[str, tuple[list[LazyPartition[B]], dict[str, LazyPartition[B]]]]:
+    def zip(*positional, **keyword):
         """Aligns and returns a dictionary of partition ids to partitions.
 
         Partitions can be a list, if positional arguments were provided, or a dictionary
@@ -219,10 +221,21 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
         @warning: all partitioned sets should have the same keys."""
 
+        custom = None
         if positional and keyword:
             partitions = [*positional, *list(keyword.values())]
         elif positional and not keyword:
-            if isinstance(positional[0], dict):
+            if isinstance(positional[0], list):
+                partitions = []
+                for p in positional:
+                    if isinstance(p, LazyDataset):
+                        partitions.append(p)
+                    elif isinstance(p, dict):
+                        partitions.extend(p.values())
+                    elif isinstance(p, list):
+                        partitions.extend(p)
+                custom = positional[0]
+            elif isinstance(positional[0], dict):
                 keyword = positional[0]
                 partitions = keyword.values()
                 positional = tuple()
@@ -243,11 +256,33 @@ class LazyDataset(Generic[A], LazyPartition[A]):
                 assert set(keys) == set(partition.keys())
 
         # If no datasets are partitioned, return a single one with all the datasets.
-        assert (
-            keys
-        ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
+        # assert (
+        #     keys
+        # ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
+        if not keys:
+            keys = ["MAIN"] # fixme: cleanup how to work without partitions
 
-        if positional and keyword:
+        if custom:
+            # If the first argument is a list, return an output of the same format.
+            # Support unrolling dicts and lists as well
+            out = {}
+
+            for pid in keys:
+                curr = []
+                for p in custom:
+                    if isinstance(p, LazyDataset):
+                        curr.append(p[pid] if p.partitioned else p)
+                    elif isinstance(p, dict):
+                        curr.append(
+                            {n: v[pid] if v.partitioned else v for n, v in p.items()}
+                        )
+                    elif isinstance(p, list) or isinstance(p, tuple):
+                        curr.append([v[pid] if v.partitioned else v for v in p])
+                    else:
+                        curr.append(p)
+                out[pid] = curr
+            return out
+        elif positional and keyword:
             return {
                 pid: (
                     [ds[pid] if ds.partitioned else ds for ds in positional],
@@ -263,13 +298,14 @@ class LazyDataset(Generic[A], LazyPartition[A]):
                 pid: [ds[pid] if ds.partitioned else ds for ds in positional]
                 for pid in keys
             }
-
-        return {
-            pid: {
-                name: ds[pid] if ds.partitioned else ds for name, ds in keyword.items()
+        else:
+            return {
+                pid: {
+                    name: ds[pid] if ds.partitioned else ds
+                    for name, ds in keyword.items()
+                }
+                for pid in keys
             }
-            for pid in keys
-        }
 
     @staticmethod
     @overload
@@ -432,9 +468,7 @@ def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable] | Callable:
     return closures
 
 
-def to_chunked(
-    func: Callable[P, A], /
-) -> Callable[P, set[Callable[..., A]]]:
+def to_chunked(func: Callable[P, A], /) -> Callable[P, set[Callable[..., A]]]:
     """Makes wrapped function lazy evaluate. If args contain forms of
     `LazyDataset`, a set of lazy functions are returned, each one loading
     one partition."""

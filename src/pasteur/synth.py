@@ -8,6 +8,7 @@ from __future__ import annotations
 from functools import partial, wraps
 from typing import TYPE_CHECKING, Any, TypeVar, Generic
 
+from .encode import ViewEncoder
 from .module import ModuleClass, ModuleFactory
 from .utils import LazyDataset, to_chunked
 
@@ -117,17 +118,15 @@ class Synth(ModuleClass, Generic[META]):
         """
         raise NotImplementedError()
 
-    def sample(
-        self, *, n: int | None = None, partitions: int | None = None
-    ):
-        """ Samples `n` samples across `partitions` partitions.
+    def sample(self, *, n: int | None = None, partitions: int | None = None):
+        """Samples `n` samples across `partitions` partitions.
 
         The return value should be finalized to `dict[str, Any]`, which
         matches the format of `data` provided to the fitting function.
-        Since this 
-        
+        Since this
+
         A default implementation is provided, that packages `sample_partition()`
-        in such a way that pasteur can sample and save partitions in parallel. """
+        in such a way that pasteur can sample and save partitions in parallel."""
         n = n or self._n
         partitions = partitions or self._partitions
 
@@ -138,14 +137,13 @@ class Synth(ModuleClass, Generic[META]):
         n_chunk = n // partitions
 
         return {
-            partial(self.sample_partition, i=i, n=n_chunk)
-            for i in range(partitions)
-        } 
+            partial(self.sample_partition, i=i, n=n_chunk) for i in range(partitions)
+        }
 
 
 def synth_fit(
     factory: SynthFactory,
-    metadata: Metadata,
+    encoder: ViewEncoder,
     data: dict[str, LazyDataset],
 ):
     from .utils.perf import PerformanceTracker
@@ -154,55 +152,46 @@ def synth_fit(
 
     tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
 
-    meta = metadata
+    meta = encoder.get_metadata()
     args = {**meta.algs.get(factory.name, {}), **meta.alg_override}
-
-    attrs = {n: t[factory.type].get_attributes() for n, t in trns.items()}
     model = factory.build(**args, seed=meta.seed)
 
     # if factory.gpu:
     #     tracker.use_gpu()
 
     tracker.start("preprocess")
-    model.preprocess(data)
+    model.preprocess(meta, data)
     tracker.stop("preprocess")
 
     tracker.start("bake")
-    model.bake(data)
+    model.bake(meta, data)
     tracker.stop("bake")
 
     tracker.start("fit")
-    model.fit(data)
+    model.fit(meta, data)
     tracker.stop("fit")
 
     return model
 
 
 class IdentSynth(Synth):
-    """Returns the data it was provided."""
+    """Samples the data it was provided."""
 
     name = "ident_idx"
     type = "idx"
     partitions = 1
 
-    def preprocess(
-        self,
-        attrs: dict[str, Attributes],
-        ids: dict[str, LazyDataset],
-        tables: dict[str, LazyDataset],
-    ):
+    def preprocess(self, meta: Any, data: dict[str, LazyDataset]):
         pass
 
-    def bake(self, ids: dict[str, LazyDataset], tables: dict[str, LazyDataset]):
+    def bake(self, meta: Any, data: dict[str, LazyDataset]):
         pass
 
-    def fit(self, ids: dict[str, LazyDataset], tables: dict[str, LazyDataset]):
-        self._ids = {name: table.sample() for name, table in ids.items()}
-        self._tables = {name: table.sample() for name, table in tables.items()}
-        self.partitions = len(tables[next(iter(tables))])
+    def fit(self, meta: Any, data: dict[str, LazyDataset]):
+        self.data = data
 
-    def sample(self, n: int | None = None, i: int = 0):
-        return self._ids, self._tables
+    def sample(self, n: int | None = None):
+        return self.data
 
 
 __all__ = ["Synth", "SynthFactory", "IdentSynth", "make_deterministic"]
