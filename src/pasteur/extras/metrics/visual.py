@@ -1,14 +1,19 @@
-from typing import TypeVar
+from typing import Any, NamedTuple, TypeVar
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
+from numpy import ndarray
+from pandas.core.frame import DataFrame
+from pandas.core.series import Series
+
+from pasteur.metric import AbstractColumnMetric, RefColumnData, Summaries
 
 from ...metadata import ColumnMeta, Metadata
-from ...metric import ColumnMetric, RefColumnMetric, Summaries as ColumnSummaries
+from ...metric import ColumnMetric, RefColumnMetric, Summaries
+from ...utils import list_unique
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
-from typing import NamedTuple
 
 A = TypeVar("A")
 
@@ -77,7 +82,7 @@ def _gen_bar(
     return fig
 
 
-class NumericalHist(ColumnMetric[np.ndarray]):
+class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "numerical"
 
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
@@ -90,12 +95,17 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         # Get maximums
         if metrics.x_min is not None:
             x_min = metrics.x_min
+        elif "min" in args:
+            x_min = args["min"]
         else:
-            x_min = args.get("min", data.min())
+            x_min = data.min()
+
         if metrics.x_max is not None:
             x_max = metrics.x_max
+        elif "max" in args:
+            x_max = args["max"]
         else:
-            x_max = args.get("max", data.max())
+            x_max = data.max()
 
         # In the case the column is NA, x_min and x_max will be NA
         # Disable visualiser
@@ -111,17 +121,36 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         else:
             self.bin_n = args.get("bins", 20)
 
+        self.x_min = x_min
+        self.x_max = x_max
         self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
 
-    def process(self, data: np.ndarray):
+    def reduce(self, other: "NumericalHist"):
+        self.x_min = min(self.x_min, other.x_min)
+        self.x_max = max(self.x_max, other.x_max)
+        self.bins = np.linspace(self.x_min, self.x_max, self.bin_n + 1)
+
+    def _process(self, data: pd.Series):
         if self.disabled:
             return np.array([])
         return np.histogram(data.astype(np.float32), self.bins, density=True)[0]
 
-    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
-        return np.sum(summaries, axis=0)
+    def preprocess(self, wrk: Series, ref: Series):
+        return Summaries(self._process(wrk), self._process(ref))
 
-    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
+    def process(
+        self, wrk: Series, ref: Series, syn: Series, pre: Summaries[np.ndarray]
+    ):
+        return pre.replace(syn=self._process(syn))
+
+    def combine(self, summaries: list[Summaries[ndarray]]) -> Summaries[ndarray]:
+        return Summaries(
+            wrk=np.sum([s.wrk for s in summaries], axis=0),
+            ref=np.sum([s.ref for s in summaries], axis=0),
+            syn=np.sum([s.syn for s in summaries if s.syn is not None], axis=0),
+        )
+
+    def visualise(self, data: dict[str, Summaries[np.ndarray]]):
         if self.disabled:
             return
 
@@ -142,7 +171,7 @@ class NumericalHist(ColumnMetric[np.ndarray]):
         mlflow_log_hists(self.table, self.col, v)
 
 
-class CategoricalHist(ColumnMetric[np.ndarray]):
+class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "categorical"
 
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
@@ -151,13 +180,31 @@ class CategoricalHist(ColumnMetric[np.ndarray]):
         self.col = col
         self.cols = list(data.value_counts().sort_values(ascending=False).index)
 
-    def process(self, data: pd.Series):
+    def reduce(self, other: "CategoricalHist"):
+        self.cols = list_unique(self.cols, other.cols)
+
+    def _process(self, data: pd.Series):
         return data.value_counts().reindex(self.cols, fill_value=0).to_numpy()
 
-    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
+    def _combine(self, summaries: list[np.ndarray]) -> np.ndarray:
         return np.sum(summaries, axis=0)
 
-    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
+    def preprocess(self, wrk: Series, ref: Series):
+        return Summaries(self._process(wrk), self._process(ref))
+
+    def process(
+        self, wrk: Series, ref: Series, syn: Series, pre: Summaries[np.ndarray]
+    ):
+        return pre.replace(syn=self._process(syn))
+
+    def combine(self, summaries: list[Summaries[ndarray]]) -> Summaries[ndarray]:
+        return Summaries(
+            wrk=self._combine([s.wrk for s in summaries]),
+            ref=self._combine([s.ref for s in summaries]),
+            syn=self._combine([s.syn for s in summaries if s.syn is not None]),
+        )
+
+    def visualise(self, data: dict[str, Summaries[np.ndarray]]):
         keys = list(data.keys())
         splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
         for name, split in data.items():
@@ -182,7 +229,7 @@ class OrdinalHist(CategoricalHist):
         self.cols = pd.Index(np.sort(data.unique()))
 
 
-class FixedHist(ColumnMetric[list]):
+class FixedHist(ColumnMetric[Any, Any]):
     """Fixed values can not be visualised. Removes warning."""
 
     name = "fixed"
@@ -190,10 +237,19 @@ class FixedHist(ColumnMetric[list]):
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
         ...
 
-    def process(self, data: pd.Series) -> list:
+    def reduce(self, other: AbstractColumnMetric):
+        pass
+
+    def process(
+        self,
+        wrk: Series | DataFrame,
+        ref: Series | DataFrame,
+        syn: Series | DataFrame,
+        pre: Any,
+    ) -> Any:
         return []
 
-    def combine(self, summaries: list[list]) -> list:
+    def combine(self, summaries: list[Any]) -> Any:
         return []
 
 
@@ -204,7 +260,7 @@ class DateData(NamedTuple):
     na: np.ndarray | None = None
 
 
-class DateHist(RefColumnMetric[DateData]):
+class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
     name = "date"
 
     def fit(
@@ -269,7 +325,16 @@ class DateHist(RefColumnMetric[DateData]):
         )
         self.nullable = meta.args.get("nullable", False)
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
+    def reduce(self, other: "DateHist"):
+        self.max_len = max(self.max_len, other.max_len)  # type: ignore
+        self.bin_n = max(self.bin_n, other.bin_n)
+
+        if self.max_len < self.bin_n:
+            self.bin_n = int(self.max_len - 1)
+
+        self.bins = np.linspace(0, self.max_len, self.bin_n + 1)
+
+    def _process(self, data: pd.Series, ref: pd.Series | None = None) -> DateData:
         assert self.ref is not None or ref is not None
 
         # Based on date transformer
@@ -325,17 +390,41 @@ class DateHist(RefColumnMetric[DateData]):
 
         na = None
         if self.nullable:
-            non_na_rate = np.sum(mask) / len(mask)
+            non_na_rate = np.sum(mask) / len(mask)  # type: ignore
             na = np.array([non_na_rate, 1 - non_na_rate])
 
         return DateData(span, weeks, days, na)
 
-    def combine(self, summaries: list[DateData]) -> DateData:
+    def _combine(self, summaries: list[DateData]) -> DateData:
         return DateData(
             span=np.sum([s.span for s in summaries if s.span is not None], axis=0),
             weeks=np.sum([s.weeks for s in summaries if s.weeks is not None], axis=0),
             days=np.sum([s.days for s in summaries if s.days is not None], axis=0),
             na=np.sum([s.na for s in summaries if s.na is not None], axis=0),
+        )
+
+    def preprocess(
+        self, wrk: RefColumnData, ref: RefColumnData
+    ) -> Summaries[DateData] | None:
+        return Summaries(
+            self._process(wrk["data"], wrk["ref"]),  # type: ignore
+            self._process(ref["data"], ref["ref"]),  # type: ignore
+        )
+
+    def process(
+        self,
+        wrk: RefColumnData,
+        ref: RefColumnData,
+        syn: RefColumnData,
+        pre: Summaries[DateData],
+    ) -> Summaries[DateData]:
+        return pre.replace(syn=self._process(syn["wrk"], syn["ref"]))  # type: ignore
+
+    def combine(self, summaries: list[Summaries[DateData]]) -> Summaries[DateData]:
+        return Summaries(
+            wrk=self._combine([s.wrk for s in summaries]),
+            ref=self._combine([s.ref for s in summaries]),
+            syn=self._combine([s.syn for s in summaries if s.syn is not None]),
         )
 
     def _viz_days(self, data: dict[str, DateData]):
@@ -381,30 +470,30 @@ class DateHist(RefColumnMetric[DateData]):
             {n: d.na for n, d in data.items() if d.na is not None},
         )
 
-    def _visualise(self, data: dict[str, DateData]) -> dict[str, Figure]:
-        s = self.span
-        charts = {
-            f"n{s}s": self._viz_binned(data),
-            "weeks": self._viz_weeks(data),
-            "days": self._viz_days(data),
-        }
-        if self.nullable:
-            charts["na"] = self._viz_na(data)
-        return charts
-
-    def visualise(self, data: dict[str, ColumnSummaries[DateData]]):
+    def _visualise(self, data: dict[str, Summaries[DateData]]) -> dict[str, Figure]:
         keys = list(data.keys())
         splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
         for name, split in data.items():
             assert split.syn is not None, f"Received null syn split for split {name}."
             splits[name] = split.syn
 
+        s = self.span
+        charts = {
+            f"n{s}s": self._viz_binned(splits),
+            "weeks": self._viz_weeks(splits),
+            "days": self._viz_days(splits),
+        }
+        if self.nullable:
+            charts["na"] = self._viz_na(splits)
+        return charts
+
+    def visualise(self, data: dict[str, Summaries[DateData]]):
         load_matplotlib_style()
-        v = self._visualise(splits)
+        v = self._visualise(data)
         mlflow_log_hists(self.table, self.col, v)
 
 
-class TimeHist(ColumnMetric[np.ndarray]):
+class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "time"
 
     def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
@@ -419,7 +508,10 @@ class TimeHist(ColumnMetric[np.ndarray]):
         else:
             self.span = "halfhour"
 
-    def process(self, data: pd.Series):
+    def reduce(self, other: AbstractColumnMetric):
+        pass
+
+    def _process(self, data: pd.Series):
         data = data[~pd.isna(data)]
         hours = data.dt.hour
 
@@ -433,10 +525,31 @@ class TimeHist(ColumnMetric[np.ndarray]):
 
         return segments.value_counts().reindex(range(seg_len), fill_value=0).to_numpy()
 
-    def combine(self, summaries: list[np.ndarray]) -> np.ndarray:
-        return np.sum(summaries)
+    def _combine(self, summaries: list[np.ndarray]) -> np.ndarray:
+        return np.sum(summaries, axis=0)
 
-    def _visualise(self, data: dict[str, np.ndarray]) -> Figure:
+    def preprocess(self, wrk: Series, ref: Series):
+        return Summaries(self._process(wrk), self._process(ref))
+
+    def process(
+        self, wrk: Series, ref: Series, syn: Series, pre: Summaries[np.ndarray]
+    ):
+        return pre.replace(syn=self._process(syn))
+
+    def combine(self, summaries: list[Summaries[ndarray]]) -> Summaries[ndarray]:
+        return Summaries(
+            wrk=np.sum([s.wrk for s in summaries], axis=0),
+            ref=np.sum([s.ref for s in summaries], axis=0),
+            syn=np.sum([s.syn for s in summaries if s.syn is not None], axis=0),
+        )
+
+    def _visualise(self, data: dict[str, Summaries[np.ndarray]]) -> Figure:
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            assert split.syn is not None, f"Received null syn split for split {name}."
+            splits[name] = split.syn
+
         if self.span == "hour":
             seg_len = 24
             mult = 1
@@ -453,20 +566,14 @@ class TimeHist(ColumnMetric[np.ndarray]):
             meta=self.meta,
             title=f"{self.col.capitalize()} Time",
             bins=bins,
-            heights=data,
+            heights=splits,
             xticks_x=tick_x,
             xticks_label=tick_label,
         )
 
-    def visualise(self, data: dict[str, ColumnSummaries[np.ndarray]]):
-        keys = list(data.keys())
-        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
-        for name, split in data.items():
-            assert split.syn is not None, f"Received null syn split for split {name}."
-            splits[name] = split.syn
-
+    def visualise(self, data: dict[str, Summaries[np.ndarray]]):
         load_matplotlib_style()
-        v = self._visualise(splits)
+        v = self._visualise(data)
         mlflow_log_hists(self.table, self.col, v)
 
 
@@ -475,7 +582,12 @@ class DatetimeData(NamedTuple):
     time: np.ndarray
 
 
-class DatetimeHist(RefColumnMetric[DatetimeData]):
+class DatetimeHist(
+    RefColumnMetric[
+        tuple[Summaries[DateData], Summaries[ndarray]],
+        tuple[Summaries[DateData], Summaries[ndarray]],
+    ]
+):
     name = "datetime"
 
     def __init__(self, *args, _from_factory: bool = False, **kwargs) -> None:
@@ -491,29 +603,37 @@ class DatetimeHist(RefColumnMetric[DatetimeData]):
         self.date.fit(table=table, col=col, meta=meta, data=data, ref=ref)
         self.time.fit(table=table, col=col, meta=meta, data=data)
 
-    def process(self, data: pd.Series, ref: pd.Series | None = None):
-        date = self.date.process(data, ref)
-        time = self.time.process(data)
-        return DatetimeData(date, time)
-
-    def combine(self, summaries: list[DatetimeData]) -> DatetimeData:
-        return DatetimeData(
-            self.date.combine([sum.date for sum in summaries]),
-            self.time.combine([sum.time for sum in summaries]),
+    def preprocess(
+        self, wrk: RefColumnData, ref: RefColumnData
+    ) -> tuple[Summaries[DateData], Summaries[ndarray]] | None:
+        return (
+            self.date.preprocess(wrk, ref),
+            self.time.preprocess(wrk["data"], ref["data"]),  # type: ignore
         )
 
-    def visualise(
+    def process(
         self,
-        data: dict[str, ColumnSummaries[DatetimeData]],
-    ):
-        keys = list(data.keys())
-        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
-        for name, split in data.items():
-            assert split.syn is not None, f"Received null syn split for split {name}."
-            splits[name] = split.syn
+        wrk: RefColumnData,
+        ref: RefColumnData,
+        syn: RefColumnData,
+        pre: tuple[Summaries[DateData], Summaries[ndarray]],
+    ) -> tuple[Summaries[DateData], Summaries[ndarray]]:
+        return (
+            self.date.process(wrk, ref, syn, pre[0]),
+            self.time.process(wrk["data"], ref["data"], syn["data"], pre[1]),  # type: ignore
+        )
+    
+    def combine(
+        self, summaries: list[tuple[Summaries[DateData], Summaries[ndarray]]]
+    ) -> tuple[Summaries[DateData], Summaries[ndarray]]:
+        return (
+            self.date.combine([s[0] for s in summaries]),
+            self.time.combine([s[1] for s in summaries]),
+        )
 
+    def visualise(self, data: dict[str, tuple[Summaries[DateData], Summaries[ndarray]]]):
         load_matplotlib_style()
-        date_fig = self.date._visualise({n: c.date for n, c in splits.items()})
-        time_fig = self.time._visualise({n: c.time for n, c in splits.items()})
+        date_fig = self.date._visualise({n: c[0] for n, c in data.items()})
+        time_fig = self.time._visualise({n: c[1] for n, c in data.items()})
 
         mlflow_log_hists(self.table, self.col, {**date_fig, "time": time_fig})
