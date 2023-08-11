@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from functools import reduce
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
+from numpy import ndarray
 from scipy.special import rel_entr
 from scipy.stats import chisquare
+from pasteur.metric import Summaries
+
+from pasteur.utils import LazyDataset
 
 from ...attribute import Attributes, CatValue, get_dtype
-from ...metric import Summaries, TableData, TableMetric
+from ...metric import Metric, Summaries
+from ...utils import LazyChunk, LazyFrame, data_to_tables
 from ...utils.progress import process_in_parallel
 
 if TYPE_CHECKING:
@@ -20,6 +26,7 @@ KL_ZERO_FILL = 1e-24
 FONT_SIZE = "13px"
 
 logger = logging.getLogger(__name__)
+
 
 def calc_marginal_1way(
     data: np.ndarray,
@@ -51,237 +58,307 @@ def calc_marginal_1way(
     return margin.reshape(-1)
 
 
-class ChiSquareMetric(
-    TableMetric[Summaries[dict[str, np.ndarray]], Summaries[dict[str, np.ndarray]]]
+def _visualise_cs(
+    name: str, domain: dict[str, int], data: dict[str, Summaries[dict[str, np.ndarray]]]
 ):
-    name = "cs"
-    encodings = ["idx"]
+    import mlflow
 
-    def fit(
-        self,
-        table: str,
-        meta: Metadata,
-        attrs: dict[str, dict[str, Attributes]],
-        data: TableData,
-    ):
-        self.table = table
-        table_attrs = attrs["idx"][table]
+    from ...utils.mlflow import color_dataframe, gen_html_table
 
-        self.domain = {}
-        for attr in table_attrs.values():
-            for name, val in attr.vals.items():
-                assert isinstance(val, CatValue)
-                self.domain[name] = val.domain
+    results = {}
 
-    def process_chunk(
-        self,
-        table: pd.DataFrame,
-    ):
-        domain = np.array(list(self.domain.values()))
-        a = table()[list(self.domain)].to_numpy(dtype="uint16")
+    # Add ref split first
+    name = "ref"
+    res = []
+    split = next(iter(data.values()))
+    for col in domain:
+        wrk, syn = split.wrk, split.ref
+        assert syn is not None
+        chi, p = chisquare(wrk[col], syn[col])
+        res.append([col, chi, p])
 
-        # Add at least one sample prob to distr chisquare valid
-        zero_fill = 1 / len(a)
+    results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
 
-        res = {}
-        for i, name in enumerate(self.domain):
-            res[name] = calc_marginal_1way(a, domain, [i], zero_fill)
-
-        return res
-
-    def process_split(self, name: str, split: TableData):
-        res = process_in_parallel(
-            self.process_chunk,
-            [{"table": t} for t in split["tables"]["idx"][self.table].values()],
-            desc=f"Processing CS split {name}",
-        )
-
-        assert res, "Received empty data"
-
-        cols = res[0].keys()
-        a = {col: np.sum([r[col] for r in res], axis=0) for col in cols}
-        # Normalize result
-        return {n: r / np.sum(r) for n, r in a.items()}
-
-    def preprocess(
-        self, wrk: TableData, ref: TableData
-    ) -> Summaries[dict[str, np.ndarray]]:
-        return Summaries(self.process_split("wrk", wrk), self.process_split("ref", ref))
-
-    def process(
-        self,
-        wrk: TableData,
-        ref: TableData,
-        syn: TableData,
-        pre: Summaries[dict[str, np.ndarray]],
-    ) -> Summaries[dict[str, np.ndarray]]:
-        return Summaries(pre.wrk, pre.ref, self.process_split("syn", syn))
-
-    def visualise(self, data: dict[str, Summaries[dict[str, np.ndarray]]]):
-        import mlflow
-
-        from ...utils.mlflow import color_dataframe, gen_html_table
-
-        results = {}
-
-        # Add ref split first
-        name = "ref"
+    for name, split in data.items():
         res = []
-        split = next(iter(data.values()))
-        for col in self.domain:
-            wrk, syn = split.wrk, split.ref
+        for col in domain:
+            wrk, syn = split.wrk, split.syn
             assert syn is not None
             chi, p = chisquare(wrk[col], syn[col])
             res.append([col, chi, p])
 
         results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
 
-        for name, split in data.items():
-            res = []
-            for col in self.domain:
-                wrk, syn = split.wrk, split.syn
-                assert syn is not None
-                chi, p = chisquare(wrk[col], syn[col])
-                res.append([col, chi, p])
+    cs_formatters = {
+        "X^2": {"precision": 3},
+        "p": {"formatter": lambda x: f"{100*x:.1f}"},
+    }
+    style = color_dataframe(
+        results,
+        idx=["col"],
+        cols=[],
+        vals=["X^2", "p"],
+        formatters=cs_formatters,
+        split_ref="ref",
+    )
 
-            results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
+    fn = f"distr/cs.html" if name == "table" else f"distr/{name}_cs.html"
+    mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
-        cs_formatters = {
-            "X^2": {"precision": 3},
-            "p": {"formatter": lambda x: f"{100*x:.1f}"},
-        }
-        style = color_dataframe(
-            results,
-            idx=["col"],
-            cols=[],
-            vals=["X^2", "p"],
-            formatters=cs_formatters,
-            split_ref="ref",
+
+def _visualise_kl(
+    name: str, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]
+):
+    import mlflow
+
+    from ...utils.mlflow import color_dataframe, gen_html_table
+
+    results = {}
+    ref_split = next(iter(data.values()))
+    ref_split = Summaries(ref_split.wrk, ref_split.ref, ref_split.ref)
+    for name, split in {
+        "ref": ref_split,
+        **data,
+    }.items():
+        wrk, syn = split.wrk, split.syn
+        assert syn
+        res = []
+        for key in syn:
+            col_i, col_j = key
+            k = wrk[key]
+            j = syn[key]
+
+            kl = rel_entr(k, j).sum()
+            kl_norm = 1 / (1 + kl)
+            res.append([col_i, col_j, kl, kl_norm, len(k)])
+
+        results[name] = pd.DataFrame(
+            res,
+            columns=[
+                "col_i",
+                "col_j",
+                "kl",
+                "kl_norm",
+                "mlen",
+            ],
         )
+        logger.info(f"Split {name} mean norm KL={results[name]['kl_norm'].mean():.5f}.")
+        mlflow.log_metric(f"kl_norm.{name}", results[name]["kl_norm"].mean())
 
-        fn = (
-            f"distr/cs.html" if self.table == "table" else f"distr/{self.table}_cs.html"
-        )
-        mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
+    kl_formatters = {"kl_norm": {"precision": 3}}
+    style = color_dataframe(
+        results,
+        idx=["col_j"],
+        cols=["col_i"],
+        vals=["kl_norm"],
+        formatters=kl_formatters,
+        split_ref="ref",
+    )
+
+    fn = f"distr/kl.html" if name == "table" else f"distr/{name}_kl.html"
+    mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
-class KullbackLeiblerMetric(
-    TableMetric[
-        Summaries[dict[tuple[str, str], np.ndarray]],
-        Summaries[dict[tuple[str, str], np.ndarray]],
+def _process_marginals_chunk(
+    name: str,
+    expand_parents: bool,
+    domain: dict[str, dict[str, int]],
+    ids: dict[str, LazyChunk],
+    tables: dict[str, LazyChunk],
+):
+    assert not expand_parents, "Expanding parents not supported yet"
+
+    table = tables[name]()[list(domain)].to_numpy(dtype="uint16")
+    table_domain = domain[name]
+    domain_arr = np.array(list(table_domain.values()))
+
+    # One way for CS
+    one_way: dict[str, ndarray] = {}
+    for i, name in enumerate(domain):
+        one_way[name] = calc_marginal_1way(table, domain_arr, [i], 0)
+
+    # Two way for KL
+    two_way: dict[tuple[str, str], ndarray] = {}
+    for i, col_i in enumerate(domain):
+        for j, col_j in enumerate(domain):
+            two_way[(col_i, col_j)] = calc_marginal_1way(table, domain_arr, [i, j], 0)
+
+    return one_way, two_way
+
+
+class DistributionMetric(
+    Metric[
+        Summaries[dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]],
+        Summaries[dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]],
     ]
 ):
-    name = "kl"
-    encodings = ["idx"]
+    name = "cs"
+    encodings = "idx"
 
     def fit(
         self,
-        table: str,
-        meta: Metadata,
-        attrs: dict[str, dict[str, Attributes]],
-        data: TableData,
+        meta: dict[str, Attributes],
+        data: dict[str, LazyFrame],
     ):
-        self.table = table
-        table_attrs = attrs["idx"][table]
+        self.domain = defaultdict(dict)
 
-        self.domain = {}
-        for attr in table_attrs.values():
-            for name, val in attr.vals.items():
-                assert isinstance(val, CatValue)
-                self.domain[name] = val.domain
-
-    def process_chunk(
-        self,
-        table: pd.DataFrame,
-    ):
-        a = table()[list(self.domain)].to_numpy(dtype="uint16")
-        domain = np.array(list(self.domain.values()))
-
-        res = {}
-        for i, col_i in enumerate(self.domain):
-            for j, col_j in enumerate(self.domain):
-                res[(col_i, col_j)] = calc_marginal_1way(
-                    a, domain, [i, j], KL_ZERO_FILL
-                )
-
-        return res
-
-    def process_split(self, name: str, split: TableData):
-        res = process_in_parallel(
-            self.process_chunk,
-            [{"table": t} for t in split["tables"]["idx"][self.table].values()],
-            desc=f"Processing KL split {name}",
-        )
-
-        assert res, "Received empty data"
-
-        pairs = res[0].keys()
-        a = {pair: np.sum([r[pair] for r in res], axis=0) for pair in pairs}
-        # Normalize result
-        return {n: r / np.sum(r) for n, r in a.items()}
+        for table, attrs in meta.items():
+            for attr in attrs.values():
+                for name, val in attr.vals.items():
+                    assert isinstance(val, CatValue)
+                    self.domain[table][name] = val.domain
 
     def preprocess(
-        self, wrk: TableData, ref: TableData
-    ) -> Summaries[dict[str, np.ndarray]]:
-        return Summaries(self.process_split("wrk", wrk), self.process_split("ref", ref))
+        self,
+        wrk: dict[str, LazyDataset],
+        ref: dict[str, LazyDataset],
+    ) -> Summaries[
+        dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
+    ]:
+        per_call = []
+        per_call_meta = []
+        base_args = {"domain": self.domain}
+
+        for pid, (cwrk, cref) in LazyDataset.zip([wrk, ref]).items():
+            for split, split_data in [("wrk", cwrk), ("ref", cref)]:
+                ids, tables = data_to_tables(split_data)
+
+                for table in self.domain:
+                    per_call.append(
+                        {
+                            "name": table,
+                            "expand_parents": False,
+                            "ids": ids,
+                            "tables": tables,
+                        }
+                    )
+                    per_call_meta.append({"split": split, "table": table, "pid": pid})
+
+        # Process marginals
+        out = process_in_parallel(
+            _process_marginals_chunk,
+            per_call,
+            base_args=base_args,
+            desc="Preprocessing distribution metrics",
+        )
+
+        # Intertwine results
+        res = defaultdict(lambda: defaultdict(list))
+
+        for meta, hist in zip(per_call_meta, out):
+            res[meta["split"]][meta["table"]].append(hist)
+
+        ret = defaultdict(dict)
+        for split, split_hists in res.items():
+            for table, table_hists in split_hists.items():
+                one_way = {}
+                for key in table_hists[0][0].keys():
+                    one_way[key] = np.sum(
+                        [table_hists[i][0][key] for i in range(len(table_hists))],
+                        axis=0,
+                    )
+
+                two_way = {}
+                for key in table_hists[0][1].keys():
+                    two_way[key] = np.sum(
+                        [table_hists[i][1][key] for i in range(len(table_hists))],
+                        axis=0,
+                    )
+
+                ret[split][table] = one_way, two_way
+        return Summaries(wrk=ret["wrk"], ref=ret["ref"])
 
     def process(
         self,
-        wrk: TableData,
-        ref: TableData,
-        syn: TableData,
-        pre: Summaries[dict[tuple[str, str], np.ndarray]],
-    ) -> Summaries[dict[tuple[str, str], np.ndarray]]:
-        return Summaries(pre.wrk, pre.ref, self.process_split("syn", syn))
+        wrk: dict[str, LazyDataset],
+        ref: dict[str, LazyDataset],
+        syn: dict[str, LazyDataset],
+        pre: Summaries[
+            dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
+        ],
+    ) -> Summaries[
+        dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
+    ]:
+        per_call = []
+        per_call_meta = []
+        base_args = {"domain": self.domain}
 
-    def visualise(self, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]):
-        import mlflow
+        for pid, csyn in LazyDataset.zip(syn).items():
+            ids, tables = data_to_tables(csyn)
 
-        from ...utils.mlflow import color_dataframe, gen_html_table
+            for table in self.domain:
+                per_call.append(
+                    {
+                        "name": table,
+                        "expand_parents": False,
+                        "ids": ids,
+                        "tables": tables,
+                    }
+                )
+                per_call_meta.append({"table": table, "pid": pid})
 
-        results = {}
-        ref_split = next(iter(data.values()))
-        ref_split = Summaries(ref_split.wrk, ref_split.ref, ref_split.ref)
-        for name, split in {
-            "ref": ref_split,
-            **data,
-        }.items():
-            wrk, syn = split.wrk, split.syn
-            assert syn
-            res = []
-            for key in syn:
-                col_i, col_j = key
-                k = wrk[key]
-                j = syn[key]
+        # Process marginals
+        out = process_in_parallel(
+            _process_marginals_chunk,
+            per_call,
+            base_args=base_args,
+            desc="Processing distribution metrics",
+        )
 
-                kl = rel_entr(k, j).sum()
-                kl_norm = 1 / (1 + kl)
-                res.append([col_i, col_j, kl, kl_norm, len(k)])
+        # Intertwine results
+        res = defaultdict(list)
+        for meta, hist in zip(per_call_meta, out):
+            res[meta["split"]][meta["table"]].append(hist)
 
-            results[name] = pd.DataFrame(
-                res,
-                columns=[
-                    "col_i",
-                    "col_j",
-                    "kl",
-                    "kl_norm",
-                    "mlen",
-                ],
+        ret = {}
+        for table, table_hists in res.items():
+            one_way = {}
+            for key in table_hists[0][0].keys():
+                one_way[key] = np.sum(
+                    [table_hists[i][0][key] for i in range(len(table_hists))],
+                    axis=0,
+                )
+
+            two_way = {}
+            for key in table_hists[0][1].keys():
+                two_way[key] = np.sum(
+                    [table_hists[i][1][key] for i in range(len(table_hists))],
+                    axis=0,
+                )
+
+            ret[table] = one_way, two_way
+        return pre.replace(syn=ret)
+
+    def visualise(
+        self,
+        data: dict[
+            str,
+            Summaries[
+                dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
+            ],
+        ],
+    ):
+        for name in self.domain:
+            _visualise_cs(
+                name,
+                self.domain[name],
+                {
+                    k: Summaries(
+                        wrk=v.wrk[name][0],
+                        ref=v.ref[name][0],
+                        syn=v.syn[name][0] if v.syn else None,
+                    )
+                    for k, v in data.items()
+                },
             )
-            logger.info(f"Split {name} mean norm KL={results[name]['kl_norm'].mean():.5f}.")
-            mlflow.log_metric(f"kl_norm.{name}", results[name]['kl_norm'].mean())
-
-        kl_formatters = {"kl_norm": {"precision": 3}}
-        style = color_dataframe(
-            results,
-            idx=["col_j"],
-            cols=["col_i"],
-            vals=["kl_norm"],
-            formatters=kl_formatters,
-            split_ref="ref",
-        )
-
-        fn = (
-            f"distr/kl.html" if self.table == "table" else f"distr/{self.table}_kl.html"
-        )
-        mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
+            _visualise_kl(
+                name,
+                {
+                    k: Summaries(
+                        wrk=v.wrk[name][1],
+                        ref=v.ref[name][1],
+                        syn=v.syn[name][1] if v.syn else None,
+                    )
+                    for k, v in data.items()
+                },
+            )

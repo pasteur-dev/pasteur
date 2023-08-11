@@ -19,25 +19,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def data_to_tables(
-    data: dict[str, LazyDataset]
-) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
-    # Use old format
-    ids = {}
-    tables = {}
-    for name, datum in data:
-        if name.endswith("_ids"):
-            ids[name[:-4]] = datum
-        else:
-            tables[name] = datum
-
-    return ids, tables
-
-
-def tables_to_data(ids: dict[str, Any], tables: dict[str, Any]):
-    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables}
-
-
 def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
     """Takes an object function (with self), and if the object has a seed attribute
     it fixes the np.random.seed attribute to it and prints a random number at the end.

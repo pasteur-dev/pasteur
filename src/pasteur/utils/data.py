@@ -6,20 +6,20 @@ These data types allow for loading dataset partitions on command, and when the
 data is no longer useful, evacuating it from RAM using the `del` keyword."""
 from __future__ import annotations
 
+import logging
 from functools import partial, update_wrapper
 from itertools import chain
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    NamedTuple,
-    TypeVar,
     Generic,
-    overload,
     Mapping,
+    NamedTuple,
     ParamSpec,
+    TypeVar,
+    overload,
 )
-import logging
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -260,7 +260,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         #     keys
         # ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
         if not keys:
-            keys = ["MAIN"] # fixme: cleanup how to work without partitions
+            keys = ["MAIN"]  # fixme: cleanup how to work without partitions
 
         if custom:
             # If the first argument is a list, return an output of the same format.
@@ -536,3 +536,56 @@ def to_chunked(func: Callable[P, A], /) -> Callable[P, set[Callable[..., A]]]:
 def apply_fun(obj: Any, *args, _fun: str, **kwargs):
     """Runs function with name `_fun` of object `obj` with the provided arguments."""
     return getattr(obj, _fun)(*args, **kwargs)
+
+
+@overload
+def data_to_tables(
+    data: dict[str, LazyDataset]
+) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
+    ...
+
+
+@overload
+def data_to_tables(
+    data: dict[str, LazyPartition]
+) -> tuple[dict[str, LazyChunk], dict[str, LazyChunk]]:
+    ...
+
+
+def data_to_tables(data):
+    # Use old format
+    ids = {}
+    tables = {}
+    for name, datum in data:
+        if name.endswith("_ids"):
+            ids[name[:-4]] = datum
+        else:
+            tables[name] = datum
+
+    return ids, tables
+
+
+def tables_to_data(ids: dict[str, Any], tables: dict[str, Any]):
+    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables}
+
+
+def lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):
+    """Lazy loads partitions and keeps them in-memory in a closure.
+
+    Once the functions go out of scope, the partitions are released."""
+    cached_tables: dict[str, pd.DataFrame] = {}
+
+    def _get_table(name: str):
+        if name in cached_tables:
+            return cached_tables[name]
+
+        candidate = tables[name]
+        if callable(candidate):
+            table = candidate()
+        else:
+            table = candidate
+
+        cached_tables[name] = table
+        return table
+
+    return _get_table

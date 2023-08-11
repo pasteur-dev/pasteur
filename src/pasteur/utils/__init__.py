@@ -9,8 +9,11 @@ from .data import (
     LazyPartition,
     RawSource,
     apply_fun,
+    data_to_tables,
     gen_closure,
     get_relative_fn,
+    lazy_load_tables,
     list_unique,
+    tables_to_data,
     to_chunked,
 )

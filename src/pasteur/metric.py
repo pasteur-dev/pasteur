@@ -14,13 +14,8 @@ from pasteur.utils import LazyDataset
 from .attribute import Attributes
 from .metadata import ColumnMeta, ColumnRef, Metadata
 from .module import Module, ModuleClass, ModuleFactory, get_module_dict_multiple
-from .table import (
-    ReferenceManager,
-    _calc_joined_refs,
-    _calc_unjoined_refs,
-    _lazy_load_tables,
-)
-from .utils import LazyChunk, LazyDataset, LazyFrame, LazyPartition
+from .table import ReferenceManager, _calc_joined_refs, _calc_unjoined_refs
+from .utils import LazyChunk, LazyDataset, LazyFrame, LazyPartition, lazy_load_tables
 from .utils.progress import piter, process_in_parallel, reduce
 
 logger = logging.getLogger(__name__)
@@ -221,7 +216,7 @@ def _fit_column_metrics(
     tables: dict[str, LazyChunk],
     metrics: dict[str, list[ColumnMetricFactory]],
 ):
-    get_table = _lazy_load_tables(tables)
+    get_table = lazy_load_tables(tables)
 
     if ref.table_has_reference():
         ids = ref.find_foreign_ids(name, get_table)
@@ -274,8 +269,8 @@ def _preprocess_metrics(
     tables_ref: dict[str, LazyChunk],
     metrics: dict[str | tuple[str], list[AbstractColumnMetric]],
 ):
-    get_table_wrk = _lazy_load_tables(tables_wrk)
-    get_table_ref = _lazy_load_tables(tables_ref)
+    get_table_wrk = lazy_load_tables(tables_wrk)
+    get_table_ref = lazy_load_tables(tables_ref)
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)
@@ -335,9 +330,9 @@ def _process_metrics(
     metrics: dict[str | tuple[str], list[AbstractColumnMetric]],
     preprocess: dict[str | tuple[str], list[Any]],
 ):
-    get_table_wrk = _lazy_load_tables(tables_wrk)
-    get_table_ref = _lazy_load_tables(tables_ref)
-    get_table_syn = _lazy_load_tables(tables_syn)
+    get_table_wrk = lazy_load_tables(tables_wrk)
+    get_table_ref = lazy_load_tables(tables_ref)
+    get_table_syn = lazy_load_tables(tables_syn)
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)

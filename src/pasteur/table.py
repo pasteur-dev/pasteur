@@ -23,7 +23,7 @@ from .encode import AttributeEncoder, EncoderFactory, ViewEncoder
 from .metadata import ColumnRef, Metadata
 from .module import Module, get_module_dict
 from .transform import RefTransformer, SeqTransformer, Transformer, TransformerFactory
-from .utils import LazyChunk, LazyFrame, LazyPartition, to_chunked
+from .utils import LazyChunk, LazyFrame, LazyPartition, lazy_load_tables, to_chunked
 from .utils.progress import process_in_parallel, reduce
 
 logger = logging.getLogger(__file__)
@@ -124,28 +124,6 @@ class ReferenceManager:
                 ), "ids with a reference should have one on a foreign table"
                 return True
         return False
-
-
-def _lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):
-    """Lazy loads partitions and keeps them in-memory in a closure.
-
-    Once the functions go out of scope, the partitions are released."""
-    cached_tables: dict[str, pd.DataFrame] = {}
-
-    def _get_table(name: str):
-        if name in cached_tables:
-            return cached_tables[name]
-
-        candidate = tables[name]
-        if callable(candidate):
-            table = candidate()
-        else:
-            table = candidate
-
-        cached_tables[name] = table
-        return table
-
-    return _get_table
 
 
 def _calc_joined_refs(
@@ -264,7 +242,7 @@ class TableTransformer:
         tables: dict[str, LazyChunk],
         ids: LazyChunk | None = None,
     ):
-        get_table = _lazy_load_tables(tables)  # type: ignore
+        get_table = lazy_load_tables(tables)  # type: ignore
         loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
         table = get_table(self.name)
@@ -332,7 +310,7 @@ class TableTransformer:
     ):
         assert self.fitted
 
-        get_table = _lazy_load_tables(tables)  # type: ignore
+        get_table = lazy_load_tables(tables)  # type: ignore
         loaded_ids = self._load_ids(ids, get_table)
         meta = self.meta[self.name]
         table = get_table(self.name)
@@ -397,7 +375,7 @@ class TableTransformer:
         cached_ctx = {n: c() for n, c in ctx.items()}
 
         get_parent = (
-            _lazy_load_tables(parent_tables)
+            lazy_load_tables(parent_tables)
             if parent_tables
             else lambda _: pd.DataFrame()
         )
@@ -489,7 +467,6 @@ class TableTransformer:
         dec_table = dec_table[cols]
 
         return dec_table
-    
 
     def reverse(
         self,
@@ -517,6 +494,7 @@ class TableTransformer:
 
         return attrs, dict(ctx_attrs)
 
+
 def _fit_encoders_for_table(
     factory: EncoderFactory[AttributeEncoder], attrs: Attributes, data: LazyChunk
 ):
@@ -535,9 +513,11 @@ def _fit_encoders_for_table(
 def _return_df(name: str, df: LazyChunk):
     return {name: df()}
 
+
 @to_chunked
 def _return_ids(name: str, df: LazyChunk):
     return {}, {}, {name: df()}
+
 
 class AttributeEncoderHolder(
     ViewEncoder[dict[str, dict[str | tuple[str], META]]], Generic[META]
@@ -646,7 +626,7 @@ class AttributeEncoderHolder(
 
         # Passthrough ids
         for name, tid in ids.items():
-            lazies |= _return_df(name + '_ids', tid)
+            lazies |= _return_df(name + "_ids", tid)
 
         return lazies
 
@@ -690,14 +670,13 @@ class AttributeEncoderHolder(
 
         for name, table in data.items():
             lazies |= self.decode_chunk(name, table)
-        
+
         # Passthrough ids
         for name, tid in data.items():
-            if name.endswith('_ids'):
-                lazies |= _return_ids(name.replace('_ids', ''), tid)
-        
-        return lazies
+            if name.endswith("_ids"):
+                lazies |= _return_ids(name.replace("_ids", ""), tid)
 
+        return lazies
 
     def get_metadata(self) -> dict[str, dict[str | tuple[str], META]]:
         out = defaultdict(dict)

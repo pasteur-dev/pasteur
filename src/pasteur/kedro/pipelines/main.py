@@ -12,11 +12,11 @@ from ...transform import TransformerFactory
 from ...view import View
 from .dataset import create_dataset_pipeline
 from .meta import DatasetMeta, PipelineMeta
-from .metrics import (
-    create_metrics_ingest_pipeline,
-    create_metrics_model_pipeline,
-    get_metrics_types,
-)
+# from .metrics import (
+#     create_metrics_ingest_pipeline,
+#     create_metrics_model_pipeline,
+#     get_metrics_types,
+# )
 from .synth import create_synth_pipeline
 from .transform import (
     create_reverse_pipeline,
@@ -97,9 +97,9 @@ def generate_pipelines(
     # Wrk, ref splits are transformed to all types
     # Synthetic data is transformed only to syn_types (as required by metrics currently)
     alg_types = _get_alg_types(algs)
-    msr_types = get_metrics_types(modules)
+    # msr_types = get_metrics_types(modules)
 
-    all_types = list_unique(alg_types, msr_types)
+    all_types = alg_types# list_unique(alg_types, msr_types)
     encoders = {
         k: v
         for k, v in get_module_dict(EncoderFactory, modules).items()
@@ -124,9 +124,9 @@ def generate_pipelines(
         # To make debugging metrics easier, it's bundled with `.measure` pipelines
         # as well. That way, only `.measure` needs to run when changes are made
         # to fit functions
-        pipe_metrics_fit = create_metrics_ingest_pipeline(
-            view, modules, wrk_split, ref_split
-        )
+        # pipe_metrics_fit = create_metrics_ingest_pipeline(
+        #     view, modules, wrk_split, ref_split
+        # )
 
         # Create view transform pipeline that can run as part of ingest
         pipe_transform = (
@@ -136,8 +136,8 @@ def generate_pipelines(
                 wrk_split,
                 all_types,
             )
-            + create_transform_pipeline(view, ref_split, msr_types)
-            + pipe_metrics_fit
+            # + create_transform_pipeline(view, ref_split, msr_types)
+            # + pipe_metrics_fit
         )
 
         # Metadata needs to be created every time to allow for overrides
@@ -166,11 +166,11 @@ def generate_pipelines(
                 view, wrk_split, cls
             ) + create_reverse_pipeline(view, alg, cls.type)
 
-            pipe_measure = create_transform_pipeline(
-                view, alg, msr_types, retransform=True
-            ) + create_metrics_model_pipeline(view, alg, wrk_split, ref_split, modules)
+            # pipe_measure = create_transform_pipeline(
+            #     view, alg, msr_types, retransform=True
+            # ) + create_metrics_model_pipeline(view, alg, wrk_split, ref_split, modules)
 
-            complete_pipe = pipe_ds_ingest + pipe_ingest + pipe_synth + pipe_measure
+            complete_pipe = pipe_ds_ingest + pipe_ingest + pipe_synth #+ pipe_measure
 
             if "ident" in alg:
                 # Hide ident pipelines
