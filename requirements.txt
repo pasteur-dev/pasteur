@@ -6,8 +6,6 @@
 #
 -e file:.
     # via -r requirements.in
-accessible-pygments==0.0.4
-    # via pydata-sphinx-theme
 aiofiles==22.1.0
     # via
     #   kedro-viz
@@ -16,13 +14,13 @@ aiosqlite==0.19.0
     # via ypy-websocket
 alabaster==0.7.13
     # via sphinx
-alembic==1.11.1
+alembic==1.11.2
     # via mlflow
 antlr4-python3-runtime==4.9.3
     # via omegaconf
 anyconfig==0.10.1
     # via kedro
-anyio==3.7.0
+anyio==3.7.1
     # via
     #   jupyter-server
     #   starlette
@@ -37,8 +35,8 @@ argon2-cffi-bindings==21.2.0
     # via argon2-cffi
 arrow==1.2.3
     # via
+    #   cookiecutter
     #   isoduration
-    #   jinja2-time
 asttokens==2.2.1
     # via stack-data
 attrs==23.1.0
@@ -46,17 +44,17 @@ attrs==23.1.0
     #   jsonschema
     #   kedro
     #   pytest
+    #   referencing
 babel==2.12.1
     # via
     #   jupyterlab-server
-    #   pydata-sphinx-theme
     #   sphinx
 backcall==0.2.0
     # via ipython
 beautifulsoup4==4.12.2
     # via
     #   nbconvert
-    #   pydata-sphinx-theme
+    #   sphinx-book-theme
 binaryornot==0.4.4
     # via cookiecutter
 black==22.12.0
@@ -65,9 +63,9 @@ bleach==6.0.0
     # via nbconvert
 blinker==1.6.2
     # via flask
-boto3==1.26.151
+boto3==1.28.25
     # via parquet-tools
-botocore==1.29.151
+botocore==1.31.25
     # via
     #   boto3
     #   s3transfer
@@ -77,15 +75,15 @@ build==0.10.0
     #   pip-tools
 cachetools==5.3.1
     # via kedro
-certifi==2023.5.7
+certifi==2023.7.22
     # via requests
 cffi==1.15.1
     # via argon2-cffi-bindings
-chardet==5.1.0
+chardet==5.2.0
     # via binaryornot
-charset-normalizer==3.1.0
+charset-normalizer==3.2.0
     # via requests
-click==8.1.3
+click==8.1.6
     # via
     #   black
     #   cookiecutter
@@ -94,6 +92,7 @@ click==8.1.3
     #   kedro
     #   mlflow
     #   pip-tools
+    #   sphinx-book-theme
     #   uvicorn
 cloudpickle==2.2.1
     # via mlflow
@@ -103,13 +102,15 @@ colorama==0.4.6
     #   log-symbols
     #   parquet-tools
     #   sphinx-autobuild
-comm==0.1.3
-    # via ipykernel
+comm==0.1.4
+    # via
+    #   ipykernel
+    #   ipywidgets
 commonmark==0.9.1
     # via recommonmark
-contourpy==1.0.7
+contourpy==1.1.0
     # via matplotlib
-cookiecutter==2.1.1
+cookiecutter==2.3.0
     # via kedro
 coverage[toml]==7.2.7
     # via pytest-cov
@@ -119,7 +120,7 @@ cycler==0.11.0
     # via matplotlib
 databricks-cli==0.17.7
     # via mlflow
-debugpy==1.6.7
+debugpy==1.6.7.post1
     # via ipykernel
 decorator==5.1.1
     # via ipython
@@ -127,30 +128,32 @@ defusedxml==0.7.1
     # via nbconvert
 docker==6.1.3
     # via mlflow
-docutils==0.19
+docutils==0.20.1
     # via
     #   nbsphinx
     #   pasteur
-    #   pydata-sphinx-theme
     #   recommonmark
     #   sphinx
-dynaconf==3.1.12
+    #   sphinx-book-theme
+dynaconf==3.2.1
     # via kedro
 entrypoints==0.4
-    # via mlflow
-exceptiongroup==1.1.1
+    # via
+    #   jupyter-client
+    #   mlflow
+exceptiongroup==1.1.2
     # via anyio
 executing==1.2.0
     # via stack-data
 fastapi==0.95.2
     # via kedro-viz
-fastjsonschema==2.17.1
+fastjsonschema==2.18.0
     # via nbformat
 flake8==3.9.2
     # via pasteur
 flask==2.3.2
     # via mlflow
-fonttools==4.39.4
+fonttools==4.42.0
     # via matplotlib
 fqdn==1.5.1
     # via jsonschema
@@ -160,7 +163,7 @@ fsspec==2023.6.0
     #   kedro-viz
 gitdb==4.0.10
     # via gitpython
-gitpython==3.1.31
+gitpython==3.1.32
     # via
     #   kedro
     #   mlflow
@@ -174,7 +177,7 @@ h11==0.14.0
     # via uvicorn
 halo==0.0.29
     # via parquet-tools
-httptools==0.5.0
+httptools==0.6.0
     # via uvicorn
 idna==3.4
     # via
@@ -183,17 +186,16 @@ idna==3.4
     #   requests
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==6.6.0
+importlib-metadata==6.8.0
     # via
     #   kedro
     #   mlflow
-importlib-resources==5.12.0
+importlib-resources==6.0.1
     # via kedro
 iniconfig==2.0.0
     # via pytest
-ipykernel==6.23.1
+ipykernel==6.25.1
     # via
-    #   ipywidgets
     #   jupyter
     #   jupyter-console
     #   nbclassic
@@ -212,7 +214,7 @@ ipython-genutils==0.2.0
     #   nbclassic
     #   notebook
     #   qtconsole
-ipywidgets==8.0.6
+ipywidgets==8.1.0
     # via jupyter
 isoduration==20.11.0
     # via jsonschema
@@ -220,13 +222,12 @@ isort==5.12.0
     # via pasteur
 itsdangerous==2.1.2
     # via flask
-jedi==0.18.2
+jedi==0.19.0
     # via ipython
 jinja2==3.1.2
     # via
     #   cookiecutter
     #   flask
-    #   jinja2-time
     #   jupyter-server
     #   jupyterlab
     #   jupyterlab-server
@@ -237,27 +238,27 @@ jinja2==3.1.2
     #   notebook
     #   pasteur
     #   sphinx
-jinja2-time==0.2.0
-    # via cookiecutter
-jmespath==0.10.0
+jmespath==1.0.1
     # via
     #   boto3
     #   botocore
     #   kedro
-joblib==1.2.0
+joblib==1.3.2
     # via scikit-learn
 json5==0.9.14
     # via jupyterlab-server
-jsonpointer==2.3
+jsonpointer==2.4
     # via jsonschema
-jsonschema[format-nongpl]==4.17.3
+jsonschema[format-nongpl]==4.19.0
     # via
     #   jupyter-events
     #   jupyterlab-server
     #   nbformat
+jsonschema-specifications==2023.7.1
+    # via jsonschema
 jupyter==1.0.0
     # via pasteur
-jupyter-client==8.2.0
+jupyter-client==7.4.9
     # via
     #   ipykernel
     #   jupyter-console
@@ -268,7 +269,7 @@ jupyter-client==8.2.0
     #   qtconsole
 jupyter-console==6.6.3
     # via jupyter
-jupyter-core==5.3.0
+jupyter-core==5.3.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -281,11 +282,11 @@ jupyter-core==5.3.0
     #   nbformat
     #   notebook
     #   qtconsole
-jupyter-events==0.6.3
+jupyter-events==0.7.0
     # via
     #   jupyter-server
     #   jupyter-server-fileid
-jupyter-server==2.6.0
+jupyter-server==2.7.0
     # via
     #   jupyter-server-fileid
     #   jupyterlab
@@ -298,23 +299,23 @@ jupyter-server-terminals==0.4.4
     # via jupyter-server
 jupyter-server-ydoc==0.8.0
     # via jupyterlab
-jupyter-ydoc==0.2.4
+jupyter-ydoc==0.2.5
     # via
     #   jupyter-server-ydoc
     #   jupyterlab
-jupyterlab==3.6.4
+jupyterlab==3.6.5
     # via pasteur
 jupyterlab-pygments==0.2.2
     # via nbconvert
-jupyterlab-server==2.22.1
+jupyterlab-server==2.24.0
     # via jupyterlab
-jupyterlab-widgets==3.0.7
+jupyterlab-widgets==3.0.8
     # via ipywidgets
-kedro==0.18.10
+kedro==0.18.12
     # via
     #   kedro-viz
     #   pasteur
-kedro-viz==6.3.0
+kedro-viz==6.3.4
     # via pasteur
 kiwisolver==1.4.4
     # via matplotlib
@@ -324,9 +325,9 @@ log-symbols==0.0.14
     # via halo
 mako==1.2.4
     # via alembic
-markdown==3.4.3
+markdown==3.4.4
     # via mlflow
-markdown-it-py==2.2.0
+markdown-it-py==3.0.0
     # via rich
 markupsafe==2.1.3
     # via
@@ -334,7 +335,7 @@ markupsafe==2.1.3
     #   mako
     #   nbconvert
     #   werkzeug
-matplotlib==3.7.1
+matplotlib==3.7.2
     # via mlflow
 matplotlib-inline==0.1.6
     # via
@@ -344,11 +345,11 @@ mccabe==0.6.1
     # via flake8
 mdurl==0.1.2
     # via markdown-it-py
-mistune==2.0.5
+mistune==3.0.1
     # via nbconvert
-mlflow==2.4.1
+mlflow==2.5.0
     # via pasteur
-more-itertools==9.1.0
+more-itertools==10.1.0
     # via kedro
 mypy-extensions==1.0.0
     # via black
@@ -358,14 +359,14 @@ nbclassic==1.0.0
     #   notebook
 nbclient==0.8.0
     # via nbconvert
-nbconvert==7.4.0
+nbconvert==7.7.3
     # via
     #   jupyter
     #   jupyter-server
     #   nbclassic
     #   nbsphinx
     #   notebook
-nbformat==5.9.0
+nbformat==5.9.2
     # via
     #   jupyter-server
     #   nbclassic
@@ -375,20 +376,21 @@ nbformat==5.9.0
     #   notebook
 nbsphinx==0.9.2
     # via pasteur
-nest-asyncio==1.5.6
+nest-asyncio==1.5.7
     # via
     #   ipykernel
+    #   jupyter-client
     #   nbclassic
     #   notebook
 networkx==3.1
     # via kedro-viz
-notebook==6.5.4
+notebook==6.5.5
     # via
     #   jupyter
     #   jupyterlab
 notebook-shim==0.2.3
     # via nbclassic
-numpy==1.24.3
+numpy==1.25.2
     # via
     #   contourpy
     #   matplotlib
@@ -403,9 +405,9 @@ oauthlib==3.2.2
     # via databricks-cli
 omegaconf==2.3.0
     # via kedro
-orjson==3.9.1
+orjson==3.9.4
     # via kedro-viz
-overrides==7.3.1
+overrides==7.4.0
     # via jupyter-server
 packaging==23.1
     # via
@@ -419,13 +421,12 @@ packaging==23.1
     #   mlflow
     #   nbconvert
     #   plotly
-    #   pydata-sphinx-theme
     #   pytest
     #   pytoolconfig
     #   qtconsole
     #   qtpy
     #   sphinx
-pandas==2.0.2
+pandas==2.0.3
     # via
     #   kedro-viz
     #   mlflow
@@ -435,41 +436,43 @@ pandocfilters==1.5.0
     # via nbconvert
 parquet-tools==0.2.14
     # via pasteur
+parse==1.19.1
+    # via kedro
 parso==0.8.3
     # via jedi
-pathspec==0.11.1
+pathspec==0.11.2
     # via black
 pexpect==4.8.0
     # via ipython
 pickleshare==0.7.5
     # via ipython
-pillow==9.5.0
+pillow==10.0.0
     # via matplotlib
-pip-tools==6.13.0
+pip-tools==7.3.0
     # via
     #   kedro
     #   pasteur
-platformdirs==3.5.3
+platformdirs==3.10.0
     # via
     #   black
     #   jupyter-core
     #   pytoolconfig
-plotly==5.15.0
+plotly==5.16.0
     # via kedro-viz
-pluggy==1.0.0
+pluggy==1.2.0
     # via
     #   kedro
     #   pytest
-prometheus-client==0.17.0
+prometheus-client==0.17.1
     # via
     #   jupyter-server
     #   nbclassic
     #   notebook
-prompt-toolkit==3.0.38
+prompt-toolkit==3.0.39
     # via
     #   ipython
     #   jupyter-console
-protobuf==4.23.2
+protobuf==4.24.0
     # via mlflow
 psutil==5.9.5
     # via ipykernel
@@ -481,7 +484,7 @@ pure-eval==0.2.2
     # via stack-data
 py==1.11.0
     # via pytest
-pyarrow==12.0.0
+pyarrow==12.0.1
     # via
     #   mlflow
     #   parquet-tools
@@ -490,30 +493,26 @@ pycodestyle==2.7.0
     # via flake8
 pycparser==2.21
     # via cffi
-pydantic==1.10.9
+pydantic==1.10.12
     # via fastapi
-pydata-sphinx-theme==0.13.3
+pydata-sphinx-theme==0.4.3
     # via sphinx-book-theme
 pyflakes==2.3.1
     # via flake8
-pygments==2.15.1
+pygments==2.16.1
     # via
-    #   accessible-pygments
     #   ipython
     #   jupyter-console
     #   nbconvert
-    #   pydata-sphinx-theme
     #   qtconsole
     #   rich
     #   sphinx
-pyjwt==2.7.0
+pyjwt==2.8.0
     # via databricks-cli
 pyparsing==3.0.9
     # via matplotlib
 pyproject-hooks==1.0.0
     # via build
-pyrsistent==0.19.3
-    # via jsonschema
 pytest==6.2.5
     # via
     #   pasteur
@@ -543,15 +542,16 @@ pytz==2023.3
     # via
     #   mlflow
     #   pandas
-pyyaml==6.0
+pyyaml==6.0.1
     # via
     #   cookiecutter
     #   jupyter-events
     #   kedro
     #   mlflow
     #   omegaconf
+    #   sphinx-book-theme
     #   uvicorn
-pyzmq==25.1.0
+pyzmq==24.0.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -568,6 +568,11 @@ querystring-parser==1.2.4
     # via mlflow
 recommonmark==0.7.1
     # via pasteur
+referencing==0.30.2
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+    #   jupyter-events
 requests==2.31.0
     # via
     #   cookiecutter
@@ -584,17 +589,23 @@ rfc3986-validator==0.1.1
     # via
     #   jsonschema
     #   jupyter-events
-rich==13.4.1
+rich==13.5.2
+    # via
+    #   cookiecutter
+    #   kedro
+rope==1.9.0
     # via kedro
-rope==1.8.0
-    # via kedro
+rpds-py==0.9.2
+    # via
+    #   jsonschema
+    #   referencing
 s3transfer==0.6.1
     # via boto3
-scikit-learn==1.2.2
+scikit-learn==1.3.0
     # via
     #   mlflow
     #   pasteur
-scipy==1.10.1
+scipy==1.11.1
     # via
     #   mlflow
     #   pasteur
@@ -602,7 +613,7 @@ scipy==1.10.1
     #   xgboost
 secure==0.3.0
     # via kedro-viz
-semver==2.13.0
+semver==3.0.1
     # via kedro-viz
 send2trash==1.8.2
     # via
@@ -628,7 +639,7 @@ snowballstemmer==2.2.0
     # via sphinx
 soupsieve==2.4.1
     # via beautifulsoup4
-sphinx==6.2.1
+sphinx==7.1.2
     # via
     #   nbsphinx
     #   pasteur
@@ -638,29 +649,34 @@ sphinx==6.2.1
     #   sphinx-autodoc-typehints
     #   sphinx-book-theme
     #   sphinx-copybutton
+    #   sphinxcontrib-applehelp
+    #   sphinxcontrib-devhelp
+    #   sphinxcontrib-htmlhelp
+    #   sphinxcontrib-qthelp
+    #   sphinxcontrib-serializinghtml
 sphinx-autobuild==2021.3.14
     # via pasteur
-sphinx-autodoc-typehints==1.23.0
+sphinx-autodoc-typehints==1.24.0
     # via pasteur
-sphinx-book-theme==1.0.1
+sphinx-book-theme==0.0.39
     # via pasteur
 sphinx-copybutton==0.5.2
     # via pasteur
-sphinxcontrib-applehelp==1.0.4
+sphinxcontrib-applehelp==1.0.6
     # via sphinx
-sphinxcontrib-devhelp==1.0.2
+sphinxcontrib-devhelp==1.0.4
     # via sphinx
-sphinxcontrib-htmlhelp==2.0.1
+sphinxcontrib-htmlhelp==2.0.3
     # via sphinx
 sphinxcontrib-jsmath==1.0.1
     # via sphinx
-sphinxcontrib-qthelp==1.0.3
+sphinxcontrib-qthelp==1.0.5
     # via sphinx
-sphinxcontrib-serializinghtml==1.1.5
+sphinxcontrib-serializinghtml==1.1.7
     # via sphinx
 spinners==0.0.24
     # via halo
-sqlalchemy==2.0.16
+sqlalchemy==2.0.19
     # via
     #   alembic
     #   kedro-viz
@@ -671,7 +687,7 @@ stack-data==0.6.2
     # via ipython
 starlette==0.27.0
     # via fastapi
-strawberry-graphql==0.183.6
+strawberry-graphql==0.203.0
     # via kedro-viz
 tabulate==0.8.10
     # via
@@ -689,7 +705,7 @@ terminado==0.17.1
     #   notebook
 text-unidecode==1.3
     # via python-slugify
-threadpoolctl==3.1.0
+threadpoolctl==3.2.0
     # via scikit-learn
 thrift==0.13.0
     # via parquet-tools
@@ -705,11 +721,12 @@ tomli==2.0.1
     #   build
     #   coverage
     #   jupyterlab
+    #   pip-tools
     #   pyproject-hooks
     #   pytoolconfig
 toposort==1.10
     # via kedro
-tornado==6.3.2
+tornado==6.3.3
     # via
     #   ipykernel
     #   jupyter-client
@@ -719,7 +736,7 @@ tornado==6.3.2
     #   nbclassic
     #   notebook
     #   terminado
-tqdm==4.65.0
+tqdm==4.66.1
     # via pasteur
 traitlets==5.9.0
     # via
@@ -740,16 +757,15 @@ traitlets==5.9.0
     #   nbsphinx
     #   notebook
     #   qtconsole
-typing-extensions==4.6.3
+typing-extensions==4.7.1
     # via
     #   alembic
     #   pydantic
-    #   pydata-sphinx-theme
     #   sqlalchemy
     #   strawberry-graphql
 tzdata==2023.3
     # via pandas
-uri-template==1.2.0
+uri-template==1.3.0
     # via jsonschema
 urllib3==1.26.16
     # via
@@ -773,7 +789,7 @@ webencodings==0.5.1
     # via
     #   bleach
     #   tinycss2
-websocket-client==1.5.3
+websocket-client==1.6.1
     # via
     #   docker
     #   jupyter-server
@@ -781,19 +797,19 @@ websockets==11.0.3
     # via uvicorn
 werkzeug==2.3.6
     # via flask
-wheel==0.40.0
+wheel==0.41.1
     # via pip-tools
-widgetsnbextension==4.0.7
+widgetsnbextension==4.0.8
     # via ipywidgets
-xgboost==1.7.5
+xgboost==1.7.6
     # via pasteur
-y-py==0.5.9
+y-py==0.6.0
     # via
     #   jupyter-ydoc
     #   ypy-websocket
-ypy-websocket==0.8.2
+ypy-websocket==0.8.4
     # via jupyter-server-ydoc
-zipp==3.15.0
+zipp==3.16.2
     # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
