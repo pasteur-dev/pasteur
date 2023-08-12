@@ -13,6 +13,7 @@ from pasteur.utils import LazyDataset
 
 from .attribute import Attributes
 from .metadata import ColumnMeta, ColumnRef, Metadata
+from .encode import Encoder
 from .module import Module, ModuleClass, ModuleFactory, get_module_dict_multiple
 from .table import ReferenceManager, _calc_joined_refs, _calc_unjoined_refs
 from .utils import LazyChunk, LazyDataset, LazyFrame, LazyPartition, lazy_load_tables
@@ -548,20 +549,32 @@ class ColumnMetricHolder(
 
 def fit_column_holder(
     modules: list[Module],
-    meta: Metadata,
+    metadata: Metadata,
     data: dict[str, LazyFrame],
 ):
     holder = ColumnMetricHolder(modules)
-    holder.fit(meta=meta, data=data)
+    holder.fit(meta=metadata, data=data)
     return holder
 
 
 def fit_metric(
     fs: MetricFactory,
-    meta: Any | dict[str, Any],
+    metadata: Metadata,
+    encoder: Encoder | dict[str, Encoder],
     data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]],
 ):
     module = fs.build()
+    if isinstance(fs.encodings, list):
+        assert isinstance(encoder, dict)
+        meta = {name: enc.get_metadata() for name, enc in encoder.items()}
+        if "raw" in fs.encodings:
+            meta['raw'] = metadata
+    else:
+        if fs.encodings == 'raw':
+            meta = metadata
+        else:
+            assert isinstance(encoder, Encoder)
+            meta = encoder.get_metadata()
     module.fit(meta=meta, data=data)
     return module
 

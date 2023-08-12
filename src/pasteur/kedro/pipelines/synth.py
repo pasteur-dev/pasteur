@@ -20,36 +20,27 @@ def create_synth_pipeline(
     split: str,
     fr: SynthFactory,
 ):
-    alg = fr.name
-    type = fr.type
-    tables = view.tables
-
     tags: list[str] = list(TAGS_SYNTH)
-    # if fr.gpu:
-    #     tags.append(TAG_GPU)
 
     pipe = pipeline(
         [
             node(
-                func=gen_closure(synth_fit, fr),
+                func=synth_fit,
+                name=f"fitting_{fr.name}",
+                args=[fr],
                 inputs={
-                    "metadata": f"{view}.metadata",
-                    "trns": {t: f"{view}.trn.{t}" for t in tables},
-                    "ids": {t: f"{view}.{split}.ids_{t}" for t in tables},
-                    "tables": {t: f"{view}.{split}.{type}_{t}" for t in tables},
+                    "encoder": f"{view}.enc.{fr.type}",
+                    "data": f"{view}.{split}.{fr.type}",
                 },
-                outputs=f"{view}.{alg}.model",
-                namespace=f"{view}.{alg}",
+                namespace=f"{view}.{fr.name}",
+                outputs=f"{view}.{fr.name}.model",
                 tags=tags,
             ),
             node(
                 func=synth_sample,
-                inputs=f"{view}.{alg}.model",
-                outputs={
-                    "ids": {t: f"{view}.{alg}.ids_{t}" for t in tables},
-                    "tables": {t: f"{view}.{alg}.enc_{t}" for t in tables},
-                },
-                namespace=f"{view}.{alg}",
+                inputs=f"{view}.{fr.name}.model",
+                outputs=f"{view}.{fr.name}.enc",
+                namespace=f"{view}.{fr.name}",
                 tags=tags,
             ),
         ]
@@ -58,29 +49,18 @@ def create_synth_pipeline(
     outputs = [
         D(
             "synth_models",
-            f"{view}.{alg}.model",
-            ["synth", "models", f"{view}.{alg}"],
+            f"{view}.{fr.name}.model",
+            ["synth", "models", f"{view}.{fr.name}"],
             versioned=True,
             type="pkl",
         ),
-        *[
-            D(
-                "synth_output",
-                f"{view}.{alg}.enc_{t}",
-                ["synth", "enc", f"{view}.{alg}", t],
-                versioned=True,
-            )
-            for t in view.tables
-        ],
-        *[
-            D(
-                "synth_output",
-                f"{view}.{alg}.ids_{t}",
-                ["synth", "ids", f"{view}.{alg}", t],
-                versioned=True,
-            )
-            for t in view.tables
-        ],
+        D(
+            "synth_output",
+            f"{view}.{fr.name}.enc",
+            ["synth", "enc", f"{view}.{fr.name}"],
+            versioned=True,
+            type="multi",
+        ),
     ]
 
     return PipelineMeta(pipe, outputs)

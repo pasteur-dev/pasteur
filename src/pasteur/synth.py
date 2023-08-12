@@ -166,6 +166,8 @@ def synth_fit(
 
     return model
 
+def synth_sample(s: Synth):
+    return s.sample()
 
 class IdentSynth(Synth):
     """Samples the data it was provided."""

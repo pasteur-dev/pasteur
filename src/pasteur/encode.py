@@ -8,7 +8,15 @@ from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
 from .utils import LazyFrame, LazyDataset
 
-ENC = TypeVar("ENC", bound="Encoder")
+ENC = TypeVar("ENC", bound=ModuleClass)
+META = TypeVar("META")
+
+
+class AttributeEncoderFactory(ModuleFactory[ENC], Generic[ENC]):
+    """Factory base class for encoders. Use isinstance with this class
+    to filter the Pasteur module list into only containing Encoders."""
+
+    ...
 
 
 class EncoderFactory(ModuleFactory[ENC], Generic[ENC]):
@@ -18,15 +26,7 @@ class EncoderFactory(ModuleFactory[ENC], Generic[ENC]):
     ...
 
 
-META = TypeVar("META")
-
-
-class Encoder(ModuleClass, Generic[META]):
-    def get_metadata(self) -> META:
-        raise NotImplementedError()
-
-
-class AttributeEncoder(Encoder[dict[str | tuple[str], META]], Generic[META]):
+class AttributeEncoder(ModuleClass, Generic[META]):
     """Encapsulates a special way to encode an Attribute.
 
     One encoder is instantiated per attribute and its `fit` function is called to
@@ -50,7 +50,7 @@ class AttributeEncoder(Encoder[dict[str | tuple[str], META]], Generic[META]):
     """
 
     name: str = ""
-    _factory = EncoderFactory["AttributeEncoder"]
+    _factory = AttributeEncoderFactory["AttributeEncoder"]
 
     def fit(self, attr: Attribute, data: pd.DataFrame | None):
         raise NotImplementedError()
@@ -64,10 +64,13 @@ class AttributeEncoder(Encoder[dict[str | tuple[str], META]], Generic[META]):
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError()
 
+    def get_metadata(self) -> dict[str | tuple[str], META]:
+        raise NotImplementedError()
 
-class ViewEncoder(Encoder[META], Generic[META]):
+
+class Encoder(ModuleClass, Generic[META]):
     name: str = ""
-    _factory = EncoderFactory["ViewEncoder"]
+    _factory = EncoderFactory["Encoder"]
 
     def fit(
         self,
@@ -97,5 +100,10 @@ class ViewEncoder(Encoder[META], Generic[META]):
     ]:
         raise NotImplementedError()
 
+    def get_metadata(self) -> META:
+        raise NotImplementedError()
+
+
+ViewEncoder = Encoder
 
 __all__ = ["EncoderFactory", "Encoder", "ViewEncoder", "AttributeEncoder"]

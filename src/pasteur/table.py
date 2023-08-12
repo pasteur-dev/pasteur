@@ -19,7 +19,12 @@ from typing import Any, Callable, Generic, Mapping, TypeVar, cast
 import pandas as pd
 
 from .attribute import Attribute, Attributes
-from .encode import AttributeEncoder, EncoderFactory, ViewEncoder
+from .encode import (
+    AttributeEncoder,
+    AttributeEncoderFactory,
+    EncoderFactory,
+    ViewEncoder,
+)
 from .metadata import ColumnRef, Metadata
 from .module import Module, get_module_dict
 from .transform import RefTransformer, SeqTransformer, Transformer, TransformerFactory
@@ -341,7 +346,7 @@ class TableTransformer:
 
         return pd.concat(tts, axis=1, copy=False, join="inner"), {
             n: pd.concat(c, axis=1, copy=False, join="inner") for n, c in ctxs.items()
-        }
+        }, loaded_ids
 
     @to_chunked
     def _transform_chunk(
@@ -528,7 +533,7 @@ class AttributeEncoderHolder(
     table_encoders: dict[str, dict[str | tuple[str], AttributeEncoder[META]]]
     ctx_encoders: dict[str, dict[str, dict[str | tuple[str], AttributeEncoder[META]]]]
 
-    def __init__(self, encoder: EncoderFactory, **kwargs) -> None:
+    def __init__(self, encoder: AttributeEncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
         self._encoder_fr = encoder
         self.table_encoders = {}

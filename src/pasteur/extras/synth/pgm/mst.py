@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from ....synth import Synth, data_to_tables, make_deterministic, tables_to_data
-from ....utils import LazyFrame
+from ....synth import Synth, make_deterministic
+from ....utils import LazyFrame, data_to_tables, tables_to_data
 
 if TYPE_CHECKING:
     from ....attribute import Attributes

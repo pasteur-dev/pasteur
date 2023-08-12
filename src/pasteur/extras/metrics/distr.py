@@ -192,7 +192,7 @@ class DistributionMetric(
         Summaries[dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]],
     ]
 ):
-    name = "cs"
+    name = "dstr"
     encodings = "idx"
 
     def fit(
