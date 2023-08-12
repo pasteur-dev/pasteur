@@ -29,6 +29,7 @@ def create_synth_pipeline(
                 name=f"fitting_{fr.name}",
                 args=[fr],
                 inputs={
+                    "metadata": f"{view}.metadata",
                     "encoder": f"{view}.enc.{fr.type}",
                     "data": f"{view}.{split}.{fr.type}",
                 },

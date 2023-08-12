@@ -225,9 +225,9 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         if positional and keyword:
             partitions = [*positional, *list(keyword.values())]
         elif positional and not keyword:
-            if isinstance(positional[0], list):
+            if isinstance(positional[0], list) or isinstance(positional[0], tuple):
                 partitions = []
-                for p in positional:
+                for p in positional[0]:
                     if isinstance(p, LazyDataset):
                         partitions.append(p)
                     elif isinstance(p, dict):
@@ -556,7 +556,7 @@ def data_to_tables(data):
     # Use old format
     ids = {}
     tables = {}
-    for name, datum in data:
+    for name, datum in data.items():
         if name.endswith("_ids"):
             ids[name[:-4]] = datum
         else:

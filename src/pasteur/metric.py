@@ -407,11 +407,12 @@ class ColumnMetricHolder(
     name = "holder"
     type = "col"
     encodings = "raw"
+    metrics: dict[str, dict[str | tuple[str], list[AbstractColumnMetric]]]
 
     def __init__(self, modules: list[Module]):
         self.table = ""
         self.metric_cls = get_module_dict_multiple(ColumnMetricFactory, modules)
-        self.metrics: dict[str, dict[str | tuple[str], list[AbstractColumnMetric]]] = {}
+        self.metrics = {}
 
     def fit(
         self,
@@ -425,7 +426,7 @@ class ColumnMetricHolder(
         for name in meta.tables:
             ref_mgr = ReferenceManager(meta, name)
 
-            for _, tables in LazyFrame.zip(data):
+            for _, tables in LazyFrame.zip(data).items():
                 per_call.append(
                     {
                         "name": name,
@@ -474,7 +475,7 @@ class ColumnMetricHolder(
                         "ref": ref_mgr,
                         "tables_wrk": tables_wrk,
                         "tables_ref": tables_ref,
-                        "metrics": self.metrics,
+                        "metrics": self.metrics[name],
                     }
                 )
                 per_call_meta.append((name, pid))
@@ -515,7 +516,7 @@ class ColumnMetricHolder(
                         "tables_wrk": tables_wrk,
                         "tables_ref": tables_ref,
                         "tables_syn": tables_syn,
-                        "metrics": self.metrics,
+                        "metrics": self.metrics[name],
                         "preprocess": pre[name][pid],
                     }
                 )
@@ -541,7 +542,20 @@ class ColumnMetricHolder(
                     ]
                     o = metric.combine(d)
                     procs[name][cols].append(o)
-        return procs
+        return dict(procs)
+
+    def visualise(self, data: dict[str, dict[str, dict[str | tuple[str], list[Any]]]]):
+        for table, table_metrics in self.metrics.items():
+            for col_name, col_metrics in table_metrics.items():
+                for i, metric in enumerate(col_metrics):
+                    metric.visualise({n: d[table][col_name][i] for n, d in data.items()})
+
+    def summarize(self, data: dict[str, dict[str, dict[str | tuple[str], list[Any]]]]):
+        for table, table_metrics in self.metrics.items():
+            for col_name, col_metrics in table_metrics.items():
+                for i, metric in enumerate(col_metrics):
+                    metric.summarize({n: d[table][col_name][i] for n, d in data.items()})
+
 
     def unique_name(self) -> str:
         return f"{self.type}_{self.name}_{self.table}"
@@ -568,9 +582,9 @@ def fit_metric(
         assert isinstance(encoder, dict)
         meta = {name: enc.get_metadata() for name, enc in encoder.items()}
         if "raw" in fs.encodings:
-            meta['raw'] = metadata
+            meta["raw"] = metadata
     else:
-        if fs.encodings == 'raw':
+        if fs.encodings == "raw":
             meta = metadata
         else:
             assert isinstance(encoder, Encoder)

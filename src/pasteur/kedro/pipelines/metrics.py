@@ -173,7 +173,7 @@ def _create_process_pipeline(
             D(
                 "measure",
                 f"{view}.{syn_split}.{name}_data",
-                ['synth', view, syn_split, 'msr', name],
+                ['synth', view, syn_split, 'msr', name, "pre"],
                 type="pkl",
                 versioned=True,
             ),

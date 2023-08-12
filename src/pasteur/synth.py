@@ -6,9 +6,10 @@ the data it was provided as is. """
 from __future__ import annotations
 
 from functools import partial, wraps
-from typing import TYPE_CHECKING, Any, TypeVar, Generic
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from .encode import ViewEncoder
+from .metadata import Metadata
 from .module import ModuleClass, ModuleFactory
 from .utils import LazyDataset, LazyFrame
 
@@ -136,6 +137,7 @@ class Synth(ModuleClass, Generic[META]):
 
 def synth_fit(
     factory: SynthFactory,
+    metadata: Metadata,
     encoder: ViewEncoder,
     data: dict[str, LazyDataset],
 ):
@@ -146,8 +148,8 @@ def synth_fit(
     tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
 
     meta = encoder.get_metadata()
-    args = {**meta.algs.get(factory.name, {}), **meta.alg_override}
-    model = factory.build(**args, seed=meta.seed)
+    args = {**metadata.algs.get(factory.name, {}), **metadata.alg_override}
+    model = factory.build(**args, seed=metadata.seed)
 
     # if factory.gpu:
     #     tracker.use_gpu()
@@ -166,8 +168,10 @@ def synth_fit(
 
     return model
 
+
 def synth_sample(s: Synth):
     return s.sample()
+
 
 class IdentSynth(Synth):
     """Samples the data it was provided."""

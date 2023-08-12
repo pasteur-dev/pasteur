@@ -68,13 +68,15 @@ def _visualise_cs(
     results = {}
 
     # Add ref split first
+    zfill = lambda x: (x + 1) / np.sum(x + 1)
     name = "ref"
     res = []
     split = next(iter(data.values()))
     for col in domain:
         wrk, syn = split.wrk, split.ref
         assert syn is not None
-        chi, p = chisquare(wrk[col], syn[col])
+
+        chi, p = chisquare(zfill(wrk[col]), zfill(syn[col]))
         res.append([col, chi, p])
 
     results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
@@ -84,7 +86,7 @@ def _visualise_cs(
         for col in domain:
             wrk, syn = split.wrk, split.syn
             assert syn is not None
-            chi, p = chisquare(wrk[col], syn[col])
+            chi, p = chisquare(zfill(wrk[col]), zfill(syn[col]))
             res.append([col, chi, p])
 
         results[name] = pd.DataFrame(res, columns=["col", "X^2", "p"])
@@ -125,8 +127,10 @@ def _visualise_kl(
         res = []
         for key in syn:
             col_i, col_j = key
-            k = wrk[key]
-            j = syn[key]
+
+            zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
+            k = zfill(wrk[key])
+            j = zfill(syn[key])
 
             kl = rel_entr(k, j).sum()
             kl_norm = 1 / (1 + kl)
@@ -168,19 +172,19 @@ def _process_marginals_chunk(
 ):
     assert not expand_parents, "Expanding parents not supported yet"
 
-    table = tables[name]()[list(domain)].to_numpy(dtype="uint16")
+    table = tables[name]()[list(domain[name])].to_numpy(dtype="uint16")
     table_domain = domain[name]
     domain_arr = np.array(list(table_domain.values()))
 
     # One way for CS
     one_way: dict[str, ndarray] = {}
-    for i, name in enumerate(domain):
+    for i, name in enumerate(table_domain):
         one_way[name] = calc_marginal_1way(table, domain_arr, [i], 0)
 
     # Two way for KL
     two_way: dict[tuple[str, str], ndarray] = {}
-    for i, col_i in enumerate(domain):
-        for j, col_j in enumerate(domain):
+    for i, col_i in enumerate(table_domain):
+        for j, col_j in enumerate(table_domain):
             two_way[(col_i, col_j)] = calc_marginal_1way(table, domain_arr, [i, j], 0)
 
     return one_way, two_way
@@ -308,7 +312,7 @@ class DistributionMetric(
         # Intertwine results
         res = defaultdict(list)
         for meta, hist in zip(per_call_meta, out):
-            res[meta["split"]][meta["table"]].append(hist)
+            res[meta["table"]].append(hist)
 
         ret = {}
         for table, table_hists in res.items():

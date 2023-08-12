@@ -66,6 +66,9 @@ class PrivBayesSynth(Synth):
         table = tables[table_name]
         table_attrs = attrs[table_name]
 
+        self._n = table.shape[0]
+        self._partitions = len(table)
+
         if self.rebalance:
             with MarginalOracle(
                 table_attrs,

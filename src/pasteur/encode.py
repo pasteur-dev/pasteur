@@ -8,22 +8,22 @@ from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
 from .utils import LazyFrame, LazyDataset
 
-ENC = TypeVar("ENC", bound=ModuleClass)
+
+class AttributeEncoderFactory(ModuleFactory):
+    """Factory base class for encoders. Use isinstance with this class
+    to filter the Pasteur module list into only containing Encoders."""
+
+    ...
+
+
+class EncoderFactory(ModuleFactory):
+    """Factory base class for encoders. Use isinstance with this class
+    to filter the Pasteur module list into only containing Encoders."""
+
+    ...
+
+
 META = TypeVar("META")
-
-
-class AttributeEncoderFactory(ModuleFactory[ENC], Generic[ENC]):
-    """Factory base class for encoders. Use isinstance with this class
-    to filter the Pasteur module list into only containing Encoders."""
-
-    ...
-
-
-class EncoderFactory(ModuleFactory[ENC], Generic[ENC]):
-    """Factory base class for encoders. Use isinstance with this class
-    to filter the Pasteur module list into only containing Encoders."""
-
-    ...
 
 
 class AttributeEncoder(ModuleClass, Generic[META]):
@@ -50,7 +50,7 @@ class AttributeEncoder(ModuleClass, Generic[META]):
     """
 
     name: str = ""
-    _factory = AttributeEncoderFactory["AttributeEncoder"]
+    _factory = AttributeEncoderFactory
 
     def fit(self, attr: Attribute, data: pd.DataFrame | None):
         raise NotImplementedError()
@@ -70,7 +70,7 @@ class AttributeEncoder(ModuleClass, Generic[META]):
 
 class Encoder(ModuleClass, Generic[META]):
     name: str = ""
-    _factory = EncoderFactory["Encoder"]
+    _factory = EncoderFactory
 
     def fit(
         self,

@@ -74,11 +74,13 @@ def _flatten_outputs(
     if isinstance(nested, dict):
         assert isinstance(outputs, dict)
         for idx, vals in nested.items():
-            assert idx in outputs
-            data = _flatten_outputs(vals, outputs[idx])
-            out.update(data)
+            if idx in outputs:
+                data = _flatten_outputs(vals, outputs[idx])
+                out.update(data)
     else:
-        assert isinstance(outputs, list) and isinstance(nested, list)
+        assert (isinstance(outputs, list) or isinstance(outputs, tuple)) and (
+            isinstance(nested, list) or isinstance(nested, tuple)
+        )
         assert len(outputs) == len(nested)
         for vals, outs in zip(nested, outputs):
             data = _flatten_outputs(vals, outs)
@@ -322,6 +324,7 @@ def node(
         confirms=confirms,
         namespace=namespace,
     )
+
 
 # Tag each node in the pipeline based on its use
 TAG_VIEW = "view"

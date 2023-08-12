@@ -52,7 +52,9 @@ class NumericalTransformer(Transformer):
         if self.max is None and self.find_edges:
             self.max = data.max()
         self.attr = NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
-        return self.attr
+    
+    def get_attributes(self) -> Attributes:
+        return {self.attr.name: self.attr}
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
         return pd.DataFrame(data.clip(self.min, self.max).astype("float32"))

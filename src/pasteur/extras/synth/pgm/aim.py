@@ -55,6 +55,8 @@ class AIM(Synth[dict[str, Attributes]]):
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
         self.table = next(iter(meta))
         self.attrs = meta
+        self._n = data[self.table].shape[0]
+        self._partitions = len(data[self.table])
 
     @make_deterministic
     def bake(self, data: dict[str, LazyFrame]):

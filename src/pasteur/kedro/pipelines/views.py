@@ -152,7 +152,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
             namespace=view.name,
         ),
         [
-            D("splits", f"{view}.{s}.{t}", ["views", view, s, 'tables', t])
+            D("splits", f"{view}.{s}.{t}", ["view", view, s, 'tables', t])
             for t in tables
             for s in splits
         ],

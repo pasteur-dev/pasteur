@@ -191,7 +191,7 @@ class Grouping(list[GI]):
 
 class Value:
     """ Base value class """
-    name: str | None = None
+    name: str | tuple[str] | None = None
     common: int = 0
 
 

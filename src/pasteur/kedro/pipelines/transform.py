@@ -129,18 +129,18 @@ def create_fit_pipeline(
             outputs=f"{view}.enc.{enc}",
             namespace=f"{view}.enc",
         )
-        for enc in encs
+        for enc in encs if enc not in ('raw', 'bst')
     ]
 
     return PipelineMeta(
         pipeline(trn_fit_nodes + enc_fit_nodes, tags=TAGS_TRANSFORM),
         [
-            D("transformers", f"{view}.trn.{t}", ["views", view, "trn",  t], type="pkl")
+            D("transformers", f"{view}.trn.{t}", ["view", view, "trn",  t], type="pkl")
             for t in view.tables
         ]
         + [
-            D("encoders", f"{view}.enc.{enc}", ["views", view, 'enc', enc], type="pkl")
-            for enc in encs
+            D("encoders", f"{view}.enc.{enc}", ["view", view, 'enc', enc], type="pkl")
+            for enc in encs if enc not in ('raw', 'bst')
         ],
     )
 
@@ -159,7 +159,7 @@ def create_transform_pipeline(
             table_nodes += [
                 node(
                     func=_transform_table,
-                    name=f"transform_{t}",
+                    name=f"transform_{t}_for_{split}",
                     inputs={
                         "transformer": f"{view}.trn.{t}",
                         "tables": {t: f"{view}.{split}.{t}" for t in view.tables},
@@ -177,21 +177,22 @@ def create_transform_pipeline(
                 D(
                     "split_transformed",
                     f"{view}.{split}.ctx_{t}",
-                    ["views", view, split, "ctx", t],
+                    ["view", view, split, "ctx", t],
+                    type='multi'
                 )
             )
             outputs.append(
                 D(
                     "split_transformed",
                     f"{view}.{split}.bst_{t}",
-                    ["views", view, split, "bst", t],
+                    ["view", view, split, "bst", t],
                 )
             )
             outputs.append(
                 D(
                     "split_transformed",
                     f"{view}.{split}.ids_{t}",
-                    ["views", view, split, "ids", t],
+                    ["view", view, split, "ids", t],
                 )
             )
 
@@ -218,8 +219,9 @@ def create_transform_pipeline(
                 # FIXME: Pass proper layer properly, don't infer
                 "synth_reencoded" if retransform else "split_encoded",
                 f"{view}.{split}.{enc}",
-                ["synth" if retransform else "views", view, split],
+                ["synth" if retransform else "view", view, split, enc],
                 versioned=retransform,
+                type='multi'
             )
         )
 

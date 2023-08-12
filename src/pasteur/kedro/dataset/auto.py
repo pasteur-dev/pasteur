@@ -112,7 +112,7 @@ def _save_worker(
             w.write(pa.Table.from_pandas(p0, schema=schema))
             del p0
 
-            for p in chunk: # type: ignore
+            for p in chunk:  # type: ignore
                 try:
                     w.write(pa.Table.from_pandas(p, schema=schema))
                 except Exception as e:
@@ -208,9 +208,9 @@ def _load_shape_worker(load_path: str, filesystem, *_, **__):
 
 class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
     """Modified kedro parquet dataset that acts similarly to a partitioned dataset
-    and implements lazy loading. 
-    
-    In the future, this dataset will automatically handle pickling, pyarrow 
+    and implements lazy loading.
+
+    In the future, this dataset will automatically handle pickling, pyarrow
     Tables, DataFrames, and Tensors automatically based on what is saved.
 
     `save()` data can be a table, a callable, or a dictionary combination of both.

@@ -344,9 +344,12 @@ class TableTransformer:
 
             tts.append(tt)
 
-        return pd.concat(tts, axis=1, copy=False, join="inner"), {
+        table = pd.concat(tts, axis=1, copy=False, join="inner")
+        ctx = {
             n: pd.concat(c, axis=1, copy=False, join="inner") for n, c in ctxs.items()
-        }, loaded_ids
+        }
+        ids_table = loaded_ids or pd.DataFrame(index=table.index)
+        return table, ctx, ids_table
 
     @to_chunked
     def _transform_chunk(
@@ -501,7 +504,7 @@ class TableTransformer:
 
 
 def _fit_encoders_for_table(
-    factory: EncoderFactory[AttributeEncoder], attrs: Attributes, data: LazyChunk
+    factory: AttributeEncoderFactory, attrs: Attributes, data: LazyChunk
 ):
     table = data()
     encs = {}
@@ -555,16 +558,16 @@ class AttributeEncoderHolder(
 
         # Create granular tasks for all table partitions
         for name in tables:
-            for pid, part in tables[name].items():
+            for part in tables[name].values():
                 per_call.append({"attrs": attrs[name], "data": part})
-                per_call_meta.append({"ctx": False, "table": name, "pid": pid})
+                per_call_meta.append({"ctx": False, "table": name})
 
         for creator, ctxs in ctx.items():
             for name in ctxs:
-                for pid, part in ctxs[name].items():
+                for part in ctxs[name].values():
                     per_call.append({"attrs": ctx_attrs[creator][name], "data": part})
                     per_call_meta.append(
-                        {"ctx": True, "creator": creator, "table": name, "pid": pid}
+                        {"ctx": True, "creator": creator, "table": name}
                     )
 
         # Process them
@@ -674,7 +677,8 @@ class AttributeEncoderHolder(
         lazies = set()
 
         for name, table in data.items():
-            lazies |= self.decode_chunk(name, table)
+            if not name.endswith("_ids"):
+                lazies |= self.decode_chunk(name, table)
 
         # Passthrough ids
         for name, tid in data.items():
@@ -687,8 +691,8 @@ class AttributeEncoderHolder(
         out = defaultdict(dict)
 
         for table, encs in self.table_encoders.items():
-            for name, enc in encs.items():
-                out[table][name] = enc.get_metadata()
+            for enc in encs.values():
+                out[table].update(enc.get_metadata())
 
         for cencs in self.ctx_encoders.values():
             for table, encs in cencs.items():
