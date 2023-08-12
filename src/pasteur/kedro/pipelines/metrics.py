@@ -124,13 +124,13 @@ def _create_fit_pipeline(
             D(
                 "measure",
                 f"{view}.msr.{name}",
-                ["measure", "dataset", view, name, "metric"],
+                ['view', view, 'msr', name, "metric"],
                 type="pkl",
             ),
             D(
                 "measure",
                 f"{view}.msr.{name}_pre",
-                ["measure", "dataset", view, name, "pre"],
+                ['view', view, 'msr', name, "pre"],
                 type="pkl",
             ),
         ]
@@ -173,7 +173,7 @@ def _create_process_pipeline(
             D(
                 "measure",
                 f"{view}.{syn_split}.{name}_data",
-                ["synth", "measure", "dataset", view, name, "data"],
+                ['synth', view, syn_split, 'msr', name],
                 type="pkl",
                 versioned=True,
             ),

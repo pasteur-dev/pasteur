@@ -50,14 +50,14 @@ def create_synth_pipeline(
         D(
             "synth_models",
             f"{view}.{fr.name}.model",
-            ["synth", "models", f"{view}.{fr.name}"],
+            ["synth", view, fr.name, 'model'],
             versioned=True,
             type="pkl",
         ),
         D(
             "synth_output",
             f"{view}.{fr.name}.enc",
-            ["synth", "enc", f"{view}.{fr.name}"],
+            ["synth", view, fr.name, 'enc'],
             versioned=True,
             type="multi",
         ),

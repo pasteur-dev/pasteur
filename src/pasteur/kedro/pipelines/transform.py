@@ -135,11 +135,11 @@ def create_fit_pipeline(
     return PipelineMeta(
         pipeline(trn_fit_nodes + enc_fit_nodes, tags=TAGS_TRANSFORM),
         [
-            D("transformers", f"{view}.trn.{t}", ["views", "trn", view, t], type="pkl")
+            D("transformers", f"{view}.trn.{t}", ["views", view, "trn",  t], type="pkl")
             for t in view.tables
         ]
         + [
-            D("encoders", f"{view}.enc.{enc}", ["views", "enc", view, enc], type="pkl")
+            D("encoders", f"{view}.enc.{enc}", ["views", view, 'enc', enc], type="pkl")
             for enc in encs
         ],
     )
@@ -177,21 +177,21 @@ def create_transform_pipeline(
                 D(
                     "split_transformed",
                     f"{view}.{split}.ctx_{t}",
-                    ["views", "ctx", f"{view}.{split}", t],
+                    ["views", view, split, "ctx", t],
                 )
             )
             outputs.append(
                 D(
                     "split_transformed",
                     f"{view}.{split}.bst_{t}",
-                    ["views", "bst", f"{view}.{split}", t],
+                    ["views", view, split, "bst", t],
                 )
             )
             outputs.append(
                 D(
                     "split_transformed",
                     f"{view}.{split}.ids_{t}",
-                    ["views", "ids", f"{view}.{split}", t],
+                    ["views", view, split, "ids", t],
                 )
             )
 
@@ -218,7 +218,7 @@ def create_transform_pipeline(
                 # FIXME: Pass proper layer properly, don't infer
                 "synth_reencoded" if retransform else "split_encoded",
                 f"{view}.{split}.{enc}",
-                ["synth" if retransform else "views", enc, f"{view}.{split}"],
+                ["synth" if retransform else "views", view, split],
                 versioned=retransform,
             )
         )
@@ -272,26 +272,26 @@ def create_reverse_pipeline(view: View, alg: str, enc: str):
                 D(
                     "synth_decoded",
                     f"{view}.{alg}.bst_{t}",
-                    ["synth", "bst", f"{view}.{alg}", t],
+                    ["synth", view, alg, "bst", t],
                     versioned=True,
                 ),
                 D(
                     "synth_decoded",
                     f"{view}.{alg}.ids_{t}",
-                    ["synth", "ids", f"{view}.{alg}", t],
+                    ["synth", view, alg, "ids", t],
                     versioned=True,
                 ),
                 D(
                     "synth_decoded",
                     f"{view}.{alg}.ctx_{t}",
-                    ["synth", "ctx", f"{view}.{alg}", t],
+                    ["synth", view, alg, "ctx", t],
                     versioned=True,
                     type="multi",
                 ),
                 D(
                     "synth_reversed",
                     f"{view}.{alg}.{t}",
-                    ["synth", "dec", f"{view}.{alg}", t],
+                    ["synth", view, alg, 'tables', t],
                     versioned=True,
                 ),
             ]

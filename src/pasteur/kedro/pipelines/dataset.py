@@ -29,7 +29,7 @@ def create_dataset_pipeline(
             for t in dataset.raw_tables
         ]
         outputs += [
-            D("typed", f"{dataset}.typed.{t}", ["orig", "typed", dataset, t], type="pq")
+            D("typed", f"{dataset}.typed.{t}", ["ds", dataset, "typed", t], type="pq")
             for t in dataset.raw_tables
         ]
         prefix = "typed."
@@ -49,7 +49,7 @@ def create_dataset_pipeline(
     ]
 
     outputs += [
-        D("interim", f"{dataset}.{t}", ["orig", "interim", dataset, t], type="pq")
+        D("interim", f"{dataset}.{t}", ["ds", dataset, "tables", t], type="pq")
         for t in tables
     ]
     meta_tables = PipelineMeta(
@@ -72,7 +72,7 @@ def create_dataset_pipeline(
 
     meta_keys = PipelineMeta(
         pipe,
-        [D("keys", f"{dataset}.keys", ["orig", "keys", dataset])],
+        [D("keys", f"{dataset}.keys", ["ds", dataset, "keys"])],
     )
 
     return meta_tables + meta_keys

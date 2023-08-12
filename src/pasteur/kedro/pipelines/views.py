@@ -60,7 +60,7 @@ def create_view_pipeline(view: View):
             ]
         ),
         [
-            D("primary", f"{view}.view.{t}", ["views", "primary", view, t], type="pq")
+            D("primary", f"{view}.view.{t}", ["view", view, "tables", t], type="pq")
             for t in view.tables
         ],
     )
@@ -81,7 +81,7 @@ def create_meta_pipeline(view: View):
             ],
             tags=TAGS_VIEW_META,
         ),
-        [D("metadata", f"{view}.metadata", ["views", "metadata", view], type="pkl")],
+        [D("metadata", f"{view}.metadata", ["view", view, "metadata"], type="pkl")],
     )
 
 
@@ -121,7 +121,7 @@ def create_keys_pipeline(view: View, splits: list[str]):
 
     return PipelineMeta(
         pipe,
-        [D("keys", f"{view}.keys.{s}", ["views", "keys", view, s]) for s in splits],
+        [D("keys", f"{view}.keys.{s}", ["view", view, "keys", s]) for s in splits],
     )
 
 
@@ -152,7 +152,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
             namespace=view.name,
         ),
         [
-            D("splits", f"{view}.{s}.{t}", ["views", "primary", f"{view}.{s}", t])
+            D("splits", f"{view}.{s}.{t}", ["views", view, s, 'tables', t])
             for t in tables
             for s in splits
         ],
