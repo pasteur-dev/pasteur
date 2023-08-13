@@ -7,7 +7,7 @@ _mimic_in_csv: &mimic_csv
     sep: ","
     engine: "c"
     header: 0
-    infer_datetime_format: True
+    date_format: "%Y-%m-%d %H:%M:%S"
 
 _mimic_in_chunked: &mimic_chunked # Currently a placeholder
   <<: *mimic_csv
@@ -18,6 +18,7 @@ mimic.raw@core_patients:
   load_args:
     <<: *mimic_csv_load
     index_col: subject_id
+    date_format: "%Y-%m-%d"
     parse_dates: [dod]
     dtype:
       subject_id: int32
@@ -255,17 +256,29 @@ mimic.raw@hosp_poe:
   filepath: ${location}/hosp/poe.csv.gz
   load_args:
     <<: *mimic_csv_load
-    index_col: poe_id
+    index_col: [subject_id, poe_seq] #poe_id
+    usecols:
+      - subject_id
+      - hadm_id
+      - poe_seq
+      - order_status
+      - transaction_type
+      - order_subtype
+      - order_type
+      # - poe_id
+      - discontinue_of_poe_id
+      - discontinued_by_poe_id
+      - ordertime
     parse_dates: [ordertime]
     dtype:
       subject_id: int32
       hadm_id: int32
-      poe_sec: int16
+      poe_seq: int16
       order_status: category
       transaction_type: category
       order_subtype: category
       order_type: category
-      poe_id: object
+      # poe_id: object
       discontinue_of_poe_id: object
       discontinued_by_poe_id: object
 

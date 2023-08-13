@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 class SimpleSequentialRunner(AbstractRunner):
     """``SimpleRunner`` is a modification of ``SequentialRunner`` that uses a TQDM
-    loading bar. It also force enables async save of datasets.
+    loading bar.
     """
 
     def __init__(

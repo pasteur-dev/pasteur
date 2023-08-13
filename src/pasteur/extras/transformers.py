@@ -589,8 +589,11 @@ class DatetimeTransformer(RefTransformer):
     ):
         self.col = cast(str, data.name)
 
-        cdt = self.dt.fit(data, ref)
-        ctt = self.tt.fit(data)
+        self.dt.fit(data, ref)
+        self.tt.fit(data)
+
+        cdt = next(iter(self.dt.get_attributes().values()))
+        ctt = next(iter(self.tt.get_attributes().values()))
         self.attr = Attribute(self.col, vals={**cdt.vals, **ctt.vals}, na=self.nullable)
 
     def get_attributes(self) -> Attributes:

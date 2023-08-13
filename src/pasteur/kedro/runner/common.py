@@ -33,7 +33,6 @@ def run_expanded_node(
     node_name = node.name.split("(")[0]
     set_node_name(node_name)
     try:
-
         t = PerformanceTracker.get("nodes")
         t.log_to_file()
         t.start(node_name)

@@ -67,7 +67,7 @@ def _save_worker(
         dtypes = p0.dtypes
         for field in old_schema:
             if (
-                isinstance(field.type, pa.dictionaryType)
+                isinstance(field.type, pa.DictionaryType)
                 and field.type.index_type.bit_width == 8
             ):
                 # Expand uint8 dictionaries to uint16
@@ -114,7 +114,7 @@ def _save_worker(
 
             for p in chunk:  # type: ignore
                 try:
-                    w.write(pa.Table.from_pandas(p, schema=schema))
+                    w.write(pa.Table.from_pandas(p, schema=schema, preserve_index=True))
                 except Exception as e:
                     logger.error(f"Error writing chunk:\n{e}")
     else:

@@ -48,7 +48,7 @@ class ColumnMeta:
 
         # Ref can be set both by the ref keyword or by extended syntax
         ref = type_ref[1] if len(type_ref) > 1 else None
-        refs = kwargs.get("ref", kwargs.get("refs", ref))
+        ref = kwargs.get("ref", kwargs.get("refs", ref))
             
         # Basic type and dtype data
         self.type = type

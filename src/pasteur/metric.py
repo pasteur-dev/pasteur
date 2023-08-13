@@ -400,7 +400,7 @@ def _process_metrics(
 
 class ColumnMetricHolder(
     Metric[
-        dict[str, dict[str, dict[str | tuple[str], list[Any]]]],
+        dict[str, list[dict[str | tuple[str], list[Any]]]],
         dict[str, dict[str | tuple[str], list[Any]]],
     ]
 ):
@@ -426,7 +426,7 @@ class ColumnMetricHolder(
         for name in meta.tables:
             ref_mgr = ReferenceManager(meta, name)
 
-            for _, tables in LazyFrame.zip(data).items():
+            for tables in LazyFrame.zip_values(data):
                 per_call.append(
                     {
                         "name": name,
@@ -448,7 +448,9 @@ class ColumnMetricHolder(
             metrics[table].append(chunk_metrics)
 
         self.metrics = {}
-        for name in piter(meta.tables, desc="Reducing table modules for each table."):
+        for name in piter(
+            meta.tables, desc="Reducing table modules for each table.", leave=False
+        ):
             self.metrics[name] = reduce(_reduce_inner_2d, metrics[name])
 
         self.meta = meta
@@ -458,7 +460,7 @@ class ColumnMetricHolder(
         self,
         wrk: dict[str, LazyDataset],
         ref: dict[str, LazyDataset],
-    ) -> dict[str, dict[str, dict[str | tuple[str], list[Any]]]]:
+    ) -> dict[str, list[dict[str | tuple[str], list[Any]]]]:
 
         per_call = []
         per_call_meta = []
@@ -467,7 +469,7 @@ class ColumnMetricHolder(
         for name in self.meta.tables:
             ref_mgr = ReferenceManager(self.meta, name)
 
-            for pid, (tables_wrk, tables_ref) in LazyDataset.zip([wrk, ref]).items():
+            for tables_wrk, tables_ref in LazyDataset.zip_values([wrk, ref]):
                 per_call.append(
                     {
                         "name": name,
@@ -478,16 +480,16 @@ class ColumnMetricHolder(
                         "metrics": self.metrics[name],
                     }
                 )
-                per_call_meta.append((name, pid))
+                per_call_meta.append(name)
 
         out = process_in_parallel(
             _preprocess_metrics, per_call, desc="Preprocessing column metric synopsis"
         )
 
         # Fix by partition
-        pre_dict = defaultdict(dict)
-        for (name, pid), pre in zip(per_call_meta, out):
-            pre_dict[name][pid] = pre
+        pre_dict = defaultdict(list)
+        for name, pre in zip(per_call_meta, out):
+            pre_dict[name].append(pre)
         return pre_dict
 
     def process(
@@ -495,7 +497,7 @@ class ColumnMetricHolder(
         wrk: dict[str, LazyDataset],
         ref: dict[str, LazyDataset],
         syn: dict[str, LazyDataset],
-        pre: dict[str, dict[str, dict[str | tuple[str], list[Any]]]],
+        pre: dict[str, list[dict[str | tuple[str], list[Any]]]],
     ) -> dict[str, dict[str | tuple[str], list[Any]]]:
 
         per_call = []
@@ -505,9 +507,9 @@ class ColumnMetricHolder(
         for name in self.meta.tables:
             ref_mgr = ReferenceManager(self.meta, name)
 
-            for pid, (tables_wrk, tables_ref, tables_syn) in LazyDataset.zip(
-                [wrk, ref, syn]
-            ).items():
+            for i, (tables_wrk, tables_ref, tables_syn) in enumerate(
+                LazyDataset.zip_values([wrk, ref, syn])
+            ):
                 per_call.append(
                     {
                         "name": name,
@@ -517,10 +519,10 @@ class ColumnMetricHolder(
                         "tables_ref": tables_ref,
                         "tables_syn": tables_syn,
                         "metrics": self.metrics[name],
-                        "preprocess": pre[name][pid],
+                        "preprocess": pre[name][i],
                     }
                 )
-                per_call_meta.append((name, pid))
+                per_call_meta.append(name)
 
         out = process_in_parallel(
             _process_metrics, per_call, desc="Processing column metric synopsis"
@@ -528,7 +530,7 @@ class ColumnMetricHolder(
 
         # Fix by partition
         proc_dict = defaultdict(list)
-        for (name, pid), proc in zip(per_call_meta, out):
+        for name, proc in zip(per_call_meta, out):
             proc_dict[name].append(proc)
 
         procs: dict[str, dict[str | tuple[str], list[Any]]] = defaultdict(
@@ -548,14 +550,17 @@ class ColumnMetricHolder(
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
-                    metric.visualise({n: d[table][col_name][i] for n, d in data.items()})
+                    metric.visualise(
+                        {n: d[table][col_name][i] for n, d in data.items()}
+                    )
 
     def summarize(self, data: dict[str, dict[str, dict[str | tuple[str], list[Any]]]]):
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
-                    metric.summarize({n: d[table][col_name][i] for n, d in data.items()})
-
+                    metric.summarize(
+                        {n: d[table][col_name][i] for n, d in data.items()}
+                    )
 
     def unique_name(self) -> str:
         return f"{self.type}_{self.name}_{self.table}"

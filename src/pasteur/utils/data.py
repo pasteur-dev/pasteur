@@ -19,6 +19,7 @@ from typing import (
     ParamSpec,
     TypeVar,
     overload,
+    Union,
 )
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 A = TypeVar("A")
 B = TypeVar("B")
 P = ParamSpec("P")
-G = TypeVar("G", bound=list)
+G = TypeVar("G", bound=Union[tuple, list, dict])
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,32 @@ class LazyPartition(Generic[A]):
 
 
 LazyChunk = LazyPartition["pd.DataFrame"]
+
+
+def _extract_lazy(d) -> list[LazyDataset]:
+    out = []
+    if isinstance(d, tuple) or isinstance(d, list):
+        for k in d:
+            out.extend(_extract_lazy(k))
+    elif isinstance(d, dict):
+        for k in d.values():
+            out.extend(_extract_lazy(k))
+    elif isinstance(d, LazyDataset):
+        out.append(d)
+    # skip non-lazy arguments
+    return out
+
+
+def _partition_lazy(d, key: str):
+    if isinstance(d, tuple):
+        return tuple([_partition_lazy(v, key) for v in d])
+    if isinstance(d, list):
+        return [_partition_lazy(v, key) for v in d]
+    if isinstance(d, dict):
+        return {k: _partition_lazy(v, key) for k, v in d.items()}
+    if isinstance(d, LazyDataset):
+        return d[key] if d.partitioned else d
+    return d
 
 
 class LazyDataset(Generic[A], LazyPartition[A]):
@@ -165,11 +192,12 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         return self._partitions.items()
 
     @staticmethod
-    def are_partitioned(*positional: LazyDataset, **keyword: LazyDataset):
+    def are_partitioned(*positional, **keyword):
         """Returns whether the provided datasets are partitioned. If they are,
         checks they have the same partitions."""
 
-        partitions = [*positional, *list(keyword.values())]
+        partitions = _extract_lazy(positional) + _extract_lazy(keyword)
+
         # Check keys are correct
         keys = None
         for partition in partitions:
@@ -182,13 +210,6 @@ class LazyDataset(Generic[A], LazyPartition[A]):
                 assert set(keys) == set(partition.keys())
 
         return keys is not None
-
-    @staticmethod
-    @overload
-    def zip(
-        datasets: Mapping[str, LazyDataset[B]], /
-    ) -> dict[str, dict[str, LazyPartition[B]]]:
-        ...
 
     @staticmethod
     @overload
@@ -221,32 +242,20 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
         @warning: all partitioned sets should have the same keys."""
 
-        custom = None
         if positional and keyword:
-            partitions = [*positional, *list(keyword.values())]
-        elif positional and not keyword:
-            if isinstance(positional[0], list) or isinstance(positional[0], tuple):
-                partitions = []
-                for p in positional[0]:
-                    if isinstance(p, LazyDataset):
-                        partitions.append(p)
-                    elif isinstance(p, dict):
-                        partitions.extend(p.values())
-                    elif isinstance(p, list):
-                        partitions.extend(p)
-                custom = positional[0]
-            elif isinstance(positional[0], dict):
-                keyword = positional[0]
-                partitions = keyword.values()
-                positional = tuple()
-            else:
-                partitions = positional
+            vals = [positional, keyword]
+        elif positional and len(positional) == 1:
+            vals = positional[0]
+        elif positional:
+            vals = positional
+        elif keyword:
+            vals = keyword
         else:
-            partitions = keyword.values()
+            vals = []
 
         # Check keys are correct
         keys = None
-        for partition in partitions:
+        for partition in _extract_lazy(vals):
             if not partition.partitioned:
                 continue
 
@@ -255,79 +264,26 @@ class LazyDataset(Generic[A], LazyPartition[A]):
             else:
                 assert set(keys) == set(partition.keys())
 
-        # If no datasets are partitioned, return a single one with all the datasets.
-        # assert (
-        #     keys
-        # ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
-        if not keys:
-            keys = ["MAIN"]  # fixme: cleanup how to work without partitions
+        assert (
+            keys
+        ), f"None of the datasets are partitioned (or one is empty). Call `are_partitioned()` first."
 
-        if custom:
-            # If the first argument is a list, return an output of the same format.
-            # Support unrolling dicts and lists as well
-            out = {}
-
-            for pid in keys:
-                curr = []
-                for p in custom:
-                    if isinstance(p, LazyDataset):
-                        curr.append(p[pid] if p.partitioned else p)
-                    elif isinstance(p, dict):
-                        curr.append(
-                            {n: v[pid] if v.partitioned else v for n, v in p.items()}
-                        )
-                    elif isinstance(p, list) or isinstance(p, tuple):
-                        curr.append([v[pid] if v.partitioned else v for v in p])
-                    else:
-                        curr.append(p)
-                out[pid] = curr
-            return out
-        elif positional and keyword:
-            return {
-                pid: (
-                    [ds[pid] if ds.partitioned else ds for ds in positional],
-                    {
-                        name: ds[pid] if ds.partitioned else ds
-                        for name, ds in keyword.items()
-                    },
-                )
-                for pid in keys
-            }
-        elif positional:
-            return {
-                pid: [ds[pid] if ds.partitioned else ds for ds in positional]
-                for pid in keys
-            }
-        else:
-            return {
-                pid: {
-                    name: ds[pid] if ds.partitioned else ds
-                    for name, ds in keyword.items()
-                }
-                for pid in keys
-            }
+        return {key: _partition_lazy(vals, key) for key in sorted(keys)}
 
     @staticmethod
-    @overload
-    def zip_values(*positional: LazyDataset[B]) -> list[list[LazyPartition[B]]]:
-        ...
-
-    @staticmethod
-    @overload
-    def zip_values(**keyword: LazyDataset[B]) -> list[dict[str, LazyPartition[B]]]:
-        ...
-
-    @staticmethod
-    def zip_values(
-        *positional: LazyDataset[B], **keyword: LazyDataset[B]
-    ) -> list[list[LazyPartition[B]]] | list[dict[str, LazyPartition[B]]]:
+    def zip_values(*positional, **keyword) -> list:
         """Same as zip, but doesn't return partition names and works even if
         the datasets are not partitioned, by returning a single partition."""
-        if not LazyDataset.are_partitioned(*positional, **keyword):
-            if positional:
-                return [list(positional)]
-            else:
+        if not LazyDataset.are_partitioned(positional, keyword):
+            if positional and keyword:
+                return [(positional, keyword)]
+            elif positional and len(positional) == 1:
+                return [positional[0]]
+            elif positional:
+                return [positional]
+            elif keyword:
                 return [keyword]  # type: ignore
+            return [()]
 
         return list(LazyDataset.zip(*positional, **keyword).values())
 
@@ -426,46 +382,26 @@ class gen_closure(partial):
         return val
 
 
-def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable] | Callable:
-    new_args = []
-    datasets = {}
-    # Fetch datasets from arguments
-    for i, arg in enumerate(args):
-        if isinstance(arg, LazyDataset):
-            datasets[i] = arg
-            new_args.append(None)
-        else:
-            new_args.append(arg)
-
-    # Fetch datasets from keyword arguments
-    new_kwargs = {}
-    for name, arg in kwargs.items():
-        if isinstance(arg, LazyDataset):
-            datasets[name] = arg
-        else:
-            new_kwargs[name] = arg
-
+def _chunk_fun(fun, *args: Any, **kwargs: Any) -> set[Callable]:
     # If datasets are not partitioned, return a closure
-    if not LazyDataset.are_partitioned(*datasets.values()):
+    if not LazyDataset.are_partitioned(*args, **kwargs):
         return {gen_closure(fun, *args, _canary=True, **kwargs)}
 
-    # If they are, create proper arguments for each funciton call.
+    # If they are, create proper arguments for each function call.
     closures = set()
-    for pid, dataset_kw in LazyDataset.zip(datasets).items():
-        out_args = new_args.copy()
-        out_kwargs = new_kwargs.copy()
-
-        for name, ds in dataset_kw.items():
-            if isinstance(name, str):
-                out_kwargs[name] = ds
-            else:
-                out_args[name] = ds
-
-        closures.add(
-            gen_closure(fun, *out_args, _canary=True, _partition=pid, **out_kwargs)
-        )
+    for pid, (cargs, ckwargs) in LazyDataset.zip([args, kwargs]).items():
+        closures.add(gen_closure(fun, *cargs, _canary=True, _partition=pid, **ckwargs))
 
     return closures
+
+
+def _to_partition(d, key):
+    if isinstance(d, dict):
+        return {k: _to_partition(v, key) for k, v in d.items()}
+    elif isinstance(d, list) or isinstance(d, tuple):
+        return [_to_partition(v, key) for v in d]
+    else:
+        return {key: d}
 
 
 def to_chunked(func: Callable[P, A], /) -> Callable[P, set[Callable[..., A]]]:
@@ -489,18 +425,7 @@ def to_chunked(func: Callable[P, A], /) -> Callable[P, set[Callable[..., A]]]:
             # Similarly with lists
             # Else, the output itself is wrapped
             if _partition:
-                if isinstance(out, dict):
-                    new_out = {}
-                    for name, output in out.items():
-                        new_out[name] = {_partition: output}
-                    out = new_out
-                elif isinstance(out, list):
-                    new_out = []
-                    for output in out:
-                        new_out.append({_partition: out})
-                    out = new_out
-                else:
-                    out = {_partition: out}
+                return _to_partition(out, _partition)
 
             return out
         else:

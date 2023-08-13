@@ -74,10 +74,14 @@ class Multiset(AbstractDataSet):
         return self._path
 
     def _list_partitions(self) -> list[str]:
+        if not self._filesystem.isdir(self._normalized_path, **self._load_args):
+            # If the path does not exist, ie no datasets were saved before
+            # return no partitions instead of crashing
+            return []
         return [
-            path
-            for path in self._filesystem.find(self._normalized_path, **self._load_args)
-            if path.endswith(self._filename_suffix)
+            path['name']
+            for path in self._filesystem.listdir(self._normalized_path, **self._load_args)
+            if path['name'].endswith(self._filename_suffix)
         ]
 
     def _join_protocol(self, path: str) -> str:

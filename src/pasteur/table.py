@@ -122,7 +122,7 @@ class ReferenceManager:
         meta = self.meta[name]
 
         for col in meta.cols.values():
-            if not col.is_id() and col.ref is not None:
+            if col.is_id() and col.ref is not None:
                 assert not isinstance(col.ref, list), "ids can only have one reference"
                 assert (
                     col.ref.table is not None
@@ -136,13 +136,15 @@ def _calc_joined_refs(
     get_table: Callable[[str], pd.DataFrame],
     ids: pd.DataFrame | None,
     cref: list[ColumnRef] | ColumnRef | None,
+    table: pd.DataFrame | None = None,
 ):
     """Returns a dataframe where for each row in the original data,
     reference values are provided matching the ones in cref.
 
     In the case of one reference, a series is returned.
     If no references are provided, returns None."""
-    table = get_table(name)
+    if table is None:
+        table = get_table(name)
     ref_col = None
 
     if cref and isinstance(cref, list):
@@ -183,6 +185,7 @@ def _calc_unjoined_refs(
     name: str,
     get_table: Callable[[str], pd.DataFrame],
     cref: list[ColumnRef] | ColumnRef | None,
+    table: pd.DataFrame | None = None,
 ):
     """Returns a dictionary containing columns from all upstream parents,
     as required by `cref`.
@@ -199,7 +202,12 @@ def _calc_unjoined_refs(
         assert ref.col is not None
         table_cols[ref.table or name].append(ref.col)
 
-    return {k: get_table(name)[v] for k, v in table_cols.items()} or None
+    def get_table_l(k):
+        if k == name and table is not None:
+            return table
+        return get_table(k)
+
+    return {k: get_table_l(k)[v] for k, v in table_cols.items()} or None
 
 
 class TableTransformer:
@@ -236,7 +244,7 @@ class TableTransformer:
         ] = process_in_parallel(
             self.fit_chunk,
             per_call,
-            desc=f"Fitting transformers for table '{self.name}'",
+            desc=f"Fitting transformers for '{self.name}'",
         )
 
         self.transformers = reduce(_reduce_inner, transformer_chunks)
@@ -279,12 +287,9 @@ class TableTransformer:
             if isinstance(t, SeqTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
-
-                assert loaded_ids is not None
                 t.fit(table[name], ref_cols, loaded_ids)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
-                assert loaded_ids is not None
                 ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
                 t.fit(table[name], ref_cols)
             else:
@@ -441,10 +446,22 @@ class TableTransformer:
 
                 t = self.transformers[name]
                 if isinstance(t, SeqTransformer):
-                    ref_col = _calc_unjoined_refs(self.name, get_parent, cref)
+                    # TODO: remove pd.concat if it's slow
+                    ref_col = _calc_unjoined_refs(
+                        self.name,
+                        get_parent,
+                        cref,
+                        pd.concat(tts.values(), axis=1, copy=False, join="inner"),
+                    )
                     tt = t.reverse(cached_table, cached_ctx, ref_col, cached_ids)
                 elif isinstance(t, RefTransformer):
-                    ref_col = _calc_joined_refs(self.name, get_parent, cached_ids, cref)
+                    ref_col = _calc_joined_refs(
+                        self.name,
+                        get_parent,
+                        cached_ids,
+                        cref,
+                        pd.concat(tts.values(), axis=1, copy=False, join="inner"),
+                    )
                     tt = t.reverse(cached_table, ref_col)
                 else:
                     tt = t.reverse(cached_table)

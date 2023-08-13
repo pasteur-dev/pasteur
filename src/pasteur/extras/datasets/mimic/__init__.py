@@ -8,7 +8,6 @@ import pandas as pd
 from ....dataset import Dataset
 from ....utils import (
     LazyChunk,
-    LazyDataset,
     LazyFrame,
     gen_closure,
     get_relative_fn,
@@ -20,24 +19,31 @@ if TYPE_CHECKING:
 
 
 def _split_table(
-    chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"
+    name: str, chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"
 ):
     pd_keys = pd.DataFrame(index=keys)
     del keys
 
     for chunk in table(chunksize=chunksize):
-        yield chunk.join(pd_keys, on="subject_id", how="inner")
+        c = chunk.join(pd_keys, on="subject_id", how="inner")
+
+        # Fix poe id
+        if name == 'hosp_pharmacy':
+            c['poe_seq'] = c['poe_id'].str[1].astype('Int16')
+            c = c.drop(columns=['poe_id'])
+
+        yield c
 
 
 def _partition_table(
-    table: Callable, patients: LazyFrame, n_partition: int, chunksize: int
+    name: str, table: Callable, patients: LazyFrame, n_partition: int, chunksize: int
 ):
     # Deterministic loading = all tables have the same split
     keys = patients(["subject_id"]).index.to_numpy()
     partitions = np.array_split(keys, n_partition)
 
     return {
-        str(i): gen_closure(_split_table, chunksize, part, table)
+        str(i): gen_closure(_split_table, name, chunksize, part, table)
         for i, part in enumerate(partitions)
     }
 
@@ -97,6 +103,7 @@ class MimicDataset(Dataset):
         if name in self._mimic_tables_partitioned:
             chunksize = self._mimic_tables_partitioned[name]
             return _partition_table(
+                name,
                 cast("Callable[[], TextFileReader]", tables[name]),
                 cast("LazyFrame", tables["core_patients"]),
                 self._n_partitions,

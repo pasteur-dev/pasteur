@@ -48,10 +48,12 @@ def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
         a = obj_func(self, *args, **kwargs)
 
         if self.seed is not None:
+            noise_info = f" ('{noise_kw}': {kwargs[noise_kw]:3d})" if noise_kw else ""
             logger.info(
                 f"Deterministic check: random number after "
                 + f"{f'{type(self).__name__}.{obj_func.__name__}':>22s}(): "
                 + f"<np.random> {np.random.random():7.5f} <random> {random.random():7.5f}"
+                + noise_info
             )
         return a
 

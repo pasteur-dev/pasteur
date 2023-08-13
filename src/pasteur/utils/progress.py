@@ -46,7 +46,8 @@ RICH_TRACEBACK_ARGS = {
 PROGRESS_STEP_NS = 50_000_000
 
 # Disable multiprocessing when debugging due to process launch debug overhead
-MULTIPROCESS_ENABLE = not environ.get("_DEBUG", False)
+DEBUG = environ.get("_DEBUG", False)
+MULTIPROCESS_ENABLE = not DEBUG
 IS_SUBPROCESS = False
 
 CHECK_LEAKS = False
@@ -110,6 +111,10 @@ def _wrap_exceptions(
     fun: Callable[P, X], /, node_name: str, *args: P.args, **kwargs: P.kwargs
 ) -> X:
     set_node_name(node_name)
+    if DEBUG:
+        # skip catching exception so that debugger catches intenal exception.
+        return fun(*args, **kwargs) 
+
     try:
         res = fun(*args, **kwargs)
 

@@ -1,4 +1,4 @@
-from typing import Any, NamedTuple, TypeVar
+from typing import Any, NamedTuple, TypeVar, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,10 +8,14 @@ from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 
-from pasteur.metric import AbstractColumnMetric, RefColumnData, Summaries
-
 from ...metadata import ColumnMeta, Metadata
-from ...metric import ColumnMetric, RefColumnMetric, Summaries
+from ...metric import (
+    AbstractColumnMetric,
+    ColumnMetric,
+    RefColumnData,
+    RefColumnMetric,
+    Summaries,
+)
 from ...utils import list_unique
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
 
@@ -263,9 +267,9 @@ class DateData(NamedTuple):
 class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
     name = "date"
 
-    def fit(
-        self, table: str, col: str, meta: ColumnMeta, data: pd.Series, ref: pd.Series
-    ):
+    def fit(self, table: str, col: str | tuple[str], meta: ColumnMeta, data: RefColumnData):
+        ref = data['ref']
+        data = data['data']
         self.table = table
         self.col = col
 
@@ -418,7 +422,7 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
         syn: RefColumnData,
         pre: Summaries[DateData],
     ) -> Summaries[DateData]:
-        return pre.replace(syn=self._process(syn["wrk"], syn["ref"]))  # type: ignore
+        return pre.replace(syn=self._process(syn["data"], syn["ref"]))  # type: ignore
 
     def combine(self, summaries: list[Summaries[DateData]]) -> Summaries[DateData]:
         return Summaries(
@@ -596,12 +600,12 @@ class DatetimeHist(
         self.time = TimeHist(*args, _from_factory=_from_factory, **kwargs)
 
     def fit(
-        self, table: str, col: str, meta: ColumnMeta, data: pd.Series, ref: pd.Series
+        self, table: str, col: str, meta: ColumnMeta, data: RefColumnData
     ):
         self.table = table
         self.col = col
-        self.date.fit(table=table, col=col, meta=meta, data=data, ref=ref)
-        self.time.fit(table=table, col=col, meta=meta, data=data)
+        self.date.fit(table=table, col=col, meta=meta, data=data)
+        self.time.fit(table=table, col=col, meta=meta, data=cast(pd.Series, data['data']))
 
     def preprocess(
         self, wrk: RefColumnData, ref: RefColumnData

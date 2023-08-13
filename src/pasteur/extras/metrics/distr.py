@@ -223,7 +223,7 @@ class DistributionMetric(
         per_call_meta = []
         base_args = {"domain": self.domain}
 
-        for pid, (cwrk, cref) in LazyDataset.zip([wrk, ref]).items():
+        for cwrk, cref in LazyDataset.zip_values([wrk, ref]):
             for split, split_data in [("wrk", cwrk), ("ref", cref)]:
                 ids, tables = data_to_tables(split_data)
 
@@ -236,7 +236,7 @@ class DistributionMetric(
                             "tables": tables,
                         }
                     )
-                    per_call_meta.append({"split": split, "table": table, "pid": pid})
+                    per_call_meta.append({"split": split, "table": table})
 
         # Process marginals
         out = process_in_parallel(
@@ -287,7 +287,7 @@ class DistributionMetric(
         per_call_meta = []
         base_args = {"domain": self.domain}
 
-        for pid, csyn in LazyDataset.zip(syn).items():
+        for csyn in LazyDataset.zip_values(syn):
             ids, tables = data_to_tables(csyn)
 
             for table in self.domain:
@@ -299,7 +299,7 @@ class DistributionMetric(
                         "tables": tables,
                     }
                 )
-                per_call_meta.append({"table": table, "pid": pid})
+                per_call_meta.append({"table": table})
 
         # Process marginals
         out = process_in_parallel(
