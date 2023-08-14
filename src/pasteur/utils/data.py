@@ -120,6 +120,17 @@ def _partition_lazy(d, key: str):
         return d[key] if d.partitioned else d
     return d
 
+def _dummy_return(a):
+    return a
+
+def _wrap_lazy(d, cls):
+    if isinstance(d, tuple):
+        return tuple([_wrap_lazy(v, cls) for v in d])
+    if isinstance(d, list):
+        return [_wrap_lazy(v, cls) for v in d]
+    if isinstance(d, dict):
+        return {k: _wrap_lazy(v, cls) for k, v in d.items()}
+    return cls(partial(_dummy_return, d))
 
 class LazyDataset(Generic[A], LazyPartition[A]):
     def __init__(
@@ -282,7 +293,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
             elif positional:
                 return [positional]
             elif keyword:
-                return [keyword]  # type: ignore
+                return [keyword]
             return [()]
 
         return list(LazyDataset.zip(*positional, **keyword).values())
@@ -303,6 +314,21 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         if self.merged_load:
             return 1
         return 0
+
+    @classmethod
+    def wrap(cls, *positional, **keyword):
+        """ Converts provided arguments to lazy. Tuples, dicts, and lists are traversed,
+        and every object found in them is wrapped in a LazyDataset."""
+        if positional and keyword:
+            return _wrap_lazy((positional, keyword), cls)
+        elif positional and len(positional) == 1:
+            return _wrap_lazy(positional[0], cls)
+        elif positional:
+            return _wrap_lazy(positional, cls)
+        elif keyword:
+            return _wrap_lazy(keyword, cls)
+        return None
+
 
 
 LazyFrame = LazyDataset["pd.DataFrame"]
