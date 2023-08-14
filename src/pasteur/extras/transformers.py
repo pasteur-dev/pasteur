@@ -5,19 +5,20 @@ import pandas as pd
 from pandas.api.types import is_categorical_dtype
 
 from pasteur.attribute import Attributes
+from pasteur.transform import RefTransformer, Transformer
 
 from ..attribute import (
     Attribute,
     CatAttribute,
     Grouping,
-    StratifiedValue,
     NumAttribute,
     NumValue,
     OrdAttribute,
-    _create_strat_value_ord as OrdValue,
-    get_dtype,
+    StratifiedValue,
 )
-from ..transform import RefTransformer, Transformer
+from ..attribute import _create_strat_value_ord as OrdValue
+from ..attribute import get_dtype
+from ..transform import RefTransformer, SeqTransformer, Transformer
 from ..utils import list_unique
 
 
@@ -52,7 +53,20 @@ class NumericalTransformer(Transformer):
         if self.max is None and self.find_edges:
             self.max = data.max()
         self.attr = NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
-    
+
+    def reduce(self, other: "NumericalTransformer"):
+        if self.min is not None and other.min is not None:
+            self.min = min(self.min, other.min)
+        elif other.min is not None:
+            self.min = other.min
+
+        if self.max is not None and other.max is not None:
+            self.min = min(self.max, other.max)
+        elif other.max is not None:
+            self.max = other.max
+
+        self.attr = NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
+
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
 
@@ -85,37 +99,45 @@ class IdxTransformer(Transformer):
     def fit(self, data: pd.Series):
         # Makes fit run out of core by storing the unique values seen previously in `raw_vals`
         new_vals = [v for v in data.unique() if not pd.isna(v)]
-        vals = list_unique(new_vals, self.raw_vals)
-        self.raw_vals = vals
+        self.raw_vals = list_unique(new_vals, self.raw_vals)
 
-        # Try to sort vals
-        try:
-            vals = sorted(vals)
-        except Exception:
-            assert not self.ordinal, "Ordinal Array is not sortable"
-
-        vals = list(vals)
         ofs = 0
         if self.nullable:
             ofs += 1
         if self.unknown_value is not None:
             ofs += 1
 
+        self.ofs = ofs
+        self.col = cast(str, data.name)
+        self.type = data.dtype
+        self._finalize_props()
+
+    def reduce(self, other: "IdxTransformer"):
+        self.raw_vals = list_unique(self.raw_vals, other.raw_vals)
+        self._finalize_props()
+
+    def _finalize_props(self):
+        # Try to sort vals
+        vals = self.raw_vals
+        try:
+            vals = sorted(vals)
+        except Exception:
+            assert not self.ordinal, "Ordinal Array is not sortable"
+
+        vals = list(vals)
+        ofs = self.ofs
         self.mapping = {val: i + ofs for i, val in enumerate(vals)}
         self.vals = {i + ofs: val for i, val in enumerate(vals)}
-        self.col = cast(str, data.name)
         self.domain = ofs + len(vals)
-        self.ofs = ofs
 
         # FIXME: If a column is empty it causes problems for the algorithm
         # add 1 fake value as fix
         if not vals:
             vals = [7777777]
 
-        self.type = data.dtype
         cls = OrdAttribute if self.ordinal else CatAttribute
-        self.attr = cls(cast(str, data.name), vals, self.nullable, self.unknown_value)
-    
+        self.attr = cls(self.col, vals, self.nullable, self.unknown_value)
+
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
 
@@ -217,10 +239,18 @@ class DateTransformer(RefTransformer):
                 self.ref = data.min()
             else:
                 self.ref = min(data.min(), self.ref)
+        self.col = cast(str, data.name)
+        self._finalize_props()
 
-        col = cast(str, data.name)  # type: ignore
-        self.col = col
+    def reduce(self, other: "DateTransformer"):
+        if self.ref is not None and other.ref is not None:
+            self.ref = min(other.ref, self.ref)
+        elif other.ref is not None:
+            self.ref = other.ref
+        self._finalize_props()
 
+    def _finalize_props(self):
+        col = self.col
         # Generate constraints for columns
         days = [
             "Monday",
@@ -305,7 +335,7 @@ class DateTransformer(RefTransformer):
         # When using a ref column accessing the date parameters is done by the dt member.
         # When self referencing to the minimum value, its type is a Timestamp
         # which doesn't have the dt member and requires direct access.
-        rf_dt = rf if isinstance(rf, pd.Timestamp) else rf.dt
+        rf_dt = rf if isinstance(rf, pd.Timestamp) else cast(pd.Series, rf).dt
 
         iso = vals.dt.isocalendar()
         iso_rf = rf_dt.isocalendar()
@@ -390,9 +420,9 @@ class DateTransformer(RefTransformer):
             iso_rf = rf.isocalendar()
             rf_day = iso_rf.weekday  # type: ignore
         else:
-            rf_dt = rf.dt
+            rf_dt = cast(pd.Series, rf).dt
             rf_year = rf_dt.year
-            iso_rf = rf.dt.isocalendar()
+            iso_rf = rf_dt.isocalendar()
             rf_day = iso_rf["day"]
 
         match self.span:
@@ -413,7 +443,7 @@ class DateTransformer(RefTransformer):
                         + 1
                     ).clip(0),
                     unit="days",
-                )
+                )  # type: ignore
             case "day":
                 # TODO: fix negative spans
                 out = rf_dt.normalize() + pd.to_timedelta(
@@ -441,8 +471,11 @@ class TimeTransformer(Transformer):
         self,
         data: pd.Series,
     ):
+        self.col = cast(str, data.name)
+        self._finalize_props()
+
+    def _finalize_props(self):
         span = self.span
-        self.col = data.name
 
         hours = []
         for hour in range(24):
@@ -484,7 +517,9 @@ class TimeTransformer(Transformer):
         self.domain = lvl.size
 
         self.attr = Attribute(
-            cast(str, data.name), {f"{data.name}_time": StratifiedValue(lvl)}, self.nullable
+            self.col,
+            {f"{self.col}_time": StratifiedValue(lvl)},
+            self.nullable,
         )
 
     def get_attributes(self) -> Attributes:
@@ -592,6 +627,14 @@ class DatetimeTransformer(RefTransformer):
         self.dt.fit(data, ref)
         self.tt.fit(data)
 
+        self._finalize_props()
+
+    def reduce(self, other: "DatetimeTransformer"):
+        self.dt.reduce(other.dt)
+        self.tt.reduce(other.tt)
+        self._finalize_props()
+
+    def _finalize_props(self):
         cdt = next(iter(self.dt.get_attributes().values()))
         ctt = next(iter(self.tt.get_attributes().values()))
         self.attr = Attribute(self.col, vals={**cdt.vals, **ctt.vals}, na=self.nullable)
