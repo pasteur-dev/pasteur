@@ -101,6 +101,12 @@ class SeqTransformer(Transformer):
     Sequence Transformers receive unprocessed parent columns, references and the ID table.
     Then, it is up to them to process the data and return the encoded version.
     They can also push columns upstream to parents, through context tables.
+
+    Event-based data is sequential. The Sequential transformers may require the
+    order of each row. For this case, the main Sequence Transformer, which is named 
+    the sequencer, is processed first and returns an additional data column and 
+    attribute during fitting. This column and attribute are fed to the other
+    sequence transformers. 
     """
 
     def fit(
@@ -108,7 +114,9 @@ class SeqTransformer(Transformer):
         data: pd.Series | pd.DataFrame,
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
-    ) -> tuple[Attributes, dict[str, Attributes]] | None:
+        seq_attr: Attribute | None = None,
+        seq: pd.Series | None = None,
+    ) -> tuple[Attribute, pd.Series] | None:
         pass
 
     def reduce(self, other: "SeqTransformer"):
@@ -122,16 +130,19 @@ class SeqTransformer(Transformer):
         data: pd.Series | pd.DataFrame,
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
-        self.fit(data, ref)
-        return self.transform(data, ref)
+        seq_attr: Attribute | None = None,
+        seq: pd.Series | None = None,
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]:
+        self.fit(data, ref, ids, seq_attr, seq)
+        return self.transform(data, ref, ids, seq)
 
     def transform(
         self,
         data: pd.Series | pd.DataFrame,
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+        seq: pd.Series | None = None,
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]:
         raise NotImplementedError()
 
     def reverse(
@@ -140,6 +151,7 @@ class SeqTransformer(Transformer):
         ctx: dict[str, pd.DataFrame],
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
+        seq: pd.Series | None = None,
     ) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have

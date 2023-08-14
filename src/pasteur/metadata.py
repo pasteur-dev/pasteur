@@ -137,6 +137,7 @@ class TableMeta:
 
     def __init__(self, meta: dict):
         self.primary_key = meta.get("primary_key", None)
+        self.sequencer: tuple[str] | str | None = meta.get("sequencer", None)
 
         if "metrics" in meta:
             metrics_dict = meta["metrics"]

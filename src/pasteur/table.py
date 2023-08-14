@@ -268,6 +268,32 @@ class TableTransformer:
             ), "Properly formatted datasets should have their primary key as their index column"
             # table.reindex(meta.primary_key)
 
+        # Process sequencer first
+        seq_name = meta.sequencer
+        if seq_name:
+            col = meta.cols[seq_name]
+            assert (
+                col.type in self.transformer_cls
+            ), f"Column type {col.type} not in transformers:\n{list(self.transformer_cls.keys())}"
+
+            # Fit transformer
+            if "main_param" in col.args:
+                t = self.transformer_cls[col.type].build(
+                    col.args["main_param"], **col.args
+                )
+            else:
+                t = self.transformer_cls[col.type].build(**col.args)
+
+            assert isinstance(t, SeqTransformer), f"Sequencer must be of type 'SeqTransformer', not '{type(t)}'"
+            
+            # Add foreign column if required
+            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+            res = t.fit(table[seq_name], ref_cols, loaded_ids)
+            assert res
+            seq_attr, seq = res
+        else:
+            seq_attr = seq = None
+
         for name, col in meta.cols.items():
             if col.is_id():
                 continue
@@ -287,7 +313,7 @@ class TableTransformer:
             if isinstance(t, SeqTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
-                t.fit(table[name], ref_cols, loaded_ids)
+                t.fit(table[name], ref_cols, loaded_ids, seq_attr, seq)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
@@ -327,7 +353,29 @@ class TableTransformer:
         tts = []
         ctxs = defaultdict(list)
 
+        # Process sequencer first
+        seq_name = meta.sequencer
+        if seq_name:
+            col = meta.cols[seq_name]
+            trn = self.transformers[seq_name]
+            assert isinstance(trn, SeqTransformer)
+            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+            assert loaded_ids is not None
+
+            res = trn.transform(table[seq_name], ref_cols, loaded_ids)
+            assert len(res) == 3
+            tt, ctx, seq = res
+
+            for n, c in ctx.items():
+                ctxs[n].append(c)
+        else:
+            seq = None
+
         for name, col in meta.cols.items():
+            # Skip sequencer
+            if seq_name == name:
+                continue
+
             if col.is_id():
                 continue
 
@@ -336,7 +384,9 @@ class TableTransformer:
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
                 assert loaded_ids is not None
-                tt, ctx = trn.transform(table[name], ref_cols, loaded_ids)
+                res = trn.transform(table[name], ref_cols, loaded_ids, seq)
+                tt = res[0]
+                ctx = res[1]
 
                 for n, c in ctx.items():
                     ctxs[n].append(c)
