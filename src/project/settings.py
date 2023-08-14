@@ -53,10 +53,11 @@ CONFIG_LOADER_ARGS = {
 
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM, MST
-from pasteur.extras.views.mimic import MimicBillion
+from pasteur.extras.views.mimic import MimicBillion, MimicCore
 
 PASTEUR_MODULES = get_recommended_modules() + [
     AIM.get_factory(),
     MST.get_factory(),
     MimicBillion(),
+    MimicCore(),
 ]

@@ -16,7 +16,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.mimic import MimicDataset
     from .datasets.texas import TexasDataset
     from .views.adult import TabAdultView
-    from .views.mimic import MimicMmCoreView, MimicTabAdmissions
+    from .views.mimic import MimicCore, MimicTabAdmissions
     # from .views.texas import TexasChargesView, TexasBaseView, TexasBillionView
 
     return [
@@ -27,7 +27,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         # TexasChargesView(),
         # TexasBaseView(),
         TabAdultView(),
-        # MimicMmCoreView,
+        # MimicCore,
         MimicTabAdmissions(),
         # TexasBillionView(),
     ]

@@ -30,10 +30,10 @@ def mm_core_transform_patients(patients: pd.DataFrame):
     return patients_new
 
 
-class MimicMmCoreView(View):
+class MimicCore(View):
     """The mimic core tables, slightly post processed."""
 
-    name = "mimic_mm_core"
+    name = "mimic_core"
     dataset = "mimic"
     deps: dict[str, list[str]] = {
         "patients": ["core_patients"],
@@ -44,7 +44,7 @@ class MimicMmCoreView(View):
         "admissions": ["patients"],
         "transfers": ["admissions"],
     }
-    parameters = get_relative_fn("parameters_mm.yml")
+    parameters = get_relative_fn("parameters_core.yml")
 
     @to_chunked
     def ingest(self, name, **tables: LazyChunk):

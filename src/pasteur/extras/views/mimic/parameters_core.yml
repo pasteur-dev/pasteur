@@ -5,22 +5,28 @@ tables:
       subject_id: id
       gender: categorical
       # year_group: categorical
-      dod: date?:birth_year
+      dod:
+        type: date
+        span: year
+        ref: birth_year
+        nullable: True
+        max_len: 99
+        bins: 32
       birth_year: fixed|date
 
   admissions:
     primary_key: hadm_id
+    sequencer: admittime
+
     fields:
       hadm_id: id
       subject_id: id:patients.subject_id
       admittime:
-        type: datetime
+        type: seqdatetime
         span: year.hour
-        ref:
-          table: patients
-          col: birth_year
+        ref: patients.birth_year
         max_len: 99
-        bins: 100
+        bins: 32
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
@@ -36,10 +42,11 @@ tables:
 
   transfers:
     primary_key: transfer_id
+    sequencer: intime
     fields:
       transfer_id: id
       hadm_id: id:admissions.hadm_id
       eventtype: categorical
       careunit: categorical?
-      intime: datetime|day.hour:admissions.admittime
+      intime: seqdatetime|day.hour:admissions.admittime
       outtime: datetime?|day.hour:intime

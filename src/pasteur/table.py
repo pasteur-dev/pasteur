@@ -35,7 +35,6 @@ logger = logging.getLogger(__file__)
 
 A = TypeVar("A", bound="Any")
 META = TypeVar("META")
-_IDKEY = "__ids_lkjhasndsfnewr"
 
 
 def _reduce_inner(
@@ -231,13 +230,9 @@ class TableTransformer:
         tables: dict[str, LazyFrame],
         ids: LazyFrame | None = None,
     ):
-        if ids is not None:
-            tables = {_IDKEY: ids, **tables}
-
         per_call = []
-        for _, chunks in LazyFrame.zip(tables).items():
-            ids_chunk = chunks.pop(_IDKEY, None)
-            per_call.append({"ids": ids_chunk, "tables": chunks})
+        for cids, ctables in LazyFrame.zip_values([ids, tables]):
+            per_call.append({"ids": cids, "tables": ctables})
 
         transformer_chunks: list[
             dict[str | tuple[str], Transformer]
