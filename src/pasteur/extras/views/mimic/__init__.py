@@ -54,7 +54,7 @@ class MimicCore(View):
             case "admissions":
                 return tables["core_admissions"]()
             case "transfers":
-                return tables["core_transfers"]()
+                return tables["core_transfers"]().dropna(subset=['hadm_id'])
             case other:
                 assert False, f"Table {other} not part of view {self.name}"
 

@@ -16,7 +16,20 @@ import logging
 from collections import defaultdict
 from typing import Any, Callable, Generic, Mapping, TypeVar, cast
 
+import numpy as np
 import pandas as pd
+from pandas.api.types import is_float_dtype
+
+from pasteur.attribute import (
+    Attribute,
+    Attributes,
+    GenAttribute,
+    SeqAttribute,
+    SeqValue,
+    get_dtype,
+)
+from pasteur.module import Module, ModuleFactory, get_module_dict
+from pasteur.transform import SeqTransformer, Transformer, TransformerFactory
 
 from .attribute import Attribute, Attributes
 from .encode import (
@@ -219,7 +232,10 @@ class TableTransformer:
         self.name = name
         self.meta = meta
 
-        self.transformer_cls = get_module_dict(TransformerFactory, modules)
+        self.transformer_cls = get_module_dict(
+            TransformerFactory,
+            [*modules, SeqTransformerWrapper.get_factory(modules=modules)],
+        )
         self.ref = ReferenceManager(meta, name)
 
         self.transformers: dict[str | tuple[str], Transformer] = {}
@@ -257,6 +273,15 @@ class TableTransformer:
 
         transformers = {}
 
+        if loaded_ids is not None and len(
+            table.index.symmetric_difference(loaded_ids.index)
+        ):
+            old_len = len(table)
+            table = table.reindex(loaded_ids.index)
+            logger.warn(
+                f"There are missing ids for rows in {self.name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
+            )
+
         if not meta.primary_key == table.index.name:
             assert (
                 False
@@ -279,17 +304,22 @@ class TableTransformer:
             else:
                 t = self.transformer_cls[col.type].build(**col.args)
 
-            assert isinstance(t, SeqTransformer), f"Sequencer must be of type 'SeqTransformer', not '{type(t)}'"
-            
+            assert isinstance(
+                t, SeqTransformer
+            ), f"Sequencer must be of type 'SeqTransformer', not '{type(t)}'"
+
             # Add foreign column if required
             ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
-            res = t.fit(table[seq_name], ref_cols, loaded_ids)
+            res = t.fit(self.name, table[seq_name], ref_cols, loaded_ids)
             assert res
             seq_attr, seq = res
+            transformers[seq_name] = t
         else:
             seq_attr = seq = None
 
         for name, col in meta.cols.items():
+            if seq_name == name:
+                continue
             if col.is_id():
                 continue
 
@@ -308,10 +338,12 @@ class TableTransformer:
             if isinstance(t, SeqTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
-                t.fit(table[name], ref_cols, loaded_ids, seq_attr, seq)
+                t.fit(self.name, table[name], ref_cols, loaded_ids, seq_attr, seq)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
+                ref_cols = _calc_joined_refs(
+                    self.name, get_table, loaded_ids, col.ref, table
+                )
                 t.fit(table[name], ref_cols)
             else:
                 t.fit(table[name])
@@ -348,6 +380,15 @@ class TableTransformer:
         tts = []
         ctxs = defaultdict(list)
 
+        if loaded_ids is not None and len(
+            table.index.symmetric_difference(loaded_ids.index)
+        ):
+            old_len = len(table)
+            table = table.reindex(loaded_ids.index)
+            logger.warn(
+                f"There are missing ids for rows in {self.name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
+            )
+
         # Process sequencer first
         seq_name = meta.sequencer
         if seq_name:
@@ -361,6 +402,7 @@ class TableTransformer:
             assert len(res) == 3
             tt, ctx, seq = res
 
+            tts.append(tt)
             for n, c in ctx.items():
                 ctxs[n].append(c)
         else:
@@ -387,7 +429,9 @@ class TableTransformer:
                     ctxs[n].append(c)
             elif isinstance(trn, RefTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_joined_refs(self.name, get_table, loaded_ids, col.ref)
+                ref_cols = _calc_joined_refs(
+                    self.name, get_table, loaded_ids, col.ref, table
+                )
                 tt = trn.transform(table[name], ref_cols)
             else:
                 tt = trn.transform(table[name])
@@ -398,7 +442,9 @@ class TableTransformer:
         ctx = {
             n: pd.concat(c, axis=1, copy=False, join="inner") for n, c in ctxs.items()
         }
-        ids_table = loaded_ids or pd.DataFrame(index=table.index)
+        ids_table = (
+            loaded_ids if loaded_ids is not None else pd.DataFrame(index=table.index)
+        )
         return table, ctx, ids_table
 
     @to_chunked
@@ -648,7 +694,7 @@ class AttributeEncoderHolder(
 
         # Reduce resulting encoders
         self.table_encoders = {}
-        self.ctx_encoders = {}
+        self.ctx_encoders = defaultdict(dict)
 
         for name, encs in table_enc.items():
             self.table_encoders[name] = reduce(_reduce_inner, encs)
@@ -762,3 +808,305 @@ class AttributeEncoderHolder(
                     out[table].update(enc.get_metadata())
 
         return out
+
+
+def _backref_cols(
+    ids: pd.DataFrame, seq: pd.Series, data: pd.DataFrame | pd.Series, parent: str
+):
+    # Ref is calculated by mapping each id in data_df by merging its parent
+    # key, sequence number to parent key, and the number - 1 and finding the
+    # corresponding id for that row. Then, a join is performed.
+    _IDX_NAME = "_id_lkjijk"
+    _JOIN_NAME = "_id_zdjwk"
+    ids_seq_prev = ids.join(seq + 1, how="right").reset_index(names=_JOIN_NAME)
+    ids_seq = ids.join(seq, how="right").reset_index(names=_IDX_NAME)
+    # FIXME: ids become float
+    join_ids = ids_seq.merge(
+        ids_seq_prev, on=[parent, seq.name], how="inner"
+    ).set_index(_IDX_NAME)[
+        [_JOIN_NAME]
+    ]  # type: ignore
+    ref_df = join_ids.join(data, on=_JOIN_NAME).drop(columns=_JOIN_NAME)
+    ref_df.index.name = data.index.name
+    if isinstance(data, pd.Series):
+        return ref_df[data.name]
+    return ref_df
+
+
+def _calculate_seq(data: pd.Series, ids: pd.DataFrame, parent: str, col_seq: str):
+    _ID_SEQ = "_id_sdfasdf"
+    seq = (
+        cast(
+            pd.Series,
+            pd.concat({parent: ids[parent], _ID_SEQ: data}, axis=1)
+            .groupby(parent)[_ID_SEQ]
+            .rank("first"),
+        )
+        - 1
+    )
+    max_len = int(cast(float, seq.max())) + 1
+    return seq.astype(get_dtype(max_len + 1)).rename(col_seq)
+
+
+class SeqTransformerWrapper(SeqTransformer):
+    name = "seq"
+
+    def __init__(
+        self,
+        modules: list[Module],
+        seq: dict[str, Any],
+        ctx: dict[str, Any] | None = None,
+        parent: str | None = None,
+        seq_col: str | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.parent = parent
+        self.seq_col_ref = seq_col
+
+        # Load transformers
+        assert seq
+        if not ctx:
+            ctx = seq
+        ctx_kwargs = ctx.copy()
+        ctx_type = ctx_kwargs.pop("type")
+        self.ctx = get_module_dict(TransformerFactory, modules)[
+            cast(str, ctx_type)
+        ].build(**ctx_kwargs)
+        assert isinstance(self.ctx, Transformer)
+
+        seq_kwargs = seq.copy()
+        seq_type = seq_kwargs.pop("type")
+        self.seq = get_module_dict(TransformerFactory, modules)[
+            cast(str, seq_type)
+        ].build(**seq_kwargs)
+        assert isinstance(self.seq, RefTransformer)
+
+    def fit(
+        self,
+        table: str,
+        data: pd.Series | pd.DataFrame,
+        ref: dict[str, pd.DataFrame],
+        ids: pd.DataFrame,
+        seq_val: SeqValue | None = None,
+        seq: pd.Series | None = None,
+    ) -> tuple[SeqValue, pd.Series] | None:
+        self.table = table
+
+        # Grab parent from seq_val if available
+        if seq_val is not None:
+            self.parent = seq_val.table
+            self.col_seq = seq_val.name
+        else:
+            self.col_seq = f"{table}_seq"
+        self.col_n = f"{table}_n"
+
+        if not self.parent:
+            # Infering parent through references
+            self.parent = next(iter(ref))
+        # Process references
+        # if ref:
+        #     self.ref_table = next(iter(ref))
+        #     self.ref_col = cast(str, next(iter(ref[self.ref_table].keys())))
+
+        assert (
+            self.parent
+        ), "Parent table not specified, use parameter 'parent' or a foreign reference."
+
+        # If seq was not provided
+        self.generate_seq = False
+        if seq is None:
+            self.generate_seq = True
+            if isinstance(data, pd.DataFrame):
+                assert (
+                    self.seq_col_ref is not None
+                ), f"Multiple columns are provided as input, specify which one is used sequence the table through parameter `seq_col`."
+                seq_col = data[self.seq_col_ref]
+            else:
+                seq_col = data
+            seq = _calculate_seq(seq_col, ids, self.parent, self.col_seq)
+        self.max_len = cast(int, seq.max()) + 1
+
+        ctx_data = (
+            ids.join(data[seq == 0], how="right")
+            .drop_duplicates(subset=[self.parent])
+            .set_index(self.parent)
+        )
+        if isinstance(data, pd.Series):
+            ctx_data = ctx_data[next(iter(ctx_data))]
+        if ref:
+            ctx_ref = ids.drop_duplicates(subset=[self.parent])
+            for name, ref_table in ref.items():
+                ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
+            ctx_ref = ctx_ref.set_index(self.parent)
+
+            if ctx_ref.shape[1] == 1:
+                ctx_ref = ctx_ref[next(iter(ctx_ref))]
+
+            assert isinstance(
+                self.ctx, RefTransformer
+            ), f"Reference found, initial transformer should be a reference transformer."
+            self.ctx.fit(ctx_data, ctx_ref)
+        else:
+            self.ctx.fit(ctx_data)
+
+        # Data series is all rows where seq > 0 (skip initial)
+        ref_df = _backref_cols(ids, seq, data, self.parent)
+        self.seq.fit(data, ref_df)
+
+        # If a seq_val was not provided, assume seq was also none and
+        # become the sequencer
+        if seq_val is None:
+            return SeqValue(self.col_seq, self.parent), cast(pd.Series, seq)
+
+    def reduce(self, other: "SeqTransformerWrapper"):
+        self.ctx.reduce(other)
+        self.seq.reduce(other)
+        self.max_len = max(other.max_len, self.max_len)
+
+    def transform(
+        self,
+        data: pd.Series | pd.DataFrame,
+        ref: dict[str, pd.DataFrame],
+        ids: pd.DataFrame,
+        seq: pd.Series | None = None,
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[
+        pd.DataFrame, dict[str, pd.DataFrame], pd.Series
+    ]:
+        parent = cast(str, self.parent)
+        if self.generate_seq:
+            if isinstance(data, pd.DataFrame):
+                assert (
+                    self.seq_col_ref is not None
+                ), f"Multiple columns are provided as input, specify which one is used sequence the table through parameter `seq_col`."
+                seq_col = data[self.seq_col_ref]
+            else:
+                seq_col = data
+            seq = _calculate_seq(seq_col, ids, parent, self.col_seq)
+        else:
+            assert seq is not None
+
+        ctx_data = (
+            ids[[parent]]
+            .join(data[seq == 0], how="right")
+            .drop_duplicates(subset=[parent])
+            .set_index(parent)
+        )
+        if ctx_data.shape[1] == 1:
+            ctx_data = ctx_data[next(iter(ctx_data))]
+        if ref:
+            ctx_ref = ids[[parent]].drop_duplicates(subset=[parent])
+            for name, ref_table in ref.items():
+                ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
+            ctx_ref = ctx_ref.set_index(parent)
+
+            if ctx_ref.shape[1] == 1:
+                ctx_ref = ctx_ref[next(iter(ctx_ref))]
+
+            assert isinstance(
+                self.ctx, RefTransformer
+            ), f"Reference found, initial transformer should be a reference transformer."
+            ctx = self.ctx.transform(ctx_data, ctx_ref)
+        else:
+            ctx = self.ctx.transform(ctx_data)
+
+        # Data series is all rows where seq > 0 (skip initial)
+        ref_df = _backref_cols(ids, seq, data, parent)
+        enc = self.seq.transform(data[seq > 0], ref_df)
+
+        # Fill seq == 0 ints with 0 and floats with nan
+        enc = enc.reindex(data.index, fill_value=0)
+        for k, d in enc.dtypes.items():
+            if is_float_dtype(d):
+                enc.loc[seq == 0, k] = np.nan
+
+        if self.generate_seq:
+            return (
+                pd.concat([enc, seq], axis=1),
+                {
+                    parent: pd.concat(
+                        [
+                            ctx,
+                            ids.join(seq)
+                            .groupby(self.parent)[cast(str, seq.name)]
+                            .max()
+                            .rename(self.col_n)
+                            + 1,
+                        ],
+                        axis=1,
+                    )
+                },
+                seq,
+            )
+        return enc, {parent: ctx}
+
+    def reverse(
+        self,
+        data: pd.DataFrame,
+        ctx: dict[str, pd.DataFrame],
+        ref: dict[str, pd.DataFrame],
+        ids: pd.DataFrame,
+    ) -> pd.DataFrame:
+        seq = data[self.col_seq]
+        parent = cast(str, self.parent)
+
+        ctx_data = ids.drop_duplicates(subset=[self.parent])
+        for name, ctx_table in ctx.items():
+            ctx_data = ctx_data.join(ctx_table, on=name, how="left")
+        ctx_data = ctx_data.set_index(self.parent)
+        if ref:
+            ctx_ref = ids.drop_duplicates(subset=[self.parent])
+            for name, ref_table in ref.items():
+                ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
+            ctx_ref = ctx_ref.set_index(self.parent)
+
+            if ctx_ref.shape[1] == 1:
+                ctx_ref = ctx_ref[next(iter(ctx_ref))]
+
+            assert isinstance(
+                self.ctx, RefTransformer
+            ), f"Reference found, initial transformer should be a reference transformer."
+            ctx_dec = self.ctx.reverse(ctx_data, ctx_ref)
+        else:
+            ctx_dec = self.ctx.reverse(ctx_data)
+        out = [
+            ids.loc[seq == 0, [parent]]
+            .join(ctx_dec, on=parent, how="right")
+            .drop(columns=[parent])
+        ]
+
+        # Data series is all rows where seq > 0 (skip initial)
+        for i in range(1, self.max_len):
+            seq_mask = seq == i
+            data_df = data[seq_mask]
+            if not len(data_df):
+                break
+            ref_df = (
+                ids.loc[data_df.index]
+                .join(
+                    ids.join(out[-1], how="right").set_index(parent),
+                    on=parent,
+                    how="left",
+                )
+                .drop(columns=parent)
+            )
+            if ref_df.shape[1] == 1:
+                ref_df = ref_df[next(iter(ref_df))]
+
+            assert len(ref_df) == len(
+                data_df
+            ), "fixme: experimental, there is a join error."
+            out.append(pd.DataFrame(self.seq.reverse(data_df, ref_df)))
+
+        return pd.concat(out, axis=0)
+
+    def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
+        return {
+            self.col_seq: SeqAttribute(self.col_seq, cast(str, self.parent)),
+            **self.seq.get_attributes(),
+        }, {
+            cast(str, self.parent): {
+                **self.ctx.get_attributes(),
+                self.col_n: GenAttribute(self.col_n, self.table, self.max_len),
+            }
+        }

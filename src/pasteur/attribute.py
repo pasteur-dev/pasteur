@@ -44,7 +44,7 @@ GI = TypeVar("GI", "Grouping", int)
 
 
 class Grouping(list[GI]):
-    """ An enchanced form of list that holds the type of grouping (categorical, ordinal),
+    """An enchanced form of list that holds the type of grouping (categorical, ordinal),
     and implements helper functions and an enchanced string representation."""
 
     def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping | Any"]):
@@ -190,19 +190,28 @@ class Grouping(list[GI]):
 
 
 class Value:
-    """ Base value class """
-    name: str | tuple[str] | None = None
+    """Base value class"""
+
+    name: str
     common: int = 0
 
 
+class SeqValue(Value):
+    table: str
+
+    def __init__(self, name: str, table: str) -> None:
+        self.name = name
+        self.table = table
+
+
 class CatValue(Value):
-    """ Class for a Categorical Value.
-    
+    """Class for a Categorical Value.
+
     Each Categorical Value is represented by an unsigned integer.
     It can also group its different values together based on an integer parameter
     named height.
     The implementation of this class remains abstract, and is expanded in
-    the StratifiedValue class. """
+    the StratifiedValue class."""
 
     def get_domain(self, height: int = 0) -> int:
         """Returns the domain of the attribute in the given height."""
@@ -228,7 +237,7 @@ class CatValue(Value):
         return False
 
     def downsample(self, value: np.ndarray, height: int):
-        """ Receives an array named `value` and downsamples it based on the provided
+        """Receives an array named `value` and downsamples it based on the provided
         height, by grouping certain values together. The proper implementation
         is provided by pasteur.hierarchy."""
         if height == 0:
@@ -239,7 +248,7 @@ class CatValue(Value):
         """Does the opposite of downsample. If deterministic is True, for each
         group at a given height one of its values is chosen arbitrarily to represent
         all children of the group.
-        
+
         If deterministic is False, the group is sampled based on this Value's
         histogram (not implemented in this class; see pasteur.hierarchy)."""
         if height == 0:
@@ -263,12 +272,14 @@ class CatValue(Value):
     def select_height(self) -> int:
         return 0
 
+
 IdxValue = CatValue
 
+
 class StratifiedValue(CatValue):
-    """A version of CategoricalValue which uses a Stratification to represent 
-    the domain knowledge of the Value. 
-    
+    """A version of CategoricalValue which uses a Stratification to represent
+    the domain knowledge of the Value.
+
     Each unique value is mapped to a tree
     with nodes where the child order matters.
     By traversing the tree in DFS, each leaf is mapped to an integer."""
@@ -304,6 +315,14 @@ class StratifiedValue(CatValue):
     def height(self):
         return self.head.height
 
+class GenerationValue(StratifiedValue):
+    table: str
+    max_len: int
+
+    def __init__(self, table: str, max_len: int) -> None:
+        self.table = table
+        self.max_len = max_len
+        super().__init__(Grouping('ord', list(range(max_len))), 0)
 
 def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
     arr = []
@@ -432,6 +451,16 @@ def NumAttribute(
 ):
     """Returns an Attribute holding a single NumValue with the provided data."""
     return Attribute(name, {name: NumValue(bins, min, max)}, nullable, False)
+
+
+def SeqAttribute(name: str, table: str):
+    """Returns an Attribute holding a single SeqValue with the provided data."""
+    return Attribute(name, {name: SeqValue(name, table)}, False, False)
+
+
+def GenAttribute(name: str, table: str, max_len: int):
+    """Returns an Attribute holding a single GenerationValue with the provided data."""
+    return Attribute(name, {name: GenerationValue(table, max_len)}, False, False)
 
 
 __all__ = [

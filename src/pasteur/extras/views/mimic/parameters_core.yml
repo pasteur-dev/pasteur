@@ -22,11 +22,13 @@ tables:
       hadm_id: id
       subject_id: id:patients.subject_id
       admittime:
-        type: seqdatetime
-        span: year.hour
+        type: seq
         ref: patients.birth_year
-        max_len: 99
-        bins: 32
+        seq:
+          type: datetime
+          span: year.hour
+          max_len: 99
+          bins: 32
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
@@ -48,5 +50,10 @@ tables:
       hadm_id: id:admissions.hadm_id
       eventtype: categorical
       careunit: categorical?
-      intime: seqdatetime|day.hour:admissions.admittime
+      intime:
+        type: seq
+        ref: admissions.admittime
+        seq:
+          type: datetime
+          span: day.hour
       outtime: datetime?|day.hour:intime

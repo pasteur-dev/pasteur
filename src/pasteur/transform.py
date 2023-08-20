@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 
 from .module import ModuleClass, ModuleFactory
-from .attribute import Attribute, Attributes
+from .attribute import Attribute, Attributes, SeqValue
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +111,13 @@ class SeqTransformer(Transformer):
 
     def fit(
         self,
+        table: str,
         data: pd.Series | pd.DataFrame,
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
-        seq_attr: Attribute | None = None,
+        seq_val: SeqValue | None = None,
         seq: pd.Series | None = None,
-    ) -> tuple[Attribute, pd.Series] | None:
+    ) -> tuple[SeqValue, pd.Series] | None:
         pass
 
     def reduce(self, other: "SeqTransformer"):
@@ -127,13 +128,14 @@ class SeqTransformer(Transformer):
 
     def fit_transform(
         self,
+        table: str,
         data: pd.Series | pd.DataFrame,
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
-        seq_attr: Attribute | None = None,
+        seq_val: SeqValue | None = None,
         seq: pd.Series | None = None,
     ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]:
-        self.fit(data, ref, ids, seq_attr, seq)
+        self.fit(table, data, ref, ids, seq_val, seq)
         return self.transform(data, ref, ids, seq)
 
     def transform(
@@ -150,8 +152,7 @@ class SeqTransformer(Transformer):
         data: pd.DataFrame,
         ctx: dict[str, pd.DataFrame],
         ref: dict[str, pd.DataFrame] | None = None,
-        ids: pd.DataFrame | None = None,
-        seq: pd.Series | None = None,
+        ids: pd.DataFrame | None = None
     ) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have

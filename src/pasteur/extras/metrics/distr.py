@@ -10,11 +10,11 @@ import pandas as pd
 from numpy import ndarray
 from scipy.special import rel_entr
 from scipy.stats import chisquare
-from pasteur.metric import Summaries
 
+from pasteur.metric import Summaries
 from pasteur.utils import LazyDataset
 
-from ...attribute import Attributes, CatValue, get_dtype
+from ...attribute import Attributes, CatValue, SeqValue, get_dtype
 from ...metric import Metric, Summaries
 from ...utils import LazyChunk, LazyFrame, data_to_tables
 from ...utils.progress import process_in_parallel
@@ -209,6 +209,8 @@ class DistributionMetric(
         for table, attrs in meta.items():
             for attr in attrs.values():
                 for name, val in attr.vals.items():
+                    if isinstance(val, SeqValue):
+                        continue
                     assert isinstance(val, CatValue)
                     self.domain[table][name] = val.domain
 

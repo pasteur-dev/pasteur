@@ -2,7 +2,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_categorical_dtype
+from pandas.api.types import is_categorical_dtype, is_float_dtype
 
 from pasteur.attribute import Attributes
 from pasteur.transform import RefTransformer, Transformer
@@ -401,7 +401,7 @@ class DateTransformer(RefTransformer):
                 na_mask |= np.any(vals[dcols] == 0, axis=1)
 
             if ref is not None:
-                na_mask |= pd.isna(ref)
+                na_mask = pd.isna(ref) | na_mask
                 ref = ref[~na_mask]
             vals = vals[~na_mask]
             ofs = 1
@@ -646,6 +646,9 @@ class DatetimeTransformer(RefTransformer):
         date_enc = self.dt.transform(data, ref)
         time_enc = self.tt.transform(data)
         del data, ref
+        if self.nullable:
+            c = date_enc[next(iter(date_enc))]
+            time_enc[pd.isna(c) if is_float_dtype(c) else c == 0] = 0
         return pd.concat([date_enc, time_enc], axis=1, copy=False, join="inner")
 
     def reverse(
