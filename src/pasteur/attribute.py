@@ -322,7 +322,7 @@ class GenerationValue(StratifiedValue):
     def __init__(self, table: str, max_len: int) -> None:
         self.table = table
         self.max_len = max_len
-        super().__init__(Grouping('ord', list(range(max_len))), 0)
+        super().__init__(Grouping('ord', list(range(max_len + 1))), 0)
 
 def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
     arr = []

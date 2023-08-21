@@ -48,6 +48,10 @@ def calc_marginal_1way(
         mul *= domain[col]
 
     counts = np.bincount(idx, minlength=x_dom)
+    assert (
+        len(counts) == x_dom
+    ), f"Overflow error, domain for columns `{x}` is wrong or there is a mistake in encoding."
+
     margin = counts.astype("float")
     margin /= margin.sum()
     if zero_fill is not None:
@@ -59,7 +63,9 @@ def calc_marginal_1way(
 
 
 def _visualise_cs(
-    name: str, domain: dict[str, int], data: dict[str, Summaries[dict[str, np.ndarray]]]
+    table: str,
+    domain: dict[str, int],
+    data: dict[str, Summaries[dict[str, np.ndarray]]],
 ):
     import mlflow
 
@@ -104,12 +110,12 @@ def _visualise_cs(
         split_ref="ref",
     )
 
-    fn = f"distr/cs.html" if name == "table" else f"distr/{name}_cs.html"
+    fn = f"distr/cs.html" if table == "table" else f"distr/{table}_cs.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
 def _visualise_kl(
-    name: str, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]
+    table: str, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]
 ):
     import mlflow
 
@@ -159,7 +165,7 @@ def _visualise_kl(
         split_ref="ref",
     )
 
-    fn = f"distr/kl.html" if name == "table" else f"distr/{name}_kl.html"
+    fn = f"distr/kl.html" if table == "table" else f"distr/{table}_kl.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 

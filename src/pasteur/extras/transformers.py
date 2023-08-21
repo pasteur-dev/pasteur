@@ -403,7 +403,7 @@ class DateTransformer(RefTransformer):
             if ref is not None:
                 na_mask = pd.isna(ref) | na_mask
                 ref = ref[~na_mask]
-            vals = vals[~na_mask]
+            vals = vals[~na_mask.reindex(vals.index)]
             ofs = 1
         else:
             ofs = 0

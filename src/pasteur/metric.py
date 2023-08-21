@@ -218,9 +218,17 @@ def _fit_column_metrics(
     metrics: dict[str, list[ColumnMetricFactory]],
 ):
     get_table = lazy_load_tables(tables)
+    table = get_table(name)
 
     if ref.table_has_reference():
         ids = ref.find_foreign_ids(name, get_table)
+
+        if len(table.index.symmetric_difference(ids.index)):
+            old_len = len(table)
+            table = table.reindex(ids.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
+            )
     else:
         ids = None
 
@@ -237,22 +245,22 @@ def _fit_column_metrics(
                 m = factory.build(**col.args)
 
             if isinstance(m, ColumnMetric):
-                m.fit(name, col_name, col, get_table(name)[col_name])
+                m.fit(name, col_name, col, table[col_name])
             elif isinstance(m, RefColumnMetric):
-                ref_col = _calc_joined_refs(name, get_table, ids, col.ref)
+                ref_col = _calc_joined_refs(name, get_table, ids, col.ref, table)
                 m.fit(
                     name,
                     col_name,
                     col,
-                    RefColumnData(data=get_table(name)[col_name], ref=ref_col),
+                    RefColumnData(data=table[col_name], ref=ref_col),
                 )
             elif isinstance(m, SeqColumnMetric):
-                ref_col = _calc_unjoined_refs(name, get_table, col.ref)
+                ref_col = _calc_unjoined_refs(name, get_table, col.ref, table)
                 m.fit(
                     name,
                     col_name,
                     col,
-                    SeqColumnData(data=get_table(name)[col_name], ref=ref_col, ids=ids),
+                    SeqColumnData(data=table[col_name], ref=ref_col, ids=ids),
                 )
             else:
                 assert False, f"Unknown column metric type: {type(m)}"
@@ -272,10 +280,25 @@ def _preprocess_metrics(
 ):
     get_table_wrk = lazy_load_tables(tables_wrk)
     get_table_ref = lazy_load_tables(tables_ref)
+    table_wrk = get_table_wrk(name)
+    table_ref = get_table_ref(name)
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)
         ids_ref = ref.find_foreign_ids(name, get_table_ref)
+
+        if len(table_wrk.index.symmetric_difference(ids_wrk.index)):
+            old_len = len(table_wrk)
+            table_wrk = table_wrk.reindex(ids_wrk.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table_wrk)}/{old_len} rows with missing ids."
+            )
+        if len(table_ref.index.symmetric_difference(ids_ref.index)):
+            old_len = len(table_ref)
+            table_ref = table_ref.reindex(ids_ref.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table_ref)}/{old_len} rows with missing ids."
+            )
     else:
         ids_wrk = None
         ids_ref = None
@@ -286,30 +309,38 @@ def _preprocess_metrics(
             col = meta[name][col_name]
             if isinstance(m, ColumnMetric):
                 prec = m.preprocess(
-                    get_table_wrk(name)[col_name],
-                    get_table_ref(name)[col_name],
+                    table_wrk[col_name],
+                    table_ref[col_name],
                 )
             elif isinstance(m, RefColumnMetric):
                 prec = m.preprocess(
                     RefColumnData(
-                        data=get_table_wrk(name)[col_name],
-                        ref=_calc_joined_refs(name, get_table_wrk, ids_ref, col.ref),
+                        data=table_wrk[col_name],
+                        ref=_calc_joined_refs(
+                            name, get_table_wrk, ids_ref, col.ref, table_wrk
+                        ),
                     ),
                     RefColumnData(
-                        data=get_table_ref(name)[col_name],
-                        ref=_calc_joined_refs(name, get_table_ref, ids_ref, col.ref),
+                        data=table_ref[col_name],
+                        ref=_calc_joined_refs(
+                            name, get_table_ref, ids_ref, col.ref, table_ref
+                        ),
                     ),
                 )
             elif isinstance(m, SeqColumnMetric):
                 prec = m.preprocess(
                     SeqColumnData(
-                        data=get_table_wrk(name)[col_name],
-                        ref=_calc_unjoined_refs(name, get_table_wrk, col.ref),
+                        data=table_wrk[col_name],
+                        ref=_calc_unjoined_refs(
+                            name, get_table_wrk, col.ref, table_wrk
+                        ),
                         ids=ids_wrk,
                     ),
                     SeqColumnData(
-                        data=get_table_ref(name)[col_name],
-                        ref=_calc_unjoined_refs(name, get_table_ref, col.ref),
+                        data=table_ref[col_name],
+                        ref=_calc_unjoined_refs(
+                            name, get_table_ref, col.ref, table_ref
+                        ),
                         ids=ids_ref,
                     ),
                 )
@@ -334,11 +365,33 @@ def _process_metrics(
     get_table_wrk = lazy_load_tables(tables_wrk)
     get_table_ref = lazy_load_tables(tables_ref)
     get_table_syn = lazy_load_tables(tables_syn)
+    table_wrk = get_table_wrk(name)
+    table_ref = get_table_ref(name)
+    table_syn = get_table_syn(name)
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)
         ids_ref = ref.find_foreign_ids(name, get_table_ref)
         ids_syn = ref.find_foreign_ids(name, get_table_syn)
+
+        if len(table_wrk.index.symmetric_difference(ids_wrk.index)):
+            old_len = len(table_wrk)
+            table_wrk = table_wrk.reindex(ids_wrk.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table_wrk)}/{old_len} rows with missing ids."
+            )
+        if len(table_ref.index.symmetric_difference(ids_ref.index)):
+            old_len = len(table_ref)
+            table_ref = table_ref.reindex(ids_ref.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table_ref)}/{old_len} rows with missing ids."
+            )
+        if len(table_syn.index.symmetric_difference(ids_syn.index)):
+            old_len = len(table_syn)
+            table_syn = table_syn.reindex(ids_syn.index)
+            logger.warn(
+                f"There are missing ids for rows in {name}, dropping {old_len-len(table_syn)}/{old_len} rows with missing ids."
+            )
     else:
         ids_wrk = None
         ids_ref = None
@@ -358,34 +411,46 @@ def _process_metrics(
             elif isinstance(m, RefColumnMetric):
                 proc = m.process(
                     RefColumnData(
-                        data=get_table_wrk(name)[col_name],
-                        ref=_calc_joined_refs(name, get_table_wrk, ids_wrk, col.ref),
+                        data=table_wrk[col_name],
+                        ref=_calc_joined_refs(
+                            name, get_table_wrk, ids_wrk, col.ref, table_wrk
+                        ),
                     ),
                     RefColumnData(
-                        data=get_table_ref(name)[col_name],
-                        ref=_calc_joined_refs(name, get_table_ref, ids_ref, col.ref),
+                        data=table_ref[col_name],
+                        ref=_calc_joined_refs(
+                            name, get_table_ref, ids_ref, col.ref, table_ref
+                        ),
                     ),
                     RefColumnData(
-                        data=get_table_syn(name)[col_name],
-                        ref=_calc_joined_refs(name, get_table_syn, ids_syn, col.ref),
+                        data=table_syn[col_name],
+                        ref=_calc_joined_refs(
+                            name, get_table_syn, ids_syn, col.ref, table_syn
+                        ),
                     ),
                     prec,
                 )
             elif isinstance(m, SeqColumnMetric):
                 proc = m.process(
                     SeqColumnData(
-                        data=get_table_wrk(name)[col_name],
-                        ref=_calc_unjoined_refs(name, get_table_wrk, col.ref),
+                        data=table_wrk[col_name],
+                        ref=_calc_unjoined_refs(
+                            name, get_table_wrk, col.ref, table_wrk
+                        ),
                         ids=ids_wrk,
                     ),
                     SeqColumnData(
-                        data=get_table_ref(name)[col_name],
-                        ref=_calc_unjoined_refs(name, get_table_ref, col.ref),
+                        data=table_ref[col_name],
+                        ref=_calc_unjoined_refs(
+                            name, get_table_ref, col.ref, table_ref
+                        ),
                         ids=ids_ref,
                     ),
                     SeqColumnData(
-                        data=get_table_syn(name)[col_name],
-                        ref=_calc_unjoined_refs(name, get_table_syn, col.ref),
+                        data=table_syn[col_name],
+                        ref=_calc_unjoined_refs(
+                            name, get_table_syn, col.ref, table_syn
+                        ),
                         ids=ids_syn,
                     ),
                     prec,

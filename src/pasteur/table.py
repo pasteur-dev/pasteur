@@ -500,7 +500,7 @@ class TableTransformer:
                     and col.ref.table
                     and cached_ids is not None
                 )
-                tts[name] = cached_ids[col.ref.table]
+                tts[name] = cached_ids[col.ref.table].rename(name)
             else:
                 tts[name] = 0
 
@@ -567,8 +567,8 @@ class TableTransformer:
 
         decoded_cols = sum(
             len(n) if isinstance(n, tuple) else 1
-            for n, c in meta.cols.items()
-            if not c.is_id()
+            for n in meta.cols.keys()
+            if n != meta.primary_key
         )
         assert (
             len(tts) == decoded_cols
@@ -579,7 +579,15 @@ class TableTransformer:
         dec_table = pd.concat(tts.values(), axis=1, copy=False, join="inner")
         del tts
         # Re-order columns to metadata based order
-        cols = [key for key in meta.cols.keys() if key != meta.primary_key]
+        cols = []
+        for key in meta.cols.keys():
+            if key == meta.primary_key:
+                continue
+
+            if isinstance(key, str):
+                cols.append(key)
+            else:
+                cols.extend(key)
         dec_table = dec_table[cols]
 
         return dec_table
@@ -1153,7 +1161,9 @@ class SeqTransformerWrapper(SeqTransformer):
         parent = cast(str, self.parent)
 
         if ref:
-            ctx_ref = ids[seq == 0].drop_duplicates(subset=[self.parent])
+            ctx_ref = ids[seq.reindex(ids.index) == 0].drop_duplicates(
+                subset=[self.parent]
+            )
             for name, ref_table in ref.items():
                 ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
             ctx_ref = ctx_ref.drop(columns=ids.columns)
@@ -1169,8 +1179,7 @@ class SeqTransformerWrapper(SeqTransformer):
         # Data series is all rows where seq > 0 (skip initial)
         out = []
         for i in range(self.max_len):
-            seq_mask = seq == i
-            data_df = data[seq_mask]
+            data_df = data[seq == i]
             if not len(data_df):
                 break
 
@@ -1178,11 +1187,11 @@ class SeqTransformerWrapper(SeqTransformer):
                 ref_df = (
                     ids.loc[data_df.index]
                     .join(
-                        ids.join(out[-1], how="right").set_index(parent),
+                        ids[[parent]].join(out[-1], how="right").set_index(parent),
                         on=parent,
                         how="left",
                     )
-                    .drop(columns=parent)
+                    .drop(columns=ids.columns)
                 )
                 if ref_df.shape[1] == 1:
                     ref_df = ref_df[next(iter(ref_df))]

@@ -129,18 +129,20 @@ def create_fit_pipeline(
             outputs=f"{view}.enc.{enc}",
             namespace=f"{view}.enc",
         )
-        for enc in encs if enc not in ('raw', 'bst')
+        for enc in encs
+        if enc not in ("raw", "bst")
     ]
 
     return PipelineMeta(
         pipeline(trn_fit_nodes + enc_fit_nodes, tags=TAGS_TRANSFORM),
         [
-            D("transformers", f"{view}.trn.{t}", ["view", view, "trn",  t], type="pkl")
+            D("transformers", f"{view}.trn.{t}", ["view", view, "trn", t], type="pkl")
             for t in view.tables
         ]
         + [
-            D("encoders", f"{view}.enc.{enc}", ["view", view, 'enc', enc], type="pkl")
-            for enc in encs if enc not in ('raw', 'bst')
+            D("encoders", f"{view}.enc.{enc}", ["view", view, "enc", enc], type="pkl")
+            for enc in encs
+            if enc not in ("raw", "bst")
         ],
     )
 
@@ -178,7 +180,7 @@ def create_transform_pipeline(
                     "split_transformed",
                     f"{view}.{split}.ctx_{t}",
                     ["view", view, split, "ctx", t],
-                    type='multi'
+                    type="multi",
                 )
             )
             outputs.append(
@@ -221,7 +223,7 @@ def create_transform_pipeline(
                 f"{view}.{split}.{enc}",
                 ["synth" if retransform else "view", view, split, enc],
                 versioned=retransform,
-                type='multi'
+                type="multi",
             )
         )
 
@@ -262,7 +264,9 @@ def create_reverse_pipeline(view: View, alg: str, enc: str):
                     "table": f"{view}.{alg}.bst_{t}",
                     "ctx": f"{view}.{alg}.ctx_{t}",
                     "ids": f"{view}.{alg}.ids_{t}",
-                    "parents": {req: req for req in view.trn_deps.get(t, [])},
+                    "parents": {
+                        req: f"{view}.{alg}.{req}" for req in view.trn_deps.get(t, [])
+                    },
                 },
                 outputs=f"{view}.{alg}.{t}",
                 namespace=f"{view}.{alg}",
@@ -293,7 +297,7 @@ def create_reverse_pipeline(view: View, alg: str, enc: str):
                 D(
                     "synth_reversed",
                     f"{view}.{alg}.{t}",
-                    ["synth", view, alg, 'tables', t],
+                    ["synth", view, alg, "tables", t],
                     versioned=True,
                 ),
             ]

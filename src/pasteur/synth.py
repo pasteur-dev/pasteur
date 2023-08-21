@@ -8,6 +8,8 @@ from __future__ import annotations
 from functools import partial, wraps
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
+from pasteur.utils import LazyDataset
+
 from .encode import ViewEncoder
 from .metadata import Metadata
 from .module import ModuleClass, ModuleFactory
@@ -147,7 +149,7 @@ def synth_fit(
 
     tracker = PerformanceTracker.get("synth")
 
-    tracker.ensemble("total", "preprocess", "bake", "fit", "sample")
+    tracker.ensemble("total", "preprocess", "bake", "fit")
 
     meta = encoder.get_metadata()
     args = {**metadata.algs.get(factory.name, {}), **metadata.alg_override}
@@ -185,10 +187,10 @@ class IdentSynth(Synth):
     def preprocess(self, meta: Any, data: dict[str, LazyDataset]):
         pass
 
-    def bake(self, meta: Any, data: dict[str, LazyDataset]):
+    def bake(self, data: dict[str, LazyDataset]):
         pass
 
-    def fit(self, meta: Any, data: dict[str, LazyDataset]):
+    def fit(self, data: dict[str, LazyDataset]):
         self.data = data
 
     def sample(self, n: int | None = None):

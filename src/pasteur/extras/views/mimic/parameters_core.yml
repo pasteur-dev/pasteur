@@ -24,11 +24,16 @@ tables:
       admittime:
         type: seq
         ref: patients.birth_year
-        seq:
+        ctx:
           type: datetime
           span: year.hour
           max_len: 99
           bins: 32
+        seq:
+          type: datetime
+          span: year.hour
+          max_len: 10
+          bins: 10
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
