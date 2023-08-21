@@ -221,6 +221,8 @@ todo_include_todos = False
 # -- NBconvert kernel config -------------------------------------------------
 nbsphinx_kernel_name = "python3"
 
+# Hide broken modules
+autodoc_mock_imports = ["pasteur.extras.metrics.models", "pasteur.extras.datasets.sdgym", "mbi"]
 
 def remove_arrows_in_examples(lines):
     for i, line in enumerate(lines):

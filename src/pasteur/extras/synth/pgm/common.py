@@ -13,7 +13,7 @@ class OracleDataset(Dataset):
     def __init__(
         self,
         o: MarginalOracle,
-        domain: Domain | None = None,
+        domain: "Domain | None" = None,
         force_cache: bool = True,
         cache: dict = {},
     ):
