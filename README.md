@@ -13,16 +13,33 @@
 [![Code style is Black](https://img.shields.io/badge/code%20style-black-black.svg)](https://github.com/psf/black)
 <!-- [![]()]() -->
 
-Pasteur is a library for performing privacy-aware end-to-end data synthesis.
+Pasteur is a library for managing the end-to-end process of data synthesis.
 Gather your raw data and preprocess, synthesize, and evaluate it within a single
 project.
 Use the tools you're familiar with: numpy, pandas, scikit-learn, scipy or any other.
 When your dataset grows, scale to out-of-core data by using Pasteur's parallelization 
 and partitioning primitives, without code changes or using different libraries.
 
-## Reproducibility
-You can find the experiment files that can be used to reproduce the paper
-about Pasteur [here](https://github.com/pasteur-dev/pasteur/tree/paper/notebooks/paper).
+Pasteur focuses on providing a common platform for the processing, evaluation and 
+sharing of synthetic data.
+In the current version, Pasteur can ingest and encode arbitrary multi-table
+hierarchical/sequential datasets with a mixture of numerical, categorical, and date values
+into a common format for synthesis, through a flexible metadata and encoding system.
+Post synthesis, Pasteur can evaluate the resulting data through a multi-table
+native, extensible evaluation architecture (with built-in support for basic metrics
+such as histograms) and allows for comparison to "ideal" synthetic data, through the
+use of a hold-out reference set, which it also creates and manages.
+ 
+Pasteur features built-in support for synthesizing data using PrivBayes, AIM, or MST
+(due to the lack of viable multi-table synthesis algorithms).
+If not, or if a custom algorithm should be used, it is trivial to add support for
+it to Pasteur, by implementing the `Synth` interface.
+
+>
+> Pasteur is currently an early research alpha. It is architected to allow multi-modal
+> data synthesis (e.g., the combination of hierarchical data with sounds and images)
+> and will soon feature a novel synthesis method for hierarchical/event-based data.
+>
 
 ## Usage
 You can install Pasteur with pip.
