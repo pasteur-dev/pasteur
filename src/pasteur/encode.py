@@ -4,9 +4,17 @@ from typing import Any, Generic, TypeVar
 
 import pandas as pd
 
+from .metadata import Metadata
 from .attribute import Attribute, Attributes
 from .module import ModuleClass, ModuleFactory
-from .utils import LazyFrame, LazyDataset
+from .utils import (
+    LazyFrame,
+    LazyDataset,
+    LazyPartition,
+    tables_to_data,
+    data_to_tables,
+    LazyChunk,
+)
 
 
 class AttributeEncoderFactory(ModuleFactory):
@@ -66,6 +74,37 @@ class AttributeEncoder(ModuleClass, Generic[META]):
 
     def get_metadata(self) -> dict[str | tuple[str], META]:
         raise NotImplementedError()
+
+
+class PostprocessEncoder(AttributeEncoder[META], Generic[META]):
+    """Same as `AttributeEncoder` but allows customizing the tables after they
+    have been encoded or adding additional ones.
+
+    Unlike `AttributeEncoder`, this one does not parallelize per-table, so it should
+    be avoided unless customization is required.
+
+    The context tables and their metadata are merged to the parent tables automatically,
+    so they are not provided as an argument to `finalize()`.
+
+    Default implementations are provided which behave as the normal AttributeEncoder.
+    """
+
+    def finalize(
+        self,
+        meta: dict[str, dict[tuple[str, ...] | str, META]],
+        tables: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ) -> dict[str, Any]:
+        return tables_to_data(ids, tables)
+
+    def undo(
+        self,
+        meta: dict[str, dict[tuple[str, ...] | str, META]],
+        data: dict[str, LazyPartition],
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        """Undoes the process of `finalize()`, returns a tuple of `(ids, tables)`."""
+        ids, tables = data_to_tables(data)
+        return {k: v() for k, v in ids.items()}, {k: v() for k, v in tables.items()}
 
 
 class Encoder(ModuleClass, Generic[META]):

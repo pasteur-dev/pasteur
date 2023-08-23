@@ -36,6 +36,7 @@ from .encode import (
     AttributeEncoder,
     AttributeEncoderFactory,
     EncoderFactory,
+    PostprocessEncoder,
     ViewEncoder,
 )
 from .metadata import ColumnRef, Metadata
@@ -651,12 +652,19 @@ class AttributeEncoderHolder(
 
     table_encoders: dict[str, dict[str | tuple[str], AttributeEncoder[META]]]
     ctx_encoders: dict[str, dict[str, dict[str | tuple[str], AttributeEncoder[META]]]]
+    postprocess_enc: PostprocessEncoder[META] | None
 
     def __init__(self, encoder: AttributeEncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
         self._encoder_fr = encoder
         self.table_encoders = {}
         self.ctx_encoders = {}
+
+        tst = encoder.build()
+        if isinstance(tst, PostprocessEncoder):
+            self.postprocess_enc = tst
+        else:
+            self.postprocess_enc = None
 
     def fit(
         self,
@@ -714,7 +722,37 @@ class AttributeEncoderHolder(
         self.fitted = True
 
     @to_chunked
-    def encode_chunk(self, name: str, table: LazyChunk, ctx: dict[str, LazyChunk]):
+    def _encode_postprocess(
+        self,
+        tables: Mapping[str, LazyChunk],
+        ctx: Mapping[str, Mapping[str, LazyChunk]],
+        ids: Mapping[str, LazyChunk],
+    ):
+        new_tables = {}
+        for name in tables:
+            tts = []
+            cached_table = tables[name]()
+            cached_ctx = {n: c[name]() for n, c in ctx.items() if name in c}
+
+            for enc in self.table_encoders[name].values():
+                tts.append(enc.encode(cached_table))
+
+            for creator, ctx_encs in self.ctx_encoders.items():
+                if name not in ctx_encs:
+                    continue
+
+                for enc in ctx_encs[name].values():
+                    tts.append(enc.encode(cached_ctx[creator]))
+
+            new_tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
+
+        assert self.postprocess_enc is not None
+        return self.postprocess_enc.finalize(
+            self.get_metadata(), new_tables, {k: v() for k, v in ids.items()}
+        )
+
+    @to_chunked
+    def _encode_chunk(self, name: str, table: LazyChunk, ctx: dict[str, LazyChunk]):
         tts = []
 
         cached_table = table()
@@ -738,6 +776,9 @@ class AttributeEncoderHolder(
         ctx: dict[str, dict[str, LazyFrame]],
         ids: dict[str, LazyFrame],
     ):
+        if self.postprocess_enc is not None:
+            return self._encode_postprocess(tables, ctx, ids)
+
         lazies = set()
         for name in tables:
             table_ctx = {}
@@ -746,7 +787,7 @@ class AttributeEncoderHolder(
                 if name in child_ctx:
                     table_ctx[creator] = child_ctx[name]
 
-            lazies |= self.encode_chunk(name, tables[name], table_ctx)
+            lazies |= self._encode_chunk(name, tables[name], table_ctx)
 
         # Passthrough ids
         for name, tid in ids.items():
@@ -755,7 +796,7 @@ class AttributeEncoderHolder(
         return lazies
 
     @to_chunked
-    def decode_chunk(
+    def _decode_chunk(
         self, name: str, data: LazyChunk
     ) -> tuple[
         dict[str, pd.DataFrame],
@@ -786,15 +827,45 @@ class AttributeEncoderHolder(
 
         return tables, ctx, {}
 
+    @to_chunked
+    def _decode_postprocess(self, data: Mapping[str, LazyChunk]):
+        assert self.postprocess_enc is not None
+        ids, full_tables = self.postprocess_enc.undo(self.get_metadata(), dict(data))
+        tables = {}
+        ctx = defaultdict(dict)
+
+        for name, table in full_tables.items():
+            tts = []
+            for enc in self.table_encoders[name].values():
+                tts.append(enc.decode(table))
+            tables = {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+
+            # Decode context tables
+            ctx_tts: dict[str, list] = defaultdict(list)
+            for creator, ctx_encs in self.ctx_encoders.items():
+                if name not in ctx_encs:
+                    continue
+
+                for ctx_enc in ctx_encs[name].values():
+                    ctx_tts[creator].append(ctx_enc.decode(table))
+
+            for creator, tts in ctx_tts.items():
+                ctx[creator][name] = pd.concat(tts, axis=1, copy=False, join="inner")
+
+        return tables, ctx, ids
+
     def decode(
         self,
         data: dict[str, LazyFrame],
     ):
+        if self.postprocess_enc is not None:
+            self._decode_postprocess(data)
+
         lazies = set()
 
         for name, table in data.items():
             if not name.endswith("_ids"):
-                lazies |= self.decode_chunk(name, table)
+                lazies |= self._decode_chunk(name, table)
 
         # Passthrough ids
         for name, tid in data.items():

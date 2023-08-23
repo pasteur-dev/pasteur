@@ -1,10 +1,12 @@
 from copy import copy
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
 from pasteur.attribute import Attribute
+from pasteur.metadata import Metadata
+from pasteur.utils import LazyPartition
 
 from ..attribute import (
     Attribute,
@@ -13,7 +15,7 @@ from ..attribute import (
     _create_strat_value_ord,
     get_dtype,
 )
-from ..encode import AttributeEncoder
+from ..encode import AttributeEncoder, PostprocessEncoder
 
 
 class DiscretizationColumnTransformer:
@@ -49,7 +51,9 @@ class DiscretizationColumnTransformer:
         ofs = self.in_attr.common
         dtype = get_dtype(len(self.vals))
         midx = len(self.vals) - 1  # clip digitize out of bounds values
-        digits = (np.digitize(data, bins=self.edges).astype(dtype) - 1).clip(0, midx) + ofs
+        digits = (np.digitize(data, bins=self.edges).astype(dtype) - 1).clip(
+            0, midx
+        ) + ofs
         if ofs:
             digits[pd.isna(data)] = 0
         return pd.Series(digits, index=data.index, name=self.col)
@@ -86,7 +90,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
 
         self.attr = copy(attr)
         self.attr.update_vals(cols)
-    
+
     def get_metadata(self) -> dict[str | tuple[str], Attribute]:
         return {self.attr.name: self.attr}
 
@@ -102,7 +106,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             else:
                 out_cols.append(data[name])
 
-        return pd.concat(out_cols, axis=1, copy=False, join='inner')
+        return pd.concat(out_cols, axis=1, copy=False, join="inner")
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         dec = pd.DataFrame(index=enc.index)
@@ -148,7 +152,7 @@ class NumEncoder(AttributeEncoder[Attribute]):
 
         self.attr = copy(attr)
         self.attr.update_vals(cols)
-    
+
     def get_metadata(self) -> dict[str | tuple[str], Attribute]:
         return {self.attr.name: self.attr}
 
@@ -167,7 +171,9 @@ class NumEncoder(AttributeEncoder[Attribute]):
                 skip_common = True
 
         for i in range(a.common) if not skip_common else []:
-            cmn_col = pd.Series(False, index=data.index, name=f"{a.name}_cmn_{i}", dtype=np.float32)
+            cmn_col = pd.Series(
+                False, index=data.index, name=f"{a.name}_cmn_{i}", dtype=np.float32
+            )
 
             for name, col in a.vals.items():
                 if isinstance(col, CatValue):
@@ -196,7 +202,26 @@ class NumEncoder(AttributeEncoder[Attribute]):
                             (data[name] == i + col.common).rename(f"{name}_{i}")
                         )
 
-        return pd.concat(cols, axis=1, copy=False, join='inner')
+        return pd.concat(cols, axis=1, copy=False, join="inner")
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         assert False, "Not Implemented"
+
+
+class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
+    name = "mare"
+
+    def finalize(
+        self,
+        meta: dict[str, dict[tuple[str, ...] | str, Attribute]],
+        tables: dict[str, pd.DataFrame],
+        ids: dict[str, pd.DataFrame],
+    ) -> dict[str, Any]:
+        return super().finalize(meta, tables, ids)
+
+    def undo(
+        self,
+        meta: dict[str, dict[tuple[str, ...] | str, Attribute]],
+        data: dict[str, LazyPartition],
+    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        return super().undo(meta, data)

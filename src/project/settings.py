@@ -54,10 +54,20 @@ CONFIG_LOADER_ARGS = {
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion, MimicCore
+from pasteur.extras.encoders import MareEncoder
+from pasteur.synth import IdentSynth
+
+
+class MareSynth(IdentSynth):
+    name = "ident_mare"
+    type = "mare"
+
 
 PASTEUR_MODULES = get_recommended_modules() + [
     AIM.get_factory(),
     MST.get_factory(),
     MimicBillion(),
     MimicCore(),
+    MareEncoder.get_factory(),
+    MareSynth.get_factory(),
 ]

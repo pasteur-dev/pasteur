@@ -315,6 +315,7 @@ class StratifiedValue(CatValue):
     def height(self):
         return self.head.height
 
+
 class GenerationValue(StratifiedValue):
     table: str
     max_len: int
@@ -322,7 +323,18 @@ class GenerationValue(StratifiedValue):
     def __init__(self, table: str, max_len: int) -> None:
         self.table = table
         self.max_len = max_len
-        super().__init__(Grouping('ord', list(range(max_len + 1))), 0)
+        super().__init__(Grouping("ord", list(range(max_len + 1))), 0)
+
+
+class UnrollValue(StratifiedValue):
+    unroll_with: tuple[str, ...]
+
+    def __init__(
+        self, head: Grouping, common: int = 0, unroll_with: tuple[str, ...] = tuple()
+    ) -> None:
+        self.unroll_with = unroll_with
+        super().__init__(head, common)
+
 
 def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
     arr = []
