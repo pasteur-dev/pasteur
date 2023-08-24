@@ -111,7 +111,8 @@ def generate_pipelines(
 
     # Add dataset pipelines
     for name, dataset in datasets.items():
-        extr_pipes[f"{name}.ingest"] = create_dataset_pipeline(dataset)
+        extr_pipes[f"ingest_dataset.{name}"] = create_dataset_pipeline(dataset)
+        extr_pipes[f"{name}.ingest"] = extr_pipes[f"ingest_dataset.{name}"]
 
     for name, view in views.items():
         # Metrics fit pipeline is part of ingest
@@ -142,9 +143,10 @@ def generate_pipelines(
             datasets[view.dataset], view.dataset_tables
         )
 
-        pipe_ingest = (
-            create_keys_pipeline(view, splits)
-            + create_view_pipeline(view)
+        pipe_ingest = create_keys_pipeline(view, splits) + create_view_pipeline(view)
+
+        pipe_ingest_trn = (
+            pipe_ingest
             + pipe_meta
             + create_filter_pipeline(view, splits)
             + pipe_transform
@@ -152,7 +154,8 @@ def generate_pipelines(
 
         # `<view>.<alg>` pipelines run all steps required for synthetic data
         # Steps that are view specific (common for all algs) can be run with `<vuew>`
-        extr_pipes[f"{name}.ingest"] = pipe_ingest
+        extr_pipes[f"ingest_view.{name}"] = pipe_ingest
+        extr_pipes[f"{name}.ingest"] = pipe_ingest_trn
 
         # Algorithm pipeline
         for alg, cls in algs.items():
@@ -164,7 +167,7 @@ def generate_pipelines(
                 view, alg, msr_types, retransform=True
             ) + create_metrics_model_pipeline(view, alg, wrk_split, ref_split, modules)
 
-            complete_pipe = pipe_ds_ingest + pipe_ingest + pipe_synth + pipe_measure
+            complete_pipe = pipe_ds_ingest + pipe_ingest_trn + pipe_synth + pipe_measure
 
             if "ident" in alg:
                 # Hide ident pipelines

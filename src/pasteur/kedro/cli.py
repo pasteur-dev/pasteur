@@ -3,10 +3,11 @@
 You can access them through `pasteur <command>` or `kedro <command>`. """
 
 import logging
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 import click
 from kedro.framework.session import KedroSession
+from functools import partial, wraps
 
 from ..utils.parser import eval_params, merge_params, str_params_to_dict
 from ..utils.progress import init_pool
@@ -15,7 +16,7 @@ from .runner import SimpleRunner
 logger = logging.getLogger(__name__)
 
 
-@click.command()
+@click.command
 @click.argument("pipeline", type=str, default=None)
 @click.argument(
     "params",
@@ -41,7 +42,17 @@ logger = logging.getLogger(__name__)
     help="Restarts processes after `n` tasks. Lower numbers help with memory leaks but slower. Set to 0 to disable. Check `pasteur.utils.leaks` to fix.",
 )
 @click.option("-w", "--max-workers", type=int, default=None)
-def pipe(pipeline, params, all, synth, metrics, max_workers, refresh_processes):
+@click.pass_context
+def pipe(
+    ctx,
+    pipeline,
+    params,
+    all,
+    synth,
+    metrics,
+    max_workers,
+    refresh_processes,
+):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
     from .pipelines.meta import (
@@ -53,6 +64,16 @@ def pipe(pipeline, params, all, synth, metrics, max_workers, refresh_processes):
     assert sum([all, synth, metrics]) <= 1
 
     param_dict = str_params_to_dict(params)
+
+    cmd: str = ctx.info_name
+    if cmd.startswith("i"):
+        match cmd:
+            case "iv" | "ingest_view":
+                pipeline = f"ingest_view.{pipeline}"
+            case "id" | "ingest_dataset":
+                pipeline = f"ingest_dataset.{pipeline}"
+            case "i" | "ingest":
+                pipeline = f"{pipeline}.ingest"
 
     with KedroSession.create(extra_params=param_dict) as session:
         if "ingest" in pipeline:
@@ -427,3 +448,11 @@ cli.add_command(sweep)
 cli.add_command(download, "dl")
 cli.add_command(pipe, "p")
 cli.add_command(sweep, "s")
+
+# TODO: fix styling in help menu
+cli.add_command(pipe, "ingest_dataset")
+cli.add_command(pipe, "id")
+cli.add_command(pipe, "ingest_view")
+cli.add_command(pipe, "iv")
+cli.add_command(pipe, "ingest")
+cli.add_command(pipe, "i")
