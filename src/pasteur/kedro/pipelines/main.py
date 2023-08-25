@@ -12,7 +12,6 @@ from ...transform import TransformerFactory
 from ...view import View
 from .dataset import create_dataset_pipeline
 from .meta import DatasetMeta, PipelineMeta
-
 from .metrics import (
     create_metrics_ingest_pipeline,
     create_metrics_model_pipeline,
@@ -26,6 +25,7 @@ from .transform import (
 )
 from .utils import list_unique
 from .views import (
+    create_check_tables_pipeline,
     create_filter_pipeline,
     create_keys_pipeline,
     create_meta_pipeline,
@@ -149,6 +149,7 @@ def generate_pipelines(
             pipe_ingest
             + create_keys_pipeline(view, splits)
             + pipe_meta
+            + create_check_tables_pipeline(view)
             + create_filter_pipeline(view, splits)
             + pipe_transform
         )

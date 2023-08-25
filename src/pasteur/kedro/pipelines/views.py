@@ -45,24 +45,29 @@ def create_view_pipeline(view: View):
                 )
                 for t in view.tables
             ]
-            + [
-                node(
-                    func=_check_tables,
-                    name="check_tables",
-                    inputs={
-                        "metadata": f"{view}.metadata",
-                        **{t: f"{view}.view.{t}" for t in view.tables},
-                    },
-                    outputs=None,
-                    namespace=f"{view}.view",
-                    tags=TAGS_VIEW_META,
-                )
-            ]
         ),
         [
             D("primary", f"{view}.view.{t}", ["view", view, "tables", t], type="pq")
             for t in view.tables
         ],
+    )
+
+
+def create_check_tables_pipeline(view: View):
+    return pipeline(
+        [
+            node(
+                func=_check_tables,
+                name="check_tables",
+                inputs={
+                    "metadata": f"{view}.metadata",
+                    **{t: f"{view}.view.{t}" for t in view.tables},
+                },
+                outputs=None,
+                namespace=f"{view}.view",
+                tags=TAGS_VIEW_META,
+            )
+        ]
     )
 
 
@@ -152,7 +157,7 @@ def create_filter_pipeline(view: View, splits: list[str]):
             namespace=view.name,
         ),
         [
-            D("splits", f"{view}.{s}.{t}", ["view", view, s, 'tables', t])
+            D("splits", f"{view}.{s}.{t}", ["view", view, s, "tables", t])
             for t in tables
             for s in splits
         ],
