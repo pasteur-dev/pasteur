@@ -143,10 +143,11 @@ def generate_pipelines(
             datasets[view.dataset], view.dataset_tables
         )
 
-        pipe_ingest = create_keys_pipeline(view, splits) + create_view_pipeline(view)
+        pipe_ingest = create_view_pipeline(view)
 
         pipe_ingest_trn = (
             pipe_ingest
+            + create_keys_pipeline(view, splits)
             + pipe_meta
             + create_filter_pipeline(view, splits)
             + pipe_transform
