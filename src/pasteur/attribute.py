@@ -47,13 +47,15 @@ class Grouping(list[GI]):
     """An enchanced form of list that holds the type of grouping (categorical, ordinal),
     and implements helper functions and an enchanced string representation."""
 
-    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping | Any"]):
+    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping | Any"], title: str | None = None):
         lvls = []
         for a in arr:
             if isinstance(a, Grouping):
                 lvls.append(a)
             else:
                 lvls.append(str(a))
+
+        self.pref = f"`{title}`" if title else ""
 
         super().__init__(lvls)
         self.type = type
@@ -62,13 +64,13 @@ class Grouping(list[GI]):
         base = super().__str__()
         if self.type == "cat":
             return "{" + base[1:-1] + "}"
-        return base
+        return self.pref + base
 
     def __repr__(self) -> str:
         base = super().__repr__()
         if self.type == "cat":
             return "{" + base[1:-1] + "}"
-        return base
+        return self.pref + base
 
     @property
     def height(self) -> int:
@@ -403,7 +405,7 @@ class Attribute:
         vals: dict[str, V],
         na: bool = False,
         ukn_val: bool = False,
-        common: int | None = None,
+        common: str | int | None = None,
     ) -> None:
         self.name = name
         self.na = na
