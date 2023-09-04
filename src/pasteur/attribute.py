@@ -60,16 +60,10 @@ class Grouping(list[GI]):
         super().__init__(lvls)
         self.type = type
 
-    def __str__(self) -> str:
-        base = super().__str__()
-        if self.type == "cat":
-            return "{" + base[1:-1] + "}"
-        return self.pref + base
-
     def __repr__(self) -> str:
         base = super().__repr__()
         if self.type == "cat":
-            return "{" + base[1:-1] + "}"
+            return self.pref + "{" + base[1:-1] + "}"
         return self.pref + base
 
     @property
