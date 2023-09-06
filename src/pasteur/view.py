@@ -77,7 +77,9 @@ def split_keys(
 
 
 @to_chunked
-def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk, drop_index: bool = False) -> pd.DataFrame:
+def filter_by_keys(
+    key_chunk: LazyChunk, table_chunk: LazyChunk, drop_index: bool = False
+) -> pd.DataFrame:
     # Sort to ensure consistent split every time
     # Dataframe should consist of up to 1 column (which is the key) or an index
 
@@ -90,7 +92,11 @@ def filter_by_keys(key_chunk: LazyChunk, table_chunk: LazyChunk, drop_index: boo
     idx = table.index.name
     if idx == col:
         # Assume if index of table is from keys we can index it
-        return table.loc[keys.index]
+        try:
+            return table.loc[keys.index]
+        except KeyError:
+            # Gracefull fallback if a part of a dataset was pruned
+            return keys.join(table)
     else:
         mask = table[col].isin(keys.index)
         del keys
@@ -103,7 +109,12 @@ def _runner(func):
     return func()
 
 
-def filter_by_keys_merged(keys: LazyFrame, table: LazyFrame, reset_index: bool = False, drop_index: bool = False):
+def filter_by_keys_merged(
+    keys: LazyFrame,
+    table: LazyFrame,
+    reset_index: bool = False,
+    drop_index: bool = False,
+):
     import pandas as pd
 
     tasks = filter_by_keys(keys, table, drop_index=drop_index)
@@ -119,7 +130,7 @@ def filter_by_keys_merged(keys: LazyFrame, table: LazyFrame, reset_index: bool =
 
     if reset_index:
         data = data.reset_index(drop=True).rename_axis("id")
-    
+
     return data
 
 
@@ -171,9 +182,9 @@ class View(Module):
     def tables(self):
         """Returns the table names of the view."""
         return list(self.deps.keys())
-    
+
     def query(self, name, **tables: LazyFrame):
-        """ Equivalent to ingest in Dataset. """
+        """Equivalent to ingest in Dataset."""
         if hasattr(self, "ingest"):
             # Original name for function was ingest.
             return getattr(self, "ingest")(name, **tables)
@@ -192,7 +203,7 @@ class View(Module):
         Should produce the same results each run regardless of the value of `split`,
         because it will be ran once per split."""
         ...
-        return split_keys(keys, req_splits, splits, random_state) # type: ignore
+        return split_keys(keys, req_splits, splits, random_state)  # type: ignore
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         """Filters the table using the keys provided."""
@@ -206,6 +217,7 @@ class TabularView(View):
     """Boilerplate for views that are based on tabular datasets.
     Has one table, named `table`, which is a copy of the table `table` of its
     Dataset."""
+
     deps = {"table": ["table"]}
 
     @to_chunked
