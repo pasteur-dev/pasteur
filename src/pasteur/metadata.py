@@ -184,7 +184,12 @@ class TableMeta:
     def check(self, data: pd.DataFrame):
         """Run a key check to ensure metadata and table have the same keys"""
         table_keys = set(data.keys())
-        meta_keys = set(self._columns.keys())
+        meta_keys = set()
+        for k in self._columns.keys():
+            if isinstance(k, str):
+                meta_keys.add(k)
+            else:
+                meta_keys.update(k)
 
         diff_keys = meta_keys.difference(table_keys, {data.index.name})
         assert not diff_keys, "Columns missing from table: " + str(diff_keys)
