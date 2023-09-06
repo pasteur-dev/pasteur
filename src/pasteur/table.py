@@ -323,6 +323,7 @@ class TableTransformer:
                 continue
             if col.is_id():
                 continue
+            name_l = list(name) if isinstance(name, tuple) else name
 
             assert (
                 col.type in self.transformer_cls
@@ -339,15 +340,15 @@ class TableTransformer:
             if isinstance(t, SeqTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
-                t.fit(self.name, table[name], ref_cols, loaded_ids, seq_attr, seq)
+                t.fit(self.name, table[name_l], ref_cols, loaded_ids, seq_attr, seq)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_joined_refs(
                     self.name, get_table, loaded_ids, col.ref, table
                 )
-                t.fit(table[name], ref_cols)
+                t.fit(table[name_l], ref_cols)
             else:
-                t.fit(table[name])
+                t.fit(table[name_l])
             transformers[name] = t
 
         return transformers
@@ -380,6 +381,11 @@ class TableTransformer:
         table = get_table(self.name)
         tts = []
         ctxs = defaultdict(list)
+
+        # Return the index for an empty table
+        if not [c for c in meta.cols.values() if not c.is_id()]:
+            edf = pd.DataFrame(index=table.index)
+            return edf, {}, loaded_ids if loaded_ids is not None else edf
 
         if loaded_ids is not None and len(
             table.index.symmetric_difference(loaded_ids.index)
@@ -417,12 +423,14 @@ class TableTransformer:
             if col.is_id():
                 continue
 
+            name_l = list(name) if isinstance(name, tuple) else name
+
             trn = self.transformers[name]
             if isinstance(trn, SeqTransformer):
                 # Add foreign column if required
                 ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
                 assert loaded_ids is not None
-                res = trn.transform(table[name], ref_cols, loaded_ids, seq)
+                res = trn.transform(table[name_l], ref_cols, loaded_ids, seq)
                 tt = res[0]
                 ctx = res[1]
 
@@ -433,9 +441,9 @@ class TableTransformer:
                 ref_cols = _calc_joined_refs(
                     self.name, get_table, loaded_ids, col.ref, table
                 )
-                tt = trn.transform(table[name], ref_cols)
+                tt = trn.transform(table[name_l], ref_cols)
             else:
-                tt = trn.transform(table[name])
+                tt = trn.transform(table[name_l])
 
             tts.append(tt)
 
@@ -988,7 +996,12 @@ class SeqTransformerWrapper(SeqTransformer):
 
         if not self.parent:
             # Infering parent through references
-            self.parent = next(iter(ref))
+            try:
+                self.parent = next(iter(ref))
+            except Exception:
+                raise Exception(
+                    "Could not infer parent from references, please specify the table which acts as the parent with parameter `parent`."
+                )
 
         assert (
             self.parent
