@@ -1349,9 +1349,9 @@ class SeqTransformerWrapper(SeqTransformer):
             if not len(data_df):
                 break
             ref_df = (
-                ids.loc[data_df.index]
+                ids[[parent]].loc[data_df.index]
                 .join(
-                    ids.join(out[-1], how="right").set_index(parent),
+                    ids[[parent]].join(out[-1], how="right").set_index(parent),
                     on=parent,
                     how="left",
                 )
