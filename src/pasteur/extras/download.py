@@ -3,8 +3,6 @@ from ..utils.download import DS
 physio = "requires credentials and license from https://physionet.org"
 
 datasets = {
-    # Open Datasets
-    "adult": DS("https://archive.ics.uci.edu/ml/machine-learning-databases/adult/"),
     # Physionet
     "mimic_iv_1_0": DS(
         "https://physionet.org/files/mimiciv/1.0/", "mimiciv_1_0", True, physio

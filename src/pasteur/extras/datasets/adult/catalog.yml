@@ -1,7 +1,9 @@
 adult.raw@train: &adult_csv
   type: pasteur.kedro.dataset.FragmentedCSVDataset
-  layer: raw
-  filepath: ${location}/adult.data
+  filepath: ${bootstrap}/adult.data
+  metadata:
+    kedro-viz:
+      layer: raw
 
   load_args: &adult_load_args
     names:
@@ -43,7 +45,7 @@ adult.raw@train: &adult_csv
 
 adult.raw@test:
   <<: *adult_csv
-  filepath: ${location}/adult.test
+  filepath: ${bootstrap}/adult.test
 
   load_args:
     <<: *adult_load_args
