@@ -71,7 +71,7 @@ class NumericalTransformer(Transformer):
         return {self.attr.name: self.attr}
 
     def transform(self, data: pd.Series) -> pd.DataFrame:
-        return pd.DataFrame(data.clip(self.min, self.max).astype("float32"))
+        return pd.DataFrame(pd.Series(data).clip(self.min, self.max).astype("float32"))
 
     def reverse(self, data: pd.DataFrame) -> pd.Series:
         d = data[self.col].copy().clip(self.min, self.max)
