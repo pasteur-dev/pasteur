@@ -45,9 +45,10 @@ RICH_TRACEBACK_ARGS = {
 }
 PROGRESS_STEP_NS = 50_000_000
 
-# Disable multiprocessing when debugging due to process launch debug overhead
-DEBUG = environ.get("_DEBUG", False)
-MULTIPROCESS_ENABLE = not DEBUG
+# Debug flag disables exception wrapping to print the correct stack trace so
+# debugger stops at the top-most exception
+DEBUG = bool(int(environ.get("_DEBUG", 0)))
+MULTIPROCESS_ENABLE = bool(int(environ.get("_MULTIPROCESS", 1)))
 IS_SUBPROCESS = False
 
 CHECK_LEAKS = False

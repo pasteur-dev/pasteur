@@ -583,6 +583,10 @@ class TableTransformer:
             len(tts) == decoded_cols
         ), f"Did not process column in this loop. There are columns with cyclical dependencies."
 
+        # If the table is empty, return an empty dataframe
+        if decoded_cols == 0:
+            return pd.DataFrame(index=cached_table.index)
+
         # Create decoded table
         del cached_table, cached_ids, get_parent
         dec_table = pd.concat(tts.values(), axis=1, copy=False, join="inner")
@@ -752,7 +756,10 @@ class AttributeEncoderHolder(
                 for enc in ctx_encs[name].values():
                     tts.append(enc.encode(cached_ctx[creator]))
 
-            new_tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
+            if tts:
+                new_tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
+            else:
+                new_tables[name] = pd.DataFrame(index=cached_table.index)
 
         assert self.postprocess_enc is not None
         return self.postprocess_enc.finalize(
@@ -776,7 +783,10 @@ class AttributeEncoderHolder(
             for enc in ctx_encs[name].values():
                 tts.append(enc.encode(cached_ctx[creator]))
 
-        return {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+        if tts:
+            return {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+        else:
+            return {name: pd.DataFrame(index=cached_table.index)}
 
     def encode(
         self,
@@ -817,7 +827,10 @@ class AttributeEncoderHolder(
         tts = []
         for enc in self.table_encoders[name].values():
             tts.append(enc.decode(table))
-        tables = {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+        if tts:
+            tables = {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+        else:
+            tables = {name: pd.DataFrame(index=table.index)}
 
         # Decode context tables
         ctx_tts: dict[str, list] = defaultdict(list)
@@ -846,7 +859,10 @@ class AttributeEncoderHolder(
             tts = []
             for enc in self.table_encoders[name].values():
                 tts.append(enc.decode(table))
-            tables = {name: pd.concat(tts, axis=1, copy=False, join="inner")}
+            if tts:
+                tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
+            else:
+                tables[name] = pd.DataFrame(index=table.index)
 
             # Decode context tables
             ctx_tts: dict[str, list] = defaultdict(list)
