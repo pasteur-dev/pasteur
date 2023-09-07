@@ -1,7 +1,9 @@
 _mimic_in_csv: &mimic_csv
   type: pasteur.kedro.dataset.FragmentedCSVDataset
-  layer: raw
   filepath: ""
+  metadata:
+    kedro-viz:
+      layer: raw
 
   load_args: &mimic_csv_load
     sep: ","

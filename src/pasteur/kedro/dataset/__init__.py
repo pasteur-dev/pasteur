@@ -5,7 +5,7 @@ and can partition save data through custom `Node` return types."""
 
 from .auto import AutoDataset
 from .multi import Multiset
-from .modified import FragmentedCSVDataset, PatternDataSet, PickleDataSet
+from .modified import FragmentedCSVDataset, PatternDataset, PickleDataset
 
 """ Backwards compatibility. `AutoDataset` replaces `FragmentedParquetDataset`"""
 FragmentedParquetDataset = AutoDataset
@@ -14,7 +14,7 @@ __all__ = [
     "AutoDataset",
     "FragmentedCSVDataset",
     "FragmentedParquetDataset",
-    "PatternDataSet",
-    "PickleDataSet",
+    "PatternDataset",
+    "PickleDataset",
     "Multiset",
 ]

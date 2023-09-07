@@ -8,7 +8,7 @@ import logging
 from collections import Counter
 from itertools import chain
 
-from kedro.io import AbstractDataSet, DataCatalog, MemoryDataSet
+from kedro.io import AbstractDataset, DataCatalog, MemoryDataset
 from kedro.pipeline import Pipeline
 from kedro.runner.runner import AbstractRunner
 from pluggy import PluginManager
@@ -29,15 +29,15 @@ class SimpleSequentialRunner(AbstractRunner):
         pipe_name: str | None = None,
         params_str: str | None = None,
         max_workers: int | None = None,
-        refresh_processes: int | None = None
+        refresh_processes: int | None = None,
     ):
         self.pipe_name = pipe_name
         self.params_str = params_str
 
         super().__init__(is_async=False)
 
-    def create_default_data_set(self, ds_name: str) -> AbstractDataSet:
-        return MemoryDataSet()
+    def create_default_data_set(self, ds_name: str) -> AbstractDataset:
+        return MemoryDataset()
 
     @property
     def _logger(self):

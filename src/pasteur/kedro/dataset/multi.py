@@ -5,7 +5,7 @@ from typing import Any, Callable
 from kedro.io.core import (
     VERSION_KEY,
     VERSIONED_FLAG_KEY,
-    AbstractDataSet,
+    AbstractDataset,
     DatasetError,
     parse_dataset_definition,
 )
@@ -13,14 +13,16 @@ from kedro.io.partitioned_dataset import S3_PROTOCOLS
 
 
 from urllib.parse import urlparse
-class Multiset(AbstractDataSet):
+
+
+class Multiset(AbstractDataset):
     # noqa: too-many-instance-attributes,protected-access
     """Simplified version of the partitioned dataset. Is not lazy."""
 
     def __init__(  # noqa: too-many-arguments
         self,
         path: str,
-        dataset: str | type[AbstractDataSet] | dict[str, Any],
+        dataset: str | type[AbstractDataset] | dict[str, Any],
         filepath_arg: str = "filepath",
         filename_suffix: str = "",
         credentials: dict[str, Any] | None = None,
@@ -79,9 +81,11 @@ class Multiset(AbstractDataSet):
             # return no partitions instead of crashing
             return []
         return [
-            path['name']
-            for path in self._filesystem.listdir(self._normalized_path, **self._load_args)
-            if path['name'].endswith(self._filename_suffix)
+            path["name"]
+            for path in self._filesystem.listdir(
+                self._normalized_path, **self._load_args
+            )
+            if path["name"].endswith(self._filename_suffix)
         ]
 
     def _join_protocol(self, path: str) -> str:

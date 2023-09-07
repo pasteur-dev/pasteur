@@ -11,8 +11,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from kedro.io.core import (
     PROTOCOL_DELIMITER,
-    AbstractVersionedDataSet,
-    DataSetError,
+    AbstractVersionedDataset,
+    DatasetError,
     Version,
     get_filepath_str,
     get_protocol_and_path,
@@ -206,7 +206,7 @@ def _load_shape_worker(load_path: str, filesystem, *_, **__):
     return (rows, cols)
 
 
-class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
+class AutoDataset(AbstractVersionedDataset[pd.DataFrame, pd.DataFrame]):
     """Modified kedro parquet dataset that acts similarly to a partitioned dataset
     and implements lazy loading.
 
@@ -215,7 +215,7 @@ class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
 
     `save()` data can be a table, a callable, or a dictionary combination of both.
 
-    If its a table or a callable, this class acts exactly as ParquetDataSet.
+    If its a table or a callable, this class acts exactly as ParquetDataset.
     If its a dictionary, each callable function is called and saved in parallel
     in a different parquet file, making the provided path a directory.
     Parallelism is achieved by using Pasteur's common process pool.
@@ -290,7 +290,7 @@ class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
     def _exists(self) -> bool:
         try:
             load_path = get_filepath_str(self._get_load_path(), self._protocol)
-        except DataSetError:
+        except DatasetError:
             return False
 
         return self._fs.exists(load_path)
@@ -349,7 +349,7 @@ class AutoDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
 
         # TODO; Redo check that respects partitioning
         # if self._exists_function(str(versioned_path)):
-        #     raise DataSetError(
+        #     raise DatasetError(
         #         f"Save path '{versioned_path}' for {str(self)} must not exist if "
         #         f"versioning is enabled."
         #     )

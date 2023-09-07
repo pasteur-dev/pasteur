@@ -5,7 +5,7 @@ from itertools import chain
 from multiprocessing.pool import ThreadPool
 from os import cpu_count
 
-from kedro.io import DataCatalog, DataSetError
+from kedro.io import DataCatalog, DatasetError
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner

@@ -1,12 +1,14 @@
 _texas_base: &texas_base
-  type: pasteur.kedro.dataset.PatternDataSet
-  layer: raw
+  type: pasteur.kedro.dataset.PatternDataset
   path: ${bootstrap}
+  metadata:
+    kedro-viz:
+      layer: raw
 
   replace_format: "{year}q{q}"
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
 
@@ -16,7 +18,7 @@ texas.raw@charges:
   replace_pattern: charges(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0
@@ -58,7 +60,7 @@ texas.raw@base:
   replace_pattern: base(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0
@@ -584,7 +586,7 @@ texas.raw@base1:
   replace_pattern: base1_(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0
@@ -986,7 +988,7 @@ texas.raw@base1_v2:
   replace_pattern: base1_(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0
@@ -1335,7 +1337,7 @@ texas.raw@base2:
   replace_pattern: base2_(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0
@@ -1551,7 +1553,7 @@ texas.raw@facility:
   replace_pattern: type(?P<q>\d)q(?P<year>\d\d\d\d)
 
   dataset:
-    type: pandas.CSVDataSet
+    type: pandas.CSVDataset
     load_args:
       delimiter: "\t"
       header: 0

@@ -10,20 +10,20 @@ import fsspec
 import pandas as pd
 from kedro.io.core import (
     PROTOCOL_DELIMITER,
-    AbstractVersionedDataSet,
-    DataSetError,
+    AbstractVersionedDataset,
+    DatasetError,
     Version,
     get_filepath_str,
     get_protocol_and_path,
 )
-from kedro.io.partitioned_dataset import PartitionedDataSet
+from kedro.io.partitioned_dataset import PartitionedDataset
 
 from ...utils import LazyDataset, LazyPartition
 
 logger = logging.getLogger(__name__)
 
 
-class PatternDataSet(PartitionedDataSet):
+class PatternDataset(PartitionedDataset):
     """Adds pattern support to Partitioned Dataset"""
 
     def __init__(
@@ -78,8 +78,6 @@ class PatternDataSet(PartitionedDataSet):
             None,
             {pid: LazyPartition(fun, None) for pid, fun in super()._load().items()},
         )
-    
-
 
 
 def _load_csv(
@@ -111,7 +109,7 @@ def _load_csv(
     return pd.read_csv(load_path, storage_options=storage_options, **load_args)
 
 
-class FragmentedCSVDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame]):
+class FragmentedCSVDataset(AbstractVersionedDataset[pd.DataFrame, pd.DataFrame]):
 
     DEFAULT_LOAD_ARGS: dict[str, Any] = {}
     DEFAULT_SAVE_ARGS: dict[str, Any] = {"index": False}
@@ -197,7 +195,7 @@ class FragmentedCSVDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame])
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
 
         buf = BytesIO()
-        data.to_csv(path_or_buf=buf, **self._save_args) # type: ignore
+        data.to_csv(path_or_buf=buf, **self._save_args)  # type: ignore
 
         with self._fs.open(save_path, mode="wb") as fs_file:
             fs_file.write(buf.getvalue())
@@ -207,7 +205,7 @@ class FragmentedCSVDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame])
     def _exists(self) -> bool:
         try:
             load_path = get_filepath_str(self._get_load_path(), self._protocol)
-        except DataSetError:
+        except DatasetError:
             return False
 
         return self._fs.exists(load_path)
@@ -230,10 +228,10 @@ class FragmentedCSVDataset(AbstractVersionedDataSet[pd.DataFrame, pd.DataFrame])
         return data.to_dict(orient="split")
 
 
-class PickleDataSet(
-    AbstractVersionedDataSet[Any, Any]
+class PickleDataset(
+    AbstractVersionedDataset[Any, Any]
 ):  # pylint:disable=too-many-instance-attributes
-    """``PickleDataSet`` loads/saves data from/to a Pickle file using an underlying
+    """``PickleDataset`` loads/saves data from/to a Pickle file using an underlying
     filesystem (e.g.: local, S3, GCS). The underlying functionality is supported by
     the specified backend library passed in (defaults to the ``pickle`` library), so it
     supports all allowed options for loading and saving pickle files.
@@ -245,12 +243,12 @@ class PickleDataSet(
     .. code-block:: yaml
 
         test_model: # simple example without compression
-          type: pickle.PickleDataSet
+          type: pickle.PickleDataset
           filepath: data/07_model_output/test_model.pkl
           backend: pickle
 
         final_model: # example with load and save args
-          type: pickle.PickleDataSet
+          type: pickle.PickleDataset
           filepath: s3://your_bucket/final_model.pkl.lz4
           backend: joblib
           credentials: s3_credentials
@@ -262,18 +260,18 @@ class PickleDataSet(
     data_catalog.html#use-the-data-catalog-with-the-code-api>`_:
     ::
 
-        >>> from kedro_datasets.pickle import PickleDataSet
+        >>> from kedro_datasets.pickle import PickleDataset
         >>> import pandas as pd
         >>>
         >>> data = pd.DataFrame({'col1': [1, 2], 'col2': [4, 5],
         >>>                      'col3': [5, 6]})
         >>>
-        >>> data_set = PickleDataSet(filepath="test.pkl", backend="pickle")
+        >>> data_set = PickleDataset(filepath="test.pkl", backend="pickle")
         >>> data_set.save(data)
         >>> reloaded = data_set.load()
         >>> assert data.equals(reloaded)
         >>>
-        >>> data_set = PickleDataSet(filepath="test.pickle.lz4",
+        >>> data_set = PickleDataset(filepath="test.pickle.lz4",
         >>>                          backend="compress_pickle",
         >>>                          load_args={"compression":"lz4"},
         >>>                          save_args={"compression":"lz4"})
@@ -295,10 +293,10 @@ class PickleDataSet(
         version: Version | None = None,
         credentials: dict[str, Any] | None = None,
         fs_args: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None= None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
-        """Creates a new instance of ``PickleDataSet`` pointing to a concrete Pickle
-        file on a specific filesystem. ``PickleDataSet`` supports custom backends to
+        """Creates a new instance of ``PickleDataset`` pointing to a concrete Pickle
+        file on a specific filesystem. ``PickleDataset`` supports custom backends to
         serialise/deserialise objects.
 
         Example backends that are compatible (non-exhaustive):
@@ -380,7 +378,7 @@ class PickleDataSet(
         _fs_open_args_save = _fs_args.pop("open_args_save", {})
         _credentials = deepcopy(credentials) or {}
 
-        protocol, path = get_protocol_and_path(filepath, version) # type: ignore
+        protocol, path = get_protocol_and_path(filepath, version)  # type: ignore
         if protocol == "file":
             _fs_args.setdefault("auto_mkdir", True)
 
@@ -435,7 +433,7 @@ class PickleDataSet(
                 imported_backend = importlib.import_module(self._backend)
                 imported_backend.dump(data, fs_file, **self._save_args)  # type: ignore
             except Exception as exc:
-                raise DataSetError(
+                raise DatasetError(
                     f"{data.__class__} was not serialised due to: {exc}"
                 ) from exc
 
@@ -444,7 +442,7 @@ class PickleDataSet(
     def _exists(self) -> bool:
         try:
             load_path = get_filepath_str(self._get_load_path(), self._protocol)
-        except DataSetError:
+        except DatasetError:
             return False
 
         return self._fs.exists(load_path)

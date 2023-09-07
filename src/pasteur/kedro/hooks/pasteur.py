@@ -7,10 +7,10 @@ from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
 from kedro.io import DataCatalog, Version
-from kedro.io.memory_dataset import MemoryDataSet
+from kedro.io.memory_dataset import MemoryDataset
 
 from ...module import Module
-from ..dataset import AutoDataset, PickleDataSet, Multiset
+from ..dataset import AutoDataset, PickleDataset, Multiset
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
@@ -117,6 +117,7 @@ class PasteurHook:
                     "type": AutoDataset,
                     "save_args": self.pq_save_args,
                     "version": self.get_version(name, versioned),
+                    "metadata": {"kedro-viz": {"layer": layer}} if layer else None,
                 },
             )
         else:
@@ -124,6 +125,7 @@ class PasteurHook:
                 fn + ".pq",
                 save_args=self.pq_save_args,
                 version=self.get_version(name, versioned),  # type: ignore
+                metadata={"kedro-viz": {"layer": layer}} if layer else None,
             )
 
         self.catalog.add(
@@ -136,22 +138,21 @@ class PasteurHook:
     def add_pkl(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
             name,
-            PickleDataSet(
+            PickleDataset(
                 path.join(
                     self.base_location,
                     *path_seg[:-1],
                     path_seg[-1] + ".pkl",
                 ),
                 version=self.get_version(name, versioned),  # type: ignore
+                metadata={"kedro-viz": {"layer": layer}} if layer else None,
             ),
         )
-        if layer:
-            self.catalog.layers[layer].add(name)
 
     def add_mem(self, layer, name):
         self.catalog.add(
             name,
-            MemoryDataSet(),
+            MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),
         )
         if layer:
             self.catalog.layers[layer].add(name)
@@ -213,11 +214,13 @@ class PasteurHook:
                     save_version,
                 )
                 catalog.add_all(tmp_catalog._data_sets)
-                for layer, children in tmp_catalog.layers.items():
-                    catalog.layers[layer] = {
-                        *children,
-                        *catalog.layers.get(layer, set()),
-                    }
+                if tmp_catalog.layers:
+                    # Passthrough layers if they are not provided through metadata
+                    for layer, children in tmp_catalog.layers.items():
+                        catalog.layers[layer] = {
+                            *children,
+                            *catalog.layers.get(layer, set()),
+                        }
 
         # Add pipeline outputs
         for d in self.outputs:
