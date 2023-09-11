@@ -135,7 +135,8 @@ class TableMetrics(NamedTuple):
 class TableMeta:
     COLUMN_CLS = ColumnMeta
 
-    def __init__(self, meta: dict):
+    def __init__(self, name: str, meta: dict):
+        self.name = name
         self.primary_key = meta.get("primary_key", None)
         self.sequencer: tuple[str] | str | None = meta.get("sequencer", None)
 
@@ -192,7 +193,7 @@ class TableMeta:
                 meta_keys.update(k)
 
         diff_keys = meta_keys.difference(table_keys, {data.index.name})
-        assert not diff_keys, "Columns missing from table: " + str(diff_keys)
+        assert not diff_keys, f"Columns missing from table `{self.name}`: {str(diff_keys)}"
     
     def __repr__(self) -> str:
         return self.__dict__.__repr__()
@@ -209,7 +210,7 @@ class ViewMeta:
         meta: dict,
     ):
         self._tables: dict[str, ViewMeta.TABLE_CLS] = {
-            name: self.TABLE_CLS(tmeta) for name, tmeta in meta["tables"].items()
+            name: self.TABLE_CLS(name, tmeta) for name, tmeta in meta["tables"].items()
         }
 
         self.alg_override = meta.get("alg", {})
