@@ -80,7 +80,7 @@ def generate_pipelines(
 ) -> tuple[
     dict[str, Pipeline],
     list[DatasetMeta],
-    list[tuple[str, str | dict]],
+    list[tuple[str, str, str | dict]],
     dict[str, dict | str],
 ]:
     """Generates synthetic pipelines for combinations of the provided views and algs.
@@ -221,7 +221,7 @@ def generate_pipelines(
         pipelines,
         list(outputs.values()),
         [
-            (d.folder_name, d.catalog)
+            (d.name, d.folder_name, d.catalog)
             for d in datasets.values()
             if d.folder_name and d.catalog
         ],

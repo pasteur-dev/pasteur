@@ -186,7 +186,7 @@ class PasteurHook:
         if self.catalogs:
             params = self.context.params
 
-            for folder_name, ds_catalog in self.catalogs:
+            for ds, folder_name, ds_catalog in self.catalogs:
                 name = NAME_LOCATION.format(folder_name)
 
                 if isinstance(ds_catalog, str):
@@ -207,12 +207,29 @@ class PasteurHook:
                 else:
                     conf = ds_catalog
 
+                # Normalize old catalog names to be '{ds}.raw@{name}' unless
+                # they are already that
+                # TODO: find clear criteria for when to do it
+                conf = {
+                    f"{ds}.raw@{name}" if "." not in name else name: dataset
+                    for name, dataset in conf.items()
+                }
+                # Place all datasets to the raw layer
+                for d in conf.values():
+                    if "metadata" not in d:
+                        d["metadata"] = {"kedro-viz": {"layer": "raw"}}
+                    elif "kedro-viz" not in d["metadata"]:
+                        d["metadata"]["kedro-viz"] = {"layer": "raw"}
+                    elif "layer" not in d["metadata"]["kedro-viz"]:
+                        d["metadata"]["kedro-viz"]["layer"] = "raw"
+
                 tmp_catalog = DataCatalog.from_config(
                     conf,
                     conf_creds,
                     load_versions,
                     save_version,
                 )
+
                 catalog.add_all(tmp_catalog._data_sets)
                 if tmp_catalog.layers:
                     # Passthrough layers if they are not provided through metadata
