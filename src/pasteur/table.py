@@ -555,6 +555,12 @@ class TableTransformer:
                     )
                     tt = t.reverse(cached_table, cached_ctx, ref_col, cached_ids)
                 elif isinstance(t, RefTransformer):
+                    for r in cref:
+                        if r.table:
+                            assert (
+                                r.table in parent_tables
+                            ), f"Table '{self.name}' depends on table '{r.table}', but it was not specified in the parameter 'trn_deps' of the view."
+
                     ref_col = _calc_joined_refs(
                         self.name,
                         get_parent,
@@ -1161,11 +1167,14 @@ class SeqTransformerWrapper(SeqTransformer):
                     parent: pd.concat(
                         [
                             ctx,
-                            ids.join(seq)
-                            .groupby(self.parent)[cast(str, seq.name)]
-                            .max()
-                            .rename(self.col_n)
-                            + 1,
+                            (
+                                ids.join(seq)
+                                .groupby(self.parent)[cast(str, seq.name)]
+                                .max()
+                                + 1
+                            )
+                            .clip(upper=self.max_len)
+                            .rename(self.col_n),
                         ],
                         axis=1,
                     )
