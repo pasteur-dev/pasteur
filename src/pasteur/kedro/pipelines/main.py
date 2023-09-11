@@ -124,8 +124,18 @@ def generate_pipelines(
         )
 
         # Create view transform pipeline that can run as part of ingest
+        if view.fit_global:
+            pipe_fit = create_fit_pipeline(view, all_types, modules, 'view')
+            + create_transform_pipeline(
+                view,
+                'view',
+                all_types,
+            )
+        else:
+            pipe_fit = create_fit_pipeline(view, all_types, modules, wrk_split)
+
         pipe_transform = (
-            create_fit_pipeline(view, all_types, modules, wrk_split)
+            pipe_fit
             + create_transform_pipeline(
                 view,
                 wrk_split,

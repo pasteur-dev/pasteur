@@ -167,6 +167,12 @@ class View(Module):
     """
     trn_deps: dict[str, list[str]] = {}
     parameters: dict[str, Any] | str | None = None
+    
+    """ If true, transformers and encoders for this view will be fit on the global
+    dataset. Resolves encoding errors that stem from sampling the partial view.
+    When true, subsampling the view is not possible during transformation and 
+    encoding, which may add significant overhead."""
+    fit_global: bool = False
 
     def __init__(self, **_) -> None:
         pass
