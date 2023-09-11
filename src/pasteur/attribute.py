@@ -47,7 +47,12 @@ class Grouping(list[GI]):
     """An enchanced form of list that holds the type of grouping (categorical, ordinal),
     and implements helper functions and an enchanced string representation."""
 
-    def __init__(self, type: Literal["cat", "ord"], arr: list["Grouping | Any"], title: str | None = None):
+    def __init__(
+        self,
+        type: Literal["cat", "ord"],
+        arr: list["Grouping | Any"],
+        title: str | None = None,
+    ):
         lvls = []
         for a in arr:
             if isinstance(a, Grouping):
@@ -322,16 +327,6 @@ class GenerationValue(StratifiedValue):
         super().__init__(Grouping("ord", list(range(max_len + 1))), 0)
 
 
-class UnrollValue(StratifiedValue):
-    unroll_with: tuple[str, ...]
-
-    def __init__(
-        self, head: Grouping, common: int = 0, unroll_with: tuple[str, ...] = tuple()
-    ) -> None:
-        self.unroll_with = unroll_with
-        super().__init__(head, common)
-
-
 def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
     arr = []
     common = 0
@@ -400,6 +395,8 @@ class Attribute:
         na: bool = False,
         ukn_val: bool = False,
         common: str | int | None = None,
+        unroll: bool = False,
+        unroll_with: tuple[str, ...] = tuple(),
     ) -> None:
         self.name = name
         self.na = na
@@ -408,6 +405,9 @@ class Attribute:
             self.common = self.na + self.ukn_val
         else:
             self.common = common
+
+        self.unroll = unroll
+        self.unroll_with = unroll_with
 
         self.update_vals(vals)
 
