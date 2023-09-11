@@ -421,9 +421,22 @@ class PickleDataset(
     def _load(self) -> Any:
         load_path = get_filepath_str(self._get_load_path(), self._protocol)
 
-        with self._fs.open(load_path, **self._fs_open_args_load) as fs_file:
-            imported_backend = importlib.import_module(self._backend)
-            return imported_backend.load(fs_file, **self._load_args)  # type: ignore
+        e = None
+        for i in range(5):
+            try:
+                with self._fs.open(load_path, **self._fs_open_args_load) as fs_file:
+                    imported_backend = importlib.import_module(self._backend)
+                    return imported_backend.load(fs_file, **self._load_args)  # type: ignore
+            except Exception as e:
+                import time
+
+                # Prevents pipeline crashing on unreliable network shares
+                logger.warn(
+                    f"Failed loading file '{load_path}' (attempt {i + 1}/5). Waiting 1 second and retrying..."
+                )
+                time.sleep(1)
+        if e:
+            raise e
 
     def _save(self, data: Any) -> None:
         save_path = get_filepath_str(self._get_save_path(), self._protocol)
