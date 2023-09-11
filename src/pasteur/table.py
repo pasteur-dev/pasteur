@@ -178,7 +178,7 @@ def _calc_joined_refs(
             else:
                 dfs.append(table[refs])
 
-        ref_col = pd.concat(dfs)
+        ref_col = pd.concat(dfs, axis=1)
     elif cref:
         ref = cast(ColumnRef, cref)
         f_table, f_col = ref.table, ref.col
@@ -627,6 +627,10 @@ class TableTransformer:
                     ctx_attrs[n].update(c)
             else:
                 t_attrs = t.get_attributes()
+
+            assert isinstance(
+                t_attrs, dict
+            ), f"Transformer `{t.name}` did not return a dictionary as attributes."
             attrs.update(t_attrs)
 
         return attrs, dict(ctx_attrs)
@@ -1349,7 +1353,8 @@ class SeqTransformerWrapper(SeqTransformer):
             if not len(data_df):
                 break
             ref_df = (
-                ids[[parent]].loc[data_df.index]
+                ids[[parent]]
+                .loc[data_df.index]
                 .join(
                     ids[[parent]].join(out[-1], how="right").set_index(parent),
                     on=parent,
