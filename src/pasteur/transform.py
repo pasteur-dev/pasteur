@@ -64,7 +64,7 @@ class RefTransformer(Transformer):
         self,
         data: pd.Series | pd.DataFrame,
         ref: pd.Series | pd.DataFrame | None = None,
-    ) -> Attribute | None:
+    ):
         pass
 
     def reduce(self, other: "RefTransformer"):
@@ -103,10 +103,10 @@ class SeqTransformer(Transformer):
     They can also push columns upstream to parents, through context tables.
 
     Event-based data is sequential. The Sequential transformers may require the
-    order of each row. For this case, the main Sequence Transformer, which is named 
-    the sequencer, is processed first and returns an additional data column and 
+    order of each row. For this case, the main Sequence Transformer, which is named
+    the sequencer, is processed first and returns an additional data column and
     attribute during fitting. This column and attribute are fed to the other
-    sequence transformers. 
+    sequence transformers.
     """
 
     def fit(
@@ -134,7 +134,9 @@ class SeqTransformer(Transformer):
         ids: pd.DataFrame | None = None,
         seq_val: SeqValue | None = None,
         seq: pd.Series | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]:
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[
+        pd.DataFrame, dict[str, pd.DataFrame], pd.Series
+    ]:
         self.fit(table, data, ref, ids, seq_val, seq)
         return self.transform(data, ref, ids, seq)
 
@@ -144,7 +146,9 @@ class SeqTransformer(Transformer):
         ref: dict[str, pd.DataFrame] | None = None,
         ids: pd.DataFrame | None = None,
         seq: pd.Series | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]:
+    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[
+        pd.DataFrame, dict[str, pd.DataFrame], pd.Series
+    ]:
         raise NotImplementedError()
 
     def reverse(
@@ -152,7 +156,7 @@ class SeqTransformer(Transformer):
         data: pd.DataFrame,
         ctx: dict[str, pd.DataFrame],
         ref: dict[str, pd.DataFrame] | None = None,
-        ids: pd.DataFrame | None = None
+        ids: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """When reversing, the data column contains encoded data, whereas the ref
         column contains decoded/original data. Therefore, the referred columns have
