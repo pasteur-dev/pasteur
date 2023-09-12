@@ -84,6 +84,67 @@ kedro viz
 mlflow ui --backend-store-uri data/reporting/flow/ 
 ```
 
+### Using Jupyter
+Use jupyter to iterate on new prototypes.
+
+First, to eliminate path issues depending from where you launch jupyter,
+fill in `conf/local/globals.yml with absolute paths for your raw and data directories:
+```
+raw_location: <project_dir>/raw
+base_location: <project_dir>/data
+```
+
+Then, create a notebook in the `./notebooks` directory and open it with jupyter
+or VS Code.
+
+The first cell of your notebook should contain a variation of the following:
+```python
+# Star notation allows importing type hints for kedro variables (catalog, pipeline, etc)
+# along with the register_kedro function.
+from pasteur.kedro.ipython import *
+
+# Import data analysis libraries
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Add autoreload to allow iterating on your modules
+%load_ext autoreload
+%autoreload 2
+
+# Register your project as a `kedro` project to access the catalog
+register_kedro()
+```
+
+From then on, you may access the `kedro` catalog and experiment with variables.
+```python
+# Access lazy dataframes and load them by calling them
+raw_train = catalog.load('adult.raw@train')()
+wrk = catalog.load('tab_adult.wrk.table')()
+enc = catalog.load('tab_adult.wrk.idx')['table']()
+print(enc.head())
+
+# Access pasteur modules like transformers, encoders, and synth models after synthesis to debug their attributes
+print(catalog.load('tab_adult.trn.table').get_attributes())
+print(catalog.load('tab_adult.privbayes.model'))
+
+# Unsure of whether one of your modules works?
+# Import it and test it in the notebook by pulling intermediary artifacts from the catalog
+# Here, we build the transformer for the `workclass` column and apply it to it
+# to see if the transformation works and is reversible
+from pasteur.extras.transformers import IdxTransformer
+
+data = wrk['workclass']
+t = IdxTransformer.get_factory().build()
+t.fit(data)
+
+workclass_trn = t.transform(data)
+workclass_rev = t.reverse(workclass_trn)
+workclass_comp = pd.concat([data, workclass_trn, workclass_rev], axis=1)
+print(workclass_comp)
+```
+
+
 ## Contributing
 To contribute, clone this repository and install the frozen requirements.
 ```bash
