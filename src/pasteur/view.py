@@ -96,7 +96,7 @@ def filter_by_keys(
             return table.loc[keys.index]
         except KeyError:
             # Gracefull fallback if a part of a dataset was pruned
-            return keys.join(table)
+            return keys.join(table, how='inner')
     else:
         mask = table[col].isin(keys.index)
         del keys
