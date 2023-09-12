@@ -90,11 +90,20 @@ class IdxTransformer(Transformer):
     lossless = True
     stateful = True
 
-    def __init__(self, unknown_value=None, nullable: bool = False, **_):
+    def __init__(
+        self,
+        unknown_value=None,
+        nullable: bool = False,
+        partition: bool = False,
+        partition_with: tuple[str, ...] = tuple(),
+        **_,
+    ):
         self.unknown_value = unknown_value
         self.nullable = nullable
         self.ordinal = False
         self.raw_vals = []
+        self.partition = partition
+        self.partition_with = partition_with
 
     def fit(self, data: pd.Series):
         # Makes fit run out of core by storing the unique values seen previously in `raw_vals`
@@ -202,8 +211,8 @@ class IdxTransformer(Transformer):
 class OrdinalTransformer(IdxTransformer):
     name = "ordinal"
 
-    def __init__(self, unknown_value=None, nullable: bool = False, **_):
-        super().__init__(unknown_value, nullable, **_)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.ordinal = True
 
 

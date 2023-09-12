@@ -397,6 +397,8 @@ class Attribute:
         common: str | int | None = None,
         unroll: bool = False,
         unroll_with: tuple[str, ...] = tuple(),
+        partition: bool = False,
+        partition_with: tuple[str, ...] = tuple(),
     ) -> None:
         self.name = name
         self.na = na
@@ -408,6 +410,9 @@ class Attribute:
 
         self.unroll = unroll
         self.unroll_with = unroll_with
+
+        self.partition = partition
+        self.partition_with = partition_with
 
         self.update_vals(vals)
 
@@ -433,21 +438,45 @@ Attributes = Mapping[str | tuple[str], Attribute]
 
 
 def OrdAttribute(
-    name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
+    name: str,
+    vals: list[Any],
+    na: bool = False,
+    ukn_val: Any | None = None,
+    partition: bool = False,
+    partition_with: tuple[str, ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are ordinal, based on the provided data."""
     cols = {name: _create_strat_value_ord(vals, na, ukn_val)}
-    return Attribute(name, cols, na, ukn_val is not None)
+    return Attribute(
+        name,
+        cols,
+        na,
+        ukn_val is not None,
+        partition=partition,
+        partition_with=partition_with,
+    )
 
 
 def CatAttribute(
-    name: str, vals: list[Any], na: bool = False, ukn_val: Any | None = None
+    name: str,
+    vals: list[Any],
+    na: bool = False,
+    ukn_val: Any | None = None,
+    partition: bool = False,
+    partition_with: tuple[str, ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are categorical, based on the provided data."""
     cols = {name: _create_strat_value_cat(vals, na, ukn_val)}
-    return Attribute(name, cols, na, ukn_val is not None)
+    return Attribute(
+        name,
+        cols,
+        na,
+        ukn_val is not None,
+        partition=partition,
+        partition_with=partition_with,
+    )
 
 
 def NumAttribute(
