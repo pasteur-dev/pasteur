@@ -2,7 +2,7 @@ from typing import Any, Literal, cast
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_categorical_dtype, is_float_dtype
+from pandas.api.types import is_float_dtype
 
 from pasteur.attribute import Attributes
 from pasteur.transform import RefTransformer, Transformer
@@ -147,7 +147,7 @@ class IdxTransformer(Transformer):
         out_col = data.map(mapping)
 
         # Handle categorical columns without blowing them up to full blown columns
-        if is_categorical_dtype(out_col):
+        if isinstance(out_col, pd.CategoricalDtype):
             out_col = out_col.cat.add_categories(range(self.ofs))
 
         # Handle NAs correctly
@@ -166,7 +166,7 @@ class IdxTransformer(Transformer):
             ), f"Uknown values found in '{self.col}', but no unknown value provided."
 
         # Remove old categories to change dtype
-        if is_categorical_dtype(out_col):
+        if isinstance(out_col, pd.CategoricalDtype):
             out_col = out_col.cat.set_categories(range(self.domain))
 
         return pd.DataFrame(out_col.astype(type))
