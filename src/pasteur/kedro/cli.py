@@ -29,7 +29,10 @@ logger = logging.getLogger(__name__)
     help="Also runs dataset ingestion, which is skipped by default.",
 )
 @click.option(
-    "--synth", is_flag=True, help="Skips running split ingestion, only runs synthesis."
+    "--pre", is_flag=True, help="Only runs split preprocessing."
+)
+@click.option(
+    "--synth", is_flag=True, help="Skips running split preprocessing, only runs synthesis."
 )
 @click.option(
     "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
@@ -48,6 +51,7 @@ def pipe(
     pipeline,
     params,
     all,
+    pre,
     synth,
     metrics,
     max_workers,
@@ -61,7 +65,7 @@ def pipe(
         TAG_METRICS,
     )
 
-    assert sum([all, synth, metrics]) <= 1
+    assert sum([all, pre, synth, metrics]) <= 1
 
     param_dict = str_params_to_dict(params)
 
@@ -82,6 +86,9 @@ def pipe(
         elif all:
             logger.info("Nodes for ingesting the dataset will be run.")
             tags = []
+        elif pre:
+            logger.info("Only nodes for preprocessing the view will be run.")
+            tags = [TAG_CHANGES_HYPERPARAMETER]
         elif synth:
             logger.warning(
                 "Skipping ingest nodes which are affected by hyperparameters, results may be invalid."
