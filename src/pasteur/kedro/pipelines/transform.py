@@ -200,7 +200,7 @@ def create_transform_pipeline(
             )
 
     for enc in types:
-        if enc in ("bst", "raw") or split == "view":
+        if enc in ("bst", "raw"):
             continue
 
         table_nodes += [
@@ -217,10 +217,18 @@ def create_transform_pipeline(
                 namespace=f"{view}.{split}",
             )
         ]
+
+        if retransform:
+            layer = "synth_reencoded"
+        elif split == "view":
+            layer = "view_encoded"
+        else:
+            layer = "split_encoded"
+
         outputs.append(
             D(
                 # FIXME: Pass proper layer properly, don't infer
-                "synth_reencoded" if retransform else "split_encoded",
+                layer,
                 f"{view}.{split}.{enc}",
                 ["synth" if retransform else "view", view, split, enc],
                 versioned=retransform,

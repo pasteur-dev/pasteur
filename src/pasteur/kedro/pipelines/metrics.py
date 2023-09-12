@@ -182,10 +182,10 @@ def _create_process_pipeline(
 
 
 def create_metrics_ingest_pipeline(
-    view: View, modules: list[Module], wrk_split: str, ref_split: str
+    view: View, modules: list[Module], fit_split: str, wrk_split: str, ref_split: str
 ):
     return _log_metadata(view) + _create_fit_pipeline(
-        view, modules, wrk_split, wrk_split, ref_split
+        view, modules, fit_split, wrk_split, ref_split
     )
 
 

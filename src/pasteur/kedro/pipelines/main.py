@@ -115,25 +115,27 @@ def generate_pipelines(
         extr_pipes[f"{name}.ingest"] = extr_pipes[f"ingest_dataset.{name}"]
 
     for name, view in views.items():
+        # Create view transform pipeline that can run as part of ingest
+        if view.fit_global:
+            fit_split = "view"
+            pipe_fit = create_fit_pipeline(
+                view, all_types, modules, fit_split
+            ) + create_transform_pipeline(
+                view,
+                fit_split,
+                all_types,
+            )
+        else:
+            pipe_fit = create_fit_pipeline(view, all_types, modules, wrk_split)
+            fit_split = wrk_split
+
         # Metrics fit pipeline is part of ingest
         # To make debugging metrics easier, it's bundled with `.measure` pipelines
         # as well. That way, only `.measure` needs to run when changes are made
         # to fit functions
         pipe_metrics_fit = create_metrics_ingest_pipeline(
-            view, modules, wrk_split, ref_split
+            view, modules, fit_split, wrk_split, ref_split
         )
-
-        # Create view transform pipeline that can run as part of ingest
-        if view.fit_global:
-            pipe_fit = create_fit_pipeline(
-                view, all_types, modules, "view"
-            ) + create_transform_pipeline(
-                view,
-                "view",
-                all_types,
-            )
-        else:
-            pipe_fit = create_fit_pipeline(view, all_types, modules, wrk_split)
 
         pipe_transform = (
             pipe_fit
