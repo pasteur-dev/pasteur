@@ -1,6 +1,7 @@
 import logging
 import os
 from copy import deepcopy
+from functools import wraps
 from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Any, Callable
@@ -19,11 +20,38 @@ from kedro.io.core import (
 )
 
 from ...utils import LazyDataset, LazyFrame, LazyPartition
-from ...utils.progress import get_node_name, process, process_in_parallel
+from ...utils.progress import get_node_name, process, process_in_parallel, DEBUG
 
 logger = logging.getLogger(__name__)
 
 
+def _wrap_retry(f):
+    if DEBUG:
+        # Skip wrapping if DEBUG is on so exceptions break correctly
+        return f
+
+    @wraps(f)
+    def _wrap(*args, **kwargs):
+        ex = None
+        for i in range(3):
+            try:
+                return f(*args, **kwargs)
+            except Exception as e:
+                import time
+
+                # Prevents pipeline crashing on unreliable network shares
+                logger.warn(
+                    f"Failed fs function '{f.__name__}(path={kwargs.get('path', str(args[0]) if args else 'None')})' (attempt {i + 1}/3). Waiting 1 second and retrying..."
+                )
+                time.sleep(1)
+                ex = e
+        if ex:
+            raise ex
+
+    return _wrap
+
+
+@_wrap_retry
 def _save_worker(
     pid: str | None,
     path: str,
@@ -132,6 +160,7 @@ def _save_worker(
                 fs_file.write(bytes_buffer.getvalue())
 
 
+@_wrap_retry
 def _load_worker(
     path: str,
     protocol: str,
@@ -155,6 +184,7 @@ def _load_worker(
     return pd.read_parquet(load_path, storage_options=storage_options, **load_args)
 
 
+@_wrap_retry
 def _load_merged_worker(
     load_path: str, filesystem, load_args, columns: list[str] | None = None
 ):
@@ -191,6 +221,7 @@ def _load_merged_worker(
     return out
 
 
+@_wrap_retry
 def _load_shape_worker(load_path: str, filesystem, *_, **__):
     # TODO: verify this returns correct numbers (esp. columns)
     data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
