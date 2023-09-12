@@ -5,11 +5,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from .module import Module
-from .utils import LazyChunk, LazyFrame, to_chunked, RawSource
+import pandas as pd
 
-if TYPE_CHECKING:
-    import pandas as pd
+from .module import Module
+from .utils import LazyChunk, LazyFrame, RawSource, to_chunked
 
 
 class Dataset(Module):
