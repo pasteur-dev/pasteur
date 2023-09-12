@@ -175,9 +175,10 @@ def create_transform_pipeline(
                 ),
             ]
 
+            layer = "view_transformed" if split == "view" else "split_transformed"
             outputs.append(
                 D(
-                    "split_transformed",
+                    layer,
                     f"{view}.{split}.ctx_{t}",
                     ["view", view, split, "ctx", t],
                     type="multi",
@@ -185,21 +186,21 @@ def create_transform_pipeline(
             )
             outputs.append(
                 D(
-                    "split_transformed",
+                    layer,
                     f"{view}.{split}.bst_{t}",
                     ["view", view, split, "bst", t],
                 )
             )
             outputs.append(
                 D(
-                    "split_transformed",
+                    layer,
                     f"{view}.{split}.ids_{t}",
                     ["view", view, split, "ids", t],
                 )
             )
 
     for enc in types:
-        if enc in ("bst", "raw"):
+        if enc in ("bst", "raw") or split == "view":
             continue
 
         table_nodes += [
