@@ -63,15 +63,15 @@ source venv/bin/activate
 # Freeze your dependencies to allow reproducible installs between colleagues
 # and install the default project dependencies.
 pip install pip-tools
-pip-compile src/requirements.txt src/requirements.lock
+pip-compile src/requirements.txt -o src/requirements.lock
 pip install -r src/requirements.lock
 ```
 You can now download and synthesize datasets!
 ```bash
 pasteur download --accept adult
-pasteur p adult.ingest
-pasteur p tab_adult.ingest
-pasteur p tab_adult.privbayes --synth
+pasteur ingest_dataset adult
+pasteur ingest_view tab_adult
+pasteur pipe tab_adult.privbayes
 ```
 
 Access Kedro viz and mlflow to preview runs and quality reports:
@@ -107,7 +107,7 @@ This repository is a Pasteur project used for testing.
 You can start testing Pasteur by running commands.
 ```bash
 pasteur download --accept adult
-pasteur p adult.ingest
-pasteur p tab_adult.ingest
-pasteur p tab_adult.privbayes --synth
+pasteur ingest_dataset adult
+pasteur ingest_view tab_adult
+pasteur pipe tab_adult.privbayes
 ```

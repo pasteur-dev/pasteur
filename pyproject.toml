@@ -1,6 +1,6 @@
 [project]
 name = "pasteur"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
   { name="Kapenekakis Antheas", email="antheas@cs.aau.dk" },
 ]
@@ -15,7 +15,7 @@ classifiers = [
 
 dependencies = [
   # Core
-  "kedro>=0.18.12",
+  "kedro>=0.18.13",
   "mlflow",
   "pyarrow",
   "tqdm",

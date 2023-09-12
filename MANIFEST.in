@@ -1,2 +1,3 @@
 recursive-include src/pasteur *.yml
+include src/pasteur/utils/styles/mlflow.mplstyle
 graft src/pasteur/templates
