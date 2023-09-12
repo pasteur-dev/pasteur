@@ -1,3 +1,14 @@
+[project]
+name = "{{ cookiecutter.python_package }}"
+version = "0.1"
+
+[project.entry-points."console_scripts"]
+{{ cookiecutter.repo_name }} = "{{ cookiecutter.python_package }}.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]  # list of folders that contain the packages (["."] by default)
+exclude = ["test"]
+
 [tool.kedro]
 package_name = "{{ cookiecutter.python_package }}"
 project_name = "{{ cookiecutter.project_name }}"

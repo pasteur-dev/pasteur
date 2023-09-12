@@ -1,6 +1,6 @@
 [project]
 name = "pasteur"
-version = "0.3.0"
+version = "0.3.1"
 authors = [
   { name="Kapenekakis Antheas", email="antheas@cs.aau.dk" },
 ]
@@ -49,10 +49,10 @@ cls = [
 docs = [
   "docutils",
   "sphinx~=6.0",
-  "sphinx-book-theme",
+  "sphinx-book-theme~=1.0.1",
   "nbsphinx",
   "recommonmark",
-  "sphinx-autodoc-typehints",
+  "sphinx-autodoc-typehints~=1.23.2",
   "sphinx_copybutton",
   "Jinja2",
   "sphinx-autobuild",

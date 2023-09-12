@@ -63,8 +63,8 @@ source venv/bin/activate
 # Freeze your dependencies to allow reproducible installs between colleagues
 # and install the default project dependencies.
 pip install pip-tools
-pip-compile src/requirements.txt -o src/requirements.lock
-pip install -r src/requirements.lock
+pip-compile --resolver=backtracking
+pip install -r requirements.txt
 ```
 You can now download and synthesize datasets!
 ```bash

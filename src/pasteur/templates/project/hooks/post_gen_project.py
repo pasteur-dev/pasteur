@@ -1,10 +1,10 @@
 import pasteur
 
 # Inject pasteur version
-with open('src/requirements.txt', "r") as f:
+with open("requirements.in", "r") as f:
     reqs = f.read()
 
-reqs = reqs.replace("pasteur[opt,test,docs]", f"pasteur[opt,test,docs]~={pasteur.version}")
+reqs = reqs.replace("pasteur[opt,test]", f"pasteur[opt,test]~={pasteur.version}")
 
-with open('src/requirements.txt', "w") as f:
+with open("requirements.in", "w") as f:
     f.write(reqs)
