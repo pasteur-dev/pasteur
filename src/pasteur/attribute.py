@@ -425,7 +425,23 @@ class Attribute:
             self.vals[name] = val
 
     def __str__(self) -> str:
-        return f"Attr[na={int(self.na)},ukn={int(self.ukn_val)}]{self.vals}"
+        flags = []
+        if self.na:
+            flags.append("NA")
+        if self.ukn_val:
+            flags.append("UKN")
+        if self.unroll:
+            if self.unroll_with:
+                flags.append(f"UNROLL({','.join(self.unroll_with)})")
+            else:
+                flags.append("UNROLL")
+        if self.partition:
+            if self.partition_with:
+                flags.append(f"PARTN({','.join(self.partition_with)})")
+            else:
+                flags.append("PARTN")
+        
+        return f"Attr[{','.join(flags)}]{self.vals}"
 
     def __repr__(self) -> str:
         return str(self)

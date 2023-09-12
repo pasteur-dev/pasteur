@@ -145,7 +145,14 @@ class IdxTransformer(Transformer):
             vals = [7777777]
 
         cls = OrdAttribute if self.ordinal else CatAttribute
-        self.attr = cls(self.col, vals, self.nullable, self.unknown_value)
+        self.attr = cls(
+            self.col,
+            vals,
+            self.nullable,
+            self.unknown_value,
+            partition=self.partition,
+            partition_with=self.partition_with,
+        )
 
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
