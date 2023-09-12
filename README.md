@@ -68,7 +68,11 @@ pip install -r src/requirements.lock
 ```
 You can now download and synthesize datasets!
 ```bash
+# Download adult and perform 1-time actions (bootstrap; unzipping adult.zip)
 pasteur download --accept adult
+pasteur bootstrap adult
+# Ingest the dataset, then the view that's derived from it and finally run
+# synthesis using privbayes
 pasteur ingest_dataset adult
 pasteur ingest_view tab_adult
 pasteur pipe tab_adult.privbayes
