@@ -126,6 +126,9 @@ class SeqTransformer(Transformer):
     def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
         raise NotImplementedError()
 
+    def get_seq_value(self) -> SeqValue | None:
+        raise NotImplementedError()
+
     def fit_transform(
         self,
         table: str,

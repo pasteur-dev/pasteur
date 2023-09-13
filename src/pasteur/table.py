@@ -310,7 +310,7 @@ class TableTransformer:
             ), f"Sequencer must be of type 'SeqTransformer', not '{type(t)}'"
 
             # Add foreign column if required
-            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref, table)
             res = t.fit(self.name, table[seq_name], ref_cols, loaded_ids)
             assert res
             seq_attr, seq = res
@@ -339,7 +339,7 @@ class TableTransformer:
 
             if isinstance(t, SeqTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref, table)
                 t.fit(self.name, table[name_l], ref_cols, loaded_ids, seq_attr, seq)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
@@ -402,7 +402,7 @@ class TableTransformer:
             col = meta.cols[seq_name]
             trn = self.transformers[seq_name]
             assert isinstance(trn, SeqTransformer)
-            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+            ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref, table)
             assert loaded_ids is not None
 
             res = trn.transform(table[seq_name], ref_cols, loaded_ids)
@@ -428,7 +428,7 @@ class TableTransformer:
             trn = self.transformers[name]
             if isinstance(trn, SeqTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref)
+                ref_cols = _calc_unjoined_refs(self.name, get_table, col.ref, table)
                 assert loaded_ids is not None
                 res = trn.transform(table[name_l], ref_cols, loaded_ids, seq)
                 tt = res[0]
@@ -640,6 +640,12 @@ class TableTransformer:
             attrs.update(t_attrs)
 
         return attrs, dict(ctx_attrs)
+
+    def get_sequencer(self) -> SeqTransformer | None:
+        s = self.meta[self.name].sequencer
+        if s is not None:
+            return self.transformers[s]
+        return None
 
 
 def _fit_encoders_for_table(
@@ -1031,10 +1037,10 @@ class SeqTransformerWrapper(SeqTransformer):
             try:
                 if len(ids.columns) == 1:
                     # If there is only 1 column in ids, assume it's the parent
-                    self.parent = ids.columns[0]
+                    self.parent = cast(str, ids.columns[0])
                 else:
                     # Try using the parent as the first reference table
-                    self.parent = next(iter(ref))
+                    self.parent = cast(str, next(iter(ref)))
                     logger.info(
                         f"Assuming parent of table '{table}' is '{self.parent}' from references."
                     )
@@ -1422,14 +1428,59 @@ class SeqTransformerWrapper(SeqTransformer):
                 return self._single_reverse(data, ctx, ref, ids)
             case "notrn":
                 return data[self.col_seq].rename(self.col_orig)
+        assert False
 
     def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
-        return {
-            self.col_seq: SeqAttribute(self.col_seq, cast(str, self.parent)),
-            **(self.seq.get_attributes() if self.mode != "notrn" else {}),
-        }, {
-            cast(str, self.parent): {
-                **(self.ctx.get_attributes() if self.mode == "dual" else {}),
-                self.col_n: GenAttribute(self.col_n, self.table, self.max_len),
-            }
-        }
+        if self.generate_seq:
+            match self.mode:
+                case "dual":
+                    return {
+                        **self.seq.get_attributes(),
+                        self.col_seq: SeqAttribute(
+                            self.col_seq, self.parent, self.order
+                        ),
+                    }, {
+                        self.parent: {
+                            **self.ctx.get_attributes(),
+                            self.col_n: GenAttribute(
+                                self.col_n, self.table, self.max_len
+                            ),
+                        }
+                    }
+                case "single":
+                    return {
+                        **self.seq.get_attributes(),
+                        self.col_seq: SeqAttribute(
+                            self.col_seq, self.parent, self.order
+                        ),
+                    }, {
+                        self.parent: {
+                            self.col_n: GenAttribute(
+                                self.col_n, self.table, self.max_len
+                            ),
+                        }
+                    }
+                case "notrn":
+                    return {
+                        self.col_seq: SeqAttribute(
+                            self.col_seq, self.parent, self.order
+                        )
+                    }, {
+                        self.parent: {
+                            self.col_n: GenAttribute(
+                                self.col_n, self.table, self.max_len
+                            ),
+                        }
+                    }
+        else:
+            match self.mode:
+                case "dual":
+                    return self.seq.get_attributes(), {
+                        self.parent: self.ctx.get_attributes(),
+                    }
+                case "single":
+                    return self.seq.get_attributes(), {}
+                case "notrn":
+                    assert False
+
+        assert False

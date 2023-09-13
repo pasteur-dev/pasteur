@@ -5,18 +5,24 @@ per column type, for tables one per table and View metrics are instantiated once
 
 import logging
 from collections import defaultdict
-from typing import Any, Generic, Literal, TypedDict, TypeVar, cast
+from typing import Any, Callable, Generic, Literal, TypedDict, TypeVar, cast
 
 import pandas as pd
 
 from pasteur.utils import LazyDataset
 
-from .attribute import Attributes
-from .metadata import ColumnMeta, ColumnRef, Metadata
+from .attribute import SeqValue
 from .encode import Encoder
+from .metadata import ColumnMeta, Metadata
 from .module import Module, ModuleClass, ModuleFactory, get_module_dict_multiple
-from .table import ReferenceManager, _calc_joined_refs, _calc_unjoined_refs
-from .utils import LazyChunk, LazyDataset, LazyFrame, LazyPartition, lazy_load_tables
+from .table import (
+    ReferenceManager,
+    TableTransformer,
+    _calc_joined_refs,
+    _calc_unjoined_refs,
+)
+from .transform import SeqTransformer
+from .utils import LazyChunk, LazyDataset, LazyFrame, lazy_load_tables
 from .utils.progress import piter, process_in_parallel, reduce
 
 logger = logging.getLogger(__name__)
@@ -143,6 +149,7 @@ class SeqColumnData(TypedDict):
     data: pd.Series | pd.DataFrame
     ref: dict[str, pd.DataFrame] | None
     ids: pd.DataFrame | None
+    seq: pd.Series | None
 
 
 class AbstractColumnMetric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
@@ -194,7 +201,15 @@ class SeqColumnMetric(
     AbstractColumnMetric[SeqColumnData, _INGEST, _SUMMARY],
     Generic[_INGEST, _SUMMARY],
 ):
-    pass
+    def fit(
+        self,
+        table: str,
+        col: str | tuple[str],
+        meta: ColumnMeta,
+        seq_val: SeqValue | None,
+        data: SeqColumnData,
+    ):
+        raise NotImplementedError()
 
 
 B = TypeVar("B", bound="Any")
@@ -210,15 +225,36 @@ def _reduce_inner_2d(
     return a
 
 
+def _get_sequence(
+    name: str,
+    meta: Metadata,
+    trn: SeqTransformer,
+    ids: pd.DataFrame,
+    table: pd.DataFrame,
+    get_parent: Callable[[str], pd.DataFrame],
+) -> tuple[SeqValue, pd.Series] | None:
+    seq_name = meta[name].sequencer
+    col = meta[name].cols[seq_name]
+    ref_cols = _calc_unjoined_refs(name, get_parent, col.ref, table)
+    res = trn.transform(table[seq_name], ref_cols, ids)
+    assert len(res) == 3
+    _, _, seq = res
+
+    return seq
+
+
 def _fit_column_metrics(
     name: str,
     meta: Metadata,
     ref: ReferenceManager,
+    trn: SeqTransformer | None,
     tables: dict[str, LazyChunk],
     metrics: dict[str, list[ColumnMetricFactory]],
 ):
     get_table = lazy_load_tables(tables)
     table = get_table(name)
+    seq_val = None
+    seq = None
 
     if ref.table_has_reference():
         ids = ref.find_foreign_ids(name, get_table)
@@ -229,6 +265,10 @@ def _fit_column_metrics(
             logger.warn(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
             )
+
+        if trn is not None:
+            seq_val = trn.get_seq_value()
+            seq = _get_sequence(name, meta, trn, ids, table, get_table)
     else:
         ids = None
 
@@ -260,7 +300,8 @@ def _fit_column_metrics(
                     name,
                     col_name,
                     col,
-                    SeqColumnData(data=table[col_name], ref=ref_col, ids=ids),
+                    seq_val,
+                    SeqColumnData(data=table[col_name], ref=ref_col, ids=ids, seq=seq),
                 )
             else:
                 assert False, f"Unknown column metric type: {type(m)}"
@@ -274,6 +315,7 @@ def _preprocess_metrics(
     name: str,
     meta: Metadata,
     ref: ReferenceManager,
+    trn: SeqTransformer | None,
     tables_wrk: dict[str, LazyChunk],
     tables_ref: dict[str, LazyChunk],
     metrics: dict[str | tuple[str], list[AbstractColumnMetric]],
@@ -282,6 +324,8 @@ def _preprocess_metrics(
     get_table_ref = lazy_load_tables(tables_ref)
     table_wrk = get_table_wrk(name)
     table_ref = get_table_ref(name)
+    seq_wrk = None
+    seq_ref = None
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)
@@ -299,6 +343,10 @@ def _preprocess_metrics(
             logger.warn(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table_ref)}/{old_len} rows with missing ids."
             )
+
+        if trn is not None:
+            seq_wrk = _get_sequence(name, meta, trn, ids_wrk, table_wrk, get_table_wrk)
+            seq_ref = _get_sequence(name, meta, trn, ids_ref, table_ref, get_table_ref)
     else:
         ids_wrk = None
         ids_ref = None
@@ -335,6 +383,7 @@ def _preprocess_metrics(
                             name, get_table_wrk, col.ref, table_wrk
                         ),
                         ids=ids_wrk,
+                        seq=seq_wrk,
                     ),
                     SeqColumnData(
                         data=table_ref[col_name],
@@ -342,6 +391,7 @@ def _preprocess_metrics(
                             name, get_table_ref, col.ref, table_ref
                         ),
                         ids=ids_ref,
+                        seq=seq_ref,
                     ),
                 )
             else:
@@ -356,6 +406,7 @@ def _process_metrics(
     name: str,
     meta: Metadata,
     ref: ReferenceManager,
+    trn: SeqTransformer | None,
     tables_wrk: dict[str, LazyChunk],
     tables_ref: dict[str, LazyChunk],
     tables_syn: dict[str, LazyChunk],
@@ -368,6 +419,9 @@ def _process_metrics(
     table_wrk = get_table_wrk(name)
     table_ref = get_table_ref(name)
     table_syn = get_table_syn(name)
+    seq_wrk = None
+    seq_ref = None
+    seq_syn = None
 
     if ref.table_has_reference():
         ids_wrk = ref.find_foreign_ids(name, get_table_wrk)
@@ -392,6 +446,11 @@ def _process_metrics(
             logger.warn(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table_syn)}/{old_len} rows with missing ids."
             )
+
+        if trn is not None:
+            seq_wrk = _get_sequence(name, meta, trn, ids_wrk, table_wrk, get_table_wrk)
+            seq_ref = _get_sequence(name, meta, trn, ids_ref, table_ref, get_table_ref)
+            seq_syn = _get_sequence(name, meta, trn, ids_syn, table_syn, get_table_syn)
     else:
         ids_wrk = None
         ids_ref = None
@@ -438,6 +497,7 @@ def _process_metrics(
                             name, get_table_wrk, col.ref, table_wrk
                         ),
                         ids=ids_wrk,
+                        seq=seq_wrk,
                     ),
                     SeqColumnData(
                         data=table_ref[col_name],
@@ -445,6 +505,7 @@ def _process_metrics(
                             name, get_table_ref, col.ref, table_ref
                         ),
                         ids=ids_ref,
+                        seq=seq_ref,
                     ),
                     SeqColumnData(
                         data=table_syn[col_name],
@@ -452,6 +513,7 @@ def _process_metrics(
                             name, get_table_syn, col.ref, table_syn
                         ),
                         ids=ids_syn,
+                        seq=seq_syn,
                     ),
                     prec,
                 )
@@ -482,10 +544,16 @@ class ColumnMetricHolder(
     def fit(
         self,
         meta: Metadata,
+        trns: dict[str, TableTransformer],
         data: dict[str, LazyFrame],
     ):
         per_call = []
         per_call_meta = []
+        self.seqs = {
+            k: v.get_sequencer()
+            for k, v in trns.items()
+            if v.get_sequencer() is not None
+        }
 
         # Create fitting tasks
         for name in meta.tables:
@@ -497,6 +565,7 @@ class ColumnMetricHolder(
                         "name": name,
                         "meta": meta,
                         "ref": ref_mgr,
+                        "trn": self.seqs.get(name, None),
                         "tables": tables,
                         "metrics": self.metric_cls,
                     }
@@ -540,6 +609,7 @@ class ColumnMetricHolder(
                         "name": name,
                         "meta": self.meta,
                         "ref": ref_mgr,
+                        "trn": self.seqs.get(name, None),
                         "tables_wrk": tables_wrk,
                         "tables_ref": tables_ref,
                         "metrics": self.metrics[name],
@@ -580,6 +650,7 @@ class ColumnMetricHolder(
                         "name": name,
                         "meta": self.meta,
                         "ref": ref_mgr,
+                        "trn": self.seqs.get(name, None),
                         "tables_wrk": tables_wrk,
                         "tables_ref": tables_ref,
                         "tables_syn": tables_syn,
@@ -634,10 +705,11 @@ class ColumnMetricHolder(
 def fit_column_holder(
     modules: list[Module],
     metadata: Metadata,
+    trns: dict[str, TableTransformer],
     data: dict[str, LazyFrame],
 ):
     holder = ColumnMetricHolder(modules)
-    holder.fit(meta=metadata, data=data)
+    holder.fit(meta=metadata, trns=trns, data=data)
     return holder
 
 

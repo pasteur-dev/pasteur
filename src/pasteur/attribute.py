@@ -508,9 +508,9 @@ def NumAttribute(
     return Attribute(name, {name: NumValue(bins, min, max)}, nullable, False)
 
 
-def SeqAttribute(name: str, table: str):
+def SeqAttribute(name: str, table: str, order: int | None = None):
     """Returns an Attribute holding a single SeqValue with the provided data."""
-    return Attribute(name, {name: SeqValue(name, table)}, False, False)
+    return Attribute(name, {name: SeqValue(name, table, order)}, False, False)
 
 
 def GenAttribute(name: str, table: str, max_len: int):

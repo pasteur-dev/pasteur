@@ -74,6 +74,7 @@ def _create_fit_pipeline(
             enc = "raw"
             inputs_fit = {
                 "metadata": f"{view}.metadata",
+                "trns": {t: f"{view}.trn.{t}" for t in view.tables},
                 "data": _get_metric_data(view, fit_split, "raw"),
             }
             nodes += [
@@ -124,13 +125,13 @@ def _create_fit_pipeline(
             D(
                 "measure",
                 f"{view}.msr.{name}",
-                ['view', view, 'msr', name, "metric"],
+                ["view", view, "msr", name, "metric"],
                 type="pkl",
             ),
             D(
                 "measure",
                 f"{view}.msr.{name}_pre",
-                ['view', view, 'msr', name, "pre"],
+                ["view", view, "msr", name, "pre"],
                 type="pkl",
             ),
         ]
@@ -173,7 +174,7 @@ def _create_process_pipeline(
             D(
                 "measure",
                 f"{view}.{syn_split}.{name}_data",
-                ['synth', view, syn_split, 'msr', name, "pre"],
+                ["synth", view, syn_split, "msr", name, "pre"],
                 type="pkl",
                 versioned=True,
             ),
