@@ -86,7 +86,7 @@ def create_meta_pipeline(view: View):
             ],
             tags=TAGS_VIEW_META,
         ),
-        [D("metadata", f"{view}.metadata", ["view", view, "metadata"], type="pkl")],
+        [D("metadata", f"{view}.metadata", ["view", view, "metadata"], type="pkl", versioned=True)],
     )
 
 
