@@ -14,7 +14,7 @@ reverse, and decode table partitions."""
 
 import logging
 from collections import defaultdict
-from typing import Any, Callable, Generic, Mapping, TypeVar, cast
+from typing import Any, Callable, Generic, Literal, Mapping, TypeVar, cast
 
 import numpy as np
 import pandas as pd
@@ -963,43 +963,50 @@ def _calculate_seq(data: pd.Series, ids: pd.DataFrame, parent: str, col_seq: str
 
 class SeqTransformerWrapper(SeqTransformer):
     name = "seq"
+    mode: Literal["dual", "single", "notrn"]
 
     def __init__(
         self,
         modules: list[Module],
-        seq: dict[str, Any],
-        ctx: dict[str, Any] | None = None,
         parent: str | None = None,
+        seq: dict[str, Any] | None = None,
+        ctx: dict[str, Any] | None = None,
         seq_col: str | None = None,
         ctx_to_ref: dict[str, str] | None = None,
+        order: int | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
         self.parent = parent
         self.seq_col_ref = seq_col
         self.ctx_to_ref = ctx_to_ref
+        self.order = order
 
         # Load transformers
-        assert seq
+        # Use three modes
+        if seq is not None and ctx is not None:
+            self.mode = "dual"
+        elif seq is not None:
+            self.mode = "single"
+        else:
+            self.mode = "notrn"
 
-        seq_kwargs = seq.copy()
-        seq_type = seq_kwargs.pop("type")
-        seq_kwargs["nullable"] = True
-        self.seq = get_module_dict(TransformerFactory, modules)[
-            cast(str, seq_type)
-        ].build(**seq_kwargs)
-        assert isinstance(self.seq, RefTransformer)
+        if seq is not None:
+            seq_kwargs = seq.copy()
+            seq_type = seq_kwargs.pop("type")
+            seq_kwargs["nullable"] = True
+            self.seq = get_module_dict(TransformerFactory, modules)[
+                cast(str, seq_type)
+            ].build(**seq_kwargs)
+            assert isinstance(self.seq, RefTransformer)
 
         if ctx is not None:
-            self.dual = True
             ctx_kwargs = ctx.copy()
             ctx_type = ctx_kwargs.pop("type")
             self.ctx = get_module_dict(TransformerFactory, modules)[
                 cast(str, ctx_type)
             ].build(**ctx_kwargs)
             assert isinstance(self.ctx, Transformer)
-        else:
-            self.dual = False
 
     def fit(
         self,
@@ -1021,13 +1028,20 @@ class SeqTransformerWrapper(SeqTransformer):
         self.col_n = f"{table}_n"
 
         if not self.parent:
-            # Infering parent through references
             try:
-                self.parent = next(iter(ref))
-            except Exception:
+                if len(ids.columns) == 1:
+                    # If there is only 1 column in ids, assume it's the parent
+                    self.parent = ids.columns[0]
+                else:
+                    # Try using the parent as the first reference table
+                    self.parent = next(iter(ref))
+                    logger.info(
+                        f"Assuming parent of table '{table}' is '{self.parent}' from references."
+                    )
+            except Exception as e:
                 raise Exception(
                     "Could not infer parent from references, please specify the table which acts as the parent with parameter `parent`."
-                )
+                ) from e
 
         assert (
             self.parent
@@ -1047,15 +1061,24 @@ class SeqTransformerWrapper(SeqTransformer):
             seq = _calculate_seq(seq_col, ids, self.parent, self.col_seq)
         self.max_len = cast(int, seq.max()) + 1
 
-        if self.dual:
-            self._dual_fit(self.parent, data, ref, ids, seq)
-        else:
-            self._single_fit(self.parent, data, ref, ids, seq)
+        match self.mode:
+            case "dual":
+                self._dual_fit(self.parent, data, ref, ids, seq)
+            case "single":
+                self._single_fit(self.parent, data, ref, ids, seq)
+            case "notrn":
+                assert (
+                    self.generate_seq
+                ), "No transformers, so column is going to be used as a sequence"
+                assert isinstance(
+                    data, pd.Series
+                ), "Expected a single column for sequencing this table"
+                self.col_orig = cast(str, data.name)
 
         # If a seq_val was not provided, assume seq was also none and
         # become the sequencer
         if seq_val is None:
-            return SeqValue(self.col_seq, self.parent), cast(pd.Series, seq)
+            return SeqValue(self.col_seq, self.parent, self.order), cast(pd.Series, seq)
 
     def _dual_fit(
         self,
@@ -1155,10 +1178,14 @@ class SeqTransformerWrapper(SeqTransformer):
         else:
             assert seq is not None
 
-        if self.dual:
-            enc, ctx = self._dual_trn(parent, data, ref, ids, seq)
-        else:
-            enc, ctx = self._single_trn(parent, data, ref, ids, seq)
+        match self.mode:
+            case "dual":
+                enc, ctx = self._dual_trn(parent, data, ref, ids, seq)
+            case "single":
+                enc, ctx = self._single_trn(parent, data, ref, ids, seq)
+            case "notrn":
+                enc = pd.DataFrame()
+                ctx = pd.DataFrame()
 
         if self.generate_seq:
             return (
@@ -1388,18 +1415,21 @@ class SeqTransformerWrapper(SeqTransformer):
         ref: dict[str, pd.DataFrame],
         ids: pd.DataFrame,
     ) -> pd.DataFrame:
-        if self.dual:
-            return self._dual_reverse(data, ctx, ref, ids)
-        else:
-            return self._single_reverse(data, ctx, ref, ids)
+        match self.mode:
+            case "dual":
+                return self._dual_reverse(data, ctx, ref, ids)
+            case "single":
+                return self._single_reverse(data, ctx, ref, ids)
+            case "notrn":
+                return data[self.col_seq].rename(self.col_orig)
 
     def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
         return {
             self.col_seq: SeqAttribute(self.col_seq, cast(str, self.parent)),
-            **self.seq.get_attributes(),
+            **(self.seq.get_attributes() if self.mode != "notrn" else {}),
         }, {
             cast(str, self.parent): {
-                **(self.ctx.get_attributes() if self.dual else {}),
+                **(self.ctx.get_attributes() if self.mode == "dual" else {}),
                 self.col_n: GenAttribute(self.col_n, self.table, self.max_len),
             }
         }

@@ -199,10 +199,12 @@ class Value:
 
 class SeqValue(Value):
     table: str
+    order: int | None
 
-    def __init__(self, name: str, table: str) -> None:
+    def __init__(self, name: str, table: str, order: int | None = None) -> None:
         self.name = name
         self.table = table
+        self.order = order
 
 
 class CatValue(Value):
