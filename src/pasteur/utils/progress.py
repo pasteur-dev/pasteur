@@ -112,10 +112,6 @@ def _wrap_exceptions(
     fun: Callable[P, X], /, node_name: str, *args: P.args, **kwargs: P.kwargs
 ) -> X:
     set_node_name(node_name)
-    if DEBUG:
-        # skip catching exception so that debugger catches intenal exception.
-        return fun(*args, **kwargs) 
-
     try:
         res = fun(*args, **kwargs)
 
@@ -134,6 +130,9 @@ def _wrap_exceptions(
         logger.error(
             f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
         )
+        if DEBUG:
+            # raise original exception to to catch proper breakpoint
+            raise e
         raise RuntimeError("subprocess failed") from e
 
 
@@ -150,6 +149,7 @@ def _calc_worker(args):
     ) = args
     set_node_name(node_name)
 
+    ex = None
     if initializer is not None:
         try:
             base_args, chunk = initializer(base_args, chunk)
@@ -158,40 +158,42 @@ def _calc_worker(args):
             logger.error(
                 f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
             )
-            raise e
+            ex = e
 
-    last_update = time.perf_counter_ns()
-    out = []
-    u = 0
-    for i, op in enumerate(chunk):
-        try:
-            args = {**base_args, **op} if base_args else op
-            out.append(fun(**args))
+    if not ex:
+        last_update = time.perf_counter_ns()
+        out = []
+        u = 0
+        for i, op in enumerate(chunk):
+            try:
+                args = {**base_args, **op} if base_args else op
+                out.append(fun(**args))
 
-            if CHECK_LEAKS:
-                # Run second so first run loads modules
-                from pasteur.utils.leaks import check, clear
+                if CHECK_LEAKS:
+                    # Run second so first run loads modules
+                    from pasteur.utils.leaks import check, clear
 
-                clear()
-                a = fun(**args)
-                del a
-                check(f"Node {node_name}:{i} leaks")
-        except Exception as e:
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
-            logger.error(
-                f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
-            )
-            raise e
+                    clear()
+                    a = fun(**args)
+                    del a
+                    check(f"Node {node_name}:{i} leaks")
+            except Exception as e:
+                get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                logger.error(
+                    f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
+                )
+                ex = e
+                break
 
-        u += 1
-        curr_time = time.perf_counter_ns()
-        if curr_time - last_update > PROGRESS_STEP_NS:
-            with progress_lock:
-                progress_send.send(u)
-            last_update = curr_time
-            u = 0
+            u += 1
+            curr_time = time.perf_counter_ns()
+            if curr_time - last_update > PROGRESS_STEP_NS:
+                with progress_lock:
+                    progress_send.send(u)
+                last_update = curr_time
+                u = 0
 
-    if finalizer is not None:
+    if not ex and finalizer is not None:
         try:
             finalizer(base_args, chunk)
         except Exception as e:
@@ -199,12 +201,18 @@ def _calc_worker(args):
             logger.error(
                 f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
             )
-            raise e
+            ex = e
 
+    # Always close pipe. Raise special exception to hide stack trace
     if u != 0:
         with progress_lock:
             progress_send.send(u)
-    # progress_send.close()
+    progress_send.close()
+    if ex:
+        if DEBUG:
+            # raise original exception to to catch proper breakpoint
+            raise ex
+        raise RuntimeError("subprocess failed") from ex
     return out
 
 
@@ -257,7 +265,9 @@ def _init_subprocess(log_queue):
 def _get_pool():
     global _pool
     if _pool is None:
-        assert MULTIPROCESS_ENABLE, "Multiprocessing has been disabled. Preventing pool creation."
+        assert (
+            MULTIPROCESS_ENABLE
+        ), "Multiprocessing has been disabled. Preventing pool creation."
         logger.warning(
             "Launching a process pool implicitly. Use `init_pool()` to explicitly control pool creation."
         )
@@ -268,7 +278,7 @@ def _get_pool():
 
 
 def get_manager():
-    """ Returns the manager of the current process pool. """
+    """Returns the manager of the current process pool."""
     return _get_pool()[1]
 
 
@@ -469,15 +479,20 @@ def process_in_parallel(
             )
         )
 
-    res = pool.map_async(_calc_worker, args)
+    res = pool.map_async(
+        _calc_worker, args, error_callback=lambda _: progress_send.close()
+    )
 
     pbar = piter(desc=desc, leave=False, total=n_tasks)
     n = 0
     while not res.ready():
-        u = progress_recv.recv()
-        n += u
-        pbar.update(u)
-        if n == n_tasks:
+        try:
+            u = progress_recv.recv()
+            n += u
+            pbar.update(u)
+            if n == n_tasks:
+                break
+        except Exception:
             break
 
     out = []
@@ -554,5 +569,5 @@ __all__ = [
     "get_manager",
     "set_node_name",
     "get_node_name",
-    "reduce"
+    "reduce",
 ]

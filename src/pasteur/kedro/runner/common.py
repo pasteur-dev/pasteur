@@ -62,7 +62,7 @@ def run_expanded_node(
             logger.error(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
-        raise
+        raise e
 
     # Clear outputs
     for name in node.outputs:

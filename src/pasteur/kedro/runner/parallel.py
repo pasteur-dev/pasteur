@@ -105,71 +105,76 @@ class SimpleParallelRunner(ParallelRunner):
         use_pbar = not is_jupyter()
 
         with logging_redirect_pbar(), ThreadPool(max_threads) as pool:
-            desc = f"Executing pipeline {self.pipe_name}"
-            desc += f" with overrides `{self.params_str}`" if self.params_str else ""
+            try:
+                desc = f"Executing pipeline {self.pipe_name}"
+                desc += (
+                    f" with overrides `{self.params_str}`" if self.params_str else ""
+                )
 
-            pbar: piter = None  # type: ignore
-            logger.info(desc)
-            if use_pbar:
-                pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
-            last_index = 0
-
-            failed = None
-            interrupted = False
-            while not failed:
+                pbar: piter = None  # type: ignore
+                logger.info(desc)
                 if use_pbar:
-                    n = len(done_nodes) - last_index
-                    pbar.update(n)
-                    last_index = len(done_nodes)
+                    pbar = piter(total=len(node_dependencies), desc=desc, leave=True)
+                last_index = 0
 
-                ready = {n for n in todo_nodes if node_dependencies[n] <= done_nodes}
-                todo_nodes -= ready
-                for node in ready:
-                    futures.add(
-                        pool.apply_async(
-                            run_expanded_node,
-                            kwds={
-                                "node": node,
-                                "catalog": catalog,
-                                "hook_manager": hook_manager,
-                                "session_id": session_id,
-                            },
-                        )
-                    )
+                failed = None
+                interrupted = False
+                while not failed:
+                    if use_pbar:
+                        n = len(done_nodes) - last_index
+                        pbar.update(n)
+                        last_index = len(done_nodes)
 
-                if not futures:
-                    if todo_nodes:
-                        debug_data = {
-                            "todo_nodes": todo_nodes,
-                            "done_nodes": done_nodes,
-                            "ready_nodes": ready,
-                            "done_futures": done,
-                        }
-                        debug_data_str = "\n".join(
-                            f"{k} = {v}" for k, v in debug_data.items()
-                        )
-                        raise RuntimeError(
-                            f"Unable to schedule new tasks although some nodes "
-                            f"have not been run:\n{debug_data_str}"
-                        )
-                    break  # pragma: no cover
-
-                # Set pbar description
-                if use_pbar:
-                    if len(futures) == 1:
-                        pbar.set_description(
-                            f"Executing node {len(done_nodes) + 1:2d}/{len(nodes)}"
-                        )
-                    else:
-                        node_str = ", ".join(
-                            str(len(done_nodes) + 1 + i) for i in range(len(futures))
+                    ready = {
+                        n for n in todo_nodes if node_dependencies[n] <= done_nodes
+                    }
+                    todo_nodes -= ready
+                    for node in ready:
+                        futures.add(
+                            pool.apply_async(
+                                run_expanded_node,
+                                kwds={
+                                    "node": node,
+                                    "catalog": catalog,
+                                    "hook_manager": hook_manager,
+                                    "session_id": session_id,
+                                },
+                            )
                         )
 
-                        pbar.set_description(
-                            f"Executing nodes {{{node_str}}}/{len(nodes)}"
-                        )
+                    if not futures:
+                        if todo_nodes:
+                            debug_data = {
+                                "todo_nodes": todo_nodes,
+                                "done_nodes": done_nodes,
+                                "ready_nodes": ready,
+                                "done_futures": done,
+                            }
+                            debug_data_str = "\n".join(
+                                f"{k} = {v}" for k, v in debug_data.items()
+                            )
+                            raise RuntimeError(
+                                f"Unable to schedule new tasks although some nodes "
+                                f"have not been run:\n{debug_data_str}"
+                            )
+                        break  # pragma: no cover
 
-                try:
+                    # Set pbar description
+                    if use_pbar:
+                        if len(futures) == 1:
+                            pbar.set_description(
+                                f"Executing node {len(done_nodes) + 1:2d}/{len(nodes)}"
+                            )
+                        else:
+                            node_str = ", ".join(
+                                str(len(done_nodes) + 1 + i)
+                                for i in range(len(futures))
+                            )
+
+                            pbar.set_description(
+                                f"Executing nodes {{{node_str}}}/{len(nodes)}"
+                            )
+
                     # FIXME: use proper await
                     from time import sleep
 
@@ -182,48 +187,46 @@ class SimpleParallelRunner(ParallelRunner):
                             done.add(res)
                             futures.remove(res)
 
-                except KeyboardInterrupt as e:
-                    interrupted = True
-                    failed = e
+                    for future in chain(done):
+                        try:
+                            node = future.get()
+                            done_nodes.add(node)
 
-                    done = set()
+                            # Print message
+                            if (not use_pbar or not is_jupyter()) and not failed:
+                                node_name = node.name.split("(")[0]
+                                logger.info(
+                                    f"Completed node {len(done_nodes):2d}/{len(nodes):2d}: {node_name}"
+                                )
 
-                for future in chain(done):
-                    try:
-                        node = future.get()
-                        done_nodes.add(node)
+                            # Decrement load counts, and release any datasets we
+                            # have finished with. This is particularly important
+                            # for the shared, default datasets we created above.
+                            for data_set in node.inputs:
+                                load_counts[data_set] -= 1
+                                if (
+                                    load_counts[data_set] < 1
+                                    and data_set not in pipeline.inputs()
+                                ):
+                                    catalog.release(data_set)
+                            for data_set in node.outputs:
+                                if (
+                                    load_counts[data_set] < 1
+                                    and data_set not in pipeline.outputs()
+                                ):
+                                    catalog.release(data_set)
 
-                        # Print message
-                        if (not use_pbar or not is_jupyter()) and not failed:
-                            node_name = node.name.split("(")[0]
-                            logger.info(
-                                f"Completed node {len(done_nodes):2d}/{len(nodes):2d}: {node_name}"
-                            )
+                        except Exception as e:
+                            # Log to console
+                            if not interrupted:
+                                logger.error(
+                                    f"One (or more) of the nodes failed, exiting..."
+                                )
+                            failed = e
 
-                        # Decrement load counts, and release any datasets we
-                        # have finished with. This is particularly important
-                        # for the shared, default datasets we created above.
-                        for data_set in node.inputs:
-                            load_counts[data_set] -= 1
-                            if (
-                                load_counts[data_set] < 1
-                                and data_set not in pipeline.inputs()
-                            ):
-                                catalog.release(data_set)
-                        for data_set in node.outputs:
-                            if (
-                                load_counts[data_set] < 1
-                                and data_set not in pipeline.outputs()
-                            ):
-                                catalog.release(data_set)
-
-                    except Exception as e:
-                        # Log to console
-                        if not interrupted:
-                            logger.error(
-                                f"One (or more) of the nodes failed, exiting..."
-                            )
-                        failed = e
+            except KeyboardInterrupt as e:
+                interrupted = True
+                failed = e
 
             # Close pools
             pool.terminate()
