@@ -832,20 +832,20 @@ class SeqMetricWrapper(SeqColumnMetric):
                 if self.ctx:
                     ctx_in = _wrap_get_data_ctx(self.parent, **data)
                     for c in self.ctx:
-                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('ctx', {})), ctx_in)
+                        c.fit(self.table, self.col + "_ctx", ColumnMeta(**self.meta.args.get('ctx', {})), ctx_in)
 
                 # Data series is all rows where seq > 0 (skip initial)
                 if self.seq:
                     seq_in = _wrap_get_data_seq_dual(self.parent, **data)
                     for c in self.seq:
-                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+                        c.fit(self.table, self.col + "_seq", ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
             case "single":
                 if self.seq:
                     seq_in = _wrap_get_data_seq_single(
                         self.parent, **data, ctx_to_ref=self.ctx_to_ref
                     )
                     for c in self.seq:
-                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+                        c.fit(self.table, self.col + "_seq", ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
             case "notrn":
                 pass
 
