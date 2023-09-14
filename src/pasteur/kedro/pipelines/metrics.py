@@ -1,21 +1,15 @@
+from typing import Any
+
 from kedro.pipeline import Pipeline as pipeline
 
-from ...metric import (
-    ColumnMetricFactory,
-    MetricFactory,
-    fit_column_holder,
-    fit_metric,
-    log_metric,
-)
+from ...metric import ColumnMetricFactory, MetricFactory, fit_column_holder, fit_metric
 from ...module import Module, get_module_dict, get_module_dict_multiple
+from ...utils import apply_fun
 from ...utils.mlflow import mlflow_log_artifacts
 from ...view import View
-from ...utils import apply_fun
+from .meta import TAGS_METRICS_INGEST, TAGS_METRICS_LOG
 from .meta import DatasetMeta as D
 from .meta import PipelineMeta, node
-from .utils import gen_closure
-
-from .meta import TAGS_METRICS_INGEST, TAGS_METRICS_LOG
 
 
 def _log_metadata(view: View):
@@ -190,13 +184,49 @@ def create_metrics_ingest_pipeline(
     )
 
 
+def log_metric(metric: Any, data: Any):
+    from ...utils.mlflow import mlflow_log_artifacts
+
+    mlflow_log_artifacts("metrics", metric.unique_name(), metric=metric, data=data)
+
+
+def log_model(model):
+    from ...utils.mlflow import mlflow_log_as_str
+
+    # TODO: Enable uploading model
+    # mlflow_log_artifacts('model', model=model)
+    mlflow_log_as_str("model", str(model))
+
+
 def create_metrics_model_pipeline(
     view: View, alg: str, wrk_split: str, ref_split: str, modules: list[Module]
 ):
-    nodes = []
+    metrics = [*get_module_dict(MetricFactory, modules).keys(), "col"]
+    nodes = [
+        node(
+            func=log_model,
+            name=f"upload_model",
+            inputs=[f"{view}.{alg}.model"],
+            outputs=None,
+            namespace=f"{view}.{alg}",
+        )
+    ]
+
+    for name in metrics:
+        nodes += [
+            node(
+                func=log_metric,
+                name=f"upload_{name}",
+                inputs={
+                    "metric": f"{view}.msr.{name}",
+                    "data": f"{view}.{alg}.{name}_data",
+                },
+                outputs=None,
+                namespace=f"{view}.{alg}",
+            )
+        ]
 
     for fn in ("visualise", "summarize"):
-        metrics = [*get_module_dict(MetricFactory, modules).keys(), "col"]
         for name in metrics:
             nodes += [
                 node(

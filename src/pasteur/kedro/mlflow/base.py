@@ -1,3 +1,5 @@
+from typing import Any
+
 import mlflow
 from mlflow.entities import Run, RunStatus
 
@@ -32,7 +34,7 @@ def _get_git_suffix():
         return ""
 
 
-def get_run_name(pipeline: str, params: dict[str]):
+def get_run_name(pipeline: str, params: dict[str, Any]):
     run_name = pipeline
     for param, val in dict_to_flat_params(params).items():
         if param.startswith("_"):

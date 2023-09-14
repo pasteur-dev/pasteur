@@ -62,7 +62,6 @@ class Metric(ModuleClass, Generic[_INGEST, _SUMMARY]):
 
     _factory = MetricFactory
     encodings: str | list[str] = "raw"
-    type: str
 
     def fit(
         self,
@@ -124,7 +123,7 @@ class Metric(ModuleClass, Generic[_INGEST, _SUMMARY]):
     def unique_name(self) -> str:
         """Provides a unique name for the metric which will be used for the system.
         (currently saving artifacts)."""
-        return f"{self.type}_{self.name}"
+        return self.name
 
 
 class Summaries(Generic[A]):
@@ -576,8 +575,7 @@ class ColumnMetricHolder(
         dict[str, dict[str | tuple[str, ...], list[Any]]],
     ]
 ):
-    name = "holder"
-    type = "col"
+    name = "cols"
     encodings = "raw"
     metrics: dict[str, dict[str | tuple[str, ...], list[AbstractColumnMetric]]]
 
@@ -750,9 +748,6 @@ class ColumnMetricHolder(
                         {n: d[table][col_name][i] for n, d in data.items()}
                     )
 
-    def unique_name(self) -> str:
-        return f"{self.type}_{self.name}_{self.table}"
-
 
 def fit_column_holder(
     modules: list[Module],
@@ -785,14 +780,6 @@ def fit_metric(
             meta = encoder.get_metadata()
     module.fit(meta=meta, data=data)
     return module
-
-
-def log_metric(metric: Metric[Any, _SUMMARY], summary: _SUMMARY):
-    from .utils.mlflow import mlflow_log_artifacts
-
-    mlflow_log_artifacts(
-        "metrics", metric.unique_name(), metric=metric, summary=summary
-    )
 
 
 class SeqMetricWrapper(SeqColumnMetric):
