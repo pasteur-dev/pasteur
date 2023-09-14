@@ -126,13 +126,13 @@ def _wrap_exceptions(
 
         return res
     except Exception as e:
+        # raise original exception to to catch proper breakpoint
+        if DEBUG:
+            raise e
         get_console().print_exception(**RICH_TRACEBACK_ARGS)
         logger.error(
             f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
         )
-        if DEBUG:
-            # raise original exception to to catch proper breakpoint
-            raise e
         raise RuntimeError("subprocess failed") from e
 
 
@@ -149,18 +149,21 @@ def _calc_worker(args):
     ) = args
     set_node_name(node_name)
 
-    ex = None
-    if initializer is not None:
-        try:
-            base_args, chunk = initializer(base_args, chunk)
-        except Exception as e:
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
-            logger.error(
-                f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
-            )
-            ex = e
+    u = 0
+    try:
+        ex = None
+        if initializer is not None:
+            try:
+                base_args, chunk = initializer(base_args, chunk)
+            except Exception as e:
+                if DEBUG:
+                    raise e
+                get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                logger.error(
+                    f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                )
+                raise RuntimeError("subprocess failed") from e
 
-    if not ex:
         last_update = time.perf_counter_ns()
         out = []
         u = 0
@@ -178,12 +181,13 @@ def _calc_worker(args):
                     del a
                     check(f"Node {node_name}:{i} leaks")
             except Exception as e:
+                if DEBUG:
+                    raise e
                 get_console().print_exception(**RICH_TRACEBACK_ARGS)
                 logger.error(
                     f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
                 )
-                ex = e
-                break
+                raise RuntimeError("subprocess failed") from e
 
             u += 1
             curr_time = time.perf_counter_ns()
@@ -193,27 +197,25 @@ def _calc_worker(args):
                 last_update = curr_time
                 u = 0
 
-    if not ex and finalizer is not None:
-        try:
-            finalizer(base_args, chunk)
-        except Exception as e:
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
-            logger.error(
-                f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
-            )
-            ex = e
+        if finalizer is not None:
+            try:
+                finalizer(base_args, chunk)
+            except Exception as e:
+                if DEBUG:
+                    raise e
+                get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                logger.error(
+                    f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                )
+                raise RuntimeError("subprocess failed") from e
 
-    # Always close pipe. Raise special exception to hide stack trace
-    if u != 0:
-        with progress_lock:
-            progress_send.send(u)
-    progress_send.close()
-    if ex:
-        if DEBUG:
-            # raise original exception to to catch proper breakpoint
-            raise ex
-        raise RuntimeError("subprocess failed") from ex
-    return out
+        return out
+    finally:
+        # Always close pipe. Raise special exception to hide stack trace
+        if u != 0:
+            with progress_lock:
+                progress_send.send(u)
+        progress_send.close()
 
 
 _max_workers: int = 1
