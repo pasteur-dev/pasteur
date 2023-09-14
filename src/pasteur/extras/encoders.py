@@ -91,7 +91,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
         self.attr = copy(attr)
         self.attr.update_vals(cols)
 
-    def get_metadata(self) -> dict[str | tuple[str], Attribute]:
+    def get_metadata(self) -> dict[str | tuple[str, ...], Attribute]:
         return {self.attr.name: self.attr}
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -153,7 +153,7 @@ class NumEncoder(AttributeEncoder[Attribute]):
         self.attr = copy(attr)
         self.attr.update_vals(cols)
 
-    def get_metadata(self) -> dict[str | tuple[str], Attribute]:
+    def get_metadata(self) -> dict[str | tuple[str, ...], Attribute]:
         return {self.attr.name: self.attr}
 
     def encode(self, data: pd.DataFrame) -> pd.DataFrame:

@@ -72,7 +72,7 @@ class AttributeEncoder(ModuleClass, Generic[META]):
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError()
 
-    def get_metadata(self) -> dict[str | tuple[str], META]:
+    def get_metadata(self) -> dict[str | tuple[str, ...], META]:
         raise NotImplementedError()
 
 

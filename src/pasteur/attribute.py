@@ -442,7 +442,7 @@ class Attribute:
                 flags.append(f"PARTN({','.join(self.partition_with)})")
             else:
                 flags.append("PARTN")
-        
+
         return f"Attr[{','.join(flags)}]{self.vals}"
 
     def __repr__(self) -> str:
@@ -452,7 +452,7 @@ class Attribute:
         return self.vals[col]
 
 
-Attributes = Mapping[str | tuple[str], Attribute]
+Attributes = Mapping[str | tuple[str, ...], Attribute]
 
 
 def OrdAttribute(

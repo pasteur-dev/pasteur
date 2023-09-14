@@ -15,7 +15,7 @@ class DatasetMeta(NamedTuple):
     type: Literal["pkl", "pq", "mpq", "mem", "auto", "multi"] = "pq"
 
     @property
-    def str_path(self) -> tuple[str]:
+    def str_path(self) -> tuple[str, ...]:
         return tuple(map(str, self.path))
 
 

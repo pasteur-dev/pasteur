@@ -15,16 +15,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class MetricsMeta(NamedTuple):
-    x_log: bool = False
-    y_log: bool = False
-    bins: int = 20
-    x_min: float | None = None
-    x_max: float | None = None
-    y_min: float | None = None
-    y_max: float | None = None
-
-
 class ColumnRef(NamedTuple):
     table: str | None = None
     col: str | None = None
@@ -49,7 +39,7 @@ class ColumnMeta:
         # Ref can be set both by the ref keyword or by extended syntax
         ref = type_ref[1] if len(type_ref) > 1 else None
         ref = kwargs.get("ref", kwargs.get("refs", ref))
-            
+
         # Basic type and dtype data
         self.type = type
         self.dtype = kwargs.get("dtype", None)
@@ -61,10 +51,10 @@ class ColumnMeta:
             if isinstance(ref, list):
                 ref_arr = ref
             elif isinstance(ref, str):
-                ref_arr = [r.strip() for r in ref.split(',')]
+                ref_arr = [r.strip() for r in ref.split(",")]
             else:
                 ref_arr = [ref]
-            
+
             refs: list[ColumnRef] = []
             for ref in ref_arr:
                 if isinstance(ref, str):
@@ -87,24 +77,23 @@ class ColumnMeta:
                     col = ref["col"]
                 else:
                     assert False, f"Unsupported ref format: {ref}"
-                
+
                 refs.append(ColumnRef(table, col))
 
             self.ref = refs if len(refs) > 1 else refs[0]
         else:
             self.ref = None
 
-        metrics = kwargs.get("metrics", {})
-        if "bins" not in metrics and "bins" in kwargs:
-            metrics["bins"] = kwargs["bins"]
-        self.metrics = MetricsMeta(**metrics)
-
-        # Add untyped version of args to use with transformers
+        # Add untyped version of args to use with transformers/column metrics
         self.args = kwargs.copy()
+        self.args.pop("ref", None)
+
         if main_param is not None:
             self.args.update({"main_param": main_param})
         if is_nullable:
             self.args.update({"nullable": True})
+
+        self.nullable = self.args.get("nullable", False)
 
     def is_categorical(self) -> bool:
         return self.type == "categorical"
@@ -114,10 +103,10 @@ class ColumnMeta:
 
     def is_id(self) -> bool:
         return self.type == "id"
-    
+
     def __repr__(self) -> str:
         return self.__dict__.__repr__()
-    
+
     def __str__(self) -> str:
         return self.__dict__.__str__()
 
@@ -138,7 +127,7 @@ class TableMeta:
     def __init__(self, name: str, meta: dict):
         self.name = name
         self.primary_key = meta.get("primary_key", None)
-        self.sequencer: tuple[str] | str | None = meta.get("sequencer", None)
+        self.sequencer: tuple[str, ...] | str | None = meta.get("sequencer", None)
 
         if "metrics" in meta:
             metrics_dict = meta["metrics"]
@@ -160,7 +149,7 @@ class TableMeta:
 
         fields = meta["fields"]
         for name_str, field in fields.items():
-            names = tuple(n.strip() for n in name_str.split(','))
+            names = tuple(n.strip() for n in name_str.split(","))
             if len(names) == 1:
                 names = names[0]
 
@@ -172,11 +161,11 @@ class TableMeta:
             self._columns[names] = self.COLUMN_CLS(**args)
 
     @property
-    def columns(self) -> dict[str | tuple[str], ColumnMeta]:
+    def columns(self) -> dict[str | tuple[str, ...], ColumnMeta]:
         return self._columns
 
     @property
-    def cols(self) -> dict[str | tuple[str], ColumnMeta]:
+    def cols(self) -> dict[str | tuple[str, ...], ColumnMeta]:
         return self.columns
 
     def __getitem__(self, col) -> ColumnMeta:
@@ -193,11 +182,13 @@ class TableMeta:
                 meta_keys.update(k)
 
         diff_keys = meta_keys.difference(table_keys, {data.index.name})
-        assert not diff_keys, f"Columns missing from table `{self.name}`: {str(diff_keys)}"
-    
+        assert (
+            not diff_keys
+        ), f"Columns missing from table `{self.name}`: {str(diff_keys)}"
+
     def __repr__(self) -> str:
         return self.__dict__.__repr__()
-    
+
     def __str__(self) -> str:
         return self.__dict__.__str__()
 
@@ -228,11 +219,11 @@ class ViewMeta:
     @overload
     def __getitem__(self, name: str) -> TableMeta:
         ...
-    
+
     @overload
     def __getitem__(self, name: tuple[str, str]) -> ColumnMeta:
         ...
-    
+
     def __getitem__(self, name):
         if isinstance(name, tuple):
             return self._tables[name[0]][name[1]]
@@ -247,10 +238,10 @@ class ViewMeta:
 
         for name, meta in self._tables.items():
             meta.check(data[name])
-    
+
     def __repr__(self) -> str:
         return self.__dict__.__repr__()
-    
+
     def __str__(self) -> str:
         return self.__dict__.__str__()
 

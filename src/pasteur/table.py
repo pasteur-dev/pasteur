@@ -52,8 +52,8 @@ META = TypeVar("META")
 
 
 def _reduce_inner(
-    a: dict[str | tuple[str], A],
-    b: dict[str | tuple[str], A],
+    a: dict[str | tuple[str, ...], A],
+    b: dict[str | tuple[str, ...], A],
 ):
     for key in a.keys():
         a[key].reduce(b[key])
@@ -148,7 +148,7 @@ def _calc_joined_refs(
     name: str,
     get_table: Callable[[str], pd.DataFrame],
     ids: pd.DataFrame | None,
-    cref: list[ColumnRef] | ColumnRef | None,
+    cref: list[ColumnRef] | ColumnRef,
     table: pd.DataFrame | None = None,
 ):
     """Returns a dataframe where for each row in the original data,
@@ -158,9 +158,8 @@ def _calc_joined_refs(
     If no references are provided, returns None."""
     if table is None:
         table = get_table(name)
-    ref_col = None
 
-    if cref and isinstance(cref, list):
+    if isinstance(cref, list):
         table_cols: dict[str | None, list[str]] = defaultdict(list)
 
         for ref in cref:
@@ -178,8 +177,8 @@ def _calc_joined_refs(
             else:
                 dfs.append(table[refs])
 
-        ref_col = pd.concat(dfs, axis=1)
-    elif cref:
+        return pd.concat(dfs, axis=1)
+    else:
         ref = cast(ColumnRef, cref)
         f_table, f_col = ref.table, ref.col
         assert f_col
@@ -191,7 +190,7 @@ def _calc_joined_refs(
             # Local column, duplicate and rename
             ref_col = table[f_col]
 
-    return ref_col
+        return ref_col
 
 
 def _calc_unjoined_refs(
@@ -220,7 +219,7 @@ def _calc_unjoined_refs(
             return table
         return get_table(k)
 
-    return {k: get_table_l(k)[v] for k, v in table_cols.items()} or None
+    return {k: get_table_l(k)[v] for k, v in table_cols.items()}
 
 
 class TableTransformer:
@@ -239,7 +238,7 @@ class TableTransformer:
         )
         self.ref = ReferenceManager(meta, name)
 
-        self.transformers: dict[str | tuple[str], Transformer] = {}
+        self.transformers: dict[str | tuple[str, ...], Transformer] = {}
         self.fitted = False
 
     def fit(
@@ -252,7 +251,7 @@ class TableTransformer:
             per_call.append({"ids": cids, "tables": ctables})
 
         transformer_chunks: list[
-            dict[str | tuple[str], Transformer]
+            dict[str | tuple[str, ...], Transformer]
         ] = process_in_parallel(
             self.fit_chunk,
             per_call,
@@ -343,8 +342,11 @@ class TableTransformer:
                 t.fit(self.name, table[name_l], ref_cols, loaded_ids, seq_attr, seq)
             elif isinstance(t, RefTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_joined_refs(
-                    self.name, get_table, loaded_ids, col.ref, table
+                cref = col.ref
+                ref_cols = (
+                    _calc_joined_refs(self.name, get_table, loaded_ids, cref, table)
+                    if cref
+                    else None
                 )
                 t.fit(table[name_l], ref_cols)
             else:
@@ -438,8 +440,11 @@ class TableTransformer:
                     ctxs[n].append(c)
             elif isinstance(trn, RefTransformer):
                 # Add foreign column if required
-                ref_cols = _calc_joined_refs(
-                    self.name, get_table, loaded_ids, col.ref, table
+                cref = col.ref
+                ref_cols = (
+                    _calc_joined_refs(self.name, get_table, loaded_ids, cref, table)
+                    if cref
+                    else None
                 )
                 tt = trn.transform(table[name_l], ref_cols)
             else:
@@ -469,15 +474,15 @@ class TableTransformer:
         tables: dict[str, LazyFrame],
         ids: LazyFrame | None = None,
     ):
-        return self._transform_chunk(tables, ids)  # type: ignore
+        return self._transform_chunk(tables, ids) # type: ignore
 
     @to_chunked
     def _reverse_chunk(
         self,
         data: LazyChunk,
         ctx: dict[str, LazyChunk],
-        ids: LazyChunk | None = None,
-        parent_tables: dict[str, LazyChunk] | None = None,
+        ids: LazyChunk,
+        parent_tables: dict[str, LazyChunk],
     ):
         # If there are no ids that reference a foreign table, the ids and
         # parent_table parameters can be set to None (ex. tabular data).
@@ -555,19 +560,23 @@ class TableTransformer:
                     )
                     tt = t.reverse(cached_table, cached_ctx, ref_col, cached_ids)
                 elif isinstance(t, RefTransformer):
-                    for r in cref:
-                        if r.table:
-                            assert (
-                                r.table in parent_tables
-                            ), f"Table '{self.name}' depends on table '{r.table}', but it was not specified in the parameter 'trn_deps' of the view."
+                    if cref:
+                        for r in cref if isinstance(cref, list) else [cref]:
+                            rtable = r.table
+                            if rtable:
+                                assert (
+                                    rtable in parent_tables
+                                ), f"Table '{self.name}' depends on table '{r.table}', but it was not specified in the parameter 'trn_deps' of the view."
 
-                    ref_col = _calc_joined_refs(
-                        self.name,
-                        get_parent,
-                        cached_ids,
-                        cref,
-                        pd.concat(tts.values(), axis=1, copy=False, join="inner"),
-                    )
+                        ref_col = _calc_joined_refs(
+                            self.name,
+                            get_parent,
+                            cached_ids,
+                            cref,
+                            pd.concat(tts.values(), axis=1, copy=False, join="inner"),
+                        )
+                    else:
+                        ref_col = None
                     tt = t.reverse(cached_table, ref_col)
                 else:
                     tt = t.reverse(cached_table)
@@ -644,7 +653,7 @@ class TableTransformer:
     def get_sequencer(self) -> SeqTransformer | None:
         s = self.meta[self.name].sequencer
         if s is not None:
-            return self.transformers[s]
+            return cast(SeqTransformer, self.transformers[s])
         return None
 
 
@@ -673,13 +682,15 @@ def _return_ids(name: str, df: LazyChunk):
 
 
 class AttributeEncoderHolder(
-    ViewEncoder[dict[str, dict[str | tuple[str], META]]], Generic[META]
+    ViewEncoder[dict[str, dict[str | tuple[str, ...], META]]], Generic[META]
 ):
     """Receives tables that have been encoded by the base transformers and have
     attributes, and reformats them to fit a specific model."""
 
-    table_encoders: dict[str, dict[str | tuple[str], AttributeEncoder[META]]]
-    ctx_encoders: dict[str, dict[str, dict[str | tuple[str], AttributeEncoder[META]]]]
+    table_encoders: dict[str, dict[str | tuple[str, ...], AttributeEncoder[META]]]
+    ctx_encoders: dict[
+        str, dict[str, dict[str | tuple[str, ...], AttributeEncoder[META]]]
+    ]
     postprocess_enc: PostprocessEncoder[META] | None
 
     def __init__(self, encoder: AttributeEncoderFactory, **kwargs) -> None:
@@ -914,7 +925,7 @@ class AttributeEncoderHolder(
 
         return lazies
 
-    def get_metadata(self) -> dict[str, dict[str | tuple[str], META]]:
+    def get_metadata(self) -> dict[str, dict[str | tuple[str, ...], META]]:
         out = defaultdict(dict)
 
         for table, encs in self.table_encoders.items():
@@ -983,7 +994,7 @@ class SeqTransformerWrapper(SeqTransformer):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self.parent = parent
+        self.parent_arg = parent
         self.seq_col_ref = seq_col
         self.ctx_to_ref = ctx_to_ref
         self.order = order
@@ -1033,7 +1044,7 @@ class SeqTransformerWrapper(SeqTransformer):
             self.col_seq = f"{table}_seq"
         self.col_n = f"{table}_n"
 
-        if not self.parent:
+        if not self.parent_arg:
             try:
                 if len(ids.columns) == 1:
                     # If there is only 1 column in ids, assume it's the parent
@@ -1048,6 +1059,8 @@ class SeqTransformerWrapper(SeqTransformer):
                 raise Exception(
                     "Could not infer parent from references, please specify the table which acts as the parent with parameter `parent`."
                 ) from e
+        else:
+            self.parent = self.parent_arg
 
         assert (
             self.parent
@@ -1427,7 +1440,7 @@ class SeqTransformerWrapper(SeqTransformer):
             case "single":
                 return self._single_reverse(data, ctx, ref, ids)
             case "notrn":
-                return data[self.col_seq].rename(self.col_orig)
+                return pd.DataFrame(data[self.col_seq].rename(self.col_orig))
         assert False
 
     def get_attributes(self) -> tuple[Attributes, dict[str, Attributes]]:
@@ -1484,6 +1497,6 @@ class SeqTransformerWrapper(SeqTransformer):
                     assert False
 
         assert False
-    
+
     def get_seq_value(self) -> SeqValue | None:
         return SeqValue(self.col_seq, self.parent, self.order)

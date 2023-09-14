@@ -8,6 +8,8 @@ from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 
+
+from typing import Sequence
 from ...metadata import ColumnMeta, Metadata
 from ...metric import (
     AbstractColumnMetric,
@@ -15,6 +17,8 @@ from ...metric import (
     RefColumnData,
     RefColumnMetric,
     Summaries,
+    name_style_fn,
+    name_style_title,
 )
 from ...utils import list_unique
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
@@ -27,20 +31,19 @@ def _percent_formatter(x, pos):
 
 
 def _gen_hist(
-    meta: ColumnMeta,
+    y_log: bool,
     title: str,
-    bins: np.ndarray,
+    bins: np.ndarray | Sequence[float],
     heights: dict[str, np.ndarray],
     xticks_x=None,
     xticks_label=None,
 ):
     fig, ax = plt.subplots()
-    x = bins[:-1]
+    x = np.array(bins)[:-1]
     w = (x[1] - x[0]) / len(heights)
 
-    is_log = meta.metrics.y_log == True
     for i, (name, h) in enumerate(heights.items()):
-        ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=is_log)
+        ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=y_log)
 
     ax.legend()
     ax.set_title(title)
@@ -53,15 +56,12 @@ def _gen_hist(
     return fig
 
 
-def _gen_bar(
-    meta: ColumnMeta, title: str, cols: list[str], counts: dict[str, np.ndarray]
-):
+def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndarray]):
     fig, ax = plt.subplots()
 
     x = np.array(range(len(cols)))
     w = 0.9 / len(counts)
 
-    is_log = meta.metrics.y_log == True
     for i, (name, c) in enumerate(counts.items()):
         h = c / c.sum() if c.sum() > 0 else c
         ax.bar(
@@ -70,7 +70,7 @@ def _gen_bar(
             width=w,
             align="edge",
             label=name,
-            log=is_log,
+            log=y_log,
         )
 
     plt.xticks(x, cols)
@@ -89,50 +89,66 @@ def _gen_bar(
 class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "numerical"
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
-        self.meta = meta
+    def __init__(
+        self,
+        bins: Sequence[float] | int = 10,
+        min: float | None = None,
+        max: float | None = None,
+        y_log: bool = False,
+        _from_factory: bool = False,
+        **_,
+    ) -> None:
+        super().__init__(_from_factory=_from_factory)
+
+        self.y_log = y_log
+        if isinstance(bins, Sequence):
+            self.manual = True
+            self.bins_arg = tuple(bins)
+            self.bin_n = len(bins) - 1
+            self.min_arg = bins[0]
+            self.max_arg = bins[-1]
+
+            assert (
+                not min and not max
+            ), "Either min,max or specific buckets can be provided."
+        else:
+            self.manual = False
+            self.bins_arg = None
+            self.bin_n = bins
+            self.min_arg = min
+            self.max_arg = max
+
+    def fit(self, table: str, col: str, data: pd.Series):
         self.table = table
         self.col = col
-        args = meta.args
-        metrics = meta.metrics
 
         # Get maximums
-        if metrics.x_min is not None:
-            x_min = metrics.x_min
-        elif "min" in args:
-            x_min = args["min"]
-        else:
-            x_min = data.min()
-
-        if metrics.x_max is not None:
-            x_max = metrics.x_max
-        elif "max" in args:
-            x_max = args["max"]
-        else:
-            x_max = data.max()
+        self.min = self.min_arg if self.min_arg is not None else data.min()
+        self.max = self.max_arg if self.max_arg is not None else data.max()
 
         # In the case the column is NA, x_min and x_max will be NA
         # Disable visualiser
         self.disabled = (
-            x_max is None or x_min is None or np.isnan(x_max) or np.isnan(x_min)
+            self.max is None
+            or self.min is None
+            or np.isnan(self.max)
+            or np.isnan(self.min)
         )
+
+        if self.bins_arg is None:
+            self.bins = np.linspace(self.min, self.max, self.bin_n + 1)
+        else:
+            self.bins = self.bins_arg
+
         if self.disabled:
             return
 
-        main_param = args.get("main_param", None)
-        if main_param and (isinstance(main_param, int)):
-            self.bin_n = main_param
-        else:
-            self.bin_n = args.get("bins", 20)
-
-        self.x_min = x_min
-        self.x_max = x_max
-        self.bins = np.histogram_bin_edges(data, bins=self.bin_n, range=(x_min, x_max))
-
     def reduce(self, other: "NumericalHist"):
-        self.x_min = min(self.x_min, other.x_min)
-        self.x_max = max(self.x_max, other.x_max)
-        self.bins = np.linspace(self.x_min, self.x_max, self.bin_n + 1)
+        if self.manual:
+            return
+        self.min = min(self.min, other.min)
+        self.max = max(self.max, other.max)
+        self.bins = np.linspace(self.min, self.max, self.bin_n + 1)
 
     def _process(self, data: pd.Series):
         if self.disabled:
@@ -166,7 +182,7 @@ class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
 
         load_matplotlib_style()
         v = _gen_hist(
-            self.meta,
+            self.y_log,
             self.col.capitalize(),
             self.bins,
             splits,
@@ -178,8 +194,11 @@ class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
 class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "categorical"
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
-        self.meta = meta
+    def __init__(self, y_log: bool = False, _from_factory: bool = False, **_) -> None:
+        super().__init__(_from_factory=_from_factory)
+        self.y_log = y_log
+
+    def fit(self, table: str, col: str, data: pd.Series):
         self.table = table
         self.col = col
         self.cols = list(data.value_counts().sort_values(ascending=False).index)
@@ -217,7 +236,7 @@ class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]
 
         load_matplotlib_style()
         v = _gen_bar(
-            self.meta,
+            self.y_log,
             self.col.capitalize(),
             self.cols,
             splits,
@@ -228,8 +247,8 @@ class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]
 class OrdinalHist(CategoricalHist):
     name = "ordinal"
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
-        super().fit(table, col, meta, data)
+    def fit(self, table: str, col: str, data: pd.Series):
+        super().fit(table, col, data)
         self.cols = pd.Index(np.sort(data.unique()))
 
 
@@ -238,7 +257,7 @@ class FixedHist(ColumnMetric[Any, Any]):
 
     name = "fixed"
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
+    def fit(self, table: str, col: str, data: pd.Series):
         ...
 
     def reduce(self, other: AbstractColumnMetric):
@@ -267,67 +286,72 @@ class DateData(NamedTuple):
 class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
     name = "date"
 
-    def fit(self, table: str, col: str | tuple[str], meta: ColumnMeta, data: RefColumnData):
-        ref = data['ref']
-        data = data['data']
+    def __init__(
+        self,
+        span: str = "year",
+        y_log: bool = False,
+        nullable: bool = False,
+        bins: int = 20,
+        max_len: int | None = None,
+        **_,
+    ) -> None:
+        self.span = span.split(".")[0]
+        self.y_log = y_log
+        self.nullable = nullable
+        self.bin_n = bins
+        self.max_len_arg = max_len
+
+    def fit(self, table: str, col: str | tuple[str, ...], data: RefColumnData):
+        ddata = cast(pd.Series, data["data"])
+        dref = cast(pd.Series | None, data.get("ref", None))
+
         self.table = table
         self.col = col
-
-        self.meta = meta
-        if "main_param" in meta.args:
-            self.span = meta.args["main_param"].split(".")[0]
-        elif "span" in meta.args:
-            self.span = meta.args["span"].split(".")[0]
-        else:
-            self.span = "year"
 
         self.weeks53 = self.span == "year53"
         if self.weeks53:
             self.span = "year"
 
-        self.max_len = meta.args.get("max_len", None)
-        self.bin_n = meta.args.get("bins", 20)
-
-        if ref is None:
-            self.ref = data.min()
+        if dref is None:
+            self.ref = ddata.min()
         else:
             self.ref = None
 
         # Find histogram bin edges
         if self.ref is None:
-            assert ref is not None
-            mask = ~pd.isna(data) & ~pd.isna(ref)
-            data = data[mask]
-            rf_dt = ref[mask].dt
+            assert dref is not None
+            mask = ~pd.isna(ddata) & ~pd.isna(dref)
+            ddata = ddata[mask]
+            rf_dt = dref[mask].dt
         else:
-            data = data[~pd.isna(data)]
+            ddata = ddata[~pd.isna(ddata)]
             rf_dt = self.ref
 
         match self.span:
             case "year":
-                segs = data.dt.year - rf_dt.year
+                segs = ddata.dt.year - rf_dt.year
             case "week":
                 segs = (
-                    (data.dt.normalize() - rf_dt.normalize()).dt.days
+                    (ddata.dt.normalize() - rf_dt.normalize()).dt.days
                     + rf_dt.day_of_week
                 ) // 7
             case "day":
                 segs = (
-                    data.dt.normalize() - rf_dt.normalize()
+                    ddata.dt.normalize() - rf_dt.normalize()
                 ).dt.days + rf_dt.day_of_week
             case _:
                 assert False, f"Span {self.span} not supported by DateHist"
 
         segs = segs.astype("int16")
-        if self.max_len is None:
+        if self.max_len_arg is None:
             self.max_len = float(np.percentile(segs, 90))
+        else:
+            self.max_len = self.max_len_arg
+
         if self.max_len < self.bin_n:
             self.bin_n = int(self.max_len - 1)
 
-        self.bins = np.histogram_bin_edges(
-            segs, bins=self.bin_n, range=(0, self.max_len)
-        )
-        self.nullable = meta.args.get("nullable", False)
+        self.bins = np.linspace(0, self.max_len, self.bin_n + 1)
 
     def reduce(self, other: "DateHist"):
         self.max_len = max(self.max_len, other.max_len)  # type: ignore
@@ -433,8 +457,8 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
 
     def _viz_days(self, data: dict[str, DateData]):
         return _gen_bar(
-            meta=self.meta,
-            title=f"{self.col.capitalize()} Weekday",
+            y_log=self.y_log,
+            title=name_style_title(self.col, "Weekday"),
             cols=[
                 "Monday",
                 "Tuesday",
@@ -450,8 +474,8 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
     def _viz_weeks(self, data: dict[str, DateData]):
         bins = np.array(range(54 if self.weeks53 else 53)) - 0.5
         return _gen_hist(
-            meta=self.meta,
-            title=f"{self.col.capitalize()} Season",
+            y_log=self.y_log,
+            title=name_style_title(self.col, "Season"),
             bins=bins,
             heights={n: d.weeks for n, d in data.items() if d.weeks is not None},
             xticks_x=[2, 15, 28, 41],
@@ -460,16 +484,16 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
 
     def _viz_binned(self, data: dict[str, DateData]):
         return _gen_hist(
-            self.meta,
-            f"{self.col.capitalize()} {self.span.capitalize()}s",
+            self.y_log,
+            name_style_title(self.col, f"{self.span.capitalize()}s"),
             self.bins,
             {n: d.span for n, d in data.items() if d.span is not None},
         )
 
     def _viz_na(self, data: dict[str, DateData]):
         return _gen_bar(
-            self.meta,
-            f"{self.col.capitalize()} NA",
+            self.y_log,
+            name_style_title(self.col, "NA"),
             ["Val", "NA"],
             {n: d.na for n, d in data.items() if d.na is not None},
         )
@@ -494,23 +518,26 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
     def visualise(self, data: dict[str, Summaries[DateData]]):
         load_matplotlib_style()
         v = self._visualise(data)
-        mlflow_log_hists(self.table, self.col, v)
+        mlflow_log_hists(self.table, name_style_fn(self.col), v)
 
 
 class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     name = "time"
 
-    def fit(self, table: str, col: str, meta: ColumnMeta, data: pd.Series):
-        self.meta = meta
+    def __init__(
+        self,
+        span: str = "halfhour",
+        y_log: bool = False,
+        _from_factory: bool = False,
+        **_,
+    ) -> None:
+        self.span = span.split(".")[-1]
+        self.y_log = y_log
+        super().__init__(_from_factory=_from_factory)
+
+    def fit(self, table: str, col: str, data: pd.Series):
         self.table = table
         self.col = col
-
-        if "main_param" in meta.args:
-            self.span = meta.args["main_param"].split(".")[-1]
-        elif "span" in meta.args:
-            self.span = meta.args["span"].split(".")[-1]
-        else:
-            self.span = "halfhour"
 
     def reduce(self, other: AbstractColumnMetric):
         pass
@@ -567,7 +594,7 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
         tick_label = [f"{hour:02d}:00" for hour in hours]
 
         return _gen_hist(
-            meta=self.meta,
+            y_log=self.y_log,
             title=f"{self.col.capitalize()} Time",
             bins=bins,
             heights=splits,
@@ -599,13 +626,11 @@ class DatetimeHist(
         self.date = DateHist(*args, _from_factory=_from_factory, **kwargs)
         self.time = TimeHist(*args, _from_factory=_from_factory, **kwargs)
 
-    def fit(
-        self, table: str, col: str, meta: ColumnMeta, data: RefColumnData
-    ):
+    def fit(self, table: str, col: str, data: RefColumnData):
         self.table = table
         self.col = col
-        self.date.fit(table=table, col=col, meta=meta, data=data)
-        self.time.fit(table=table, col=col, meta=meta, data=cast(pd.Series, data['data']))
+        self.date.fit(table=table, col=col, data=data)
+        self.time.fit(table=table, col=col, data=cast(pd.Series, data["data"]))
 
     def preprocess(
         self, wrk: RefColumnData, ref: RefColumnData
@@ -626,7 +651,7 @@ class DatetimeHist(
             self.date.process(wrk, ref, syn, pre[0]),
             self.time.process(wrk["data"], ref["data"], syn["data"], pre[1]),  # type: ignore
         )
-    
+
     def combine(
         self, summaries: list[tuple[Summaries[DateData], Summaries[ndarray]]]
     ) -> tuple[Summaries[DateData], Summaries[ndarray]]:
@@ -635,7 +660,9 @@ class DatetimeHist(
             self.time.combine([s[1] for s in summaries]),
         )
 
-    def visualise(self, data: dict[str, tuple[Summaries[DateData], Summaries[ndarray]]]):
+    def visualise(
+        self, data: dict[str, tuple[Summaries[DateData], Summaries[ndarray]]]
+    ):
         load_matplotlib_style()
         date_fig = self.date._visualise({n: c[0] for n, c in data.items()})
         time_fig = self.time._visualise({n: c[1] for n, c in data.items()})

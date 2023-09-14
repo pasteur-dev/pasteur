@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
     is_flag=True,
     help="Also runs dataset ingestion, which is skipped by default.",
 )
+@click.option("--pre", is_flag=True, help="Only runs split preprocessing.")
 @click.option(
-    "--pre", is_flag=True, help="Only runs split preprocessing."
-)
-@click.option(
-    "--synth", is_flag=True, help="Skips running split preprocessing, only runs synthesis."
+    "--synth",
+    is_flag=True,
+    help="Skips running split preprocessing, only runs synthesis.",
 )
 @click.option(
     "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
@@ -352,7 +352,7 @@ def download(
     type=str,
 )
 def bootstrap(
-    datasets: tuple[str],
+    datasets: tuple[str, ...],
 ):
     """Preprocesses downloaded datasets which require it so they can be loaded by kedro."""
     from os import path

@@ -145,21 +145,21 @@ class Summaries(Generic[A]):
 
 class RefColumnData(TypedDict):
     data: pd.Series | pd.DataFrame
-    ref: pd.Series | pd.DataFrame | None
+    ref: pd.Series | pd.DataFrame
 
 
 class SeqColumnData(TypedDict):
     data: pd.Series | pd.DataFrame
-    ref: dict[str, pd.DataFrame] | None
-    ids: pd.DataFrame | None
-    seq: pd.Series | None
+    ref: dict[str, pd.DataFrame]
+    ids: pd.DataFrame
+    seq: pd.Series
 
 
 class AbstractColumnMetric(ModuleClass, Generic[_DATA, _INGEST, _SUMMARY]):
     type: Literal["col", "ref", "seq"] = "col"
     _factory = ColumnMetricFactory
 
-    def fit(self, table: str, col: str | tuple[str], meta: ColumnMeta, data: _DATA):
+    def fit(self, table: str, col: str | tuple[str, ...], data: _DATA):
         """Fit is used to capture information about the table or column the metric
         will process. It should be used to store information such as column value names,
         which is common among different executions of the view."""
@@ -207,8 +207,7 @@ class SeqColumnMetric(
     def fit(
         self,
         table: str,
-        col: str | tuple[str],
-        meta: ColumnMeta,
+        col: str | tuple[str, ...],
         seq_val: SeqValue | None,
         data: SeqColumnData,
     ):
@@ -219,8 +218,8 @@ B = TypeVar("B", bound="Any")
 
 
 def _reduce_inner_2d(
-    a: dict[str | tuple[str], list[B]],
-    b: dict[str | tuple[str], list[B]],
+    a: dict[str | tuple[str, ...], list[B]],
+    b: dict[str | tuple[str, ...], list[B]],
 ):
     for key in a.keys():
         for i in range(len(a[key])):
@@ -235,8 +234,9 @@ def _get_sequence(
     ids: pd.DataFrame,
     table: pd.DataFrame,
     get_parent: Callable[[str], pd.DataFrame],
-) -> tuple[SeqValue, pd.Series] | None:
+) -> pd.Series | None:
     seq_name = meta[name].sequencer
+    assert seq_name
     col = meta[name].cols[seq_name]
     ref_cols = _calc_unjoined_refs(name, get_parent, col.ref, table)
     res = trn.transform(table[seq_name], ref_cols, ids)
@@ -275,7 +275,7 @@ def _fit_column_metrics(
     else:
         ids = None
 
-    out: dict[str | tuple[str], list[AbstractColumnMetric]] = defaultdict(list)
+    out: dict[str | tuple[str, ...], list[AbstractColumnMetric]] = defaultdict(list)
     for col_name, col in meta[name].cols.items():
         if col.is_id() or col.type not in metrics:
             continue
@@ -288,21 +288,21 @@ def _fit_column_metrics(
                 m = factory.build(**col.args)
 
             if isinstance(m, ColumnMetric):
-                m.fit(name, col_name, col, table[col_name])
+                m.fit(name, col_name, table[col_name])
             elif isinstance(m, RefColumnMetric):
-                ref_col = _calc_joined_refs(name, get_table, ids, col.ref, table)
+                cref = col.ref
+                ref_col = _calc_joined_refs(name, get_table, ids, cref, table) if cref else None
                 m.fit(
                     name,
                     col_name,
-                    col,
-                    RefColumnData(data=table[col_name], ref=ref_col),
+                    RefColumnData(data=table[col_name], ref=ref_col), # type: ignore 
                 )
             elif isinstance(m, SeqColumnMetric):
                 ref_col = _calc_unjoined_refs(name, get_table, col.ref, table)
+                assert ids is not None and seq is not None
                 m.fit(
                     name,
                     col_name,
-                    col,
                     seq_val,
                     SeqColumnData(data=table[col_name], ref=ref_col, ids=ids, seq=seq),
                 )
@@ -321,7 +321,7 @@ def _preprocess_metrics(
     trn: SeqTransformer | None,
     tables_wrk: dict[str, LazyChunk],
     tables_ref: dict[str, LazyChunk],
-    metrics: dict[str | tuple[str], list[AbstractColumnMetric]],
+    metrics: dict[str | tuple[str, ...], list[AbstractColumnMetric]],
 ):
     get_table_wrk = lazy_load_tables(tables_wrk)
     get_table_ref = lazy_load_tables(tables_ref)
@@ -358,6 +358,7 @@ def _preprocess_metrics(
     for col_name, ms in metrics.items():
         for m in ms:
             col = meta[name][col_name]
+            cref = col.ref
             if isinstance(m, ColumnMetric):
                 prec = m.preprocess(
                     table_wrk[col_name],
@@ -368,17 +369,23 @@ def _preprocess_metrics(
                     RefColumnData(
                         data=table_wrk[col_name],
                         ref=_calc_joined_refs(
-                            name, get_table_wrk, ids_ref, col.ref, table_wrk
-                        ),
+                            name, get_table_wrk, ids_ref, cref, table_wrk
+                        ) if cref else None, # type: ignore
                     ),
                     RefColumnData(
                         data=table_ref[col_name],
                         ref=_calc_joined_refs(
-                            name, get_table_ref, ids_ref, col.ref, table_ref
-                        ),
+                            name, get_table_ref, ids_ref, cref, table_ref
+                        ) if cref else None, # type: ignore
                     ),
                 )
             elif isinstance(m, SeqColumnMetric):
+                assert (
+                    ids_wrk is not None
+                    and seq_wrk is not None
+                    and ids_ref is not None
+                    and seq_ref is not None
+                )
                 prec = m.preprocess(
                     SeqColumnData(
                         data=table_wrk[col_name],
@@ -413,8 +420,8 @@ def _process_metrics(
     tables_wrk: dict[str, LazyChunk],
     tables_ref: dict[str, LazyChunk],
     tables_syn: dict[str, LazyChunk],
-    metrics: dict[str | tuple[str], list[AbstractColumnMetric]],
-    preprocess: dict[str | tuple[str], list[Any]],
+    metrics: dict[str | tuple[str, ...], list[AbstractColumnMetric]],
+    preprocess: dict[str | tuple[str, ...], list[Any]],
 ):
     get_table_wrk = lazy_load_tables(tables_wrk)
     get_table_ref = lazy_load_tables(tables_ref)
@@ -476,23 +483,31 @@ def _process_metrics(
                         data=table_wrk[col_name],
                         ref=_calc_joined_refs(
                             name, get_table_wrk, ids_wrk, col.ref, table_wrk
-                        ),
+                        ) if col.ref else None, # type: ignore
                     ),
                     RefColumnData(
                         data=table_ref[col_name],
                         ref=_calc_joined_refs(
                             name, get_table_ref, ids_ref, col.ref, table_ref
-                        ),
+                        ) if col.ref else None, # type: ignore
                     ),
                     RefColumnData(
                         data=table_syn[col_name],
                         ref=_calc_joined_refs(
                             name, get_table_syn, ids_syn, col.ref, table_syn
-                        ),
+                        ) if col.ref else None, # type: ignore
                     ),
                     prec,
                 )
             elif isinstance(m, SeqColumnMetric):
+                assert (
+                    ids_wrk is not None
+                    and seq_wrk is not None
+                    and ids_ref is not None
+                    and seq_ref is not None
+                    and ids_syn is not None
+                    and seq_syn is not None
+                )
                 proc = m.process(
                     SeqColumnData(
                         data=table_wrk[col_name],
@@ -528,16 +543,43 @@ def _process_metrics(
     return out
 
 
+def name_add_prefix(col: str | tuple[str, ...], suffix: str):
+    if isinstance(col, str):
+        return (col, suffix)
+    return (*col, suffix)
+
+
+def name_style_fn(col: str | tuple[str, ...], ext: str | None = None):
+    if not ext:
+        ext = ""
+    if isinstance(col, str):
+        return col + ext
+    return "_".join(col) + ext
+
+
+def name_style_title(col: str | tuple[str, ...], title: str | None = None):
+    if isinstance(col, str):
+        if title:
+            return f"{col.capitalize()} {title}"
+        else:
+            return col.capitalize()
+    else:
+        if title:
+            return f"{', '.join([c.capitalize() for c in col])} {title}"
+        else:
+            return ", ".join([c.capitalize() for c in col])
+
+
 class ColumnMetricHolder(
     Metric[
-        dict[str, list[dict[str | tuple[str], list[Any]]]],
-        dict[str, dict[str | tuple[str], list[Any]]],
+        dict[str, list[dict[str | tuple[str, ...], list[Any]]]],
+        dict[str, dict[str | tuple[str, ...], list[Any]]],
     ]
 ):
     name = "holder"
     type = "col"
     encodings = "raw"
-    metrics: dict[str, dict[str | tuple[str], list[AbstractColumnMetric]]]
+    metrics: dict[str, dict[str | tuple[str, ...], list[AbstractColumnMetric]]]
 
     def __init__(self, modules: list[Module]):
         self.table = ""
@@ -600,7 +642,7 @@ class ColumnMetricHolder(
         self,
         wrk: dict[str, LazyDataset],
         ref: dict[str, LazyDataset],
-    ) -> dict[str, list[dict[str | tuple[str], list[Any]]]]:
+    ) -> dict[str, list[dict[str | tuple[str, ...], list[Any]]]]:
 
         per_call = []
         per_call_meta = []
@@ -638,8 +680,8 @@ class ColumnMetricHolder(
         wrk: dict[str, LazyDataset],
         ref: dict[str, LazyDataset],
         syn: dict[str, LazyDataset],
-        pre: dict[str, list[dict[str | tuple[str], list[Any]]]],
-    ) -> dict[str, dict[str | tuple[str], list[Any]]]:
+        pre: dict[str, list[dict[str | tuple[str, ...], list[Any]]]],
+    ) -> dict[str, dict[str | tuple[str, ...], list[Any]]]:
 
         per_call = []
         per_call_meta = []
@@ -675,7 +717,7 @@ class ColumnMetricHolder(
         for name, proc in zip(per_call_meta, out):
             proc_dict[name].append(proc)
 
-        procs: dict[str, dict[str | tuple[str], list[Any]]] = defaultdict(
+        procs: dict[str, dict[str | tuple[str, ...], list[Any]]] = defaultdict(
             lambda: defaultdict(list)
         )
         for name, table_metrics in self.metrics.items():
@@ -688,7 +730,9 @@ class ColumnMetricHolder(
                     procs[name][cols].append(o)
         return dict(procs)
 
-    def visualise(self, data: dict[str, dict[str, dict[str | tuple[str], list[Any]]]]):
+    def visualise(
+        self, data: dict[str, dict[str, dict[str | tuple[str, ...], list[Any]]]]
+    ):
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
@@ -696,7 +740,9 @@ class ColumnMetricHolder(
                         {n: d[table][col_name][i] for n, d in data.items()}
                     )
 
-    def summarize(self, data: dict[str, dict[str, dict[str | tuple[str], list[Any]]]]):
+    def summarize(
+        self, data: dict[str, dict[str, dict[str | tuple[str, ...], list[Any]]]]
+    ):
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
@@ -756,7 +802,6 @@ class SeqMetricWrapper(SeqColumnMetric):
     def __init__(
         self,
         modules: list[Module],
-        parent: str | None = None,
         visual: dict[str, Any] | None = None,
         seq: dict[str, Any] | None = None,
         ctx: dict[str, Any] | None = None,
@@ -766,7 +811,6 @@ class SeqMetricWrapper(SeqColumnMetric):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self.parent = parent
         self.seq_col_ref = seq_col
         self.ctx_to_ref = ctx_to_ref
         self.order = order
@@ -802,7 +846,7 @@ class SeqMetricWrapper(SeqColumnMetric):
             self.ctx = [f.build(**ctx_kwargs) for f in ctx_frs]
 
         if visual is not None:
-            visual_kwargs = ctx.copy()
+            visual_kwargs = visual.copy()
             visual_type = visual_kwargs.pop("type")
             visual_frs = get_module_dict_multiple(ColumnMetricFactory, modules).get(
                 cast(str, visual_type), []
@@ -812,48 +856,59 @@ class SeqMetricWrapper(SeqColumnMetric):
     def fit(
         self,
         table: str,
-        col: str | tuple[str],
-        meta: ColumnMeta,
+        col: str | tuple[str, ...],
         seq_val: SeqValue | None,
         data: SeqColumnData,
     ):
-        seq = data['seq']
+        seq = data["seq"]
         assert (
             seq_val is not None and seq is not None
         ), "Wrapping RefTransformers requires sequenced data, fill in `sequencer` for the table."
 
         self.table = table
         self.col = col
-        self.meta = meta
         self.max_len = cast(int, seq.max()) + 1
+        self.parent = seq_val.table
 
         match self.mode:
             case "dual":
                 if self.ctx:
                     ctx_in = _wrap_get_data_ctx(self.parent, **data)
                     for c in self.ctx:
-                        c.fit(self.table, self.col + "_ctx", ColumnMeta(**self.meta.args.get('ctx', {})), ctx_in)
+                        c.fit(
+                            self.table,
+                            name_add_prefix(self.col, "ctx"),
+                            ctx_in,
+                        )
 
                 # Data series is all rows where seq > 0 (skip initial)
                 if self.seq:
                     seq_in = _wrap_get_data_seq_dual(self.parent, **data)
                     for c in self.seq:
-                        c.fit(self.table, self.col + "_seq", ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+                        c.fit(
+                            self.table,
+                            name_add_prefix(self.col, "seq"),
+                            seq_in,
+                        )
             case "single":
                 if self.seq:
                     seq_in = _wrap_get_data_seq_single(
                         self.parent, **data, ctx_to_ref=self.ctx_to_ref
                     )
                     for c in self.seq:
-                        c.fit(self.table, self.col + "_seq", ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+                        c.fit(
+                            self.table,
+                            name_add_prefix(self.col, "seq"),
+                            seq_in,
+                        )
             case "notrn":
                 pass
 
         for c in self.visual:
             if isinstance(c, SeqColumnMetric):
-                c.fit(self.table, self.col, meta, seq_val, data)
+                c.fit(self.table, self.col, seq_val, data)
             else:
-                c.fit(self.table, self.col, meta, data)
+                c.fit(self.table, self.col, data)
 
     def preprocess(self, wrk: SeqColumnData, ref: SeqColumnData) -> Any | None:
         pre_viz = []
@@ -944,7 +999,7 @@ class SeqMetricWrapper(SeqColumnMetric):
         sum_viz = []
         for i, c in enumerate(self.visual):
             sum_viz.append(c.combine([s[0][i] for s in summaries]))
-        
+
         match self.mode:
             case "dual":
                 sum_ctx = []
@@ -958,9 +1013,9 @@ class SeqMetricWrapper(SeqColumnMetric):
                 sum_seq = []
                 for i, c in enumerate(self.seq):
                     sum_seq.append(c.combine([s[1][i] for s in summaries]))
-                return (sum_viz, sum_ctx)
+                return (sum_viz, sum_seq)
             case "notrn":
-                return (sum_viz, )
+                return (sum_viz,)
 
         assert False
 
