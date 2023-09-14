@@ -8,6 +8,8 @@ from collections import defaultdict
 from typing import Any, Callable, Generic, Literal, TypedDict, TypeVar, cast
 
 import pandas as pd
+from pasteur.attribute import SeqValue
+from pasteur.metadata import ColumnMeta
 
 from pasteur.utils import LazyDataset
 
@@ -20,6 +22,7 @@ from .table import (
     TableTransformer,
     _calc_joined_refs,
     _calc_unjoined_refs,
+    _backref_cols,
 )
 from .transform import SeqTransformer
 from .utils import LazyChunk, LazyDataset, LazyFrame, lazy_load_tables
@@ -538,7 +541,10 @@ class ColumnMetricHolder(
 
     def __init__(self, modules: list[Module]):
         self.table = ""
-        self.metric_cls = get_module_dict_multiple(ColumnMetricFactory, modules)
+        self.metric_cls = get_module_dict_multiple(
+            ColumnMetricFactory,
+            [*modules, SeqMetricWrapper.get_factory(modules=modules)],
+        )
         self.metrics = {}
 
     def fit(
@@ -741,6 +747,321 @@ def log_metric(metric: Metric[Any, _SUMMARY], summary: _SUMMARY):
     mlflow_log_artifacts(
         "metrics", metric.unique_name(), metric=metric, summary=summary
     )
+
+
+class SeqMetricWrapper(SeqColumnMetric):
+    name = "seq"
+    mode: Literal["dual", "single", "notrn"]
+
+    def __init__(
+        self,
+        modules: list[Module],
+        parent: str | None = None,
+        visual: dict[str, Any] | None = None,
+        seq: dict[str, Any] | None = None,
+        ctx: dict[str, Any] | None = None,
+        seq_col: str | None = None,
+        ctx_to_ref: dict[str, str] | None = None,
+        order: int | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.parent = parent
+        self.seq_col_ref = seq_col
+        self.ctx_to_ref = ctx_to_ref
+        self.order = order
+
+        self.seq = []
+        self.ctx = []
+        self.visual = []
+
+        # Load metrics
+        # Use three modes
+        if seq is not None and ctx is not None:
+            self.mode = "dual"
+        elif seq is not None:
+            self.mode = "single"
+        else:
+            self.mode = "notrn"
+
+        if seq is not None:
+            seq_kwargs = seq.copy()
+            seq_type = seq_kwargs.pop("type")
+            seq_kwargs["nullable"] = True
+            seq_frs = get_module_dict_multiple(ColumnMetricFactory, modules).get(
+                cast(str, seq_type), []
+            )
+            self.seq = [f.build(**seq_kwargs) for f in seq_frs]
+
+        if ctx is not None:
+            ctx_kwargs = ctx.copy()
+            ctx_type = ctx_kwargs.pop("type")
+            ctx_frs = get_module_dict_multiple(ColumnMetricFactory, modules).get(
+                cast(str, ctx_type), []
+            )
+            self.ctx = [f.build(**ctx_kwargs) for f in ctx_frs]
+
+        if visual is not None:
+            visual_kwargs = ctx.copy()
+            visual_type = visual_kwargs.pop("type")
+            visual_frs = get_module_dict_multiple(ColumnMetricFactory, modules).get(
+                cast(str, visual_type), []
+            )
+            self.visual = [f.build(**visual_kwargs) for f in visual_frs]
+
+    def fit(
+        self,
+        table: str,
+        col: str | tuple[str],
+        meta: ColumnMeta,
+        seq_val: SeqValue | None,
+        data: SeqColumnData,
+    ):
+        seq = data['seq']
+        assert (
+            seq_val is not None and seq is not None
+        ), "Wrapping RefTransformers requires sequenced data, fill in `sequencer` for the table."
+
+        self.table = table
+        self.col = col
+        self.meta = meta
+        self.max_len = cast(int, seq.max()) + 1
+
+        match self.mode:
+            case "dual":
+                if self.ctx:
+                    ctx_in = _wrap_get_data_ctx(self.parent, **data)
+                    for c in self.ctx:
+                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('ctx', {})), ctx_in)
+
+                # Data series is all rows where seq > 0 (skip initial)
+                if self.seq:
+                    seq_in = _wrap_get_data_seq_dual(self.parent, **data)
+                    for c in self.seq:
+                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+            case "single":
+                if self.seq:
+                    seq_in = _wrap_get_data_seq_single(
+                        self.parent, **data, ctx_to_ref=self.ctx_to_ref
+                    )
+                    for c in self.seq:
+                        c.fit(self.table, self.col, ColumnMeta(**self.meta.args.get('seq', {})), seq_in)
+            case "notrn":
+                pass
+
+        for c in self.visual:
+            if isinstance(c, SeqColumnMetric):
+                c.fit(self.table, self.col, meta, seq_val, data)
+            else:
+                c.fit(self.table, self.col, meta, data)
+
+    def preprocess(self, wrk: SeqColumnData, ref: SeqColumnData) -> Any | None:
+        pre_viz = []
+        for c in self.visual:
+            pre_viz.append(c.preprocess(wrk, ref))
+
+        match self.mode:
+            case "dual":
+                pre_ctx = []
+                if self.ctx:
+                    data_wrk = _wrap_get_data_ctx(self.parent, **wrk)
+                    data_ref = _wrap_get_data_ctx(self.parent, **ref)
+                    for c in self.ctx:
+                        pre_ctx.append(c.preprocess(data_wrk, data_ref))
+
+                pre_seq = []
+                if self.seq:
+                    data_wrk = _wrap_get_data_seq_dual(self.parent, **wrk)
+                    data_ref = _wrap_get_data_seq_dual(self.parent, **ref)
+                    for c in self.seq:
+                        pre_seq.append(c.preprocess(data_wrk, data_ref))
+
+                return (pre_viz, pre_ctx, pre_seq)
+            case "single":
+                pre_seq = []
+                if self.seq:
+                    data_wrk = _wrap_get_data_seq_single(
+                        self.parent, **wrk, ctx_to_ref=self.ctx_to_ref
+                    )
+                    data_ref = _wrap_get_data_seq_single(
+                        self.parent, **ref, ctx_to_ref=self.ctx_to_ref
+                    )
+                    for c in self.seq:
+                        pre_seq.append(c.preprocess(data_wrk, data_ref))
+                return (pre_viz, pre_seq)
+            case "notrn":
+                return (pre_viz,)
+
+        assert False
+
+    def process(
+        self, wrk: SeqColumnData, ref: SeqColumnData, syn: SeqColumnData, pre: Any
+    ) -> Any:
+        proc_viz = []
+        for c, p in zip(self.visual, pre[0]):
+            proc_viz.append(c.process(wrk, ref, syn, p))
+
+        match self.mode:
+            case "dual":
+                proc_ctx = []
+                if self.ctx:
+                    data_wrk = _wrap_get_data_ctx(self.parent, **wrk)
+                    data_ref = _wrap_get_data_ctx(self.parent, **ref)
+                    data_syn = _wrap_get_data_ctx(self.parent, **syn)
+                    for c, p in zip(self.ctx, pre[1]):
+                        proc_ctx.append(c.process(data_wrk, data_ref, data_syn, p))
+
+                proc_seq = []
+                if self.seq:
+                    data_wrk = _wrap_get_data_seq_dual(self.parent, **wrk)
+                    data_ref = _wrap_get_data_seq_dual(self.parent, **ref)
+                    data_syn = _wrap_get_data_seq_dual(self.parent, **syn)
+                    for c, p in zip(self.seq, pre[2]):
+                        proc_seq.append(c.process(data_wrk, data_ref, data_syn, p))
+
+                return (proc_viz, proc_ctx, proc_seq)
+            case "single":
+                proc_seq = []
+                if self.seq:
+                    data_wrk = _wrap_get_data_seq_single(
+                        self.parent, **wrk, ctx_to_ref=self.ctx_to_ref
+                    )
+                    data_ref = _wrap_get_data_seq_single(
+                        self.parent, **ref, ctx_to_ref=self.ctx_to_ref
+                    )
+                    data_syn = _wrap_get_data_seq_single(
+                        self.parent, **syn, ctx_to_ref=self.ctx_to_ref
+                    )
+                    for c, p in zip(self.seq, pre[1]):
+                        proc_seq.append(c.process(data_wrk, data_ref, data_syn, p))
+                return (proc_viz, proc_seq)
+            case "notrn":
+                return (proc_viz,)
+
+        assert False
+
+    def combine(self, summaries: list) -> Any:
+        sum_viz = []
+        for i, c in enumerate(self.visual):
+            sum_viz.append(c.combine([s[0][i] for s in summaries]))
+        
+        match self.mode:
+            case "dual":
+                sum_ctx = []
+                for i, c in enumerate(self.ctx):
+                    sum_ctx.append(c.combine([s[1][i] for s in summaries]))
+                sum_seq = []
+                for i, c in enumerate(self.seq):
+                    sum_seq.append(c.combine([s[2][i] for s in summaries]))
+                return (sum_viz, sum_ctx, sum_seq)
+            case "single":
+                sum_seq = []
+                for i, c in enumerate(self.seq):
+                    sum_seq.append(c.combine([s[1][i] for s in summaries]))
+                return (sum_viz, sum_ctx)
+            case "notrn":
+                return (sum_viz, )
+
+        assert False
+
+    def _distr(self, data: dict[str, Any], fun: str):
+        for i, c in enumerate(self.visual):
+            getattr(c, fun)({k: v[0][i] for k, v in data.items()})
+
+        match self.mode:
+            case "dual":
+                for i, c in enumerate(self.ctx):
+                    getattr(c, fun)({k: v[1][i] for k, v in data.items()})
+                for i, c in enumerate(self.seq):
+                    getattr(c, fun)({k: v[2][i] for k, v in data.items()})
+            case "single":
+                for i, c in enumerate(self.seq):
+                    getattr(c, fun)({k: v[1][i] for k, v in data.items()})
+            case "notrn":
+                pass
+
+    def visualise(self, data: dict[str, Any]):
+        return self._distr(data, "visualise")
+
+    def summarize(self, data: dict[str, Any]):
+        return self._distr(data, "summarize")
+
+
+def _wrap_get_data_ctx(
+    parent: str,
+    data: pd.Series | pd.DataFrame,
+    ref: dict[str, pd.DataFrame],
+    ids: pd.DataFrame,
+    seq: pd.Series,
+):
+    ctx_data = (
+        ids[[parent]]
+        .join(data[seq == 0], how="right")
+        .drop_duplicates(subset=[parent])
+        .set_index(parent)
+    )
+    if isinstance(data, pd.Series):
+        ctx_data = ctx_data[next(iter(ctx_data))]
+
+    ctx_ref = None
+    if ref:
+        ctx_ref = ids.drop_duplicates(subset=[parent])
+        for name, ref_table in ref.items():
+            ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
+        ctx_ref = ctx_ref.set_index(parent).drop(
+            columns=[d for d in ids.columns if d != parent]
+        )
+        if ctx_ref.shape[1] == 1:
+            ctx_ref = ctx_ref[next(iter(ctx_ref))]
+
+    return {"data": ctx_data, "ref": ctx_ref}
+
+
+def _wrap_get_data_seq_dual(
+    parent: str,
+    data: pd.Series | pd.DataFrame,
+    ref: dict[str, pd.DataFrame],
+    ids: pd.DataFrame,
+    seq: pd.Series,
+):
+    # Data series is all rows where seq > 0 (skip initial)
+    ref_df = _backref_cols(ids, seq, data, parent)
+    return {"data": data[seq > 0], "ref": ref_df}
+
+
+def _wrap_get_data_seq_single(
+    parent: str,
+    data: pd.Series | pd.DataFrame,
+    ref: dict[str, pd.DataFrame],
+    ids: pd.DataFrame,
+    seq: pd.Series,
+    ctx_to_ref,
+):
+    ref_df = _backref_cols(ids, seq, data, parent)
+    if ref:
+        ctx_ref = ids[seq == 0].drop_duplicates(subset=[parent])
+        for name, ref_table in ref.items():
+            ctx_ref = ctx_ref.join(ref_table, on=name, how="left")
+        ctx_ref = ctx_ref.drop(columns=ids.columns)
+
+        if ctx_ref.shape[1] == 1:
+            ctx_ref = ctx_ref[next(iter(ctx_ref))]
+
+        if isinstance(ref_df, pd.Series) and isinstance(ctx_ref, pd.Series):
+            ref_df = pd.concat([ctx_ref, ref_df])
+        elif isinstance(ref_df, pd.DataFrame) and isinstance(ctx_ref, pd.DataFrame):
+            if ctx_to_ref:
+                ctx_ref = ctx_ref.rename(columns=ctx_to_ref)
+            ref_df = pd.concat([ctx_ref, ref_df], axis=0)
+            assert (
+                ref_df.shape[1] == ctx_ref.shape[1]
+            ), f"Parent columns not joined correctly to reference ones. If they have different names, pass in `ctx_to_ref` with names mapping them to parents"
+        else:
+            assert (
+                False
+            ), "fixme: mismatched reference column counts. If single column transformer, both should be series, otherwise both should be dataframes"
+
+    return {"data": data, "ref": ref_df}
 
 
 __all__ = [

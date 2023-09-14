@@ -1484,3 +1484,6 @@ class SeqTransformerWrapper(SeqTransformer):
                     assert False
 
         assert False
+    
+    def get_seq_value(self) -> SeqValue | None:
+        return SeqValue(self.col_seq, self.parent, self.order)
