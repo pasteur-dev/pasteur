@@ -152,7 +152,7 @@ def _visualise_kl(
                 "mlen",
             ],
         )
-        logger.info(f"Split {name} mean norm KL={results[name]['kl_norm'].mean():.5f}.")
+        logger.info(f"Table '{table:15s}': split '{name}' mean norm KL={results[name]['kl_norm'].mean():.5f}.")
         mlflow.log_metric(f"kl_norm.{name}", results[name]["kl_norm"].mean())
 
     kl_formatters = {"kl_norm": {"precision": 3}}
