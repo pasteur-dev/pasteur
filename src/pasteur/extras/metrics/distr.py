@@ -110,7 +110,7 @@ def _visualise_cs(
         split_ref="ref",
     )
 
-    fn = f"distr/cs.html" if table == "table" else f"distr/{table}_cs.html"
+    fn = f"distr/cs.html" if table == "table" else f"distr/cs/{table}.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
@@ -165,7 +165,7 @@ def _visualise_kl(
         split_ref="ref",
     )
 
-    fn = f"distr/kl.html" if table == "table" else f"distr/{table}_kl.html"
+    fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
 
 
