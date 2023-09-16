@@ -129,12 +129,12 @@ class Metric(ModuleClass, Generic[_INGEST, _SUMMARY]):
 class Summaries(Generic[A]):
     wrk: A
     ref: A
-    syn: A | None = None
+    syn: A
 
     def __init__(self, wrk: A, ref: A, syn: A | None = None) -> None:
         self.wrk = wrk
         self.ref = ref
-        self.syn = syn
+        self.syn = cast(A, syn) # Skip lint check for syn being None
 
     def replace(self, **kwargs):
         params = {"wrk": self.wrk, "ref": self.ref, "syn": self.syn}
