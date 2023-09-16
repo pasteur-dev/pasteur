@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from os import path
 from typing import Any, Callable
 
@@ -10,7 +11,7 @@ from kedro.io import DataCatalog, Version
 from kedro.io.memory_dataset import MemoryDataset
 
 from ...module import Module
-from ..dataset import AutoDataset, PickleDataset, Multiset
+from ..dataset import AutoDataset, Multiset, PickleDataset
 from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
@@ -152,7 +153,7 @@ class PasteurHook:
     def add_mem(self, layer, name):
         self.catalog.add(
             name,
-            MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),
+            MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),  # type: ignore
         )
         if layer:
             self.catalog.layers[layer].add(name)
@@ -214,14 +215,6 @@ class PasteurHook:
                     f"{ds}.raw@{name}" if "." not in name else name: dataset
                     for name, dataset in conf.items()
                 }
-                # Place all datasets to the raw layer
-                for d in conf.values():
-                    if "metadata" not in d:
-                        d["metadata"] = {"kedro-viz": {"layer": "raw"}}
-                    elif "kedro-viz" not in d["metadata"]:
-                        d["metadata"]["kedro-viz"] = {"layer": "raw"}
-                    elif "layer" not in d["metadata"]["kedro-viz"]:
-                        d["metadata"]["kedro-viz"]["layer"] = "raw"
 
                 tmp_catalog = DataCatalog.from_config(
                     conf,
@@ -230,14 +223,28 @@ class PasteurHook:
                     save_version,
                 )
 
+                # Add all traditional layers that exist
                 catalog.add_all(tmp_catalog._data_sets)
+                depr_tag = set()
                 if tmp_catalog.layers:
                     # Passthrough layers if they are not provided through metadata
                     for layer, children in tmp_catalog.layers.items():
-                        catalog.layers[layer] = {
-                            *children,
-                            *catalog.layers.get(layer, set()),
-                        }
+                        catalog.layers[layer].update(children)
+                        depr_tag.update(children)
+
+                # Skip constructor and set metadata attribute on datasets with
+                # a raw layer. Datasets without a metadata key word argument crash otherwise.
+                for n, d in tmp_catalog._data_sets.items():
+                    # Datasets with layer attribute are skipped
+                    if n in depr_tag:
+                        continue
+
+                    if not hasattr(d, "metadata") or getattr(d, 'metadata') is None:
+                        setattr(d, "metadata", {"kedro-viz": {"layer": "raw"}})
+                    elif "kedro-viz" not in getattr(d, "metadata"):
+                        getattr(d, "metadata")["kedro-viz"] = {"layer": "raw"}
+                    elif "layer" not in getattr(d, "metadata")["kedro-viz"]:
+                        getattr(d, "metadata")["kedro-viz"]["layer"] = "raw"
 
         # Add pipeline outputs
         for d in self.outputs:
