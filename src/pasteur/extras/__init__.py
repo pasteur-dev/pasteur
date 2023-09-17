@@ -17,6 +17,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.texas import TexasDataset
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
+
     # from .views.texas import TexasChargesView, TexasBaseView, TexasBillionView
 
     return [
@@ -44,6 +45,7 @@ def get_recommended_system_modules() -> list[Module]:
         NumericalHist,
         OrdinalHist,
         TimeHist,
+        SeqHist,
     )
 
     # from .synth.extern import AimSynth, PrivMrfSynth
@@ -91,6 +93,7 @@ def get_recommended_system_modules() -> list[Module]:
         DateHist.get_factory(),
         TimeHist.get_factory(),
         DatetimeHist.get_factory(),
+        SeqHist.get_factory(),
         # ModelMetric.get_factory(XGBoostlassifierModel),
     ]
 

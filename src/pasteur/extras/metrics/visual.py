@@ -10,12 +10,15 @@ from pandas.core.series import Series
 
 
 from typing import Sequence
-from ...metadata import ColumnMeta, Metadata
+
+from pasteur.attribute import SeqValue
+from pasteur.metric import AbstractColumnMetric, SeqColumnData, Summaries
 from ...metric import (
     AbstractColumnMetric,
     ColumnMetric,
     RefColumnData,
     RefColumnMetric,
+    SeqColumnMetric,
     Summaries,
     name_style_fn,
     name_style_title,
@@ -668,3 +671,82 @@ class DatetimeHist(
         time_fig = self.time._visualise({n: c[1] for n, c in data.items()})
 
         mlflow_log_hists(self.table, self.col, {**date_fig, "time": time_fig})
+
+
+class SeqHist(
+    SeqColumnMetric[
+        Summaries[np.ndarray],
+        Summaries[np.ndarray],
+    ]
+):
+    name = "seq"
+
+    def __init__(
+        self, y_log=False, max_len: int | None = None, _from_factory: bool = False, **_
+    ) -> None:
+        super().__init__(_from_factory=_from_factory, **_)
+        self.y_log = y_log
+        self.max_len_arg = max_len
+
+    def fit(
+        self,
+        table: str,
+        col: str | tuple[str, ...],
+        seq_val: SeqValue | None,
+        data: SeqColumnData,
+    ):
+        self.max_len = self.max_len_arg or int(data["seq"].max() + 1)
+        self.table = table
+        self.col = col
+
+        assert seq_val is not None
+        self.parent = seq_val.table
+
+    def reduce(self, other: "SeqHist"):
+        self.max_len = max(self.max_len, other.max_len)
+
+    def _process(self, data: SeqColumnData):
+        return (
+            data["seq"]
+            .groupby(data["ids"][self.parent])
+            .max()
+            .value_counts()
+            .reindex(range(self.max_len), fill_value=0)
+            .to_numpy()
+        )
+
+    def preprocess(self, wrk: SeqColumnData, ref: SeqColumnData) -> Summaries[ndarray]:
+        return Summaries(self._process(wrk), self._process(ref))
+
+    def combine(self, summaries: list[Summaries[ndarray]]) -> Summaries[ndarray]:
+        return Summaries(
+            wrk=np.sum([s.wrk for s in summaries], axis=0),
+            ref=np.sum([s.ref for s in summaries], axis=0),
+            syn=np.sum([s.syn for s in summaries if s.syn is not None], axis=0),
+        )
+
+    def process(
+        self,
+        wrk: SeqColumnData,
+        ref: SeqColumnData,
+        syn: SeqColumnData,
+        pre: Summaries[ndarray],
+    ) -> Summaries[ndarray]:
+        return pre.replace(syn=self._process(syn))
+
+    def visualise(self, data: dict[str, Summaries[ndarray]]):
+        load_matplotlib_style()
+
+        keys = list(data.keys())
+        splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
+        for name, split in data.items():
+            splits[name] = split.syn
+
+        f = _gen_hist(
+            self.y_log,
+            f"N-1 with parent '{self.parent}'",
+            np.arange(self.max_len + 1) - 0.5,
+            splits,
+        )
+
+        mlflow_log_hists(self.table, f"_n_per_{self.parent}", f)
