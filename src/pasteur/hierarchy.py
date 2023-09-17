@@ -10,7 +10,14 @@ from typing import TypeVar
 
 import numpy as np
 
-from .attribute import Attributes, CatValue, Grouping, StratifiedValue, get_dtype
+from .attribute import (
+    Attributes,
+    CatValue,
+    Grouping,
+    StratifiedValue,
+    get_dtype,
+    Attribute,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +326,8 @@ class RebalancedValue(CatValue):
         c: float | None = None,
         **_,
     ) -> None:
-        self.common = col.common
+        # FIXME: Use new common format
+        self.common = 0  # col.common
         self.grouping = make_grouping(counts, col.head, self.common)
         self.counts = counts
         self.c = c
@@ -450,19 +458,34 @@ def rebalance_attributes(
 
     new_attrs = {}
     for name, attr in attrs.items():
-        cols = {}
-        for col_name, col in attr.vals.items():
-            assert isinstance(col, StratifiedValue)
-            cols[col_name] = rebalance_value(
-                counts[col_name],
-                col,
+        acommon = attr.common
+        if acommon:
+            assert isinstance(acommon, StratifiedValue)
+            common = rebalance_value(
+                counts[acommon.name],
+                acommon,
                 num_cols,
                 ep,
                 **kwargs,
             )
+        else:
+            common = None
 
-        new_attr = copy(attr)
-        new_attr.update_vals(cols)
+        cols = []
+        for col_name, col in attr.vals.items():
+            assert isinstance(col, StratifiedValue)
+            # FIXME: The new format from common needs to be passed down to `rebalance_value`
+            cols.append(
+                rebalance_value(
+                    counts[col_name],
+                    col,
+                    num_cols,
+                    ep,
+                    **kwargs,
+                )
+            )
+
+        new_attr = Attribute(name, cols, common)
         new_attrs[name] = new_attr
 
     return new_attrs

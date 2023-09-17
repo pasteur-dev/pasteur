@@ -19,8 +19,7 @@ An Attribute holds multiple values and a set of common conditions. When a common
 condition is active, all of the Attribute's Values are expected to have the same
 value."""
 
-from copy import copy
-from typing import Any, Literal, Mapping, TypeVar
+from typing import Any, Literal, Mapping, TypeVar, Sequence
 
 import numpy as np
 
@@ -194,7 +193,6 @@ class Value:
     """Base value class"""
 
     name: str
-    common: int = 0
 
 
 class SeqValue(Value):
@@ -287,9 +285,9 @@ class StratifiedValue(CatValue):
     with nodes where the child order matters.
     By traversing the tree in DFS, each leaf is mapped to an integer."""
 
-    def __init__(self, head: Grouping, common: int = 0) -> None:
+    def __init__(self, name: str, head: Grouping) -> None:
+        self.name = name
         self.head = head
-        self.common = common
 
     def __str__(self) -> str:
         return "Idx" + str(self.head)
@@ -304,15 +302,7 @@ class StratifiedValue(CatValue):
         return self.head.get_mapping(height)
 
     def is_ordinal(self) -> bool:
-        if self.head.type == "ord" and self.head.size == len(self.head):
-            return True
-        if (
-            self.head.type == "cat"
-            and len(self.head) == self.common + 1
-            and self.head[self.common].type == "ord"
-        ):
-            return True
-        return False
+        return self.head.type == "ord" and self.head.size == len(self.head)
 
     @property
     def height(self):
@@ -323,68 +313,78 @@ class GenerationValue(StratifiedValue):
     table: str
     max_len: int
 
-    def __init__(self, table: str, max_len: int) -> None:
+    def __init__(self, name: str, table: str, max_len: int) -> None:
         self.table = table
         self.max_len = max_len
-        super().__init__(Grouping("ord", list(range(max_len + 1))), 0)
+        super().__init__(name, Grouping("ord", list(range(max_len + 1))))
 
 
-def _create_strat_value_cat(vals, na: bool = False, ukn_val: Any | None = None):
+def _create_strat_value_cat(
+    name: str, vals, na: bool = False, ukn_val: Any | None = None
+):
     arr = []
-    common = 0
     if na:
         arr.append(None)
-        common += 1
     if ukn_val is not None:
         arr.append(ukn_val)
-        common += 1
     arr.extend(vals)
 
-    return StratifiedValue(Grouping("cat", arr))
+    return StratifiedValue(name, Grouping("cat", arr))
 
 
-def _create_strat_value_ord(vals, na: bool = False, ukn_val: Any | None = None):
+def _create_strat_value_ord(
+    name: str, vals, na: bool = False, ukn_val: Any | None = None
+):
     g = Grouping("ord", vals)
-    common = 0
 
     if na or ukn_val is not None:
         arr = []
         if na:
-            common += 1
             arr.append(None)
         if ukn_val is not None:
-            common += 1
             arr.append(ukn_val)
         arr.append(g)
 
         g = Grouping("cat", arr)
 
-    return StratifiedValue(g, common)
+    return StratifiedValue(name, g)
 
 
 class NumValue(Value):
-    """Numerical Value: its value can be represented with a number, which might be NaN.
-
-    TODO: handle multiple common values (1 is assumed to be NA), appropriately."""
+    """Numerical Value: its value can be represented with a number, which might be NaN."""
 
     def __init__(
         self,
-        bins: int | None = None,
+        name: str,
+        bins: np.ndarray | Sequence[float] | int,
+        nullable: bool = False,
         min: int | float | None = None,
         max: int | float | None = None,
     ) -> None:
-        self.bins = bins
-        self.min = min
-        self.max = max
+        self.name = name
+
+        if isinstance(bins, np.ndarray) or isinstance(bins, Sequence):
+            self.bins = np.array(bins)
+        else:
+            assert (
+                bins is not None and min is not None and max is not None
+            ), f"Please provide 'min' and 'max' when 'bins' is an int."
+            self.bins = np.linspace(min, max, bins + 1)
+        self.nullable = nullable
 
     def __str__(self) -> str:
-        return f"Num[{self.bins if self.bins is not None else 'NA'},{self.min if self.min else float('nan'):.2f}<x<{self.max if self.max else float('nan'):.2f}]"
+        return f"Num[]"
 
     def __repr__(self) -> str:
         return str(self)
 
 
-V = TypeVar("V", bound=Value)
+class StratifiedNumValue(StratifiedValue):
+    name_cont: str
+
+    def __init__(self, name: str, name_cont: str, head: Grouping) -> None:
+        self.name_cont = name_cont
+        super().__init__(name, head)
 
 
 class Attribute:
@@ -392,46 +392,26 @@ class Attribute:
 
     def __init__(
         self,
-        name: str,
-        vals: dict[str, V],
-        na: bool = False,
-        ukn_val: bool = False,
-        common: str | int | None = None,
+        name: str | tuple[str, ...],
+        vals: Sequence[Value],
+        common: CatValue | None = None,
         unroll: bool = False,
         unroll_with: tuple[str, ...] = tuple(),
         partition: bool = False,
         partition_with: tuple[str, ...] = tuple(),
     ) -> None:
         self.name = name
-        self.na = na
-        self.ukn_val = ukn_val
-        if common is None:
-            self.common = self.na + self.ukn_val
-        else:
-            self.common = common
+        self.common = common
 
         self.unroll = unroll
         self.unroll_with = unroll_with
 
         self.partition = partition
         self.partition_with = partition_with
-
-        self.update_vals(vals)
-
-    def update_vals(self, vals: dict[str, V]):
-        self.vals: dict[str, Value] = {}
-        for name, val in vals.items():
-            val = copy(val)
-            val.name = name
-            val.common = self.common
-            self.vals[name] = val
+        self.vals = {k.name: k for k in vals}
 
     def __str__(self) -> str:
         flags = []
-        if self.na:
-            flags.append("NA")
-        if self.ukn_val:
-            flags.append("UKN")
         if self.unroll:
             if self.unroll_with:
                 flags.append(f"UNROLL({','.join(self.unroll_with)})")
@@ -442,6 +422,8 @@ class Attribute:
                 flags.append(f"PARTN({','.join(self.partition_with)})")
             else:
                 flags.append("PARTN")
+        if self.common:
+            flags.append(f"COMMON({self.common.name}:{self.common})")
 
         return f"Attr[{','.join(flags)}]{self.vals}"
 
@@ -465,12 +447,9 @@ def OrdAttribute(
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are ordinal, based on the provided data."""
-    cols = {name: _create_strat_value_ord(vals, na, ukn_val)}
     return Attribute(
         name,
-        cols,
-        na,
-        ukn_val is not None,
+        [_create_strat_value_ord(name, vals, na, ukn_val)],
         partition=partition,
         partition_with=partition_with,
     )
@@ -486,12 +465,9 @@ def CatAttribute(
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are categorical, based on the provided data."""
-    cols = {name: _create_strat_value_cat(vals, na, ukn_val)}
     return Attribute(
         name,
-        cols,
-        na,
-        ukn_val is not None,
+        [_create_strat_value_cat(name, vals, na, ukn_val)],
         partition=partition,
         partition_with=partition_with,
     )
@@ -505,17 +481,17 @@ def NumAttribute(
     nullable: bool = False,
 ):
     """Returns an Attribute holding a single NumValue with the provided data."""
-    return Attribute(name, {name: NumValue(bins, min, max)}, nullable, False)
+    return Attribute(name, [NumValue(name, bins, nullable, min, max)])
 
 
 def SeqAttribute(name: str, table: str, order: int | None = None):
     """Returns an Attribute holding a single SeqValue with the provided data."""
-    return Attribute(name, {name: SeqValue(name, table, order)}, False, False)
+    return Attribute(name, [SeqValue(name, table, order)])
 
 
 def GenAttribute(name: str, table: str, max_len: int):
     """Returns an Attribute holding a single GenerationValue with the provided data."""
-    return Attribute(name, {name: GenerationValue(table, max_len)}, False, False)
+    return Attribute(name, [GenerationValue(name, table, max_len)])
 
 
 __all__ = [
