@@ -60,6 +60,7 @@ def pipe(
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
     from .pipelines.meta import (
+        TAG_ALWAYS,
         TAG_CHANGES_HYPERPARAMETER,
         TAG_CHANGES_PER_ALGORITHM,
         TAG_METRICS,
@@ -88,12 +89,12 @@ def pipe(
             tags = []
         elif pre:
             logger.info("Only nodes for preprocessing the view will be run.")
-            tags = [TAG_CHANGES_HYPERPARAMETER]
+            tags = [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER]
         elif synth:
             logger.warning(
                 "Skipping ingest nodes which are affected by hyperparameters, results may be invalid."
             )
-            tags = [TAG_CHANGES_PER_ALGORITHM]
+            tags = [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM]
         elif metrics:
             logger.warning("Only running metrics nodes.")
             tags = [TAG_METRICS]
@@ -101,7 +102,7 @@ def pipe(
             logger.debug(
                 "Skipping dataset ingestion. In case of error, run the pipeline with the name of the dataset."
             )
-            tags = [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
+            tags = [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
 
         # TODO: Allow for using a config value
         if refresh_processes == 0:
