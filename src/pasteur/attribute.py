@@ -350,6 +350,9 @@ def _create_strat_value_ord(
     return StratifiedValue(name, g)
 
 
+OrdValue = _create_strat_value_ord
+
+
 class NumValue(Value):
     """Numerical Value: its value can be represented with a number, which might be NaN."""
 
@@ -387,6 +390,44 @@ class StratifiedNumValue(StratifiedValue):
         super().__init__(name, head)
 
 
+def _groups_match(main: Grouping, other: Grouping):
+    """Checks that `other` mirrors the structure of `main`."""
+    if len(main) != len(other):
+        return False
+
+    if main.type != other.type:
+        return False
+
+    for a, b in zip(main, other):
+        if not isinstance(a, Grouping):
+            continue
+
+        if not isinstance(b, Grouping):
+            return False
+
+        if not _groups_match(a, b):
+            return False
+
+    return True
+
+
+def CommonValue(
+    name: str,
+    na: bool = False,
+    ukn_val: Any | None = None,
+    normal_name: str = 'Normal'
+):
+
+    vals = []
+    if na:
+        vals.append(None)
+    if ukn_val is not None:
+        vals.append(ukn_val)
+    vals.append(normal_name)
+
+    return StratifiedValue(name, Grouping("cat", vals))
+
+
 class Attribute:
     """Attribute class which holds multiple values in a dictionary."""
 
@@ -409,6 +450,26 @@ class Attribute:
         self.partition = partition
         self.partition_with = partition_with
         self.vals = {k.name: k for k in vals}
+
+        # Perform a check for a valid common value
+        if common:
+            # Agnostic Categorical Value check
+            # Check that domains match for all categorical values with common
+            # value
+            for v in vals:
+                if not isinstance(v, CatValue):
+                    continue
+                for h in range(common.height + 1):
+                    assert v.get_domain(v.height - h) == common.get_domain(h)
+
+            # Stratified Value check
+            # We check that common is a super set of each Stratified value
+            if isinstance(common, StratifiedValue):
+                for v in vals:
+                    if not isinstance(v, StratifiedValue):
+                        continue
+
+                    assert _groups_match(common.head, v.head)
 
     def __str__(self) -> str:
         flags = []

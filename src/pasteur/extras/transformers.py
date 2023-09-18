@@ -10,14 +10,15 @@ from pasteur.transform import RefTransformer, Transformer
 from ..attribute import (
     Attribute,
     CatAttribute,
+    CommonValue,
     Grouping,
     NumAttribute,
     NumValue,
     OrdAttribute,
+    OrdValue,
     StratifiedValue,
+    get_dtype,
 )
-from ..attribute import _create_strat_value_ord as OrdValue
-from ..attribute import get_dtype
 from ..transform import RefTransformer, SeqTransformer, Transformer
 from ..utils import list_unique
 
@@ -277,35 +278,48 @@ class DateTransformer(RefTransformer):
             "Saturday",
             "Sunday",
         ]
+
+        if self.nullable:
+            common = CommonValue(f"{col}_common", True)
+        else:
+            common = None
+
         match self.span:
             case "year":
                 self.attr = Attribute(
                     col,
-                    {
-                        f"{col}_year": NumValue(self.bins, 0, self.max_len),
-                        f"{col}_week": OrdValue(
-                            range(53 if self.weeks53 else 52), na=self.nullable
+                    [
+                        NumValue(
+                            f"{col}_year", self.bins, self.nullable, 0, self.max_len
                         ),
-                        f"{col}_day": OrdValue(days, na=self.nullable),
-                    },
-                    self.nullable,
+                        OrdValue(
+                            f"{col}_week",
+                            range(53 if self.weeks53 else 52),
+                            na=self.nullable,
+                        ),
+                        OrdValue(f"{col}_day", days, na=self.nullable),
+                    ],
+                    common,
                 )
             case "week":
                 self.attr = Attribute(
                     col,
-                    {
-                        f"{col}_week": NumValue(self.bins, 0, self.max_len),
-                        f"{col}_day": OrdValue(days, na=self.nullable),
-                    },
-                    self.nullable,
+                    [
+                        NumValue(
+                            f"{col}_week", self.bins, self.nullable, 0, self.max_len
+                        ),
+                        OrdValue(f"{col}_day", days, na=self.nullable),
+                    ],
+                    common,
                 )
             case "day":
                 self.attr = Attribute(
                     col,
-                    {
-                        f"{col}_day": NumValue(self.bins, 0, self.max_len),
-                    },
-                    self.nullable,
+                    [
+                        NumValue(
+                            f"{col}_day", self.bins, self.nullable, 0, self.max_len
+                        ),
+                    ],
                 )
 
     def get_attributes(self) -> Attributes:
@@ -390,6 +404,7 @@ class DateTransformer(RefTransformer):
                 out[f"{col}_day"] = day.astype("float32")
 
         if self.nullable:
+            out[f"{col}_common"] = pd.Series(1, index=out.index, dtype="uint8")
             out = out.reindex(data.index, fill_value=0)
             # NAs were set as 0, change them to floats
             out.loc[na_mask, f"{col}_{self.span}"] = np.nan  # type: ignore
@@ -398,7 +413,6 @@ class DateTransformer(RefTransformer):
 
     def reverse(self, data: pd.DataFrame, ref: pd.Series | None = None) -> pd.Series:
         col = self.col
-
         vals = data
 
         # Check for nullability in the columns below
@@ -531,12 +545,7 @@ class TimeTransformer(Transformer):
             lvl = Grouping("cat", [None, lvl])
 
         self.domain = lvl.size
-
-        self.attr = Attribute(
-            self.col,
-            {f"{self.col}_time": StratifiedValue(lvl)},
-            self.nullable,
-        )
+        self.attr = Attribute(self.col, [StratifiedValue(f"{self.col}_time", lvl)])
 
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
@@ -653,7 +662,7 @@ class DatetimeTransformer(RefTransformer):
     def _finalize_props(self):
         cdt = next(iter(self.dt.get_attributes().values()))
         ctt = next(iter(self.tt.get_attributes().values()))
-        self.attr = Attribute(self.col, vals={**cdt.vals, **ctt.vals}, na=self.nullable)
+        self.attr = Attribute(self.col, vals=[*cdt.vals.values(), *ctt.vals.values()])
 
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
@@ -713,8 +722,7 @@ class FixedValueTransformer(Transformer):
 
     def fit(self, data: pd.Series):
         self.col = data.name
-
-        self.attr = Attribute(cast(str, self.col), {})
+        self.attr = Attribute(cast(str, self.col), [])
 
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
