@@ -12,7 +12,8 @@ from ..attribute import (
     Attribute,
     CatValue,
     NumValue,
-    OrdValue,
+    StratifiedNumValue,
+    Grouping,
     get_dtype,
 )
 from ..encode import AttributeEncoder, PostprocessEncoder
@@ -21,36 +22,90 @@ from ..encode import AttributeEncoder, PostprocessEncoder
 class DiscretizationColumnTransformer:
     """Converts a numerical column into an ordinal one using histograms."""
 
-    def fit(self, attr: NumValue, data: pd.Series) -> CatValue:
-        self.in_attr = attr
-        assert data.name
-        self.col = cast(str, data.name)
+    def fit(self, val: NumValue, data: pd.Series) -> CatValue:
+        self.in_val = val
+        assert data.name and data.name == val.name
+        self.col = val.name
+        self.col_cnt = val.name + "_cnt"
 
-        assert attr.bins is not None
+        assert val.bins is not None
 
-        self.edges = attr.bins
-        self.vals = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.float32)
-        self.attr = OrdValue(attr.name, self.vals, attr.nullable)
-        self.nullable = attr.nullable
-        return self.attr
+        self.edges = val.bins
+        self.centers = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.float32)
+
+        b = val.bins
+        names = [f"[{b[i]:.2f}, {b[i + 1]:.2f})" for i in range(len(b) - 1)]
+
+        group = Grouping("ord", names)
+        null = None
+        if val.nullable:
+            group = Grouping("cat", [None, group])
+            null = [True, *[False for _ in range(len(b) - 1)]]
+
+        self.val = StratifiedNumValue(self.col, self.col_cnt, group, null)
+        self.nullable = val.nullable
+        return self.val
 
     def encode(self, data: pd.Series) -> pd.DataFrame | pd.Series:
         ofs = int(self.nullable)
-        dtype = get_dtype(len(self.vals))
-        midx = len(self.vals) - 1  # clip digitize out of bounds values
-        digits = (np.digitize(data, bins=self.edges).astype(dtype) - 1).clip(
-            0, midx
-        ) + ofs
+        dtype = get_dtype(len(self.centers) + 1)
+        midx = len(self.centers) - 1  # clip digitize out of bounds values
+        digits = (
+            np.digitize(data, bins=self.edges).astype(dtype).clip(1, midx) - 1 + ofs
+        )
+
+        digits = pd.Series(digits, index=data.index, name=self.col)
         if ofs:
             digits[pd.isna(data)] = 0
-        return pd.Series(digits, index=data.index, name=self.col)
+
+        clip_min = digits.astype("float32").replace(
+            {i + ofs: c for i, c in enumerate(self.edges)}
+        )
+        clip_max = digits.astype("float32").replace(
+            {i + ofs - 1: c for i, c in enumerate(self.edges)}
+        )
+        c = self.edges
+        clip_norm = digits.astype("float32").replace(
+            {i + ofs: c[i + 1] - c[i] for i in range(len(self.edges) - 1)}
+        )
+        cont = ((data.clip(upper=clip_max) - clip_min) / clip_norm).rename(self.col_cnt)
+        if self.nullable:
+            cont[digits == 0] = np.nan
+        else:
+            assert not np.any(
+                pd.isna(data)
+            ), f"Found nullable data in the non-nullable column '{self.col}'"
+        return pd.concat([digits, cont], axis=1)
 
     def decode(self, enc: pd.DataFrame) -> pd.Series:
         ofs = int(self.nullable)
-        v = self.vals[(enc[self.col] - ofs).clip(0, len(self.vals) - 1)]
-        if ofs:
-            v[enc[self.col] == 0] = np.nan
-        return pd.Series(v, index=enc.index, name=self.col)
+
+        if self.col_cnt in enc:
+            c = self.edges
+            clip_norm = (
+                enc[self.col]
+                .astype("float32")
+                .replace({i + ofs: c[i + 1] - c[i] for i in range(len(self.edges) - 1)})
+            )
+            new_col = (
+                enc[self.col]
+                .astype("float32")
+                .replace({i + ofs: c for i, c in enumerate(self.edges)})
+                + enc[self.col_cnt] * clip_norm
+            )
+            new_col = new_col.rename(self.col)
+        else:
+            new_col = (
+                enc[self.col]
+                .astype("float32")
+                .replace({i + ofs: c for i, c in enumerate(self.centers)})
+                .rename(self.col)
+            )
+
+        if self.nullable:
+            new_col[pd.isna(enc[self.col])] = np.nan
+
+        return new_col
 
 
 class IdxEncoder(AttributeEncoder[Attribute]):

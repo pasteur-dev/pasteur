@@ -39,7 +39,7 @@ def get_dtype(domain: int):
     return np.uint64
 
 
-GI = TypeVar("GI", "Grouping", int)
+GI = TypeVar("GI", "Grouping", str)
 
 
 class Grouping(list[GI]):
@@ -203,6 +203,12 @@ class SeqValue(Value):
         self.name = name
         self.table = table
         self.order = order
+
+    def __str__(self) -> str:
+        return f"Seq[{self.table},ord={self.order if self.order is not None else 'NA'}]"
+
+    def __repr__(self) -> str:
+        return str(self)
 
 
 class CatValue(Value):
@@ -376,19 +382,31 @@ class NumValue(Value):
         self.nullable = nullable
 
     def __str__(self) -> str:
-        return f"Num[]"
+        return f"Num[{', '.join([f'{f:.2f}' for f in self.bins])}]"
 
     def __repr__(self) -> str:
         return str(self)
 
 
 class StratifiedNumValue(StratifiedValue):
-    name_cont: str
+    name_cnt: str
 
-    def __init__(self, name: str, name_cont: str, head: Grouping) -> None:
-        self.name_cont = name_cont
+    def __init__(self, name: str, name_cnt: str, head: Grouping, null: None | Sequence[bool] = None) -> None:
+        self.name_cnt = name_cnt
+        if null:
+            assert len(null) == head.get_domain(0)
+            self.null = null
+        else:
+            self.null = [False for _ in range(head.get_domain(0))]
+
         super().__init__(name, head)
 
+        
+    def __str__(self) -> str:
+        return "NumIdx" + str(self.head)
+
+    def __repr__(self) -> str:
+        return "NumIdx" + repr(self.head)
 
 def _groups_match(main: Grouping, other: Grouping):
     """Checks that `other` mirrors the structure of `main`."""
@@ -466,7 +484,7 @@ class Attribute:
                     for h in range(common.height + 1):
                         assert v.get_domain(v.height - h) == common.get_domain(h)
 
-    def __str__(self) -> str:
+    def _str_pref(self):
         flags = []
         if self.unroll:
             if self.unroll_with:
@@ -481,10 +499,13 @@ class Attribute:
         if self.common:
             flags.append(f"COMMON({self.common.name}:{self.common})")
 
-        return f"Attr[{','.join(flags)}]{self.vals}"
+        return f"Attr[{','.join(flags)}]"
+
+    def __str__(self) -> str:
+        return self._str_pref() + str(self.vals)
 
     def __repr__(self) -> str:
-        return str(self)
+        return self._str_pref() + repr(self.vals)
 
     def __getitem__(self, col: str) -> Value:
         return self.vals[col]
