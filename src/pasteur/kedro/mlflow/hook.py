@@ -240,7 +240,7 @@ class MlflowTrackingHook:
             return
 
         MlflowHandler.reset_all()
-        PerformanceTracker.log()
+        PerformanceTracker.log(on_fail=True)
         while mlflow.active_run():
             mlflow.end_run(RunStatus.to_string(RunStatus.FAILED))
 

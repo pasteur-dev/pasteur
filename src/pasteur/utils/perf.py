@@ -124,7 +124,7 @@ class PerformanceTracker:
         return PerformanceTracker._trackers[name]
 
     @staticmethod
-    def log():
+    def log(on_fail: bool = False):
         import mlflow
         from .mlflow import mlflow_log_as_str
 
@@ -145,9 +145,10 @@ class PerformanceTracker:
 
                 if metric < 0:
                     metric = -1
-                    logger.warning(
-                        f"Metric {metric_name} is negative, there is a missing `start()`, `stop()` or partial `ensemble()`."
-                    )
+                    if not on_fail:
+                        logger.warning(
+                            f"Metric {metric_name} is negative, there is a missing `start()`, `stop()` or partial `ensemble()`."
+                        )
                 else:
                     # convert to seconds
                     metric /= 10**9
