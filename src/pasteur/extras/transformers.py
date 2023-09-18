@@ -34,7 +34,6 @@ class NumericalTransformer(Transformer):
     def __init__(
         self,
         bins: int = 20,
-        find_edges: bool = False,
         min: float | int | None = None,
         max: float | int | None = None,
         nullable: bool = False,
@@ -44,14 +43,13 @@ class NumericalTransformer(Transformer):
         self.bins = bins
         self.min = min
         self.max = max
-        self.find_edges = find_edges
 
     def fit(self, data: pd.Series):
         self.col = cast(str, data.name)
         self.dtype = data.dtype
-        if self.min is None and self.find_edges:
+        if self.min is None:
             self.min = data.min()
-        if self.max is None and self.find_edges:
+        if self.max is None:
             self.max = data.max()
         self.attr = NumAttribute(self.col, self.bins, self.min, self.max, self.nullable)
 

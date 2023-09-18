@@ -453,23 +453,18 @@ class Attribute:
 
         # Perform a check for a valid common value
         if common:
-            # Agnostic Categorical Value check
-            # Check that domains match for all categorical values with common
-            # value
+            # Categorical Value check
+            # Check that domains match for all categorical values with common value
             for v in vals:
                 if not isinstance(v, CatValue):
                     continue
-                for h in range(common.height + 1):
-                    assert v.get_domain(v.height - h) == common.get_domain(h)
-
-            # Stratified Value check
-            # We check that common is a super set of each Stratified value
-            if isinstance(common, StratifiedValue):
-                for v in vals:
-                    if not isinstance(v, StratifiedValue):
-                        continue
-
+                
+                if isinstance(common, StratifiedValue) and isinstance(v, StratifiedValue):
+                    # For stratified values we traverse the tree and check if it matches
                     assert _groups_match(common.head, v.head)
+                else:
+                    for h in range(common.height + 1):
+                        assert v.get_domain(v.height - h) == common.get_domain(h)
 
     def __str__(self) -> str:
         flags = []
