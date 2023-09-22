@@ -1,7 +1,17 @@
 """ This module extends Kedro's ipython functionality. """
+# Disable default kedro logging config
+import os
+import logging
+
+
+from ..utils import get_relative_fn
+
+os.environ["KEDRO_LOGGING_CONFIG"] = get_relative_fn("./logstub.yml")
+logging.captureWarnings(True)
+
 from pathlib import Path
 
-from IPython import get_ipython
+from IPython.core.getipython import get_ipython
 from kedro.framework.context import KedroContext
 from kedro.framework.session.session import KedroSession
 from kedro.framework.startup import bootstrap_project
@@ -9,7 +19,7 @@ from kedro.io.data_catalog import DataCatalog
 from kedro.pipeline import Pipeline
 
 from ..utils.parser import flat_params_to_dict, str_params_to_dict
-from ..utils.progress import PBAR_JUP_NCOLS
+from ..utils.progress import PBAR_JUP_NCOLS, RICH_TRACEBACK_ARGS
 from .runner import SimpleRunner
 
 # Removes lint errors from VS Code
@@ -19,8 +29,10 @@ session: KedroSession = None  # type: ignore
 pipelines: dict[str, Pipeline] = None  # type: ignore
 
 
-def _reconfigure_rich():
-    from rich import _console, reconfigure
+def _reconfigure_rich(tracebacks: bool = True):
+    import rich
+    from rich import reconfigure, get_console
+    from rich.pretty import _ipy_display_hook
 
     _rich_console_args = {
         "width": PBAR_JUP_NCOLS,
@@ -31,7 +43,7 @@ def _reconfigure_rich():
 
     # Disable html rendering when using jupyter
     # force_jupyter=False messes with pretty print
-    _console_check_buffer = _console._check_buffer  # type: ignore
+    _console_check_buffer = rich._console._check_buffer  # type: ignore
 
     def non_html_check_buffer(self):
         tmp = self.is_jupyter
@@ -39,7 +51,28 @@ def _reconfigure_rich():
         _console_check_buffer.__get__(self)()
         self.is_jupyter = tmp
 
-    _console._check_buffer = non_html_check_buffer.__get__(_console)  # type: ignore
+    rich._console._check_buffer = non_html_check_buffer.__get__(rich._console)  # type: ignore
+
+    # Install optional rich formatter
+    # controlled by the PPRINT variable
+    from IPython.core.formatters import BaseFormatter
+
+    class RichFormatter(BaseFormatter):  # type: ignore[misc]
+        def __call__(self, value):
+            if get_ipython().ev('globals().get("PPRINT", True)'):  # type: ignore
+                return _ipy_display_hook(value, console=get_console())
+            else:
+                return repr(value)
+
+    # Replace plain text formatter with rich formatter
+    rich_formatter = RichFormatter()
+    get_ipython().display_formatter.formatters["text/plain"] = rich_formatter  # type: ignore
+
+    # Install tracebacks
+    if tracebacks:
+        import rich.traceback
+
+        rich.traceback.install(**RICH_TRACEBACK_ARGS, console=rich._console) # type: ignore
 
 
 def _pipe(pipe: str, params_str: str, params: dict):
@@ -81,9 +114,8 @@ def _pipe_magic(line):
     _pipe(pipe_str, params_str, params)
 
 
-def register_kedro(path: str | None = None):
+def register_kedro(path: str | None = None, tracebacks: bool = True):
     from kedro.ipython import _find_kedro_project, reload_kedro
-    import logging
 
     top_level = Path(path) if path else Path.cwd()
     proj_path = _find_kedro_project(top_level)
@@ -94,12 +126,12 @@ def register_kedro(path: str | None = None):
 
     # Disable path message
     logging.getLogger().handlers = []
-    _reconfigure_rich()
+    _reconfigure_rich(tracebacks)
     if not proj_path:
         raise Exception(f"Kedro project not found along path: '{top_level}'")
     else:
         reload_kedro(proj_path)  # type: ignore
-    _reconfigure_rich()
+    _reconfigure_rich(tracebacks)
 
 
 def load_ipython_extension(ipython):
