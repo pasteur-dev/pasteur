@@ -138,7 +138,15 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             found_num and attr.common and attr.common.get_domain(0) > 2
         ), "Only null supported as a common condition for now."
 
-        self.attr = Attribute(attr.name, cols, attr.common)
+        self.attr = Attribute(
+            attr.name,
+            cols,
+            common=attr.common,
+            unroll=attr.unroll,
+            unroll_with=attr.unroll_with,
+            partition=attr.partition,
+            partition_with=attr.partition_with,
+        )
 
     def get_metadata(self) -> dict[str | tuple[str, ...], Attribute]:
         return {self.attr.name: self.attr}
@@ -155,7 +163,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             else:
                 out_cols.append(data[name])
 
-        if self.common_name:
+        if self.common_name and self.common_name not in self.attr.vals:
             out_cols.append(data[self.common_name])
 
         return pd.concat(out_cols, axis=1, copy=False, join="inner")
@@ -169,7 +177,11 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             else:
                 dec[n] = enc[n]
 
-        if self.common_name and self.common_name in enc:
+        if (
+            self.common_name
+            and self.common_name in enc
+            and self.common_name not in self.attr.vals
+        ):
             dec[self.common_name] = enc[self.common_name]
 
         return dec

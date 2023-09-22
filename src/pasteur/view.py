@@ -5,12 +5,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .module import Module
-from .utils import LazyFrame, LazyChunk, to_chunked
-from .utils.progress import process_in_parallel
+import pandas as pd
 
-if TYPE_CHECKING:
-    import pandas as pd
+from .module import Module
+from .utils import LazyChunk, LazyFrame, to_chunked
+from .utils.progress import process_in_parallel
 
 
 @to_chunked

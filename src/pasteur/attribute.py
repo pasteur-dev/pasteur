@@ -391,7 +391,13 @@ class NumValue(Value):
 class StratifiedNumValue(StratifiedValue):
     name_cnt: str
 
-    def __init__(self, name: str, name_cnt: str, head: Grouping, null: None | Sequence[bool] = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        name_cnt: str,
+        head: Grouping,
+        null: None | Sequence[bool] = None,
+    ) -> None:
         self.name_cnt = name_cnt
         if null:
             assert len(null) == head.get_domain(0)
@@ -401,12 +407,12 @@ class StratifiedNumValue(StratifiedValue):
 
         super().__init__(name, head)
 
-        
     def __str__(self) -> str:
         return "NumIdx" + str(self.head)
 
     def __repr__(self) -> str:
         return "NumIdx" + repr(self.head)
+
 
 def _groups_match(main: Grouping, other: Grouping):
     """Checks that `other` mirrors the structure of `main`."""
@@ -430,10 +436,7 @@ def _groups_match(main: Grouping, other: Grouping):
 
 
 def CommonValue(
-    name: str,
-    na: bool = False,
-    ukn_val: Any | None = None,
-    normal_name: str = 'Normal'
+    name: str, na: bool = False, ukn_val: Any | None = None, normal_name: str = "Normal"
 ):
 
     vals = []
@@ -454,10 +457,10 @@ class Attribute:
         name: str | tuple[str, ...],
         vals: Sequence[Value],
         common: CatValue | None = None,
-        unroll: bool = False,
-        unroll_with: tuple[str, ...] = tuple(),
+        unroll: str | None = None,
+        unroll_with: tuple[str | tuple[str, ...], ...] = tuple(),
         partition: bool = False,
-        partition_with: tuple[str, ...] = tuple(),
+        partition_with: tuple[str | tuple[str, ...], ...] = tuple(),
     ) -> None:
         self.name = name
         self.common = common
@@ -476,8 +479,10 @@ class Attribute:
             for v in vals:
                 if not isinstance(v, CatValue):
                     continue
-                
-                if isinstance(common, StratifiedValue) and isinstance(v, StratifiedValue):
+
+                if isinstance(common, StratifiedValue) and isinstance(
+                    v, StratifiedValue
+                ):
                     # For stratified values we traverse the tree and check if it matches
                     assert _groups_match(common.head, v.head)
                 else:
@@ -488,12 +493,16 @@ class Attribute:
         flags = []
         if self.unroll:
             if self.unroll_with:
-                flags.append(f"UNROLL({','.join(self.unroll_with)})")
+                flags.append(
+                    f"UNROLL({','.join(['_'.join(k) if not isinstance(k, str) else k for k in self.unroll_with])})"
+                )
             else:
                 flags.append("UNROLL")
         if self.partition:
             if self.partition_with:
-                flags.append(f"PARTN({','.join(self.partition_with)})")
+                flags.append(
+                    f"PARTN({','.join(['_'.join(k) if not isinstance(k, str) else k for k in self.partition_with])})"
+                )
             else:
                 flags.append("PARTN")
         if self.common:

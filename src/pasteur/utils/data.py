@@ -121,7 +121,7 @@ def _partition_lazy(d, key: str):
     return d
 
 
-def _dummy_return(a):
+def _dummy_return(a, *b, **c):
     return a
 
 
@@ -319,7 +319,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         return 0
 
     @classmethod
-    def wrap(cls, *positional, **keyword):
+    def wrap(cls, *positional, **keyword) -> Any:
         """Converts provided arguments to lazy. Tuples, dicts, and lists are traversed,
         and every object found in them is wrapped in a LazyDataset."""
         if positional and keyword:
@@ -507,8 +507,8 @@ def data_to_tables(
 
 @overload
 def data_to_tables(
-    data: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    data: dict[str, A]
+) -> tuple[dict[str, A], dict[str, A]]:
     ...
 
 
