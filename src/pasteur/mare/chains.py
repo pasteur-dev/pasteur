@@ -1,11 +1,15 @@
+""" This module contains functions for calculating the markov chain combinations 
+of different tables in a dataset.
+"""
+
 from collections import defaultdict
 from itertools import product
 from typing import Generic, NamedTuple, Sequence, TypeVar
 
 import pandas as pd
 
-from .attribute import Attributes, SeqValue
-from .utils import LazyFrame, lazy_load_tables
+from ..attribute import Attributes, SeqValue
+from ..utils import LazyFrame, lazy_load_tables
 
 
 class PartInfo(NamedTuple):
@@ -28,7 +32,10 @@ class SeqInfo(NamedTuple):
     parent: str
 
 
-class TableVersion(NamedTuple):
+class TableChain(NamedTuple):
+    """Contains the parameters required to construct a markov chain for table
+    with name `name`, by recursing on its parents."""
+
     # Table Name
     name: str
     # Table pins
@@ -36,12 +43,16 @@ class TableVersion(NamedTuple):
     sequence: SeqInfo | None
     unroll: UnrollInfo | None
     # Table parents
-    parents: tuple["TableVersion", ...]
+    parents: tuple["TableChain", ...]
 
 
 def get_parents(
     ids: dict[str, LazyFrame], table: str | None = None, _reverse: bool = False
 ):
+    """Returns a graph of the parent relationships in the dataset, based on the id table.
+
+    I.e. if there is a dataset with tables A, B, C, D, where C -> B -> A and D -> B,
+    the function returns`{'D': {'B': {'A': {}}}, 'C': {'B': {'A': {}}}}`"""
     # Get parents
     parents = {name: set(id.sample().columns) for name, id in ids.items()}
     tables = list(parents)
@@ -79,16 +90,16 @@ def get_parents(
 
 
 def get_children(ids: dict[str, LazyFrame]):
+    """Returns a graph of the children relationships in the dataset, based on the id table.
+
+    I.e. if there is a dataset with tables A, B, C, D, where C -> B -> A and D -> B,
+    the function returns`{'A': {'B': {'C', 'D'}}}`"""
     return get_parents(ids, _reverse=True)
 
 
 def _calculate_parent_mask(
-    name: str, parents: tuple[TableVersion, ...], get_table, get_ids, cache
+    name: str, parents: tuple[TableChain, ...], get_table, get_ids, cache
 ):
-    """Calculates the mask of table `name` that makes it include only the rows
-    satisfied by its parents. `included_ids_cache` is updated.
-
-    `cache` should be a dicti. Improves performance."""
     included_ids = {}
     for parent in parents:
         included_ids.update(_calculate_included_ids(parent, get_table, get_ids, cache))
@@ -105,7 +116,7 @@ def _calculate_parent_mask(
     return mask
 
 
-def _calculate_included_ids(ver: TableVersion, get_table, get_ids, cache):
+def _calculate_included_ids(ver: TableChain, get_table, get_ids, cache):
     """Each table version excludes some rows based on partitioning and sequencing.
     And the partitioning and sequencing of its parents.
 
@@ -152,13 +163,19 @@ def _calculate_included_ids(ver: TableVersion, get_table, get_ids, cache):
     return out
 
 
-def _calculate_versions_of_table(
+def _calculate_chains_of_table(
     name: str,
     meta: dict[str, Attributes],
     ids: dict[str, LazyFrame],
     tables: dict[str, LazyFrame],
-    parents: dict[str, Sequence[TableVersion]],
-) -> tuple[tuple[TableVersion, ...], dict[TableVersion, int]]:
+    parents: dict[str, tuple[TableChain]],
+) -> tuple[tuple[TableChain, ...], dict[TableChain, int]]:
+    """Calculates the possible markov chains for the table with `name`, by
+    iterating over its parent combinations.
+
+    The chains are returned as a tuple, alongside a dictionary of `chain -> row
+    count` mappings, which may be used as auxiliary info when deciding
+    which chains to keep."""
 
     sequence = None
     sequence_parent = None
@@ -229,7 +246,7 @@ def _calculate_versions_of_table(
     for ptables, pids in LazyFrame.zip_values([tables, ids]):
         get_table = lazy_load_tables(ptables)
         get_ids = lazy_load_tables(pids)
-        included_ids_cache: dict[TableVersion, pd.Series] = {}
+        included_ids_cache: dict[TableChain, pd.Series] = {}
 
         for combo in combos:
             table = get_table(name)
@@ -261,7 +278,7 @@ def _calculate_versions_of_table(
                         inc = (table[sequence] >= sequence_order).sum()
                     rows_per_combo[combo][i] = rows_per_combo[combo].get(i, 0) + inc
             else:
-                rows_per_combo[combo] = rows_per_combo.get(combo, 0) + len(table) 
+                rows_per_combo[combo] = rows_per_combo.get(combo, 0) + len(table)
 
     rows = {}
     versions = []
@@ -276,7 +293,7 @@ def _calculate_versions_of_table(
             for i in range(sequence_order + 1):
                 for val in sorted(versions_per_combo[combo]):
                     versions.append(
-                        TableVersion(
+                        TableChain(
                             name,
                             PartInfo(partition, (val,), partition_along),
                             SeqInfo(
@@ -293,7 +310,7 @@ def _calculate_versions_of_table(
             assert partition_along is not None
             for val in sorted(versions_per_combo[combo]):
                 versions.append(
-                    TableVersion(
+                    TableChain(
                         name,
                         PartInfo(partition, (val,), partition_along),
                         None,
@@ -305,7 +322,7 @@ def _calculate_versions_of_table(
         elif unroll:
             assert unroll_parent is not None and unroll_along is not None
             versions.append(
-                TableVersion(
+                TableChain(
                     name,
                     None,
                     None,
@@ -324,7 +341,7 @@ def _calculate_versions_of_table(
 
             for i in range(sequence_order + 1):
                 versions.append(
-                    TableVersion(
+                    TableChain(
                         name,
                         None,
                         SeqInfo(
@@ -339,20 +356,23 @@ def _calculate_versions_of_table(
                 )
                 rows[versions[-1]] = rows_per_combo[combo][i]
         else:
-            versions.append(TableVersion(name, None, None, None, combo))
+            versions.append(TableChain(name, None, None, None, combo))
             rows[versions[-1]] = rows_per_combo[combo]
 
     return tuple(versions), rows
 
 
-def calculate_table_versions(
+def calculate_table_chains(
     meta: dict[str, Attributes],
     ids: dict[str, LazyFrame],
     tables: dict[str, LazyFrame],
     return_all_tables=True,
     _parents=None,
     _cache=None,
-):
+) -> tuple[dict[str, tuple[TableChain]], dict[TableChain, int]]:
+    """Returns a tuple of all possible chain combinations for the tables in the
+    provided view (as a dictionary of table -> chains) and a dictionary of chain
+    to row count mappings."""
     if _parents is None:
         _parents = get_parents(ids)
     if _cache is None:
@@ -364,10 +384,10 @@ def calculate_table_versions(
         if name in _cache:
             out[name] = _cache[name]
         else:
-            parent_versions, parent_rows = calculate_table_versions(
+            parent_versions, parent_rows = calculate_table_chains(
                 meta, ids, tables, False, parents, _cache
             )
-            versions, table_rows = _calculate_versions_of_table(
+            versions, table_rows = _calculate_chains_of_table(
                 name, meta, ids, tables, parent_versions
             )
             _cache[name] = versions
@@ -378,3 +398,14 @@ def calculate_table_versions(
     if return_all_tables:
         return _cache, rows
     return out, rows
+
+
+__all__ = [
+    "PartInfo",
+    "UnrollInfo",
+    "SeqInfo",
+    "TableChain",
+    "get_parents",
+    "get_children",
+    "calculate_table_chains",
+]
