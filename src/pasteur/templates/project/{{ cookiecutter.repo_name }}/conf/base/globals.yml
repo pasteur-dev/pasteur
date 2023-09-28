@@ -1,5 +1,0 @@
-# Define your raw and base directories here
-# raw directories may be immutable.
-# You can use remote URIs, ex. S3.
-raw_location: raw
-base_location: data

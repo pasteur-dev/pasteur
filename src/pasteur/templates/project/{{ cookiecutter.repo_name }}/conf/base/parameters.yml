@@ -1,5 +1,2 @@
-# Base and raw locations are defined in globals.yml
-base_location: ${base_location}
-raw_location: ${raw_location}
 # Use random state to control determinism in Pasteur.
 random_state: 1234212
