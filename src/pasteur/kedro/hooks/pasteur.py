@@ -3,6 +3,7 @@ from os import path
 from typing import Any, Callable
 
 import yaml
+from kedro.config.abstract_config import MissingConfigException
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
@@ -76,11 +77,16 @@ class PasteurHook:
         self,
         context: KedroContext,
     ) -> None:
-        # Try to use location configs for locations
-        patterns = getattr(context.config_loader, "config_patterns", {})
-        if "locations" not in patterns:
-            patterns["locations"] = ["location*", "location*/**"]
-        locations = context.config_loader.get("locations")
+        try:
+            # Try to use location configs for locations
+            patterns = getattr(context.config_loader, "config_patterns", {})
+            if "locations" not in patterns:
+                patterns["locations"] = ["location*", "location*/**"]
+            locations = context.config_loader.get("locations")
+        except MissingConfigException:
+            locations = {}
+            logger.warn(f"Consider using a 'locations.yml' file in the future. Using paths from params.")
+            
 
         def location_resolver(loc: str, default=None):
             if "_location" in loc:
@@ -90,7 +96,9 @@ class PasteurHook:
                 logger.warn(
                     f"Location '{loc}' not found in 'locations.yml'. Falling back to `parameters.yml`."
                 )
-                dir = context.params[loc]
+                dir = context.params.get(loc + "_location", context.params.get(loc, None))
+
+            assert dir, f"Dir '{loc}' not found."
             return context.project_path / dir
 
         # Try to register resolver with OmegaConfigLoader
