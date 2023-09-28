@@ -60,7 +60,10 @@ class MlflowTrackingHook:
         context: KedroContext,
     ) -> None:
         try:
-            conf_mlflow_yml = context.config_loader.get("mlflow*", "mlflow*/**")
+            patterns = getattr(context.config_loader, "config_patterns", {})
+            if 'mlflow' not in patterns:
+                patterns['mlflow'] = ["mlflow*", "mlflow*/**"]
+            conf_mlflow_yml = context.config_loader.get("mlflow")
         except MissingConfigException:
             logger.warning(
                 "No 'mlflow.yml' config file found in environment. Default configuration will be used. Use ``kedro mlflow init`` command in CLI to customize the configuration."
@@ -78,7 +81,6 @@ class MlflowTrackingHook:
     @hook_impl
     def before_pipeline_run(self, run_params: dict[str, Any]) -> None:
         self.params = self.context.params.copy()
-        self.base_location = self.params.pop("base_location")
         self.parent_name = self.params.pop("_mlflow_parent_name", "")
 
         # Disable tracking for pipelines that don't meet criteria

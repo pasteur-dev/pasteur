@@ -1,5 +1,4 @@
 import logging
-from collections import defaultdict
 from os import path
 from typing import Any, Callable
 
@@ -16,6 +15,18 @@ from ..pipelines import generate_pipelines
 from ..pipelines.main import NAME_LOCATION, get_view_names
 
 logger = logging.getLogger(__name__)
+
+
+def _load_config(fn: str):
+    # for performance reasons
+    import anyconfig  # noqa: import-outside-toplevel
+
+    # Default to UTF-8, which is Python 3 default encoding, to decode the file
+    with open(fn, encoding="utf8") as yml:
+        d = anyconfig.load(yml)
+
+    assert isinstance(d, dict), f"Could not load config file: '{fn}'"
+    return {k: v for k, v in d.items() if not k.startswith("_")}
 
 
 class PasteurHook:
@@ -56,15 +67,41 @@ class PasteurHook:
             self.outputs,
             self.catalogs,
             self.parameters,
-        ) = generate_pipelines(self.modules, params)
+        ) = generate_pipelines(self.modules, params, self.locations)
 
-    @hook_impl
+    # Has to be first to add location hook.
+    # FIXME: remove try_first
+    @hook_impl(tryfirst=True)
     def after_context_created(
         self,
         context: KedroContext,
     ) -> None:
-        self.raw_location = context.params["raw_location"]
-        self.base_location = context.params["base_location"]
+        # Try to use location configs for locations
+        patterns = getattr(context.config_loader, "config_patterns", {})
+        if "locations" not in patterns:
+            patterns["locations"] = ["location*", "location*/**"]
+        locations = context.config_loader.get("locations")
+
+        def location_resolver(loc: str, default=None):
+            if "_location" in loc:
+                logger.warn("Found '_location' in location name. Not required in locations.yml file.")
+            dir = locations.get(loc, default)
+            if not dir:
+                logger.warn(
+                    f"Location '{loc}' not found in 'locations.yml'. Falling back to `parameters.yml`."
+                )
+                dir = context.params[loc]
+            return context.project_path / dir
+
+        # Try to register resolver with OmegaConfigLoader
+        if hasattr(context.config_loader, "_register_new_resolvers"):
+            getattr(context.config_loader, "_register_new_resolvers")(
+                {"location": location_resolver}
+            )
+
+        self.raw_location = location_resolver("raw")
+        self.base_location = location_resolver("base")
+        self.locations = {k: location_resolver(k) for k in [*locations, 'raw', 'base']}
         self.context = context
 
         self.update_data()
@@ -82,7 +119,7 @@ class PasteurHook:
                 extra_params[name] = view_params
             # string is considered to point to a file
             else:
-                extra_params[name] = context.config_loader.get(view_params).copy()
+                extra_params[name] = _load_config(view_params).copy()
 
         # Add hidden dict with views to remove their params in mlflow
         assert self.modules
@@ -239,7 +276,7 @@ class PasteurHook:
                     if n in depr_tag:
                         continue
 
-                    if not hasattr(d, "metadata") or getattr(d, 'metadata') is None:
+                    if not hasattr(d, "metadata") or getattr(d, "metadata") is None:
                         setattr(d, "metadata", {"kedro-viz": {"layer": "raw"}})
                     elif "kedro-viz" not in getattr(d, "metadata"):
                         getattr(d, "metadata")["kedro-viz"] = {"layer": "raw"}

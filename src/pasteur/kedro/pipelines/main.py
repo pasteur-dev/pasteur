@@ -36,9 +36,9 @@ logger = logging.getLogger(__name__)
 
 WRK_SPLIT = "wrk"
 REF_SPLIT = "ref"
-BASE_LOCATION = "base_location"
-RAW_LOCATION = "raw_location"
-NAME_LOCATION = "{}_location"
+BASE_LOCATION = "base"
+RAW_LOCATION = "raw"
+NAME_LOCATION = "dataset_{}"
 
 
 def _get_alg_types(algs: dict[str, SynthFactory]):
@@ -76,7 +76,7 @@ def get_view_names(modules: list[Module]):
 
 
 def generate_pipelines(
-    modules: list[Module], params: dict
+    modules: list[Module], params: dict, locations: dict[str, str]
 ) -> tuple[
     dict[str, Pipeline],
     list[DatasetMeta],
@@ -92,7 +92,7 @@ def generate_pipelines(
     algs = get_module_dict(SynthFactory, modules)
 
     # Filter views and datasets
-    datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, params)}
+    datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, locations)}
     views = {k: v for k, v in views.items() if _has_dataset(v, datasets)}
 
     # Wrk, ref splits are transformed to all types
