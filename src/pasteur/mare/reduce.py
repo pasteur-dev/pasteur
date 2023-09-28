@@ -4,7 +4,7 @@ dataset."""
 from collections import defaultdict
 from functools import reduce
 from itertools import combinations
-from typing import NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from ..attribute import Attributes
 from .chains import TableChain
@@ -189,15 +189,19 @@ def calculate_merge_order(node: PartitionedNode):
             else:
                 part_c[k] = part_a.get(k, part_b.get(k, None))
 
-        resolution.append(tuple(partitions))
+        resolution.append(set(partitions))
         del partitions[a]
         del partitions[b]
         partitions[c] = part_c
 
     return tuple(resolution)
 
+class Variation(NamedTuple):
+    table: str
+    type: Literal['sequential', 'partition']
+    variations: tuple[Any, ...]
 
-def calculate_variations(chains: tuple[TableChain], rows: dict[TableChain, int]):
+def calculate_variations(chains: tuple[TableChain], rows: dict[TableChain, int]) -> list[Variation]:
     children = compute_version_graph(chains)
     partitioned = {}
     sequential = {}
@@ -209,18 +213,19 @@ def calculate_variations(chains: tuple[TableChain], rows: dict[TableChain, int])
                 partitioned[v.name] = merge_nodes(partitioned[v.name], (new_node))
             else:
                 partitioned[v.name] = new_node
-        elif v.sequence:
+        
+        if v.sequence:
             if v.name in sequential:
                 assert v.sequence.order == sequential[v.name]
             else:
                 sequential[v.name] = v.sequence.order
 
-    out = {}
+    out = []
     for p, head in partitioned.items():
-        out[p] = ("partitioned", calculate_merge_order(head))
+        out.append(Variation(p, "partition", calculate_merge_order(head)))
 
     for s, order in sequential.items():
-        out[s] = ("sequential", tuple(range(order)))
+        out.append(Variation(s, "sequential", tuple(range(order))))
 
     return out
 
