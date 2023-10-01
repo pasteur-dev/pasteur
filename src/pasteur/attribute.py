@@ -457,19 +457,15 @@ class Attribute:
         name: str | tuple[str, ...],
         vals: Sequence[Value],
         common: CatValue | None = None,
-        unroll: str | None = None,
-        unroll_with: tuple[str | tuple[str, ...], ...] = tuple(),
+        unroll: bool = False,
+        along: tuple[str | tuple[str, ...], ...] = tuple(),
         partition: bool = False,
-        partition_with: tuple[str | tuple[str, ...], ...] = tuple(),
     ) -> None:
         self.name = name
         self.common = common
-
-        self.unroll = unroll
-        self.unroll_with = unroll_with
-
+        self.unroll = bool(unroll)
+        self.along = along
         self.partition = partition
-        self.partition_with = partition_with
         self.vals = {k.name: k for k in vals}
 
         # Perform a check for a valid common value
@@ -492,19 +488,14 @@ class Attribute:
     def _str_pref(self):
         flags = []
         if self.unroll:
-            if self.unroll_with:
+            if self.along:
                 flags.append(
-                    f"UNROLL({','.join(['_'.join(k) if not isinstance(k, str) else k for k in self.unroll_with])})"
+                    f"UNROLL({','.join(['_'.join(k) if not isinstance(k, str) else k for k in self.along])})"
                 )
             else:
                 flags.append("UNROLL")
         if self.partition:
-            if self.partition_with:
-                flags.append(
-                    f"PARTN({','.join(['_'.join(k) if not isinstance(k, str) else k for k in self.partition_with])})"
-                )
-            else:
-                flags.append("PARTN")
+            flags.append("PARTN")
         if self.common:
             flags.append(f"COMMON({self.common.name}:{self.common})")
 
@@ -529,7 +520,6 @@ def OrdAttribute(
     na: bool = False,
     ukn_val: Any | None = None,
     partition: bool = False,
-    partition_with: tuple[str, ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are ordinal, based on the provided data."""
@@ -537,7 +527,6 @@ def OrdAttribute(
         name,
         [_create_strat_value_ord(name, vals, na, ukn_val)],
         partition=partition,
-        partition_with=partition_with,
     )
 
 
@@ -547,7 +536,6 @@ def CatAttribute(
     na: bool = False,
     ukn_val: Any | None = None,
     partition: bool = False,
-    partition_with: tuple[str, ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are categorical, based on the provided data."""
@@ -555,7 +543,6 @@ def CatAttribute(
         name,
         [_create_strat_value_cat(name, vals, na, ukn_val)],
         partition=partition,
-        partition_with=partition_with,
     )
 
 

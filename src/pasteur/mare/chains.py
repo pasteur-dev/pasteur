@@ -12,38 +12,28 @@ from ..attribute import Attributes, SeqValue
 from ..utils import LazyFrame, lazy_load_tables
 
 
-class PartInfo(NamedTuple):
-    name: str
-    val: tuple[int, ...]
-    along: tuple[str, ...]
-
-
-class UnrollInfo(NamedTuple):
-    name: str
-    vals: tuple[int, ...]
-    parent: str
-    along: tuple[str, ...]
-
-
-class SeqInfo(NamedTuple):
-    name: str
-    seq: int | None
-    order: int
-    parent: str
-
-
-class TableChain(NamedTuple):
+class TableVersion(NamedTuple):
     """Contains the parameters required to construct a markov chain for table
     with name `name`, by recursing on its parents."""
 
-    # Table Name
     name: str
-    # Table pins
-    partition: PartInfo | None
-    sequence: SeqInfo | None
-    unroll: UnrollInfo | None
-    # Table parents
-    parents: tuple["TableChain", ...]
+    partitions: tuple[int, ...] | None
+    unrolls: tuple[int, ...] | None
+    parents: tuple["TableVersion | TablePartition", ...]
+
+
+class TablePartition(NamedTuple):
+    partitions: tuple[int, ...]
+    table: TableVersion
+
+
+class TableMeta(NamedTuple):
+    sequence: str | None
+    order: int | None
+    partition: str | None
+    unroll: str | None
+    along: tuple[str, ...] | None
+    parent: str | None
 
 
 def get_parents(
@@ -98,11 +88,18 @@ def get_children(ids: dict[str, LazyFrame]):
 
 
 def _calculate_parent_mask(
-    name: str, parents: tuple[TableChain, ...], get_table, get_ids, cache
+    name: str,
+    parents: tuple[TableVersion | TablePartition, ...],
+    meta: dict[str, TableMeta],
+    get_table,
+    get_ids,
+    cache,
 ):
     included_ids = {}
     for parent in parents:
-        included_ids.update(_calculate_included_ids(parent, get_table, get_ids, cache))
+        included_ids.update(
+            _calculate_included_ids(parent, meta, get_table, get_ids, cache)
+        )
 
     mask = True
     for parent, (pkey, incl_ids) in included_ids.items():
@@ -116,7 +113,13 @@ def _calculate_parent_mask(
     return mask
 
 
-def _calculate_included_ids(ver: TableChain, get_table, get_ids, cache):
+def _calculate_included_ids(
+    ver: TableVersion | TablePartition,
+    meta: dict[str, TableMeta],
+    get_table,
+    get_ids,
+    cache,
+):
     """Each table version excludes some rows based on partitioning and sequencing.
     And the partitioning and sequencing of its parents.
 
@@ -127,34 +130,33 @@ def _calculate_included_ids(ver: TableChain, get_table, get_ids, cache):
 
     # Out is a dictionary of keys used to calculate the mask
     out = {}
+    if isinstance(ver, TablePartition):
+        partitions = ver.partitions
+        ver = ver.table
+    else:
+        partitions = None
+
     for parent in ver.parents:
-        out.update(_calculate_included_ids(parent, get_table, get_ids, cache))
+        out.update(_calculate_included_ids(parent, meta, get_table, get_ids, cache))
 
     # Cache ids based on name, partition type, and sequence
-    key = (ver.name, ver.partition, ver.sequence)
+    key = (ver.name, partitions)
     if key in cache:
         out[ver.name] = (key, cache[key])
         return out
 
     # Since we only filter when there is a partition, return without ids
     # If both don't exist
-    if not ver.partition and not ver.sequence:
+    if not partitions:
         return out
 
     # Apply mask based on sequence and partitions
     mask = True
-    if ver.partition:
-        part_col = get_table(ver.name)[ver.partition.name]
-        if len(ver.partition.val) > 1:
-            mask &= part_col.isin(ver.partition.val)
-        else:
-            mask &= part_col == ver.partition.val[0]
-
-    if ver.sequence:
-        if ver.sequence.seq is not None:
-            mask &= get_table(ver.name)[ver.sequence.name] == ver.sequence.seq
-        else:
-            mask &= get_table(ver.name)[ver.sequence.name] >= ver.sequence.order
+    part_col = get_table(ver.name)[meta[ver.name].partition]
+    if len(partitions) > 1:
+        mask &= part_col.isin(partitions)
+    else:
+        mask &= part_col == partitions[0]
 
     # Calculate ids, update cache, and return them
     included_ids = get_ids(ver.name).index[mask].unique()
@@ -163,13 +165,60 @@ def _calculate_included_ids(ver: TableChain, get_table, get_ids, cache):
     return out
 
 
+def _calculate_stripped_meta(meta: dict[str, Attributes]):
+    out = {}
+    for name, attr in meta.items():
+        sequence = None
+        order = None
+        partition = None
+        unroll = None
+        parent = None
+        along = None
+
+        attrs = meta[name]
+        for attr in attrs.values():
+            for v in attr.vals.values():
+                if isinstance(v, SeqValue) and v.order is not None:
+                    assert parent is None
+                    sequence = v.name
+                    parent = v.table
+                    order = v.order
+
+            if attr.partition:
+                if len(attr.vals) > 1:
+                    assert attr.common
+                    partition = attr.common.name
+                else:
+                    assert len(attr.vals) == 1
+                    partition = next(iter(attr.vals))
+
+            if attr.unroll:
+                if len(attr.vals) > 1:
+                    assert attr.common
+                    unroll = attr.common.name
+                else:
+                    assert len(attr.vals) == 1
+                    unroll = next(iter(attr.vals))
+                
+                along = []
+                along.extend(attr.vals)
+
+                for name in attr.along:
+                    along.extend(attrs[name].vals)
+
+        if along is not None:
+            along = tuple(along)
+        out[name] = TableMeta(sequence, order, partition, unroll, along, parent)
+    return out
+
+
 def _calculate_chains_of_table(
     name: str,
-    meta: dict[str, Attributes],
+    meta: dict[str, TableMeta],
     ids: dict[str, LazyFrame],
     tables: dict[str, LazyFrame],
-    parents: dict[str, tuple[TableChain]],
-) -> tuple[tuple[TableChain, ...], dict[TableChain, int]]:
+    parents: dict[str, tuple[TableVersion, ...]],
+) -> tuple[tuple[TableVersion, ...], dict[TablePartition | TableVersion, int]]:
     """Calculates the possible markov chains for the table with `name`, by
     iterating over its parent combinations.
 
@@ -177,187 +226,78 @@ def _calculate_chains_of_table(
     count` mappings, which may be used as auxiliary info when deciding
     which chains to keep."""
 
-    sequence = None
-    sequence_parent = None
-    sequence_order = None
-    partition = None
-    partition_along = None
-    unroll = None
-    unroll_along = None
-    unroll_parent = None
-
-    attrs = meta[name]
-    for attr in attrs.values():
-        for v in attr.vals.values():
-            if isinstance(v, SeqValue) and v.order is not None:
-                sequence = v.name
-                sequence_parent = v.table
-                sequence_order = v.order
-
-        if attr.partition:
-            if len(attr.vals) > 1:
-                assert attr.common
-                partition = attr.common.name
+    def _expand_versions(vers: tuple[TableVersion, ...]):
+        out = []
+        for v in vers:
+            if v.partitions:
+                for p in v.partitions:
+                    out.append(TablePartition((p,), v))
             else:
-                assert len(attr.vals) == 1
-                partition = next(iter(attr.vals))
-
-            along = []
-            along.extend(attr.vals)
-            if attr.common:
-                along.append(attr.common.name)
-            if attr.partition_with:
-                for aname in attr.partition_with:
-                    along.extend(attrs[aname].vals)
-                    acmn = attrs[aname].common
-                    if acmn:
-                        along.append(acmn.name)
-            partition_along = tuple(sorted(along))
-        if attr.unroll:
-            unroll_parent = attr.unroll
-            if len(attr.vals) > 1:
-                assert attr.common
-                unroll = attr.common.name
-            else:
-                assert len(attr.vals) == 1
-                unroll = next(iter(attr.vals))
-
-            along = []
-            along.extend(attr.vals)
-            if attr.common:
-                along.append(attr.common.name)
-            if attr.unroll_with:
-                for aname in attr.unroll_with:
-                    along.extend(attrs[aname].vals)
-                    acmn = attrs[aname].common
-                    if acmn:
-                        along.append(acmn.name)
-            unroll_along = tuple(sorted(along))
+                out.append(v)
+        return out
 
     combos = list(
-        product(*[v for _, v in sorted(parents.items(), key=lambda x: x[0])])
+        product(
+            *[
+                _expand_versions(v)
+                for _, v in sorted(parents.items(), key=lambda x: x[0])
+            ]
+        )
     ) or [()]
+
+    _, _, partition, unroll, _, _ = meta[name]
 
     # Unrolling and Partitioning have values that are extracted from data so have
     # to run per partution
-    versions_per_combo = defaultdict(set)
-    rows_per_combo = {}
+    rows_per_combo = defaultdict(lambda: 0)
+    rows_per_partition = defaultdict(lambda: 0)
+    unrolls_per_combo = defaultdict(set)
+    partitions_per_combo = defaultdict(set)
 
     for ptables, pids in LazyFrame.zip_values([tables, ids]):
         get_table = lazy_load_tables(ptables)
         get_ids = lazy_load_tables(pids)
-        included_ids_cache: dict[TableChain, pd.Series] = {}
+        included_ids_cache: dict[TablePartition | TableVersion, pd.Series] = {}
 
         for combo in combos:
             table = get_table(name)
             pmask = _calculate_parent_mask(
-                name, combo, get_table, get_ids, included_ids_cache
+                name, combo, meta, get_table, get_ids, included_ids_cache
             )
             if pmask is not None:
                 table = table.loc[pmask]
 
+            rows_per_combo[combo] += len(table)
+
+            if unroll:
+                unrolls_per_combo[combo].update(table[unroll].unique())
+
             if partition:
-                counts = table[partition].value_counts()
-                counts_dict = counts.to_dict()
-                if combo not in rows_per_combo:
-                    rows_per_combo[combo] = {}
-                for k, v in counts_dict.items():
-                    rows_per_combo[combo][k] = rows_per_combo[combo].get(k, 0) + v
-                versions_per_combo[combo].update(counts.index)
-            elif unroll:
-                rows_per_combo[combo] = rows_per_combo.get(combo, 0) + len(table)
-                versions_per_combo[combo].update(table[unroll].unique())
-            elif sequence:
-                assert sequence_order is not None
-                if combo not in rows_per_combo:
-                    rows_per_combo[combo] = {}
-                for i in range(sequence_order + 1):
-                    if i < sequence_order:
-                        inc = (table[sequence] == i).sum()
-                    else:
-                        inc = (table[sequence] >= sequence_order).sum()
-                    rows_per_combo[combo][i] = rows_per_combo[combo].get(i, 0) + inc
-            else:
-                rows_per_combo[combo] = rows_per_combo.get(combo, 0) + len(table)
+                counts = table[partition].value_counts().to_dict()
+                partitions_per_combo[combo].update(counts.keys())
+                for k, v in counts.items():
+                    rows_per_partition[(combo, k)] += v
 
     rows = {}
     versions = []
     for combo in combos:
-        if partition and sequence:
-            assert (
-                partition_along is not None
-                and sequence_order is not None
-                and sequence_order > 0
-                and sequence_parent
-            )
-            for i in range(sequence_order + 1):
-                for val in sorted(versions_per_combo[combo]):
-                    versions.append(
-                        TableChain(
-                            name,
-                            PartInfo(partition, (val,), partition_along),
-                            SeqInfo(
-                                sequence,
-                                i if i < sequence_order else None,
-                                sequence_order,
-                                sequence_parent,
-                            ),
-                            None,
-                            combo,
-                        )
-                    )
+        # Extract data from loading tables
         if partition:
-            assert partition_along is not None
-            for val in sorted(versions_per_combo[combo]):
-                versions.append(
-                    TableChain(
-                        name,
-                        PartInfo(partition, (val,), partition_along),
-                        None,
-                        None,
-                        combo,
-                    )
-                )
-                rows[versions[-1]] = rows_per_combo[combo][val]
-        elif unroll:
-            assert unroll_parent is not None and unroll_along is not None
-            versions.append(
-                TableChain(
-                    name,
-                    None,
-                    None,
-                    UnrollInfo(
-                        unroll,
-                        tuple(sorted(versions_per_combo[combo])),
-                        unroll_parent,
-                        unroll_along,
-                    ),
-                    combo,
-                )
-            )
-            rows[versions[-1]] = rows_per_combo[combo]
-        elif sequence:
-            assert sequence_order is not None and sequence_order > 0 and sequence_parent
-
-            for i in range(sequence_order + 1):
-                versions.append(
-                    TableChain(
-                        name,
-                        None,
-                        SeqInfo(
-                            sequence,
-                            i if i < sequence_order else None,
-                            sequence_order,
-                            sequence_parent,
-                        ),
-                        None,
-                        combo,
-                    )
-                )
-                rows[versions[-1]] = rows_per_combo[combo][i]
+            partitions = tuple(sorted(partitions_per_combo[combo]))
         else:
-            versions.append(TableChain(name, None, None, None, combo))
-            rows[versions[-1]] = rows_per_combo[combo]
+            partitions = None
+        if unroll:
+            unrolls = tuple(sorted(unrolls_per_combo[combo]))
+        else:
+            unrolls = None
+
+        ver = TableVersion(name, partitions, unrolls, combo)
+        versions.append(ver)
+        rows[ver] = rows_per_combo[combo]
+
+        if partitions:
+            for p in partitions:
+                rows[TablePartition((p,), ver)] = rows_per_partition[(combo, p)]
 
     return tuple(versions), rows
 
@@ -369,7 +309,7 @@ def calculate_table_chains(
     return_all_tables=True,
     _parents=None,
     _cache=None,
-) -> tuple[dict[str, tuple[TableChain]], dict[TableChain, int]]:
+) -> tuple[dict[str, tuple[TableVersion]], dict[TableVersion | TablePartition, int]]:
     """Returns a tuple of all possible chain combinations for the tables in the
     provided view (as a dictionary of table -> chains) and a dictionary of chain
     to row count mappings."""
@@ -377,6 +317,7 @@ def calculate_table_chains(
         _parents = get_parents(ids)
     if _cache is None:
         _cache = {}
+    smeta = _calculate_stripped_meta(meta)
 
     out = {}
     rows = {}
@@ -388,7 +329,7 @@ def calculate_table_chains(
                 meta, ids, tables, False, parents, _cache
             )
             versions, table_rows = _calculate_chains_of_table(
-                name, meta, ids, tables, parent_versions
+                name, smeta, ids, tables, parent_versions
             )
             _cache[name] = versions
             rows.update(table_rows)
@@ -401,10 +342,6 @@ def calculate_table_chains(
 
 
 __all__ = [
-    "PartInfo",
-    "UnrollInfo",
-    "SeqInfo",
-    "TableChain",
     "get_parents",
     "get_children",
     "calculate_table_chains",

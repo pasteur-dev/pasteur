@@ -7,84 +7,126 @@ from itertools import combinations
 from typing import Any, Literal, NamedTuple
 
 from ..attribute import Attributes
-from .chains import TableChain
-
-
-class PartitionedNode(NamedTuple):
-    vers: set[TableChain]
-    children: dict[tuple[int, ...], dict[str, "TableNode | PartitionedNode"]]
-    vals: set[int]
+from .chains import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
 
 
 class TableNode(NamedTuple):
-    vers: set[TableChain]
+    vers: set[TableVersion]
     children: dict[str, "TableNode | PartitionedNode"]
     vals: set[int]
 
 
-def merge_dicts(a, b):
-    if not isinstance(a, dict):
-        assert not isinstance(b, dict)
-        return merge_nodes(a, b)
+class PartitionedNode(NamedTuple):
+    vers: set[TablePartition]
+    children: dict[tuple[int, ...], TableNode]
 
-    keys = {**a, **b}
-    out = {}
+
+def merge_partitions(a: PartitionedNode, b: PartitionedNode):
+    new_vers = a.vers.union(b.vers)
+    new_children = {}
+    keys = list({**a.children, **b.children})
     for k in keys:
-        if k in a and k in b:
-            out[k] = merge_dicts(a[k], b[k])
+        if k in a.children and k in b.children:
+            new_children[k] = merge_nodes(a.children[k], b.children[k])
         else:
-            out[k] = a.get(k, b.get(k, None))
-    return out
+            new_children[k] = a.children.get(k, b.children.get(k, None))
+
+    return PartitionedNode(new_vers, new_children)
 
 
-def merge_nodes(a, b):
+def merge_nodes(a: TableNode, b: TableNode):
     # merge vals
     new_vals = a.vals.union(b.vals)
     new_vers = a.vers.union(b.vers)
 
     # Merge children
-    if isinstance(a, PartitionedNode):
-        assert isinstance(b, PartitionedNode)
-        new_children = merge_dicts(a.children, b.children)
-        return PartitionedNode(new_vers, new_children, new_vals)
-    elif isinstance(a, TableNode):
+    keys = list({**a.children, **b.children})
+    new_children = {}
+    for k in keys:
+        if k not in a.children:
+            new_children[k] = b.children[k]
+        elif k not in b.children:
+            new_children[k] = a.children[k]
+        else:
+            ac = a.children[k]
+            bc = b.children[k]
+            if isinstance(ac, TableNode):
+                assert isinstance(bc, TableNode)
+                new_children[k] = merge_nodes(ac, bc)
+            else:
+                assert isinstance(bc, PartitionedNode)
+                new_children[k] = merge_partitions(ac, bc)
+
+    return TableNode(new_vers, new_children, new_vals)
+
+
+def merge_check(a: TableNode | PartitionedNode, b: TableNode | PartitionedNode):
+    if isinstance(a, TableNode):
         assert isinstance(b, TableNode)
-        new_children = merge_dicts(a.children, b.children)
-        return TableNode(new_vers, new_children, new_vals)
+        return merge_nodes(a, b)
     else:
-        assert False
+        assert isinstance(b, PartitionedNode)
+        return merge_partitions(a, b)
 
 
-def create_node(ver: TableChain, children: dict[TableChain, tuple[TableChain, ...]]):
+def create_partition(
+    p: TablePartition,
+    children: dict[
+        TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]
+    ],
+):
+    if p in children:
+        child_arr = []
+        for c in children[p]:
+            assert isinstance(c, TableVersion)
+            child_arr.append(create_node(c, children))
+
+        new_children = {p.partitions: reduce(merge_nodes, child_arr)}
+    else:
+        new_children = {}
+    return PartitionedNode({p}, new_children)
+
+
+def create_node(
+    ver: TableVersion,
+    children: dict[
+        TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]
+    ],
+):
     vers = {ver}
 
-    if children.get(ver, None):
+    if ver in children:
         child_arr = defaultdict(list)
         for c in children[ver]:
-            child_arr[c.name].append(create_node(c, children))
+            if isinstance(c, TableVersion):
+                child_arr[c.name].append(create_node(c, children))
+            else:
+                child_arr[c.table.name].append(create_partition(c, children))
 
-        new_children = {k: reduce(merge_nodes, v) for k, v in child_arr.items()}
+        new_children = {k: reduce(merge_check, v) for k, v in child_arr.items()}
     else:
         new_children = {}
 
-    vals = set(ver.unroll.vals) if ver.unroll else set()
-    if ver.partition:
-        return PartitionedNode(vers, {ver.partition.val: new_children}, vals)
-    else:
-        return TableNode(vers, new_children, vals)
+    vals = set(ver.unrolls) if ver.unrolls else set()
+    return TableNode(vers, new_children, vals)
 
 
 def _compute_version_graph(
-    ver: TableChain, out: dict[TableChain, dict[TableChain, None]]
+    ver: TableVersion | TablePartition,
+    out: dict[TableVersion | TablePartition, dict[TableVersion | TablePartition, None]],
 ):
-    for parent in ver.parents:
-        out[parent][ver] = None
-        _compute_version_graph(parent, out)
+    if isinstance(ver, TableVersion):
+        for parent in ver.parents:
+            out[parent][ver] = None
+            _compute_version_graph(parent, out)
+    else:
+        out[ver.table][ver] = None
+        _compute_version_graph(ver.table, out)
 
 
 def compute_version_graph(
-    vers: tuple[TableChain],
-) -> dict[TableChain, tuple[TableChain, ...]]:
+    vers: tuple[TableVersion],
+) -> dict[TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]]:
     out = defaultdict(dict)
     for v in vers:
         _compute_version_graph(v, out)
@@ -92,7 +134,7 @@ def compute_version_graph(
     return {k: tuple(v) for k, v in out.items()}
 
 
-def print_node(node: TableNode | PartitionedNode, ofs=0, pre=""):
+def print_node(node: TableNode, ofs=0, pre=""):
     out = ""
     pre = "\t" * ofs + pre
     table_name = next(iter(node.vers)).name
@@ -100,20 +142,19 @@ def print_node(node: TableNode | PartitionedNode, ofs=0, pre=""):
 
     if node.children:
         out += ":\n"
-    if isinstance(node, PartitionedNode):
-        for vals, table_chld in node.children.items():
-            for child in table_chld.values():
-                out += print_node(child, ofs + 1, str(vals))
-    else:
         for child in node.children.values():
-            out += print_node(child, ofs + 1)  # type: ignore
+            if isinstance(child, PartitionedNode):
+                for vals, table_chld in child.children.items():
+                    out += print_node(table_chld, ofs + 1, str(vals))
+            else:
+                out += print_node(child, ofs + 1)  # type: ignore
 
     if node.children:
         out += "\n"
     return out
 
 
-def print_nodes(heads: dict[str, TableNode | PartitionedNode]):
+def print_nodes(heads: dict[str, TableNode]):
     out = ""
     for k, v in heads.items():
         out += f"{k}\n-------------\n"
@@ -121,51 +162,53 @@ def print_nodes(heads: dict[str, TableNode | PartitionedNode]):
     return out
 
 
-def calc_col_increase(a: TableNode | PartitionedNode, b: TableNode | PartitionedNode):
-    inc = len(a.vals.symmetric_difference(b.vals))
+def calc_col_increase(a: TableNode, b: TableNode):
+    # Removed checks for speed
+    inc = 0
+    if a.vals and b.vals:
+        inc = len(a.vals.symmetric_difference(b.vals))
 
-    if isinstance(a, TableNode):
-        assert isinstance(b, TableNode)
+    for k in a.children:
+        # if k not in b.children:
+        #     continue
 
-        for k in a.children.keys():
-            if k not in b.children:
-                continue
+        l = a.children[k]
+        m = b.children[k]
 
-            inc += calc_col_increase(a.children[k], b.children[k])
-    elif isinstance(a, PartitionedNode):
-        assert isinstance(b, PartitionedNode)
-
-        for k in a.children.keys():
-            if k not in b.children:
-                continue
-
-            for l in a.children[k]:
-                if l not in b.children[k]:
+        if isinstance(l, TableNode):
+            # assert isinstance(m, TableNode)
+            inc += calc_col_increase(l, m)  # type: ignore
+        else:
+            # assert isinstance(m, PartitionedNode)
+            for j in l.children:
+                if j not in m.children:
                     continue
-
-                inc += calc_col_increase(a.children[k][l], b.children[k][l])
-
+                inc += calc_col_increase(l.children[j], m.children[j])  # type: ignore
     return inc
 
 
-def calculate_merge_order(node: PartitionedNode):
-    partitions = dict(node.children)
+def calculate_merge_order(node: TableNode):
+    data = defaultdict(dict)
+    for table, part in node.children.items():
+        assert isinstance(part, PartitionedNode)
+        for pids, node in part.children.items():
+            data[pids][table] = node
 
     resolution = []
     inc_cache = {}
-    while len(partitions) > 2:
+    while len(data) > 2:
         mins = None
         mins_inc = -1
-        for x in combinations(partitions, 2):
+        for x in combinations(data, 2):
             if x in inc_cache:
                 inc = inc_cache[x]
             else:
                 inc = 0
-                a, b = partitions[x[0]], partitions[x[1]]
-                for k in a.keys():
-                    if k not in b:
+                a, b = data[x[0]], data[x[1]]
+                for name in a.keys():
+                    if name not in b.keys():
                         continue
-                    inc += calc_col_increase(a[k], b[k])
+                    inc += calc_col_increase(a[name], b[name])
                 inc_cache[x] = inc
 
             if inc == 0:
@@ -177,10 +220,10 @@ def calculate_merge_order(node: PartitionedNode):
 
         assert mins is not None
         a, b = mins
-        c = tuple(sorted(set(a).union(set(b))))
+        c = tuple(sorted(set(a + b)))
 
-        part_a = partitions[a]
-        part_b = partitions[b]
+        part_a = data[a]
+        part_b = data[b]
 
         part_c = {}
         for k in {**part_a, **part_b}:
@@ -189,68 +232,69 @@ def calculate_merge_order(node: PartitionedNode):
             else:
                 part_c[k] = part_a.get(k, part_b.get(k, None))
 
-        resolution.append(set(partitions))
-        del partitions[a]
-        del partitions[b]
-        partitions[c] = part_c
+        resolution.append(tuple(map(set, data)))
+        del data[a]
+        del data[b]
+        data[c] = part_c
 
     return tuple(resolution)
 
-class Variation(NamedTuple):
-    table: str
-    type: Literal['sequential', 'partition']
-    variations: tuple[Any, ...]
 
-def calculate_variations(chains: tuple[TableChain], rows: dict[TableChain, int]) -> list[Variation]:
+def calculate_variations(
+    chains: tuple[TableVersion],
+    rows: dict[TableVersion | TablePartition, int],
+    meta: dict[str, Attributes],
+) -> dict[str, Any]:
+    smeta = _calculate_stripped_meta(meta)
     children = compute_version_graph(chains)
     partitioned = {}
-    sequential = {}
     for v in children:
-        if v.partition:
+        if isinstance(v, TableVersion) and smeta[v.name].partition:
             new_node = create_node(v, children)
 
             if v.name in partitioned:
                 partitioned[v.name] = merge_nodes(partitioned[v.name], (new_node))
             else:
                 partitioned[v.name] = new_node
-        
-        if v.sequence:
-            if v.name in sequential:
-                assert v.sequence.order == sequential[v.name]
-            else:
-                sequential[v.name] = v.sequence.order
 
-    out = []
+    out = {}
     for p, head in partitioned.items():
-        out.append(Variation(p, "partition", calculate_merge_order(head)))
-
-    for s, order in sequential.items():
-        out.append(Variation(s, "sequential", tuple(range(order))))
+        out[p] = calculate_merge_order(head)
 
     return out
 
 
-def _estimate_columns_for_chain_recurse(ver: TableChain, meta: dict[str, Attributes]):
+def _estimate_columns_for_chain_recurse(
+    ver: TableVersion, smeta: dict[str, TableMeta], meta: dict[str, Attributes]
+):
     base_cols = 0
     for attr in meta[ver.name].values():
         base_cols += attr.common is not None
         base_cols += len(attr.vals)
 
-    if ver.sequence:
-        mult = ver.sequence.seq or ver.sequence.order
-        base_cols = mult * (base_cols - 1)
+    if smeta[ver.name].order is not None:
+        mult = smeta[ver.name].order
+        if mult is not None:
+            base_cols = mult * (base_cols - 1)
 
-    if ver.unroll:
-        base_cols -= len(ver.unroll.along) + 1
-        base_cols += len(ver.unroll.along) * len(ver.unroll.vals)
+    along = smeta[ver.name].along
+    if along and ver.unrolls:
+        base_cols -= len(along) + 1
+        base_cols += len(along) * len(ver.unrolls)
 
     out = {ver.name: base_cols}
     for p in ver.parents:
-        out.update(_estimate_columns_for_chain_recurse(p, meta))
+        if isinstance(p, TablePartition):
+            p = p.table
+        out.update(_estimate_columns_for_chain_recurse(p, smeta, meta))
 
     return out
 
 
-def estimate_columns_for_chain(ver: TableChain, meta: dict[str, Attributes]):
+def estimate_columns_for_chain(ver: TableVersion, meta: dict[str, Attributes]):
     """Estimates the number of columns for the provided chain based on metadata."""
-    return sum(_estimate_columns_for_chain_recurse(ver, meta).values())
+    return sum(
+        _estimate_columns_for_chain_recurse(
+            ver, _calculate_stripped_meta(meta), meta
+        ).values()
+    )

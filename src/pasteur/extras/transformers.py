@@ -94,7 +94,6 @@ class IdxTransformer(Transformer):
         unknown_value=None,
         nullable: bool = False,
         partition: bool = False,
-        partition_with: tuple[str, ...] = tuple(),
         **_,
     ):
         self.unknown_value = unknown_value
@@ -102,7 +101,6 @@ class IdxTransformer(Transformer):
         self.ordinal = False
         self.raw_vals = []
         self.partition = partition
-        self.partition_with = partition_with
 
     def fit(self, data: pd.Series):
         # Makes fit run out of core by storing the unique values seen previously in `raw_vals`
@@ -150,7 +148,6 @@ class IdxTransformer(Transformer):
             self.nullable,
             self.unknown_value,
             partition=self.partition,
-            partition_with=self.partition_with,
         )
 
     def get_attributes(self) -> Attributes:
