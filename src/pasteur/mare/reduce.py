@@ -3,8 +3,8 @@ dataset."""
 
 from collections import defaultdict
 from functools import reduce
-from itertools import combinations
-from typing import Any, Literal, NamedTuple
+from itertools import combinations, product
+from typing import Any, Generator, Literal, NamedTuple, cast
 
 from ..attribute import Attributes
 from .chains import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
@@ -187,7 +187,7 @@ def calc_col_increase(a: TableNode, b: TableNode):
     return inc
 
 
-def calculate_merge_order(node: TableNode):
+def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
     data = defaultdict(dict)
     for table, part in node.children.items():
         assert isinstance(part, PartitionedNode)
@@ -244,7 +244,7 @@ def calculate_variations(
     chains: tuple[TableVersion],
     rows: dict[TableVersion | TablePartition, int],
     meta: dict[str, Attributes],
-) -> dict[str, Any]:
+) -> dict[str, tuple[tuple[set[int], ...], ...]]:
     smeta = _calculate_stripped_meta(meta)
     children = compute_version_graph(chains)
     partitioned = {}
@@ -298,3 +298,153 @@ def estimate_columns_for_chain(ver: TableVersion, meta: dict[str, Attributes]):
             ver, _calculate_stripped_meta(meta), meta
         ).values()
     )
+
+
+def calc_model_num(combos: dict[str, tuple[set[int]]]):
+    num = 1
+    for c in combos.values():
+        num *= len(c)
+
+    return num
+
+
+def _get_parents(ver: TableVersion) -> Generator[TablePartition, None, None]:
+    for p in ver.parents:
+        if isinstance(p, TablePartition):
+            yield p
+            yield from _get_parents(p.table)
+        else:
+            yield from _get_parents(p)
+
+
+def tuple_unique(a, b):
+    if not a:
+        return b
+    if not b:
+        return a
+    return tuple(sorted(set(a + b)))
+
+
+def merge_versions(vers: list[TableVersion]):
+    ref = vers[0]
+
+    new_parents = []
+    for i, p in enumerate(ref.parents):
+        if isinstance(p, TablePartition):
+            new_partitions = set()
+            par_versions = []
+            for ver in vers:
+                partitions, table = cast(TablePartition, ver.parents[i])
+                new_partitions.update(partitions)
+                par_versions.append(table)
+            new_parents.append(
+                TablePartition(
+                    tuple(sorted(new_partitions)), merge_versions(par_versions)
+                )
+            )
+        else:
+            new_parents.append(
+                merge_versions([cast(TableVersion, ver.parents[i]) for ver in vers])
+            )
+
+    if ref.partitions:
+        partitions = set()
+        for ver in vers:
+            partitions.update(ver.partitions)  # type: ignore
+        partitions = tuple(sorted(partitions))
+    else:
+        partitions = None
+
+    if ref.unrolls:
+        unrolls = set()
+        for ver in vers:
+            unrolls.update(ver.unrolls)  # type: ignore
+        unrolls = tuple(sorted(unrolls))
+    else:
+        unrolls = None
+
+    return TableVersion(ref.name, partitions, unrolls, tuple(new_parents))
+
+
+def calc_rows_cols(
+    combo: dict[str, tuple[set[int]]],
+    chains: tuple[TableVersion],
+    rows: dict[TableVersion | TablePartition, int],
+    meta: dict[str, Attributes],
+) -> list[tuple[TableVersion, int, int]]:
+    out = []
+    for partitions in product(*combo.values()):
+        partitions = {k: v for k, v in zip(combo, partitions)}
+        versions = []
+
+        for ver in chains:
+            reject = False
+            for p in _get_parents(ver):
+                if p.partitions[0] not in partitions[p.table.name]:
+                    reject = True
+                    break
+            if not reject:
+                versions.append(ver)
+
+        if not versions:
+            continue
+
+        new_version = merge_versions(versions)
+        row_count = sum(rows[v] for v in versions)
+        col_count = estimate_columns_for_chain(new_version, meta)
+        out.append((new_version, row_count, col_count))
+    return out
+
+
+def choose_variation(
+    variations: dict[str, tuple[tuple[set[int], ...], ...]],
+    chains: tuple[TableVersion],
+    rows: dict[TableVersion | TablePartition, int],
+    meta: dict[str, Attributes],
+    model_num: int,
+) -> tuple[TableVersion, ...]:
+    solutions = []
+    valid = 0
+    for combo in product(*variations.values()):
+        combo = {k: v for k, v in zip(variations, combo)}
+
+        if not calc_model_num(combo) <= model_num:
+            continue
+
+        solutions.append(calc_rows_cols(combo, chains, rows, meta)[0])
+        # print(valid)
+        valid += 1
+
+    return tuple(max(solutions, key=lambda x: len(x)))
+
+    # max_cols = [max(s[2] for s in sol) for sol in solutions]
+    # min_max_col = min(max_cols)
+
+    # for sol in solutions:
+    #     print(f"N: {len(sol):4d} Max Cols: {max(s[2] for s in sol)}, Min rows: {min(s[1] for s in sol):5d}, AVG Cols: {sum(s[2] for s in sol) / len(sol):.1f}")
+
+    # sol = solutions[30]
+    # plt.hist([s[2] for s in sol], bins=20)
+    # plt.title("Columns")
+
+    # plt.figure()
+    # plt.hist([s[1] for s in sol], bins=20, range=(0, 10_000))
+    # plt.title("Rows (up to 10k)")
+
+    # plt.figure()
+    # plt.hist([s[1] for s in sol], bins=20, range=(0, 50_000))
+    # plt.title("Rows (up to 50k)")
+
+    # plt.figure()
+    # plt.hist([s[1] for s in sol], bins=20)
+    # plt.title("Rows Unbounded")
+
+
+def choose_versions_heuristic(
+    chains: tuple[TableVersion],
+    rows: dict[TableVersion | TablePartition, int],
+    meta: dict[str, Attributes],
+    model_num: int,
+):
+    variations = calculate_variations(chains, rows, meta)
+    return choose_variation(variations, chains, rows, meta, model_num)
