@@ -165,7 +165,7 @@ def print_nodes(heads: dict[str, TableNode]):
 def calc_col_increase(a: TableNode, b: TableNode):
     # Removed checks for speed
     inc = 0
-    if a.vals and b.vals:
+    if not a.children and a.vals and b.vals:
         inc = len(a.vals.symmetric_difference(b.vals))
 
     for k in a.children:
@@ -196,8 +196,9 @@ def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
 
     resolution = []
     inc_cache = {}
-    while len(data) > 2:
+    while len(data) > 1:
         mins = None
+        no_increase = False
         mins_inc = -1
         for x in combinations(data, 2):
             if x in inc_cache:
@@ -213,6 +214,7 @@ def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
 
             if inc == 0:
                 mins = x
+                no_increase = True
                 break
             elif mins is None or inc < mins_inc:
                 mins = x
@@ -232,10 +234,15 @@ def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
             else:
                 part_c[k] = part_a.get(k, part_b.get(k, None))
 
-        resolution.append(tuple(map(set, data)))
         del data[a]
         del data[b]
         data[c] = part_c
+        
+        if no_increase and resolution:
+            # If there is no column increase, this solution should be preferred
+            # over the previous one always, so remove the previous one.
+            resolution.pop()
+        resolution.append(tuple(map(set, data)))
 
     return tuple(resolution)
 
@@ -411,7 +418,9 @@ def choose_variation(
         if not calc_model_num(combo) <= model_num:
             continue
 
-        solutions.append(calc_rows_cols(combo, chains, rows, meta)[0])
+        solutions.append(
+            tuple([s[0] for s in calc_rows_cols(combo, chains, rows, meta)])
+        )
         # print(valid)
         valid += 1
 

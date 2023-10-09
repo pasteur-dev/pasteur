@@ -39,10 +39,7 @@ def get_dtype(domain: int):
     return np.uint64
 
 
-GI = TypeVar("GI", "Grouping", str)
-
-
-class Grouping(list[GI]):
+class Grouping(list["Grouping | str"]):
     """An enchanced form of list that holds the type of grouping (categorical, ordinal),
     and implements helper functions and an enchanced string representation."""
 
