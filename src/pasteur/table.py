@@ -23,7 +23,6 @@ from pandas.api.types import is_float_dtype
 from pasteur.attribute import (
     Attribute,
     Attributes,
-    GenAttribute,
     SeqAttribute,
     SeqValue,
     get_dtype,
@@ -474,7 +473,7 @@ class TableTransformer:
         tables: dict[str, LazyFrame],
         ids: LazyFrame | None = None,
     ):
-        return self._transform_chunk(tables, ids) # type: ignore
+        return self._transform_chunk(tables, ids)  # type: ignore
 
     @to_chunked
     def _reverse_chunk(
@@ -1042,7 +1041,6 @@ class SeqTransformerWrapper(SeqTransformer):
             self.col_seq = seq_val.name
         else:
             self.col_seq = f"{table}_seq"
-        self.col_n = f"{table}_n"
 
         if not self.parent_arg:
             try:
@@ -1097,7 +1095,7 @@ class SeqTransformerWrapper(SeqTransformer):
         # If a seq_val was not provided, assume seq was also none and
         # become the sequencer
         if seq_val is None:
-            return SeqValue(self.col_seq, self.parent, self.order), cast(pd.Series, seq)
+            return SeqValue(self.col_seq, self.parent, self.order, self.max_len), cast(pd.Series, seq)
 
     def _dual_fit(
         self,
@@ -1209,22 +1207,7 @@ class SeqTransformerWrapper(SeqTransformer):
         if self.generate_seq:
             return (
                 pd.concat([enc, seq], axis=1),
-                {
-                    parent: pd.concat(
-                        [
-                            ctx,
-                            (
-                                ids.join(seq)
-                                .groupby(self.parent)[cast(str, seq.name)]
-                                .max()
-                                + 1
-                            )
-                            .clip(upper=self.max_len)
-                            .rename(self.col_n),
-                        ],
-                        axis=1,
-                    )
-                },
+                {parent: ctx},
                 seq,
             )
         return enc, {parent: ctx}
@@ -1450,41 +1433,22 @@ class SeqTransformerWrapper(SeqTransformer):
                     return {
                         **self.seq.get_attributes(),
                         self.col_seq: SeqAttribute(
-                            self.col_seq, self.parent, self.order
+                            self.col_seq, self.parent, self.order, self.max_len
                         ),
-                    }, {
-                        self.parent: {
-                            **self.ctx.get_attributes(),
-                            self.col_n: GenAttribute(
-                                self.col_n, self.table, self.max_len
-                            ),
-                        }
-                    }
+                    }, {self.parent: self.ctx.get_attributes()}
                 case "single":
                     return {
                         **self.seq.get_attributes(),
                         self.col_seq: SeqAttribute(
-                            self.col_seq, self.parent, self.order
+                            self.col_seq, self.parent, self.order, self.max_len
                         ),
-                    }, {
-                        self.parent: {
-                            self.col_n: GenAttribute(
-                                self.col_n, self.table, self.max_len
-                            ),
-                        }
-                    }
+                    }, {self.parent: {}}
                 case "notrn":
                     return {
                         self.col_seq: SeqAttribute(
-                            self.col_seq, self.parent, self.order
+                            self.col_seq, self.parent, self.order, self.max_len
                         )
-                    }, {
-                        self.parent: {
-                            self.col_n: GenAttribute(
-                                self.col_n, self.table, self.max_len
-                            ),
-                        }
-                    }
+                    }, {self.parent: {}}
         else:
             match self.mode:
                 case "dual":
@@ -1499,4 +1463,4 @@ class SeqTransformerWrapper(SeqTransformer):
         assert False
 
     def get_seq_value(self) -> SeqValue | None:
-        return SeqValue(self.col_seq, self.parent, self.order)
+        return SeqValue(self.col_seq, self.parent, self.order, self.max_len)

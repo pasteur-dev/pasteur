@@ -195,11 +195,13 @@ class Value:
 class SeqValue(Value):
     table: str
     order: int | None
+    max: int | None
 
-    def __init__(self, name: str, table: str, order: int | None = None) -> None:
+    def __init__(self, name: str, table: str, order: int | None = None, max: int | None = None) -> None:
         self.name = name
         self.table = table
         self.order = order
+        self.max = max
 
     def __str__(self) -> str:
         return f"Seq[{self.table},ord={self.order if self.order is not None else 'NA'}]"
@@ -313,11 +315,9 @@ class StratifiedValue(CatValue):
 
 
 class GenerationValue(StratifiedValue):
-    table: str
     max_len: int
 
-    def __init__(self, name: str, table: str, max_len: int) -> None:
-        self.table = table
+    def __init__(self, name: str, max_len: int) -> None:
         self.max_len = max_len
         super().__init__(name, Grouping("ord", list(range(max_len + 1))))
 
@@ -554,14 +554,14 @@ def NumAttribute(
     return Attribute(name, [NumValue(name, bins, nullable, min, max)])
 
 
-def SeqAttribute(name: str, table: str, order: int | None = None):
+def SeqAttribute(name: str, table: str, order: int | None = None, max: int | None = None):
     """Returns an Attribute holding a single SeqValue with the provided data."""
-    return Attribute(name, [SeqValue(name, table, order)])
+    return Attribute(name, [SeqValue(name, table, order, max)])
 
 
-def GenAttribute(name: str, table: str, max_len: int):
+def GenAttribute(name: str, max_len: int):
     """Returns an Attribute holding a single GenerationValue with the provided data."""
-    return Attribute(name, [GenerationValue(name, table, max_len)])
+    return Attribute(name, [GenerationValue(name, max_len)])
 
 
 __all__ = [

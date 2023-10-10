@@ -165,9 +165,9 @@ def _calculate_included_ids(
     return out
 
 
-def _calculate_stripped_meta(meta: dict[str, Attributes]):
+def _calculate_stripped_meta(attrs: dict[str, Attributes]):
     out = {}
-    for name, attr in meta.items():
+    for name in attrs:
         sequence = None
         order = None
         partition = None
@@ -175,8 +175,7 @@ def _calculate_stripped_meta(meta: dict[str, Attributes]):
         parent = None
         along = None
 
-        attrs = meta[name]
-        for attr in attrs.values():
+        for attr in attrs[name].values():
             for v in attr.vals.values():
                 if isinstance(v, SeqValue) and v.order is not None:
                     assert parent is None
@@ -203,8 +202,8 @@ def _calculate_stripped_meta(meta: dict[str, Attributes]):
                 along = []
                 along.extend(attr.vals)
 
-                for name in attr.along:
-                    along.extend(attrs[name].vals)
+                for n in attr.along:
+                    along.extend(attrs[name][n].vals)
 
         if along is not None:
             along = tuple(along)
