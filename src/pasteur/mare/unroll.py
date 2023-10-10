@@ -15,7 +15,7 @@ from ..attribute import (
 )
 from ..utils import LazyChunk
 from .chains import TablePartition, TableVersion
-from .reduce import TableMeta, TablePartition, TableVersion
+from .reduce import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
 
 
 def _unroll_sequence(seq_name: str, order: int, ids: pd.DataFrame, data: pd.DataFrame):
@@ -328,7 +328,7 @@ def gen_history_attributes(
     return out
 
 
-def generate_synth_attrs(
+def generate_fit_attrs(
     ver: TableVersion, attrs: dict[str, Attributes], ctx: bool
 ) -> tuple[dict[str, SeqAttributes | Attributes], Attributes] | None:
     unroll = None
@@ -388,3 +388,97 @@ def generate_synth_attrs(
             return None
         else:
             return hist, attrs[ver.name]
+
+
+def generate_fit_tables(
+    ver: TableVersion,
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+    ctx: bool,
+):
+    # Get history
+    meta = _calculate_stripped_meta(attrs)
+    hist = gen_history(ver.parents, tables, ids, meta)
+
+    # Prune ids that are not used in this model, ex. due to partitioning
+    fids = ids[ver.name]()
+    for name, table in hist.items():
+        if isinstance(name, tuple):
+            name = name[0]
+        fids = fids.join(table[[]], on=name, how="inner")
+
+    table = tables[ver.name]().loc[fids.index]
+
+    # Create new id that is unique per sequence
+    SID_NAME = "nid_jsdi78"
+    sid = fids.join(
+        fids.drop_duplicates()
+        .reset_index(drop=True)
+        .reset_index(names=SID_NAME)
+        .set_index(list(fids.columns)),
+        on=list(fids.columns),
+    ).drop(columns=list(fids.columns))
+
+    new_hist = {}
+    unroll = meta[ver.name].unroll
+    sequence, order = meta[ver.name].sequence, meta[ver.name].order
+    if unroll:
+        if ctx:
+            assert ver.unrolls
+            _, cmn, cols, ofs = recurse_unroll_attr(
+                ver.unrolls, attrs["medicine"]
+            )
+
+            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
+
+            udfs = []
+            for u in cmn.keys():
+                udf = (
+                    table.loc[table[unroll] == u, list(cols[u])]
+                    .join(sid)
+                    .drop_duplicates([SID_NAME])
+                    .set_index(SID_NAME)
+                    .convert_dtypes()
+                )
+                udf[cmn[u]] = pd.Series(1, dtype="UInt8", index=udf.index)
+                for c, o in ofs[u].items():
+                    udf[c] -= o - 1
+                udfs.append(udf.rename(columns=cols[u]))
+
+            utab = pd.concat(udfs, axis=1).fillna(0)
+            synth = utab.astype(
+                {k: str(v).lower() for k, v in utab.dtypes.to_dict().items()}
+            )
+        else:
+            unroll_cols = [unroll, *meta[ver.name].along]
+            new_hist[ver.name] = table[unroll_cols]
+            synth = table.drop(columns=unroll_cols)
+    elif sequence:
+        if ctx:
+            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
+            synth = pd.DataFrame(sid.join(table[sequence]).groupby(SID_NAME).max() + 1)
+        else:
+            assert order is not None
+
+            seq_hist = _unroll_sequence(sequence, order, fids, table)
+            for o, data in seq_hist.items():
+                new_hist[(ver.name, o)] = data
+            new_hist[ver.name] = pd.DataFrame(table[sequence].clip(upper=order))
+            synth = table
+    else:
+        assert (
+            not ctx
+        ), f"ctx=True should not be set for a table that doesn't have unrolling or sequencing."
+        synth = table
+
+    # With the new ids, prune the history
+    for idx, table in hist.items():
+        if isinstance(idx, tuple):
+            name = idx[0]
+        else:
+            name = idx
+        new_hist[idx] = (
+            fids[[name]].join(table, on=name, how="inner").drop(columns=name)
+        )
+    return new_hist, synth
