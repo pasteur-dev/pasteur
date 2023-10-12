@@ -1,7 +1,7 @@
 import numpy as np
 
 from .native import marginal
-from .numpy import AttrSelector, AttrSelectors, CalculationData, CalculationInfo
+from .numpy import AttrSelectors, CalculationData, CalculationInfo
 
 Op = tuple[int, np.ndarray]
 
@@ -14,7 +14,6 @@ def calc_marginal(
     simd: bool = True,
 ):
     """Calculates the 1 way marginal of the subsections of attributes x"""
-
     ops: list[Op] = []
     mul = 1
     for (table, attr, sel) in x:

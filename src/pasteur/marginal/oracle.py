@@ -5,6 +5,7 @@ from typing import (
     Generic,
     Literal,
     NamedTuple,
+    Sequence,
     TypeVar,
     overload,
     Protocol,
@@ -19,7 +20,10 @@ from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory, merge_memory
 from .numpy import (
     ZERO_FILL,
+    AttrName,
     AttrSelectors,
+    ChildSelector,
+    CommonSelector,
     TableSelector,
     expand_table,
     get_domains,
@@ -37,6 +41,17 @@ except Exception as e:
     from .numpy import calc_marginal
 
 A = TypeVar("A", covariant=True)
+
+MarginalRequests = Sequence[
+    tuple[TableSelector, AttrName, ChildSelector | CommonSelector]
+    | tuple[AttrName, ChildSelector | CommonSelector]
+]
+
+
+def convert_reqs(
+    reqs: list[MarginalRequests],
+) -> list[AttrSelectors]:
+    return [[y if len(y) == 3 else (None, *y) for y in x] for x in reqs]
 
 
 class PreprocessFun(Protocol):
@@ -465,7 +480,7 @@ class MarginalOracle:
     @overload
     def process(
         self,
-        requests: list[AttrSelectors],
+        requests: list[MarginalRequests],
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
     ) -> list[np.ndarray]:
@@ -474,16 +489,16 @@ class MarginalOracle:
     @overload
     def process(
         self,
-        requests: list[AttrSelectors],
+        requests: list[MarginalRequests],
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
-        postprocess: PostprocessFun[A] = ..., # type: ignore
+        postprocess: PostprocessFun[A] = ...,  # type: ignore
     ) -> list[A]:
         ...
 
     def process(
         self,
-        requests: list[AttrSelectors],
+        requests: list[MarginalRequests],
         desc: str = "Processing partition",
         preprocess: PreprocessFun | None = None,
         postprocess: PostprocessFun[A] | None = None,
@@ -497,12 +512,16 @@ class MarginalOracle:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading partitions in parallel."
             )
-            return self._process_batched(requests, desc, preprocess, postprocess)
+            return self._process_batched(
+                convert_reqs(requests), desc, preprocess, postprocess
+            )
         else:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading dataset in memory."
             )
-            return self._process_inmemory(requests, desc, preprocess, postprocess)
+            return self._process_inmemory(
+                convert_reqs(requests), desc, preprocess, postprocess
+            )
 
     def get_counts(self, desc: str = "Calculating counts"):
         if self.counts:

@@ -13,60 +13,15 @@ from ..attribute import (
     get_dtype,
 )
 
-ZERO_FILL = 1e-24
 
 ChildSelector = dict[str, int]
 CommonSelector = int
 TableSelector = str | tuple[str, int] | None
 AttrName = str | tuple[str, ...]
 
+
 AttrSelector = tuple[TableSelector, AttrName, ChildSelector | CommonSelector]
 AttrSelectors = Sequence[AttrSelector]
-
-# AttrSelectors = (
-#     dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]
-#     | dict[AttrName, ChildSelector | CommonSelector]
-# )
-
-
-# def _contains_tables(
-#     x: AttrSelectors,
-# ) -> TypeGuard[dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]]:
-#     # TODO: Check guard for exceptions
-#     if None in x:
-#         return True
-
-#     for name, vals in x.items():
-#         if isinstance(name, tuple) and len(name) > 1 and isinstance(name[1], int):
-#             return True
-
-#         if isinstance(vals, int):
-#             return True
-
-#         for vname, val in vals.items():
-#             if isinstance(vname, tuple):
-#                 return True
-
-#             if isinstance(val, dict):
-#                 return True
-
-#     return False
-
-
-# def _not_contains_tables(
-#     x: AttrSelectors,
-# ) -> TypeGuard[dict[AttrName, ChildSelector | CommonSelector]]:
-#     return not _contains_tables(x)
-
-
-# def add_tables(
-#     x: AttrSelectors,
-# ) -> dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]:
-#     if _contains_tables(x):
-#         return x
-
-#     assert _not_contains_tables(x), "Ambiguous AttrSelector"
-#     return {None: x}
 
 CalculationData = dict[tuple[TableSelector, str, bool], list[np.ndarray]]
 
@@ -103,7 +58,7 @@ def _calc_common_seq_rec(seq: Grouping, col: Grouping):
             if len(k) != len(l):
                 return ofs
 
-            ofs += _calc_common_rec(k, l)
+            ofs += _calc_common_seq_rec(k, l)
         elif isinstance(l, Grouping) or isinstance(l, Grouping):
             return ofs
         else:
@@ -234,7 +189,6 @@ def expand_table(
                     common_name = attr.common.name
                     vals.append((common_name, attr.common))
                     common_names[(table_sel, attr.name)] = common_name
-                    table_common = min(table_common, _calc_common_seq(attr.common, seq))
 
                 attr_common = 1024
                 for name, col in vals:
@@ -260,6 +214,7 @@ def expand_table(
 
                     domains[(table_sel, name)] = col_domain
                     attr_common = min(attr_common, col_common)
+                    table_common = min(table_common, _calc_common_seq(col, seq))
 
                 common[(table_sel, attr.name)] = (
                     attr_common if attr_common < 1000 else 0
@@ -350,29 +305,3 @@ def calc_marginal(
         out = counts
 
     return out
-
-
-def normalize(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
-    margin = counts.astype("float32")
-
-    margin /= margin.sum()
-    if zero_fill is not None:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
-
-    j_mar = margin
-    x_mar = np.sum(margin, axis=1)
-    p_mar = np.sum(margin, axis=0)
-
-    return j_mar, x_mar, p_mar
-
-
-def normalize_1way(counts: np.ndarray, zero_fill: float | None = ZERO_FILL):
-    margin = counts.astype("float32")
-
-    margin /= margin.sum()
-    if zero_fill is not None:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
-
-    return margin
