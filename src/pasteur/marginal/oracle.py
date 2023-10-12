@@ -323,13 +323,16 @@ class MarginalOracle:
         self.max_worker_mult = max_worker_mult
         self.counts = None
         self.log = log
-        self._loaded = False
+        self._load_id = None
 
         self.marginal_count = 0
 
     def load_data(self, preprocess: PreprocessFun):
-        if self._loaded:
-            return
+        if self._load_id:
+            if self._load_id == id(preprocess):
+                return
+            else:
+                self.unload_data()
 
         if LazyFrame.are_partitioned([self.tables, self.ids]):
             # Load data in parallel
@@ -342,15 +345,15 @@ class MarginalOracle:
                 self.attrs, self.tables, self.ids, preprocess # type: ignore
             ) 
 
-        self._loaded = True
+        self._load_id = id(preprocess)
 
     def unload_data(self):
-        if not self._loaded:
+        if not self._load_id:
             return
 
         self.mem_arr.close()
         self.mem_arr.unlink()
-        self._loaded = False
+        self._load_id = None
 
     def _process_inmemory(
         self,
@@ -585,8 +588,6 @@ class MarginalOracle:
     def get_counts(self, desc: str = "Calculating counts"):
         if self.counts:
             return self.counts
-        
-        self.unload_data()
 
         cols = []
         reqs: list[AttrSelectors] = []
@@ -603,7 +604,6 @@ class MarginalOracle:
         count_arr = self.process(reqs, preprocess=_counts_load, desc=desc) # type: ignore
         self.counts = {name: count for name, count in zip(cols, count_arr)}
 
-        self.unload_data()
         return self.counts
 
     def close(self):
