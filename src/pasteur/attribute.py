@@ -19,7 +19,7 @@ An Attribute holds multiple values and a set of common conditions. When a common
 condition is active, all of the Attribute's Values are expected to have the same
 value."""
 
-from typing import Any, Literal, Mapping, TypeVar, Sequence
+from typing import Any, Literal, Mapping, NamedTuple, Sequence, TypeVar
 
 import numpy as np
 
@@ -510,6 +510,13 @@ class Attribute:
 
 Attributes = Mapping[str | tuple[str, ...], Attribute]
 
+
+class SeqAttributes(NamedTuple):
+    order: int
+    seq: StratifiedValue
+    attrs: Attributes | None
+    hist: dict[int, Attributes]
+    
 
 def OrdAttribute(
     name: str,

@@ -1,31 +1,126 @@
-from typing import NamedTuple, cast
+from typing import NamedTuple, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
-from ..attribute import Attributes, get_dtype, CatValue
+from ..attribute import (
+    Attributes,
+    CatValue,
+    Grouping,
+    SeqAttributes,
+    StratifiedValue,
+    get_dtype,
+)
 
 ZERO_FILL = 1e-24
 
+ChildSelector = dict[str, int]
+CommonSelector = int
+TableSelector = str | tuple[str, int] | None
+AttrName = str | tuple[str, ...]
 
-class AttrSelector(NamedTuple):
-    name: str
-    common: int
-    cols: dict[str, int]
+AttrSelector = tuple[TableSelector, AttrName, ChildSelector | CommonSelector]
+AttrSelectors = Sequence[AttrSelector]
+
+CalculationData = dict[tuple[TableSelector, str, bool], list[np.ndarray]]
 
 
-AttrSelectors = dict[str, AttrSelector]
+class CalculationInfo(NamedTuple):
+    domains: dict[tuple[TableSelector, str], list[int]]
+    common: dict[tuple[TableSelector, AttrName | None], int]
+    common_names: dict[tuple[TableSelector, AttrName], str]
 
- 
+
+def _calc_common_rec(common: Grouping, col: Grouping):
+    assert len(col) == len(common)
+
+    ofs = 0
+    for k, l in zip(common, col):
+        if isinstance(k, Grouping):
+            assert isinstance(l, Grouping)
+
+            ofs += _calc_common_rec(k, l)
+        elif isinstance(l, Grouping):
+            return ofs
+        else:
+            ofs += 1
+
+    return ofs
+
+
+def _calc_common_seq_rec(seq: Grouping, col: Grouping):
+    assert len(col) == len(seq)
+
+    ofs = 0
+    for k, l in zip(seq, col):
+        if isinstance(k, Grouping) and isinstance(l, Grouping):
+            if len(k) != len(l):
+                return ofs
+
+            ofs += _calc_common_rec(k, l)
+        elif isinstance(l, Grouping) or isinstance(l, Grouping):
+            return ofs
+        else:
+            ofs += 1
+
+    return ofs
+
+
+def _calc_common(col: CatValue, common: CatValue | None):
+    if not common:
+        return 0
+
+    if not isinstance(col, StratifiedValue):
+        return 0
+
+    if not isinstance(common, StratifiedValue):
+        return 0
+
+    return _calc_common_rec(common.head, col.head)
+
+
+def _calc_common_seq(col: CatValue, seq: CatValue | None):
+    if not seq:
+        return 0
+
+    if not isinstance(col, StratifiedValue):
+        return 0
+
+    if not isinstance(seq, StratifiedValue):
+        return 0
+
+    return _calc_common_seq_rec(seq.head, col.head)
+
+
+def _map_column(table: pd.DataFrame, col: CatValue, common: CatValue | None):
+    cols = []
+    cols_noncommon = []
+    domains = []
+    common_num = _calc_common(col, common)
+
+    for height in range(col.height):
+        domain = col.get_domain(height)
+        domains.append(domain)
+
+        col_lvl = col.get_mapping(height)[table[col.name]]
+        col_lvl = col_lvl.astype(get_dtype(domain))
+        cols.append(col_lvl)
+
+        if common_num > 0:
+            non_common = np.where(col_lvl > common_num, col_lvl - common_num, 0)
+            cols_noncommon.append(non_common)
+
+    return cols, cols_noncommon, domains, common_num
+
+
 def expand_table(
     attrs: Attributes,
     table: pd.DataFrame,
+    hist_attrs: dict[str, Attributes | SeqAttributes] = {},
+    hist_tables: dict[str | tuple[str, int], pd.DataFrame] = {},
     *,
-    out_cols: dict[str, list[np.ndarray]] | None = None,
-    out_noncommon: dict[str, list[np.ndarray]] | None = None
-) -> tuple[
-    dict[str, list[np.ndarray]], dict[str, list[np.ndarray]], dict[str, list[int]]
-]:
+    prealloc: CalculationData | None = None,
+) -> tuple[CalculationData, CalculationInfo]:
     """Takes in the raw idx encoded table and precalculates all column-height combinations
     of hierarchical attributes, with special versions for marginal calculations with
     attributes that have an NA value.
@@ -54,44 +149,77 @@ def expand_table(
     For a dataset with size n=500k and 6 columns used in the marginal, it has a
     wallsize of 1.3ms, to 30ms of np.histogramdd.
     """
-    cols = {}
-    cols_noncommon = {}
-
+    tables = {**hist_tables, None: table}
+    out = {}
     domains = {}
-    for attr in attrs.values():
-        for name, col in attr.vals.items():
-            if name not in table:
-                continue
+    common = {}
+    common_names = {}
 
-            col = cast(CatValue, col)
-            col_hier = []
-            col_noncommon = []
-            col_dom = []
+    # For hierarchical data, attributes are provided per table
+    # We separate them into historical data, which are optional,
+    # and the main table, which will have the name 'None'
+    # The reason the main table is set to None that it may be partially synthesized,
+    # so its name will be in the historical data.
+    for table_name, table_attrs in [(None, attrs), *hist_attrs.items()]:
+        table_name: str | None
+        table_attrs: Attributes | SeqAttributes
 
-            for height in range(col.height):
-                domain = col.get_domain(height)
-                col_dom.append(domain)
+        # For each table, we have multiple versions when there are sequential data
+        attr_sets: list[
+            tuple[tuple[str, int] | str | None, StratifiedValue | None, Attributes]
+        ]
+        if isinstance(table_attrs, SeqAttributes):
+            assert isinstance(table_name, str)
+            attr_sets = [
+                ((table_name, k), table_attrs.seq, v)
+                for k, v in table_attrs.hist.items()
+            ]
+            if table_attrs.attrs is not None:
+                attr_sets.append((table_name, None, table_attrs.attrs))
+        else:
+            attr_sets = [(table_name, None, table_attrs)]
 
-                col_lvl = col.get_mapping(height)[table[name]]
-                col_lvl = col_lvl.astype(get_dtype(domain))
-                if out_cols:
-                    out_cols[name][height][:] = col_lvl
-                else:
-                    col_hier.append(col_lvl)
+        for table_sel, seq, attr_set in attr_sets:
 
-                if attr.common > 0:
-                    nc = np.where(col_lvl > attr.common, col_lvl - attr.common, 0)
+            table_common = 1024
+            for attr in attr_set.values():
+                vals = list(attr.vals.items())
+                if attr.common:
+                    common_name = attr.common.name
+                    vals.append((common_name, attr.common))
+                    common_names[(table_sel, attr.name)] = common_name
+                    table_common = min(table_common, _calc_common_seq(attr.common, seq))
 
-                    if out_noncommon:
-                        out_noncommon[name][height][:] = col_lvl
+                attr_common = 1024
+                for name, col in vals:
+                    if not isinstance(col, CatValue):
+                        continue
+
+                    if name not in tables[table_sel]:
+                        continue
+
+                    col_hier, col_noncommon, col_domain, col_common = _map_column(
+                        tables[table_sel], col, attr.common
+                    )
+
+                    if prealloc:
+                        for height, data in enumerate(col_hier):
+                            prealloc[(table_sel, name, False)][height][:] = data
+                        for height, data in enumerate(col_noncommon):
+                            prealloc[(table_sel, name, True)][height][:] = data
                     else:
-                        col_noncommon.append(nc)
+                        out[(table_sel, name, False)] = col_hier
+                        if col_noncommon:
+                            out[(table_sel, name, True)] = col_noncommon
 
-            domains[name] = col_dom
-            cols[name] = col_hier
-            cols_noncommon[name] = col_noncommon
+                    domains[(table_sel, name)] = col_domain
+                    attr_common = min(attr_common, col_common)
 
-    return out_cols or cols, out_noncommon or cols_noncommon, domains
+                common[(table_sel, attr.name)] = (
+                    attr_common if attr_common < 1000 else 0
+                )
+
+    return prealloc or out, CalculationInfo(domains, common, common_names)
 
 
 def get_domains(attrs: Attributes) -> dict[str, list[int]]:
@@ -111,9 +239,8 @@ def get_domains(attrs: Attributes) -> dict[str, list[int]]:
 
 
 def calc_marginal(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
+    data: CalculationData,
+    info: CalculationInfo,
     x: AttrSelector,
     p: AttrSelectors,
     partial: bool = False,
@@ -124,74 +251,35 @@ def calc_marginal(
 
     # Find integer dtype based on domain
     p_dom = 1
-    for attr in p.values():
-        common = attr.common
-        l_dom = 1
-        for i, (n, h) in enumerate(attr.cols.items()):
-            l_dom *= domains[n][h] - common
-        p_dom *= l_dom + common
-    x_dom = 1
-    for i, (n, h) in enumerate(x.cols.items()):
-        x_dom *= domains[n][h] - x.common
-    x_dom += x.common
-
-    dtype = get_dtype(p_dom * x_dom)
-
-    n = len(next(iter(cols.values()))[0])
-    _sum_nd = np.zeros((n,), dtype=dtype)
-    _tmp_nd = np.zeros((n,), dtype=dtype)
-
-    # Handle parents
-    mul = 1
-    for attr_name, attr in p.items():
-        common = attr.common
-        l_mul = 1
-        p_partial = partial and attr_name == x.name
-        for i, (n, h) in enumerate(attr.cols.items()):
-            if common == 0 or i == 0:
-                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
-            else:
-                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
-
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-            l_mul *= domains[n][h] - common
-
-        if p_partial:
-            mul *= l_mul
+    for (table, attr, sel) in p:
+        if isinstance(sel, dict):
+            common = info.common[(table, attr)]
+            l_dom = 1
+            for n, h in sel.items():
+                l_dom *= info.domains[(table, n)][h] - common
+            p_dom *= l_dom + common
         else:
-            mul *= l_mul + common
+            p_dom *= info.domains[(table, info.common_names[(table, attr)])][sel]
 
-    # Handle x
-    common = x.common
-    for i, (n, h) in enumerate(x.cols.items()):
-        if common == 0 or (i == 0 and not partial):
-            np.multiply(cols[n][h], mul, out=_tmp_nd, dtype=dtype)
-        else:
-            np.multiply(cols_noncommon[n][h], mul, out=_tmp_nd, dtype=dtype)
-
-        np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-        mul *= domains[n][h] - common
-
-    # Keep only non-common items if there is a parent to source the others
-    if partial:
-        n = next(iter(x.cols))
-        _sum_nd = _sum_nd[cols[n][0] >= common]
-        x_dom = x_dom - x.common
-
-    counts = np.bincount(_sum_nd, minlength=p_dom * x_dom)
-    if out is not None:
-        out = out.reshape((-1,))
-        out += counts
+    table, attr, sel = x
+    if isinstance(sel, dict):
+        common = info.common[(table, attr)]
+        x_dom = 1
+        for n, h in sel.items():
+            x_dom *= info.domains[(table, n)][h] - common
+        x_dom *= common
     else:
-        out = counts
+        x_dom = info.domains[(table, info.common_names[(table, attr)])][sel]
 
+    if out:
+        out = out.reshape((-1,))
+    out = calc_marginal_1way(data, info, [x, *p], out)
     return out.reshape((x_dom, p_dom))
 
 
 def calc_marginal_1way(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
+    data: CalculationData,
+    info: CalculationInfo,
     x: AttrSelectors,
     out: np.ndarray | None = None,
 ):
@@ -199,31 +287,54 @@ def calc_marginal_1way(
 
     # Find integer dtype based on domain
     dom = 1
-    for attr in x.values():
-        common = attr.common
-        l_dom = 1
-        for i, (n, h) in enumerate(attr.cols.items()):
-            l_dom *= domains[n][h] - common
-        dom *= l_dom + common
+    for (table, attr, sel) in x:
+        if isinstance(sel, dict):
+            common = info.common[(table, attr)]
+            l_dom = 1
+            for n, h in sel.items():
+                l_dom *= info.domains[(table, n)][h] - common
+            dom *= l_dom + common
+        else:
+            dom *= info.domains[(table, info.common_names[(table, attr)])][sel]
+
     dtype = get_dtype(dom)
 
-    n = len(next(iter(cols.values()))[0])
+    n = len(next(iter(data.values()))[0])
     _sum_nd = np.zeros((n,), dtype=dtype)
     _tmp_nd = np.empty((n,), dtype=dtype)
 
     mul = 1
-    for attr in reversed(x.values()):
-        common = attr.common
-        l_mul = 1
-        for i, (n, h) in enumerate(attr.cols.items()):
-            if common == 0 or i == 0:
-                np.multiply(cols[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
-            else:
-                np.multiply(cols_noncommon[n][h], mul * l_mul, out=_tmp_nd, dtype=dtype)
+    for (table, attr, sel) in x:
+        common = info.common[(table, attr)]
+        if isinstance(sel, dict):
+            l_mul = 1
+            for i, (n, h) in enumerate(sel.items()):
+                if common == 0 or i == 0:
+                    np.multiply(
+                        data[(table, n, False)][h],
+                        mul * l_mul,
+                        out=_tmp_nd,
+                        dtype=dtype,
+                    )
+                else:
+                    np.multiply(
+                        data[(table, n, True)][h],
+                        mul * l_mul,
+                        out=_tmp_nd,
+                        dtype=dtype,
+                    )
 
-            np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-            l_mul *= domains[n][h] - common
-        mul *= l_mul + common
+                np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+                l_mul *= info.domains[(table, n)][h] - common
+            mul *= l_mul + common
+        else:
+            np.multiply(
+                data[(table, info.common_names[(table, attr)], False)][sel],
+                mul,
+                out=_tmp_nd,
+                dtype=dtype,
+            )
+            mul *= info.domains[(table, info.common_names[(table, attr)])][sel]
 
     counts = np.bincount(_sum_nd, minlength=dom)
     if out is not None:

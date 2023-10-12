@@ -2,14 +2,22 @@ import logging
 from typing import Any, Callable, Literal, NamedTuple, overload
 
 import numpy as np
+import pandas as pd
 
-from ..attribute import Attributes
+from ..attribute import Attributes, CatValue, SeqAttributes
 from ..utils import LazyChunk, LazyFrame
 from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
-from .numpy import ZERO_FILL, AttrSelector, AttrSelectors, expand_table, get_domains
+from .memory import load_from_memory, map_to_memory, merge_memory
+from .numpy import (
+    ZERO_FILL,
+    AttrSelector,
+    AttrSelectors,
+    TableSelector,
+    expand_table,
+    get_domains,
+)
 from .numpy import normalize as normalize_2way
 from .numpy import normalize_1way
-from .memory import load_from_memory, map_to_memory, allocate_memory
 
 logger = logging.getLogger(__name__)
 
@@ -27,115 +35,119 @@ except Exception as e:
 class MarginalRequest(NamedTuple):
     x: AttrSelector
     p: AttrSelectors
-    partial: bool
 
 
-def _find_columns(reqs: list[MarginalRequest]) -> list[str] | None:
-    cols = set()
-    for req in reqs:
-        if req.x is not None:
-            cols.update(req.x.cols.keys())
-        for p in req.p.values():
-            cols.update(p.cols.keys())
+PreprocessFun = Callable[
+    [dict[str, Attributes], dict[str, LazyChunk], dict[str, LazyChunk]],
+    tuple[Attributes, pd.DataFrame]
+    | tuple[
+        Attributes,
+        pd.DataFrame,
+        dict[str, Attributes | SeqAttributes],
+        dict[str | tuple[str, int], pd.DataFrame],
+    ],
+]
 
-    return sorted(list(cols)) or None
 
+def _tabular_load(
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+):
+    assert len(tables) == 1 and len(attrs) == 1
+    return next(iter(attrs.values())), next(iter(tables.values()))()
 
-def _find_columns_1way(X: list[AttrSelectors]) -> list[str] | None:
-    cols = set()
-    for x in X:
-        for sel in x.values():
-            cols.update(sel.cols.keys())
-
-    return sorted(list(cols)) or None
-
+def _counts_load(
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+):
+    return {}, pd.DataFrame(), attrs, {k: c() for k, c in tables.items()}
 
 def sequential_load(
-    chunk: LazyChunk, attrs: Attributes, columns: list[str] | None = None
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+    preprocess: PreprocessFun,
 ):
-    df = chunk(columns=columns)
-    cols, cols_noncommon, domains = expand_table(attrs, df)
+    out = preprocess(attrs, tables, ids)
+    if len(out) == 2:
+        new_attrs, table = out
+        hist_attrs = {}
+        hist_tables = {}
+    else:
+        new_attrs, table, hist_attrs, hist_tables = out
 
-    mem_cols, info_cols = map_to_memory(cols)
-    del cols
-    mem_noncommon, info_noncommon = map_to_memory(cols_noncommon)
-    return mem_cols, info_cols, mem_noncommon, info_noncommon, domains
+    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
+
+    mem_arr, mem_info = map_to_memory(data)
+    del data
+    return mem_arr, mem_info, info
 
 
 def _parallel_load_worker(
-    mem_cols,
-    info_cols,
-    mem_noncommon,
-    info_noncommon,
-    chunk: LazyChunk,
-    chunk_range: tuple[int, int],
-    attrs: Attributes,
-    columns: list[str] | None = None,
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+    preprocess: PreprocessFun,
 ):
-    cols = load_from_memory(mem_cols, info_cols, range=chunk_range)
-    cols_noncommon = load_from_memory(mem_noncommon, info_noncommon, range=chunk_range)
+    out = preprocess(attrs, tables, ids)
+    if len(out) == 2:
+        new_attrs, table = out
+        hist_attrs = {}
+        hist_tables = {}
+    else:
+        new_attrs, table, hist_attrs, hist_tables = out
 
-    df = chunk(columns=columns)
-    _, _, domains = expand_table(attrs, df, out_cols=cols, out_noncommon=cols_noncommon)
-    return domains
+    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
+    mem_arr, mem_info = map_to_memory(data)
+    return mem_arr, mem_info, info
 
 
-def parallel_load(data: LazyFrame, attrs: Attributes, columns: list[str] | None = None):
-    # Both memory allocations share the range
-    mem_cols, info_cols, _ = allocate_memory(data, attrs, common=False)
-    mem_noncommon, info_noncommon, ranges = allocate_memory(data, attrs, common=True)
+def parallel_load(
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyFrame],
+    ids: dict[str, LazyFrame],
+    preprocess: PreprocessFun,
+):
 
     base_args = {
-        "mem_cols": mem_cols,
-        "info_cols": info_cols,
-        "mem_noncommon": mem_noncommon,
-        "info_noncommon": info_noncommon,
         "attrs": attrs,
-        "columns": columns,
+        "preprocess": preprocess,
     }
     per_call_args = [
-        {"chunk": data[name], "chunk_range": ranges[name]} for name in data.keys()
+        {"tables": chunks, "ids": ids_chunks}
+        for chunks, ids_chunks in LazyFrame.zip_values([tables, ids])
     ]
     out = process_in_parallel(
         _parallel_load_worker, per_call_args, base_args, desc="Loading data"
     )
-    domains = out[0]
+    info = out[0][-1]
+    mem_arr, mem_info = merge_memory(out)
 
-    return mem_cols, info_cols, mem_noncommon, info_noncommon, domains
+    return mem_arr, mem_info, info
 
 
 def _marginal_initializer(base_args, per_call_args):
     copy = base_args["copy"]
-
-    cols = load_from_memory(base_args["mem_cols"], base_args["info_cols"], copy)
-    cols_noncommon = load_from_memory(
-        base_args["mem_noncommon"], base_args["info_noncommon"], copy
-    )
+    data = load_from_memory(base_args["mem_arr"], base_args["mem_info"], copy)
 
     new_base_args = base_args.copy()
-    new_base_args["cols"] = cols
-    new_base_args["cols_noncommon"] = cols_noncommon
-
+    new_base_args["data"] = data
     return new_base_args, per_call_args
 
 
 def _marginal_worker(
-    cols,
-    cols_noncommon,
-    domains,
+    data,
+    info,
     req: MarginalRequest,
     normalize: bool,
     zero_fill: float,
     postprocess: Callable | None,
     **_,
 ):
-    x, p, partial = req
-
-    if partial:
-        # Native implementation is unfinished
-        res = calc_marginal_np(cols, cols_noncommon, domains, x, p, partial)
-    else:
-        res = calc_marginal(cols, cols_noncommon, domains, x, p, partial)
+    x, p = req
+    res = calc_marginal(data, info, x, p)
 
     if normalize:
         if postprocess is not None:
@@ -149,16 +161,15 @@ def _marginal_worker(
 
 
 def _marginal_worker_1way(
-    cols,
-    cols_noncommon,
-    domains,
-    x: AttrSelectors,
+    data,
+    info,
+    req: AttrSelectors,
     normalize: bool,
     zero_fill: float,
     postprocess: Callable | None,
     **_,
 ) -> np.ndarray:
-    res = calc_marginal_1way(cols, cols_noncommon, domains, x)
+    res = calc_marginal_1way(data, info, req)
 
     if normalize:
         if postprocess is not None:
@@ -171,43 +182,28 @@ def _marginal_worker_1way(
     return res
 
 
-def _marginal_batch_worker(
-    requests: list[MarginalRequest],
-    attrs: Attributes,
-    chunk: LazyChunk,
-    shared,
+def _marginal_batch_worker_inmem(
+    mem_arr,
+    mem_info,
+    info,
+    arange,
+    requests: list,
+    one_way,
     progress_lock,
     progress_send,
 ) -> list[np.ndarray]:
     from time import time_ns
 
-    if chunk is not None:
-        cols, cols_noncommon, domains = expand_table(
-            attrs, chunk(columns=_find_columns(requests))
-        )
-    else:
-        (
-            mem_cols,
-            info_cols,
-            mem_noncommon,
-            info_noncommon,
-            domains,
-            chunk_range,
-        ) = shared
-        cols = load_from_memory(mem_cols, info_cols, range=chunk_range, copy=True)
-        cols_noncommon = load_from_memory(
-            mem_noncommon, info_noncommon, range=chunk_range, copy=True
-        )
-
+    data = load_from_memory(mem_arr, mem_info, range=arange, copy=True)
     out = []
     u = 0
     last_updated = time_ns()
-    for x, p, partial in requests:
-        if partial:
-            # Native implementation is unfinished
-            out.append(calc_marginal_np(cols, cols_noncommon, domains, x, p, partial))
+    for x, p in requests:
+        # @TODO: Add partial
+        if one_way:
+            out.append(calc_marginal_1way(data, info, x))
         else:
-            out.append(calc_marginal(cols, cols_noncommon, domains, x, p, partial))
+            out.append(calc_marginal(data, info, x, p))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -222,39 +218,46 @@ def _marginal_batch_worker(
     return out
 
 
-def _marginal_batch_worker_1way(
-    X: list[AttrSelectors],
-    attrs: Attributes,
-    chunk: LazyChunk | None,
-    shared,
+def _marginal_batch_worker_load(
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+    preprocess: Callable[
+        [dict[str, Attributes], dict[str, LazyChunk], dict[str, LazyChunk]],
+        tuple[Attributes, pd.DataFrame]
+        | tuple[
+            Attributes,
+            pd.DataFrame,
+            dict[str, Attributes | SeqAttributes],
+            dict[str | tuple[str, int], pd.DataFrame],
+        ],
+    ],
+    requests: list,
+    one_way: bool,
     progress_lock,
     progress_send,
 ) -> list[np.ndarray]:
     from time import time_ns
 
-    if chunk is not None:
-        cols, cols_noncommon, domains = expand_table(
-            attrs, chunk(columns=_find_columns_1way(X))
-        )
+    out = preprocess(attrs, tables, ids)
+    if len(out) == 2:
+        new_attrs, table = out
+        hist_attrs = {}
+        hist_tables = {}
     else:
-        (
-            mem_cols,
-            info_cols,
-            mem_noncommon,
-            info_noncommon,
-            domains,
-            chunk_range,
-        ) = shared
-        cols = load_from_memory(mem_cols, info_cols, range=chunk_range, copy=True)
-        cols_noncommon = load_from_memory(
-            mem_noncommon, info_noncommon, range=chunk_range, copy=True
-        )
+        new_attrs, table, hist_attrs, hist_tables = out
+
+    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
 
     out = []
     u = 0
     last_updated = time_ns()
-    for x in X:
-        out.append(calc_marginal_1way(cols, cols_noncommon, domains, x))
+    for x, p in requests:
+        # @TODO: Add partial
+        if one_way:
+            out.append(calc_marginal_1way(data, info, x))
+        else:
+            out.append(calc_marginal(data, info, x, p))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -280,8 +283,10 @@ class MarginalOracle:
 
     def __init__(
         self,
-        attrs: Attributes,
-        data: LazyFrame,
+        attrs: dict[str, Attributes],
+        tables: dict[str, LazyFrame],
+        ids: dict[str, LazyFrame],
+        preprocess: PreprocessFun = _tabular_load,
         mode: "MarginalOracle.MODES" = "out_of_core",
         *,
         min_chunk_size: int = 1,
@@ -290,9 +295,11 @@ class MarginalOracle:
         log: bool = True,
     ) -> None:
         self.attrs = attrs
-        self.data = data
+        self.tables = tables
+        self.ids = ids
+        self.preprocess = preprocess
 
-        if mode == "out_of_core" and not data.partitioned:
+        if mode == "out_of_core" and not LazyFrame.are_partitioned([tables, ids]):
             logger.info("Data is not partitioned, switching to mode `inmemory_copy`.")
             self.mode = "inmemory_copy"
         elif mode == "inmemory":
@@ -301,7 +308,11 @@ class MarginalOracle:
         else:
             self.mode = mode
 
-        self.repartitions = repartitions or len(data)
+        data_partitions = 1
+        if LazyFrame.are_partitioned([tables, ids]):
+            data_partitions = len(LazyFrame.zip([tables, ids]))
+        self.repartitions = repartitions or data_partitions
+
         if self.repartitions == 1 and mode == "inmemory_batched":
             logger.info(
                 "Data is not partitioned and `repartitions` is not provided. Can't infer partition number, switching to mode `inmemory_copy`."
@@ -316,34 +327,20 @@ class MarginalOracle:
 
         self.marginal_count = 0
 
-    def get_domains(self):
-        return get_domains(self.attrs)
-
-    def get_shape(self):
-        return self.data.shape
-
-    def load_data(self, columns: list[str] | None = None):
+    def load_data(self, preprocess: PreprocessFun):
         if self._loaded:
             return
 
-        if self.data.partitioned:
+        if LazyFrame.are_partitioned([self.tables, self.ids]):
             # Load data in parallel
-            (
-                self.mem_cols,
-                self.info_cols,
-                self.mem_noncommon,
-                self.info_noncommon,
-                self.domains,
-            ) = parallel_load(self.data, self.attrs, columns)
+            (self.mem_arr, self.mem_info, self.info) = parallel_load(
+                self.attrs, self.tables, self.ids, preprocess
+            )
         else:
             # Load data sequentially
-            (
-                self.mem_cols,
-                self.info_cols,
-                self.mem_noncommon,
-                self.info_noncommon,
-                self.domains,
-            ) = sequential_load(self.data, self.attrs, columns)
+            (self.mem_arr, self.mem_info, self.info) = sequential_load(
+                self.attrs, self.tables, self.ids, preprocess # type: ignore
+            ) 
 
         self._loaded = True
 
@@ -351,11 +348,8 @@ class MarginalOracle:
         if not self._loaded:
             return
 
-        self.mem_cols.close()
-        self.mem_cols.unlink()
-
-        self.mem_noncommon.close()
-        self.mem_noncommon.unlink()
+        self.mem_arr.close()
+        self.mem_arr.unlink()
         self._loaded = False
 
     def _process_inmemory(
@@ -364,6 +358,7 @@ class MarginalOracle:
         desc: str,
         normalize: bool,
         zero_fill: float | None,
+        preprocess: PreprocessFun,
         postprocess: Callable | None,
     ):
         assert self.mode in ("inmemory_shared", "inmemory_copy")
@@ -372,23 +367,18 @@ class MarginalOracle:
             return []
         is_1way = not isinstance(requests[0], MarginalRequest)
 
-        self.load_data()
+        self.load_data(preprocess)
         base_args = {
-            "mem_cols": self.mem_cols,
-            "info_cols": self.info_cols,
-            "mem_noncommon": self.mem_noncommon,
-            "info_noncommon": self.info_noncommon,
+            "mem_arr": self.mem_arr,
+            "mem_info": self.mem_info,
+            "info": self.info,
             "copy": self.mode == "inmemory_copy",
-            "domains": self.domains,
             "normalize": normalize,
             "zero_fill": zero_fill,
             "postprocess": postprocess,
         }
 
-        if is_1way:
-            per_call_args = [{"x": x} for x in requests]
-        else:
-            per_call_args = [{"req": req} for req in requests]
+        per_call_args = [{"req": req} for req in requests]
 
         res = process_in_parallel(
             _marginal_worker_1way if is_1way else _marginal_worker,
@@ -408,14 +398,15 @@ class MarginalOracle:
         desc: str,
         normalize: bool,
         zero_fill: float | None,
+        preprocess: PreprocessFun,
         postprocess: Callable | None,
     ):
         assert self.mode in ("inmemory_batched", "out_of_core")
 
         from multiprocessing import Pipe
-        from threading import Thread, Lock
+        from threading import Lock, Thread
 
-        from pasteur.utils.progress import get_manager, MULTIPROCESS_ENABLE
+        from ..utils.progress import MULTIPROCESS_ENABLE, get_manager
 
         if len(requests) == 0:
             return []
@@ -430,41 +421,36 @@ class MarginalOracle:
             progress_lock = Lock()
 
         base_args = {
-            "attrs": self.attrs,
+            "preprocess": preprocess,
             "progress_send": progress_send,
             "progress_lock": progress_lock,
+            "requests": requests,
+            "one_way": is_1way,
         }
-        if is_1way:
-            base_args["X"] = requests
-        else:
-            base_args["requests"] = requests
 
         if self.mode == "out_of_core":
-            base_args["shared"] = None
-            per_call_args = [{"chunk": chunk} for chunk in self.data.values()]
-            l = len(requests) * len(self.data)
+            base_args.update({"attrs": self.attrs})
+            per_call_args = [
+                {"ids": ids_chunk, "tables": chunks}
+                for chunks, ids_chunk in LazyFrame.zip_values([self.tables, self.ids])
+            ]
+            l = len(requests) * len(LazyFrame.zip_values([self.tables, self.ids]))
+            fun = _marginal_batch_worker_load
         else:
-            self.load_data()
-            base_args["chunk"] = None
-            shared_base = (
-                self.mem_cols,
-                self.info_cols,
-                self.mem_noncommon,
-                self.info_noncommon,
-                self.domains,
+            self.load_data(preprocess)
+            base_args.update(
+                {"mem_arr": self.mem_arr, "mem_info": self.mem_info, "info": self.info}
             )
-            n = self.data.shape[0]
+            n = next(iter(self.mem_info.values()))[0].shape[0]
             chunk_n_suggestion = min(n, self.repartitions)
             chunk_len = (n - 1) // chunk_n_suggestion + 1
             chunk_n = (n - 1) // chunk_len + 1
             chunk_ranges = [
                 (chunk_len * j, min(chunk_len * (j + 1), n)) for j in range(chunk_n)
             ]
-            per_call_args = [
-                {"shared": (*shared_base, chunk_range)}
-                for chunk_range in chunk_ranges
-            ]
+            per_call_args = [{"arange": chunk_range} for chunk_range in chunk_ranges]
             l = len(requests) * chunk_n
+            fun = _marginal_batch_worker_inmem
 
         def track_progress():
             pbar = None
@@ -481,7 +467,7 @@ class MarginalOracle:
             t.start()
 
             res = process_in_parallel(
-                _marginal_batch_worker_1way if is_1way else _marginal_batch_worker,
+                fun,
                 per_call_args,
                 base_args,
                 desc=desc,
@@ -528,6 +514,7 @@ class MarginalOracle:
         desc: str = ...,
         normalize: Literal[False] = ...,
         zero_fill: float | None = ...,
+        preprocess: PreprocessFun | None = ...,
         postprocess: None = ...,
     ) -> list[np.ndarray]:
         ...
@@ -539,6 +526,7 @@ class MarginalOracle:
         desc: str = ...,
         normalize: Literal[True] = ...,
         zero_fill: float | None = ...,
+        preprocess: PreprocessFun | None = ...,
         postprocess: None = ...,
     ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         ...
@@ -550,6 +538,7 @@ class MarginalOracle:
         desc: str = ...,
         normalize: bool = ...,
         zero_fill: float | None = ...,
+        preprocess: PreprocessFun | None = ...,
         postprocess: None = ...,
     ) -> list[np.ndarray]:
         ...
@@ -561,6 +550,7 @@ class MarginalOracle:
         desc: str = ...,
         normalize: bool = ...,
         zero_fill: float | None = ...,
+        preprocess: PreprocessFun | None = ...,
         postprocess: Callable = ...,
     ) -> list[Any]:
         ...
@@ -571,36 +561,49 @@ class MarginalOracle:
         desc: str = "Processing partition",
         normalize: bool = True,
         zero_fill: float | None = ZERO_FILL,
+        preprocess: PreprocessFun | None = None,
         postprocess: Callable | None = None,
     ) -> list[np.ndarray] | list[tuple[np.ndarray, np.ndarray, np.ndarray]] | list[Any]:
         self.marginal_count += len(requests)
+
+        if not preprocess:
+            preprocess = self.preprocess
 
         if self.mode in ("inmemory_batched", "out_of_core"):
             logger.debug(
                 f"Processing {len(requests)} marginals by loading partitions in parallel."
             )
             return self._process_batched(
-                requests, desc, normalize, zero_fill, postprocess
+                requests, desc, normalize, zero_fill, preprocess, postprocess
             )
         else:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading dataset in memory."
             )
-            return self._process_inmemory(requests, desc, normalize, zero_fill, postprocess)  # type: ignore
+            return self._process_inmemory(requests, desc, normalize, zero_fill, preprocess, postprocess)
 
     def get_counts(self, desc: str = "Calculating counts"):
         if self.counts:
             return self.counts
+        
+        self.unload_data()
 
         cols = []
-        reqs = []
-        for name, attr in self.attrs.items():
-            for val in attr.vals:
-                cols.append(val)
-                reqs.append({name: AttrSelector(name, attr.common, {val: 0})})
+        reqs: list[AttrSelectors] = []
+        for table_name, table_attrs in self.attrs.items():
+            for attr in table_attrs.values():
+                if attr.common:
+                    reqs.append([(table_name, attr.name, 0)])
+                    cols.append((table_name, attr.common.name))
+                for val_name, val in attr.vals.items():
+                    if isinstance(val, CatValue):
+                        reqs.append([(table_name, attr.name, {val_name: 0})])
+                        cols.append((table_name, val_name))
 
-        count_arr = self.process(reqs, desc=desc)
+        count_arr = self.process(reqs, preprocess=_counts_load, desc=desc) # type: ignore
         self.counts = {name: count for name, count in zip(cols, count_arr)}
+
+        self.unload_data()
         return self.counts
 
     def close(self):

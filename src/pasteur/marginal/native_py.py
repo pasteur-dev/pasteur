@@ -1,18 +1,16 @@
 import numpy as np
 
 from .native import marginal
-from .numpy import AttrSelector, AttrSelectors
+from .numpy import AttrSelector, AttrSelectors, CalculationData, CalculationInfo
 
 Op = tuple[int, np.ndarray]
 
 
 def calc_marginal(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
+    data: CalculationData,
+    info: CalculationInfo,
     x: AttrSelector,
     p: AttrSelectors,
-    partial: bool = False,
     out: np.ndarray | None = None,
     simd: bool = True,
 ):
@@ -25,57 +23,38 @@ def calc_marginal(
     #     mask = cols[n][0] >= x.common
     #     x_dom = x_dom - x.common
 
-    # Handle parents
-    ops: list[Op] = []
-    mul = 1
-    for attr_name, attr in p.items():
-        common = attr.common
-        l_mul = 1
-        p_partial = partial and attr_name == x.name
-        for i, (n, h) in enumerate(attr.cols.items()):
-            if common == 0 or i == 0:
-                ops.append((mul * l_mul, cols[n][h]))
-            else:
-                ops.append((mul * l_mul, cols_noncommon[n][h]))
-
-            l_mul *= domains[n][h] - common
-
-        if p_partial:
-            mul *= l_mul
+    # Find attribute domains
+    p_dom = 1
+    for (table, attr, sel) in p:
+        if isinstance(sel, dict):
+            common = info.common[(table, attr)]
+            l_dom = 1
+            for n, h in sel.items():
+                l_dom *= info.domains[(table, n)][h] - common
+            p_dom *= l_dom + common
         else:
-            mul *= l_mul + common
-    p_dom = mul
+            p_dom *= info.domains[(table, info.common_names[(table, attr)])][sel]
 
-    # Handle x
-    common = x.common
-    l_mul = 1
-    for i, (n, h) in enumerate(x.cols.items()):
-        if common == 0 or (i == 0 and not partial):
-            ops.append((mul * l_mul, cols[n][h]))
-        else:
-            ops.append((mul * l_mul, cols_noncommon[n][h]))
-
-        l_mul *= domains[n][h] - common
-
-    if not partial:
-        l_mul += common
-    x_dom = l_mul
-    dom = mul * l_mul
-
-    if out is None:
-        out = np.zeros((dom,), dtype=np.uint32)
+    table, attr, sel = x
+    if isinstance(sel, dict):
+        common = info.common[(table, attr)]
+        x_dom = 1
+        for n, h in sel.items():
+            x_dom *= info.domains[(table, n)][h] - common
+        x_dom *= common
     else:
+        x_dom = info.domains[(table, info.common_names[(table, attr)])][sel]
+
+    if out:
         out = out.reshape((-1,))
 
-    marginal(out, ops, simd)
-
+    out = calc_marginal_1way(data, info, [x, *p], out, simd)
     return out.reshape((x_dom, p_dom))
 
 
 def calc_marginal_1way(
-    cols: dict[str, list[np.ndarray]],
-    cols_noncommon: dict[str, list[np.ndarray]],
-    domains: dict[str, list[int]],
+    data: CalculationData,
+    info: CalculationInfo,
     x: AttrSelectors,
     out: np.ndarray | None = None,
     simd: bool = True,
@@ -84,16 +63,22 @@ def calc_marginal_1way(
 
     ops: list[Op] = []
     mul = 1
-    for attr in reversed(x.values()):
-        common = attr.common
+    for (table, attr, sel) in x:
+        common = info.common[(table, attr)]
         l_mul = 1
-        for i, (n, h) in enumerate(attr.cols.items()):
-            if common == 0 or i == 0:
-                ops.append((l_mul * mul, cols[n][h]))
-            else:
-                ops.append((l_mul * mul, cols_noncommon[n][h]))
-            l_mul *= domains[n][h] - common
-        mul *= l_mul + common
+        if isinstance(sel, dict):
+            for i, (n, h) in enumerate(sel.items()):
+                if common == 0 or i == 0:
+                    ops.append((l_mul * mul, data[(table, n, False)][h]))
+                else:
+                    ops.append((l_mul * mul, data[(table, n, True)][h]))
+                l_mul *= info.domains[(table, n)][h] - common
+            mul *= l_mul + common
+        else:
+            ops.append(
+                (mul, data[(table, info.common_names[(table, attr)], False)][sel])
+            )
+            mul *= info.domains[(table, info.common_names[(table, attr)])][sel]
 
     if out is None:
         out = np.zeros((mul,), dtype=np.uint32)

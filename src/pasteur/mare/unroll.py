@@ -9,6 +9,7 @@ from ..attribute import (
     CommonValue,
     GenAttribute,
     Grouping,
+    SeqAttributes,
     SeqValue,
     StratifiedValue,
     get_dtype,
@@ -221,13 +222,6 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
     return new_attrs, cmn, cols, ofs
 
 
-class SeqAttributes(NamedTuple):
-    order: int
-    seq: StratifiedValue
-    attrs: Attributes | None
-    hist: dict[int, Attributes]
-
-
 def SeqCommonValue(name: str, order: int):
     g = f"O{order}"
     for ord in reversed(range(order)):
@@ -396,7 +390,7 @@ def generate_fit_tables(
     tables: dict[str, LazyChunk],
     ids: dict[str, LazyChunk],
     ctx: bool,
-):
+) -> tuple[dict[tuple[str, int] | str, pd.DataFrame], pd.DataFrame]:
     # Get history
     meta = _calculate_stripped_meta(attrs)
     hist = gen_history(ver.parents, tables, ids, meta)
@@ -426,9 +420,7 @@ def generate_fit_tables(
     if unroll:
         if ctx:
             assert ver.unrolls
-            _, cmn, cols, ofs = recurse_unroll_attr(
-                ver.unrolls, attrs["medicine"]
-            )
+            _, cmn, cols, ofs = recurse_unroll_attr(ver.unrolls, attrs["medicine"])
 
             fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
 
@@ -448,7 +440,7 @@ def generate_fit_tables(
 
             utab = pd.concat(udfs, axis=1).fillna(0)
             synth = utab.astype(
-                {k: str(v).lower() for k, v in utab.dtypes.to_dict().items()}
+                dtype={k: str(v).lower() for k, v in utab.dtypes.to_dict().items()}
             )
         else:
             unroll_cols = [unroll, *meta[ver.name].along]
@@ -482,3 +474,18 @@ def generate_fit_tables(
             fids[[name]].join(table, on=name, how="inner").drop(columns=name)
         )
     return new_hist, synth
+
+
+def marginal_preprocess(
+    attrs: dict[str, Attributes],
+    tables: dict[str, LazyChunk],
+    ids: dict[str, LazyChunk],
+    ver: TableVersion,
+    ctx: bool,
+):
+    hist_tables, table = generate_fit_tables(ver, attrs, tables, ids, ctx)
+    out = generate_fit_attrs(ver, attrs, ctx)
+    assert out is not None
+    hist_attrs, table_attrs = out
+
+    return table_attrs, table, hist_attrs, hist_tables

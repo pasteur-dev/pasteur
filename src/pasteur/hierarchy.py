@@ -6,7 +6,7 @@ with Differential Privacy.
 import logging
 from itertools import combinations
 from math import ceil, log
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import numpy as np
 
@@ -24,32 +24,40 @@ logger = logging.getLogger(__name__)
 ZERO_FILL = 1e-24
 
 
-class OrdNode(list):
+class CommonNode(list["CommonNode | OrdNode | CatNode | set[int]"]):
     pass
 
 
-class CatNode(list):
+class OrdNode(list["CommonNode | OrdNode | CatNode | set[int]"]):
+    pass
+
+
+class CatNode(list["CommonNode | OrdNode | CatNode | set[int]"]):
     pass
 
 
 def create_tree(
-    node: Grouping, common: int = 0, ofs: int = 0, n: int | None = None
-) -> list:
+    node: Grouping, common: Grouping | Any, ofs: int = 0, n: int | None = None
+) -> CommonNode | OrdNode | CatNode:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
-    replaced by bucket groups, with each bucket group containing the node it replaced.
-
-    For buckets lower than common, they are replaced by `None` to prevent merging
-    them."""
+    replaced by bucket groups, with each bucket group containing the node it replaced."""
     if n is None:
         n = node.get_domain(0)
-    out = CatNode() if node.type == "cat" else OrdNode()
 
-    for child in node:
-        if ofs < common:
-            out.append(None)
-        elif isinstance(child, Grouping):
-            out.append(create_tree(child, common, ofs, n))
+    if isinstance(common, Grouping):
+        out = CommonNode()
+        assert len(node) == len(common)
+    elif node.type == "cat":
+        out = CatNode()
+    else:
+        out = OrdNode()
+
+    for i, child in enumerate(node):
+        cmn = common[i] if isinstance(common, Grouping) else None
+
+        if isinstance(child, Grouping):
+            out.append(create_tree(child, cmn, ofs, n))
         else:
             out.append(set([ofs]))
 
@@ -58,7 +66,7 @@ def create_tree(
     return out
 
 
-def get_group_size(counts: np.ndarray, g: set) -> float:
+def get_group_size(counts: np.ndarray, g: set[int]) -> float:
     """Returns the sum of the sizes of the buckets included in set `g`.
 
     `counts` is a list with the size of each bucket. `group_sizes` is a dynamic
@@ -140,7 +148,7 @@ N = TypeVar("N", CatNode, OrdNode, set)
 
 
 def find_smallest_group(
-    counts: np.ndarray, parent: list[N]
+    counts: np.ndarray, parent: CommonNode | OrdNode | CatNode
 ) -> tuple[list, set, set, float]:
     """Finds groups `a`, `b` which when combined form `c`, where `c` is the smallest
     group that can be formed by any two nodes in the tree, which are valid to merge.
@@ -170,7 +178,10 @@ def find_smallest_group(
                 s_size = size
 
     # Secondly, consider children
-    if isinstance(parent, OrdNode):
+    if isinstance(parent, CommonNode):
+        # Do not modify Common Node contents
+        pass
+    elif isinstance(parent, OrdNode):
         # For ordinal nodes we only check nearby nodes
         for i in range(len(parent) - 1):
             a = parent[i]
@@ -206,7 +217,9 @@ def find_smallest_group(
     return s_node, s_a, s_b, s_size
 
 
-def create_node_to_group_map(tree: list, grouping: np.ndarray, ofs: int = 0):
+def create_node_to_group_map(
+    tree: CommonNode | OrdNode | CatNode, grouping: np.ndarray, ofs: int = 0
+):
     """Traverses `tree` and creates an array which maps nodes to groups such that:
 
     `arr[x] = y`, where `x` is the node and `y` is its group.
@@ -230,7 +243,9 @@ def create_node_to_group_map(tree: list, grouping: np.ndarray, ofs: int = 0):
     return ofs
 
 
-def make_grouping(counts: np.ndarray, head: Grouping, common: int = 0) -> np.ndarray:
+def make_grouping(
+    counts: np.ndarray, head: Grouping, common: Grouping | None
+) -> np.ndarray:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
@@ -249,12 +264,13 @@ def make_grouping(counts: np.ndarray, head: Grouping, common: int = 0) -> np.nda
     This also means that the minimum domain of this column will be `common + 1`.
     """
 
+    cmn = len(common) if common else 0
     tree = create_tree(head, common)
     n = head.get_domain(0)
-    grouping = np.empty((n - common, n), dtype=get_dtype(n))
+    grouping = np.empty((n - cmn, n), dtype=get_dtype(n))
     create_node_to_group_map(tree, grouping[0, :])
 
-    for i in range(1, n - common):
+    for i in range(1, n - cmn):
         node, a, b, _ = find_smallest_group(counts, tree)
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
@@ -320,6 +336,7 @@ class RebalancedValue(CatValue):
         self,
         counts: np.ndarray,
         col: StratifiedValue,
+        common: StratifiedValue | None,
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
@@ -327,15 +344,17 @@ class RebalancedValue(CatValue):
         **_,
     ) -> None:
         # FIXME: Use new common format
-        self.common = 0  # col.common
-        self.grouping = make_grouping(counts, col.head, self.common)
+        self.common = common
+        self.grouping = make_grouping(counts, col.head, common.head if common else None)
         self.counts = counts
         self.c = c
         self.reshape_domain = reshape_domain
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
-            domains = generate_domain_list(max_domain, self.common, u, fixed)
+            domains = generate_domain_list(
+                max_domain, common.get_domain(0) if common else 0, u, fixed
+            )
 
             self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
 
@@ -418,6 +437,7 @@ class RebalancedValue(CatValue):
 def rebalance_value(
     counts: np.ndarray,
     col: StratifiedValue,
+    common: StratifiedValue | None,
     num_cols: int = 1,
     ep: float | None = None,
     gaussian: bool = False,
@@ -434,7 +454,7 @@ def rebalance_value(
         counts = counts + noise
 
     assert isinstance(col, StratifiedValue)
-    return RebalancedValue(counts, col, **kwargs)
+    return RebalancedValue(counts, col, common, **kwargs)
 
 
 def rebalance_attributes(
@@ -464,6 +484,7 @@ def rebalance_attributes(
             common = rebalance_value(
                 counts[acommon.name],
                 acommon,
+                None,
                 num_cols,
                 ep,
                 **kwargs,
@@ -479,6 +500,7 @@ def rebalance_attributes(
                 rebalance_value(
                     counts[col_name],
                     col,
+                    acommon,
                     num_cols,
                     ep,
                     **kwargs,
