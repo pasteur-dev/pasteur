@@ -1,5 +1,14 @@
 import logging
-from typing import Any, Callable, Literal, NamedTuple, overload
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Literal,
+    NamedTuple,
+    TypeVar,
+    overload,
+    Protocol,
+)
 
 import numpy as np
 import pandas as pd
@@ -10,43 +19,44 @@ from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory, merge_memory
 from .numpy import (
     ZERO_FILL,
-    AttrSelector,
     AttrSelectors,
     TableSelector,
     expand_table,
     get_domains,
 )
-from .numpy import normalize as normalize_2way
-from .numpy import normalize_1way
+from .numpy import CalculationInfo
 
 logger = logging.getLogger(__name__)
 
-from .numpy import calc_marginal as calc_marginal_np
-
 try:
-    from .native_py import calc_marginal, calc_marginal_1way
+    from .native_py import calc_marginal
 except Exception as e:
     logger.error(
         f"Failed importing native marginal implementation, using numpy instead (2-8x slower). Error:\n{e}"
     )
-    from .numpy import calc_marginal, calc_marginal_1way
+    from .numpy import calc_marginal
+
+A = TypeVar("A", covariant=True)
 
 
-class MarginalRequest(NamedTuple):
-    x: AttrSelector
-    p: AttrSelectors
-
-
-PreprocessFun = Callable[
-    [dict[str, Attributes], dict[str, LazyChunk], dict[str, LazyChunk]],
-    tuple[Attributes, pd.DataFrame]
-    | tuple[
+class PreprocessFun(Protocol):
+    def __call__(
+        self,
+        attrs: dict[str, Attributes],
+        tables: dict[str, LazyChunk],
+        ids: dict[str, LazyChunk],
+    ) -> tuple[Attributes, pd.DataFrame] | tuple[
         Attributes,
         pd.DataFrame,
         dict[str, Attributes | SeqAttributes],
         dict[str | tuple[str, int], pd.DataFrame],
-    ],
-]
+    ]:
+        ...
+
+
+class PostprocessFun(Protocol, Generic[A]):
+    def __call__(self, req: AttrSelectors, mar: np.ndarray, info: CalculationInfo) -> A:
+        ...
 
 
 def _tabular_load(
@@ -57,12 +67,14 @@ def _tabular_load(
     assert len(tables) == 1 and len(attrs) == 1
     return next(iter(attrs.values())), next(iter(tables.values()))()
 
+
 def _counts_load(
     attrs: dict[str, Attributes],
     tables: dict[str, LazyChunk],
     ids: dict[str, LazyChunk],
 ):
     return {}, pd.DataFrame(), attrs, {k: c() for k, c in tables.items()}
+
 
 def sequential_load(
     attrs: dict[str, Attributes],
@@ -140,45 +152,14 @@ def _marginal_initializer(base_args, per_call_args):
 def _marginal_worker(
     data,
     info,
-    req: MarginalRequest,
-    normalize: bool,
-    zero_fill: float,
-    postprocess: Callable | None,
-    **_,
-):
-    x, p = req
-    res = calc_marginal(data, info, x, p)
-
-    if normalize:
-        if postprocess is not None:
-            return postprocess(*normalize_2way(res, zero_fill))
-        else:
-            return normalize_2way(res, zero_fill)
-
-    if postprocess is not None:
-        return postprocess(res)
-    return res
-
-
-def _marginal_worker_1way(
-    data,
-    info,
     req: AttrSelectors,
-    normalize: bool,
-    zero_fill: float,
-    postprocess: Callable | None,
+    postprocess: PostprocessFun | None,
     **_,
 ) -> np.ndarray:
-    res = calc_marginal_1way(data, info, req)
-
-    if normalize:
-        if postprocess is not None:
-            return postprocess(normalize_1way(res, zero_fill))
-        else:
-            return normalize_1way(res, zero_fill)
+    res = calc_marginal(data, info, req)
 
     if postprocess is not None:
-        return postprocess(res)
+        return postprocess(req, res, info)
     return res
 
 
@@ -188,7 +169,6 @@ def _marginal_batch_worker_inmem(
     info,
     arange,
     requests: list,
-    one_way,
     progress_lock,
     progress_send,
 ) -> list[np.ndarray]:
@@ -199,11 +179,7 @@ def _marginal_batch_worker_inmem(
     u = 0
     last_updated = time_ns()
     for x, p in requests:
-        # @TODO: Add partial
-        if one_way:
-            out.append(calc_marginal_1way(data, info, x))
-        else:
-            out.append(calc_marginal(data, info, x, p))
+        out.append(calc_marginal(data, info, x, p))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -233,7 +209,6 @@ def _marginal_batch_worker_load(
         ],
     ],
     requests: list,
-    one_way: bool,
     progress_lock,
     progress_send,
 ) -> list[np.ndarray]:
@@ -252,12 +227,8 @@ def _marginal_batch_worker_load(
     out = []
     u = 0
     last_updated = time_ns()
-    for x, p in requests:
-        # @TODO: Add partial
-        if one_way:
-            out.append(calc_marginal_1way(data, info, x))
-        else:
-            out.append(calc_marginal(data, info, x, p))
+    for x in requests:
+        out.append(calc_marginal(data, info, x))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -342,8 +313,8 @@ class MarginalOracle:
         else:
             # Load data sequentially
             (self.mem_arr, self.mem_info, self.info) = sequential_load(
-                self.attrs, self.tables, self.ids, preprocess # type: ignore
-            ) 
+                self.attrs, self.tables, self.ids, preprocess  # type: ignore
+            )
 
         self._load_id = id(preprocess)
 
@@ -357,18 +328,15 @@ class MarginalOracle:
 
     def _process_inmemory(
         self,
-        requests: list[MarginalRequest] | list[AttrSelectors],
+        requests: list[AttrSelectors],
         desc: str,
-        normalize: bool,
-        zero_fill: float | None,
         preprocess: PreprocessFun,
-        postprocess: Callable | None,
+        postprocess: PostprocessFun | None,
     ):
         assert self.mode in ("inmemory_shared", "inmemory_copy")
 
         if len(requests) == 0:
             return []
-        is_1way = not isinstance(requests[0], MarginalRequest)
 
         self.load_data(preprocess)
         base_args = {
@@ -376,15 +344,13 @@ class MarginalOracle:
             "mem_info": self.mem_info,
             "info": self.info,
             "copy": self.mode == "inmemory_copy",
-            "normalize": normalize,
-            "zero_fill": zero_fill,
             "postprocess": postprocess,
         }
 
         per_call_args = [{"req": req} for req in requests]
 
         res = process_in_parallel(
-            _marginal_worker_1way if is_1way else _marginal_worker,
+            _marginal_worker,
             per_call_args,
             base_args,
             min_chunk_size=self.min_chunk_size,
@@ -397,12 +363,10 @@ class MarginalOracle:
 
     def _process_batched(
         self,
-        requests: list[MarginalRequest] | list[AttrSelectors],
+        requests: list[AttrSelectors],
         desc: str,
-        normalize: bool,
-        zero_fill: float | None,
         preprocess: PreprocessFun,
-        postprocess: Callable | None,
+        postprocess: PostprocessFun | None,
     ):
         assert self.mode in ("inmemory_batched", "out_of_core")
 
@@ -413,7 +377,6 @@ class MarginalOracle:
 
         if len(requests) == 0:
             return []
-        is_1way = not isinstance(requests[0], MarginalRequest)
 
         progress_recv, progress_send = Pipe(duplex=False)
         if MULTIPROCESS_ENABLE:
@@ -428,7 +391,6 @@ class MarginalOracle:
             "progress_send": progress_send,
             "progress_lock": progress_lock,
             "requests": requests,
-            "one_way": is_1way,
         }
 
         if self.mode == "out_of_core":
@@ -494,55 +456,18 @@ class MarginalOracle:
             mar = np.sum([batch[i] for batch in res], axis=0)
 
             if postprocess is not None:
-                if not normalize:
-                    out.append(postprocess(mar))
-                elif is_1way:
-                    out.append(postprocess(normalize_1way(mar, zero_fill)))
-                else:
-                    out.append(postprocess(*normalize_2way(mar, zero_fill)))
+                out.append(postprocess(requests[i], mar, self.info))
             else:
-                if not normalize:
-                    out.append(mar)
-                elif is_1way:
-                    out.append(normalize_1way(mar, zero_fill))
-                else:
-                    out.append(normalize_2way(mar, zero_fill))
+                out.append(mar)
 
         return out
 
     @overload
     def process(
         self,
-        requests: list[MarginalRequest],
-        desc: str = ...,
-        normalize: Literal[False] = ...,
-        zero_fill: float | None = ...,
-        preprocess: PreprocessFun | None = ...,
-        postprocess: None = ...,
-    ) -> list[np.ndarray]:
-        ...
-
-    @overload
-    def process(
-        self,
-        requests: list[MarginalRequest],
-        desc: str = ...,
-        normalize: Literal[True] = ...,
-        zero_fill: float | None = ...,
-        preprocess: PreprocessFun | None = ...,
-        postprocess: None = ...,
-    ) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
-        ...
-
-    @overload
-    def process(
-        self,
         requests: list[AttrSelectors],
         desc: str = ...,
-        normalize: bool = ...,
-        zero_fill: float | None = ...,
         preprocess: PreprocessFun | None = ...,
-        postprocess: None = ...,
     ) -> list[np.ndarray]:
         ...
 
@@ -551,22 +476,18 @@ class MarginalOracle:
         self,
         requests: list[AttrSelectors],
         desc: str = ...,
-        normalize: bool = ...,
-        zero_fill: float | None = ...,
         preprocess: PreprocessFun | None = ...,
-        postprocess: Callable = ...,
-    ) -> list[Any]:
+        postprocess: PostprocessFun[A] = ..., # type: ignore
+    ) -> list[A]:
         ...
 
     def process(
         self,
-        requests: list[MarginalRequest] | list[AttrSelectors],
+        requests: list[AttrSelectors],
         desc: str = "Processing partition",
-        normalize: bool = True,
-        zero_fill: float | None = ZERO_FILL,
         preprocess: PreprocessFun | None = None,
-        postprocess: Callable | None = None,
-    ) -> list[np.ndarray] | list[tuple[np.ndarray, np.ndarray, np.ndarray]] | list[Any]:
+        postprocess: PostprocessFun[A] | None = None,
+    ) -> list[np.ndarray] | list[A]:
         self.marginal_count += len(requests)
 
         if not preprocess:
@@ -576,14 +497,12 @@ class MarginalOracle:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading partitions in parallel."
             )
-            return self._process_batched(
-                requests, desc, normalize, zero_fill, preprocess, postprocess
-            )
+            return self._process_batched(requests, desc, preprocess, postprocess)
         else:
             logger.debug(
                 f"Processing {len(requests)} marginals by loading dataset in memory."
             )
-            return self._process_inmemory(requests, desc, normalize, zero_fill, preprocess, postprocess)
+            return self._process_inmemory(requests, desc, preprocess, postprocess)
 
     def get_counts(self, desc: str = "Calculating counts"):
         if self.counts:
@@ -601,7 +520,7 @@ class MarginalOracle:
                         reqs.append([(table_name, attr.name, {val_name: 0})])
                         cols.append((table_name, val_name))
 
-        count_arr = self.process(reqs, preprocess=_counts_load, desc=desc) # type: ignore
+        count_arr = self.process(reqs, preprocess=_counts_load, desc=desc)  # type: ignore
         self.counts = {name: count for name, count in zip(cols, count_arr)}
 
         return self.counts

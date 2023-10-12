@@ -1,5 +1,5 @@
 from ..synth import Synth
-
+from ..marginal import MarginalOracle
 
 class MareSynth(Synth):
     name = "mare"

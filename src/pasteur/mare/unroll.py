@@ -350,7 +350,7 @@ def generate_fit_attrs(
             along = attrs[ver.name][unroll].along
 
             for name, attr in attrs[ver.name].items():
-                if name in along:
+                if name in along or name == unroll:
                     unroll_attrs[name] = attr
                 else:
                     other_attrs[name] = attr

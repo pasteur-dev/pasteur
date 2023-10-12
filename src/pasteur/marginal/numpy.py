@@ -1,4 +1,5 @@
-from typing import NamedTuple, Sequence, cast
+from collections import defaultdict
+from typing import NamedTuple, Sequence, cast, TypeGuard
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,51 @@ AttrName = str | tuple[str, ...]
 
 AttrSelector = tuple[TableSelector, AttrName, ChildSelector | CommonSelector]
 AttrSelectors = Sequence[AttrSelector]
+
+# AttrSelectors = (
+#     dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]
+#     | dict[AttrName, ChildSelector | CommonSelector]
+# )
+
+
+# def _contains_tables(
+#     x: AttrSelectors,
+# ) -> TypeGuard[dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]]:
+#     # TODO: Check guard for exceptions
+#     if None in x:
+#         return True
+
+#     for name, vals in x.items():
+#         if isinstance(name, tuple) and len(name) > 1 and isinstance(name[1], int):
+#             return True
+
+#         if isinstance(vals, int):
+#             return True
+
+#         for vname, val in vals.items():
+#             if isinstance(vname, tuple):
+#                 return True
+
+#             if isinstance(val, dict):
+#                 return True
+
+#     return False
+
+
+# def _not_contains_tables(
+#     x: AttrSelectors,
+# ) -> TypeGuard[dict[AttrName, ChildSelector | CommonSelector]]:
+#     return not _contains_tables(x)
+
+
+# def add_tables(
+#     x: AttrSelectors,
+# ) -> dict[TableSelector, dict[AttrName, ChildSelector | CommonSelector]]:
+#     if _contains_tables(x):
+#         return x
+
+#     assert _not_contains_tables(x), "Ambiguous AttrSelector"
+#     return {None: x}
 
 CalculationData = dict[tuple[TableSelector, str, bool], list[np.ndarray]]
 
@@ -239,45 +285,6 @@ def get_domains(attrs: Attributes) -> dict[str, list[int]]:
 
 
 def calc_marginal(
-    data: CalculationData,
-    info: CalculationInfo,
-    x: AttrSelector,
-    p: AttrSelectors,
-    partial: bool = False,
-    out: np.ndarray | None = None,
-):
-    """Calculates the 1 way and 2 way marginals between the subsection of the
-    hierarchical attribute x and the attributes p(arents)."""
-
-    # Find integer dtype based on domain
-    p_dom = 1
-    for (table, attr, sel) in p:
-        if isinstance(sel, dict):
-            common = info.common[(table, attr)]
-            l_dom = 1
-            for n, h in sel.items():
-                l_dom *= info.domains[(table, n)][h] - common
-            p_dom *= l_dom + common
-        else:
-            p_dom *= info.domains[(table, info.common_names[(table, attr)])][sel]
-
-    table, attr, sel = x
-    if isinstance(sel, dict):
-        common = info.common[(table, attr)]
-        x_dom = 1
-        for n, h in sel.items():
-            x_dom *= info.domains[(table, n)][h] - common
-        x_dom *= common
-    else:
-        x_dom = info.domains[(table, info.common_names[(table, attr)])][sel]
-
-    if out:
-        out = out.reshape((-1,))
-    out = calc_marginal_1way(data, info, [x, *p], out)
-    return out.reshape((x_dom, p_dom))
-
-
-def calc_marginal_1way(
     data: CalculationData,
     info: CalculationInfo,
     x: AttrSelectors,
