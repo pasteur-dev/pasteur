@@ -115,10 +115,8 @@ def _map_column(table: pd.DataFrame, col: CatValue, common: CatValue | None):
 
 
 def expand_table(
-    attrs: Attributes,
-    table: pd.DataFrame,
-    hist_attrs: dict[str, Attributes | SeqAttributes] = {},
-    hist_tables: dict[str | tuple[str, int], pd.DataFrame] = {},
+    attrs: dict[str | None, Attributes | SeqAttributes] = {},
+    tables: dict[TableSelector, pd.DataFrame] = {},
     *,
     prealloc: CalculationData | None = None,
 ) -> tuple[CalculationData, CalculationInfo]:
@@ -150,7 +148,6 @@ def expand_table(
     For a dataset with size n=500k and 6 columns used in the marginal, it has a
     wallsize of 1.3ms, to 30ms of np.histogramdd.
     """
-    tables = {**hist_tables, None: table}
     out = {}
     domains = {}
     common = {}
@@ -161,7 +158,7 @@ def expand_table(
     # and the main table, which will have the name 'None'
     # The reason the main table is set to None that it may be partially synthesized,
     # so its name will be in the historical data.
-    for table_name, table_attrs in [(None, attrs), *hist_attrs.items()]:
+    for table_name, table_attrs in attrs.items():
         table_name: str | None
         table_attrs: Attributes | SeqAttributes
 

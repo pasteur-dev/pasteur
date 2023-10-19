@@ -1,34 +1,33 @@
 import logging
 from typing import (
-    Any,
     Callable,
     Generic,
     Literal,
-    NamedTuple,
+    Protocol,
     Sequence,
     TypeVar,
+    cast,
     overload,
-    Protocol,
 )
 
 import numpy as np
 import pandas as pd
+
+from ..utils.data import LazyPartition
 
 from ..attribute import Attributes, CatValue, SeqAttributes
 from ..utils import LazyChunk, LazyFrame
 from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory, merge_memory
 from .numpy import (
-    ZERO_FILL,
     AttrName,
     AttrSelectors,
+    CalculationInfo,
     ChildSelector,
     CommonSelector,
     TableSelector,
     expand_table,
-    get_domains,
 )
-from .numpy import CalculationInfo
 
 logger = logging.getLogger(__name__)
 
@@ -42,14 +41,14 @@ except Exception as e:
 
 A = TypeVar("A", covariant=True)
 
-MarginalRequests = Sequence[
+MarginalRequest = Sequence[
     tuple[TableSelector, AttrName, ChildSelector | CommonSelector]
     | tuple[AttrName, ChildSelector | CommonSelector]
 ]
 
 
 def convert_reqs(
-    reqs: list[MarginalRequests],
+    reqs: list[MarginalRequest],
 ) -> list[AttrSelectors]:
     return [[y if len(y) == 3 else (None, *y) for y in x] for x in reqs]
 
@@ -57,15 +56,8 @@ def convert_reqs(
 class PreprocessFun(Protocol):
     def __call__(
         self,
-        attrs: dict[str, Attributes],
-        tables: dict[str, LazyChunk],
-        ids: dict[str, LazyChunk],
-    ) -> tuple[Attributes, pd.DataFrame] | tuple[
-        Attributes,
-        pd.DataFrame,
-        dict[str, Attributes | SeqAttributes],
-        dict[str | tuple[str, int], pd.DataFrame],
-    ]:
+        data: dict[str, LazyPartition],
+    ) -> dict[TableSelector, pd.DataFrame]:
         ...
 
 
@@ -75,66 +67,26 @@ class PostprocessFun(Protocol, Generic[A]):
 
 
 def _tabular_load(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
-):
-    assert len(tables) == 1 and len(attrs) == 1
-    return next(iter(attrs.values())), next(iter(tables.values()))()
-
-
-def _counts_load(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
-):
-    return {}, pd.DataFrame(), attrs, {k: c() for k, c in tables.items()}
+    data: dict[str, LazyPartition],
+) -> dict[TableSelector, pd.DataFrame]:
+    return {None: cast(pd.DataFrame, next(iter(data.values())))}
 
 
 def sequential_load(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
+    attrs: dict[str | None, Attributes | SeqAttributes],
+    data: dict[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
-    out = preprocess(attrs, tables, ids)
-    if len(out) == 2:
-        new_attrs, table = out
-        hist_attrs = {}
-        hist_tables = {}
-    else:
-        new_attrs, table, hist_attrs, hist_tables = out
+    out = preprocess(data)
 
-    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
-
-    mem_arr, mem_info = map_to_memory(data)
-    del data
-    return mem_arr, mem_info, info
-
-
-def _parallel_load_worker(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
-    preprocess: PreprocessFun,
-):
-    out = preprocess(attrs, tables, ids)
-    if len(out) == 2:
-        new_attrs, table = out
-        hist_attrs = {}
-        hist_tables = {}
-    else:
-        new_attrs, table, hist_attrs, hist_tables = out
-
-    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
-    mem_arr, mem_info = map_to_memory(data)
+    cols, info = expand_table(attrs, out)
+    mem_arr, mem_info = map_to_memory(cols)
     return mem_arr, mem_info, info
 
 
 def parallel_load(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyFrame],
-    ids: dict[str, LazyFrame],
+    attrs: dict[str | None, Attributes | SeqAttributes],
+    data: dict[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
 
@@ -142,12 +94,9 @@ def parallel_load(
         "attrs": attrs,
         "preprocess": preprocess,
     }
-    per_call_args = [
-        {"tables": chunks, "ids": ids_chunks}
-        for chunks, ids_chunks in LazyFrame.zip_values([tables, ids])
-    ]
+    per_call_args = [{"data": chunks} for chunks in LazyFrame.zip_values(data)]
     out = process_in_parallel(
-        _parallel_load_worker, per_call_args, base_args, desc="Loading data"
+        sequential_load, per_call_args, base_args, desc="Loading data"
     )
     info = out[0][-1]
     mem_arr, mem_info = merge_memory(out)
@@ -210,40 +159,23 @@ def _marginal_batch_worker_inmem(
 
 
 def _marginal_batch_worker_load(
-    attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
-    preprocess: Callable[
-        [dict[str, Attributes], dict[str, LazyChunk], dict[str, LazyChunk]],
-        tuple[Attributes, pd.DataFrame]
-        | tuple[
-            Attributes,
-            pd.DataFrame,
-            dict[str, Attributes | SeqAttributes],
-            dict[str | tuple[str, int], pd.DataFrame],
-        ],
-    ],
+    attrs: dict[str | None, Attributes | SeqAttributes],
+    data: dict[str, LazyPartition],
+    preprocess: PreprocessFun,
     requests: list,
     progress_lock,
     progress_send,
 ) -> list[np.ndarray]:
     from time import time_ns
 
-    out = preprocess(attrs, tables, ids)
-    if len(out) == 2:
-        new_attrs, table = out
-        hist_attrs = {}
-        hist_tables = {}
-    else:
-        new_attrs, table, hist_attrs, hist_tables = out
-
-    data, info = expand_table(new_attrs, table, hist_attrs, hist_tables)
+    out = preprocess(data)
+    cols, info = expand_table(attrs, out)
 
     out = []
     u = 0
     last_updated = time_ns()
     for x in requests:
-        out.append(calc_marginal(data, info, x))
+        out.append(calc_marginal(cols, info, x))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -269,9 +201,8 @@ class MarginalOracle:
 
     def __init__(
         self,
-        attrs: dict[str, Attributes],
-        tables: dict[str, LazyFrame],
-        ids: dict[str, LazyFrame],
+        attrs: dict[str | None, Attributes | SeqAttributes],
+        data: dict[str, LazyPartition],
         preprocess: PreprocessFun = _tabular_load,
         mode: "MarginalOracle.MODES" = "out_of_core",
         *,
@@ -281,11 +212,10 @@ class MarginalOracle:
         log: bool = True,
     ) -> None:
         self.attrs = attrs
-        self.tables = tables
-        self.ids = ids
+        self.data = data
         self.preprocess = preprocess
 
-        if mode == "out_of_core" and not LazyFrame.are_partitioned([tables, ids]):
+        if mode == "out_of_core" and not LazyFrame.are_partitioned(data):
             logger.info("Data is not partitioned, switching to mode `inmemory_copy`.")
             self.mode = "inmemory_copy"
         elif mode == "inmemory":
@@ -295,8 +225,8 @@ class MarginalOracle:
             self.mode = mode
 
         data_partitions = 1
-        if LazyFrame.are_partitioned([tables, ids]):
-            data_partitions = len(LazyFrame.zip([tables, ids]))
+        if LazyFrame.are_partitioned(data):
+            data_partitions = len(LazyFrame.zip_values(data))
         self.repartitions = repartitions or data_partitions
 
         if self.repartitions == 1 and mode == "inmemory_batched":
@@ -320,15 +250,15 @@ class MarginalOracle:
             else:
                 self.unload_data()
 
-        if LazyFrame.are_partitioned([self.tables, self.ids]):
+        if LazyFrame.are_partitioned(self.data):
             # Load data in parallel
             (self.mem_arr, self.mem_info, self.info) = parallel_load(
-                self.attrs, self.tables, self.ids, preprocess
+                self.attrs, self.data, preprocess
             )
         else:
             # Load data sequentially
             (self.mem_arr, self.mem_info, self.info) = sequential_load(
-                self.attrs, self.tables, self.ids, preprocess  # type: ignore
+                self.attrs, self.data, preprocess
             )
 
         self._load_id = id(preprocess)
@@ -411,10 +341,9 @@ class MarginalOracle:
         if self.mode == "out_of_core":
             base_args.update({"attrs": self.attrs})
             per_call_args = [
-                {"ids": ids_chunk, "tables": chunks}
-                for chunks, ids_chunk in LazyFrame.zip_values([self.tables, self.ids])
+                {"data": chunks} for chunks in LazyFrame.zip_values(self.data)
             ]
-            l = len(requests) * len(LazyFrame.zip_values([self.tables, self.ids]))
+            l = len(requests) * len(LazyFrame.zip_values(self.data))
             fun = _marginal_batch_worker_load
         else:
             self.load_data(preprocess)
@@ -480,7 +409,7 @@ class MarginalOracle:
     @overload
     def process(
         self,
-        requests: list[MarginalRequests],
+        requests: list[MarginalRequest],
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
     ) -> list[np.ndarray]:
@@ -489,7 +418,7 @@ class MarginalOracle:
     @overload
     def process(
         self,
-        requests: list[MarginalRequests],
+        requests: list[MarginalRequest],
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
         postprocess: PostprocessFun[A] = ...,  # type: ignore
@@ -498,7 +427,7 @@ class MarginalOracle:
 
     def process(
         self,
-        requests: list[MarginalRequests],
+        requests: list[MarginalRequest],
         desc: str = "Processing partition",
         preprocess: PreprocessFun | None = None,
         postprocess: PostprocessFun[A] | None = None,
@@ -529,15 +458,25 @@ class MarginalOracle:
 
         cols = []
         reqs: list[AttrSelectors] = []
-        for table_name, table_attrs in self.attrs.items():
-            for attr in table_attrs.values():
-                if attr.common:
-                    reqs.append([(table_name, attr.name, 0)])
-                    cols.append((table_name, attr.common.name))
-                for val_name, val in attr.vals.items():
-                    if isinstance(val, CatValue):
-                        reqs.append([(table_name, attr.name, {val_name: 0})])
-                        cols.append((table_name, val_name))
+        for table, table_attrs in self.attrs.items():
+            attrs_dict: dict[TableSelector, Attributes]
+            if isinstance(table_attrs, SeqAttributes):
+                assert table is not None
+                attrs_dict = {(table, k): v for k, v in table_attrs.hist.items()}
+                if table_attrs.attrs is not None:
+                    attrs_dict[table] = table_attrs.attrs
+            else:
+                attrs_dict = {table: table_attrs}
+
+            for table_name, attrs in attrs_dict.items():
+                for attr in attrs.values():
+                    if attr.common:
+                        reqs.append([(table_name, attr.name, 0)])
+                        cols.append((table_name, attr.common.name))
+                    for val_name, val in attr.vals.items():
+                        if isinstance(val, CatValue):
+                            reqs.append([(table_name, attr.name, {val_name: 0})])
+                            cols.append((table_name, val_name))
 
         count_arr = self.process(reqs, preprocess=_counts_load, desc=desc)  # type: ignore
         self.counts = {name: count for name, count in zip(cols, count_arr)}

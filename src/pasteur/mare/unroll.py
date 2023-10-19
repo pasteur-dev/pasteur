@@ -15,6 +15,7 @@ from ..attribute import (
     get_dtype,
 )
 from ..utils import LazyChunk
+from ..utils.data import LazyPartition, data_to_tables
 from .chains import TablePartition, TableVersion
 from .reduce import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
 
@@ -477,15 +478,11 @@ def generate_fit_tables(
 
 
 def marginal_preprocess(
+    data: dict[str, LazyPartition],
     attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
     ver: TableVersion,
     ctx: bool,
 ):
+    tables, ids = data_to_tables(data)
     hist_tables, table = generate_fit_tables(ver, attrs, tables, ids, ctx)
-    out = generate_fit_attrs(ver, attrs, ctx)
-    assert out is not None
-    hist_attrs, table_attrs = out
-
-    return table_attrs, table, hist_attrs, hist_tables
+    return {**hist_tables, None: table}

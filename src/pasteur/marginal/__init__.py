@@ -3,12 +3,17 @@
 Marginal oracle can perform marginal calculations out-of-core, parallelized,
 while using SIMD instruction sets. """
 
-from .numpy import ZERO_FILL, AttrSelectors
-from .oracle import MarginalOracle, CalculationInfo
+from .numpy import AttrSelectors
+from .oracle import CalculationInfo, MarginalOracle, MarginalRequest
+from .postprocess import ZERO_FILL, normalize, two_way_normalize, unpack
 
 __all__ = [
-    "AttrSelectors",
-    "MarginalOracle",
-    "CalculationInfo",
     "ZERO_FILL",
+    "normalize",
+    "two_way_normalize",
+    "unpack",
+    "MarginalOracle",
+    "MarginalRequest",
+    "AttrSelectors",
+    "CalculationInfo",
 ]

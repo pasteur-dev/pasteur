@@ -125,7 +125,7 @@ def _compute_version_graph(
 
 
 def compute_version_graph(
-    vers: tuple[TableVersion],
+    vers: tuple[TableVersion, ...],
 ) -> dict[TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]]:
     out = defaultdict(dict)
     for v in vers:
@@ -248,7 +248,7 @@ def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
 
 
 def calculate_variations(
-    chains: tuple[TableVersion],
+    chains: tuple[TableVersion, ...],
     rows: dict[TableVersion | TablePartition, int],
     meta: dict[str, Attributes],
 ) -> dict[str, tuple[tuple[set[int], ...], ...]]:
@@ -375,7 +375,7 @@ def merge_versions(vers: list[TableVersion]):
 
 def calc_rows_cols(
     combo: dict[str, tuple[set[int]]],
-    chains: tuple[TableVersion],
+    chains: tuple[TableVersion, ...],
     rows: dict[TableVersion | TablePartition, int],
     meta: dict[str, Attributes],
 ) -> list[tuple[TableVersion, int, int]]:
@@ -405,7 +405,7 @@ def calc_rows_cols(
 
 def choose_variation(
     variations: dict[str, tuple[tuple[set[int], ...], ...]],
-    chains: tuple[TableVersion],
+    chains: tuple[TableVersion, ...],
     rows: dict[TableVersion | TablePartition, int],
     meta: dict[str, Attributes],
     model_num: int,
@@ -450,7 +450,7 @@ def choose_variation(
 
 
 def choose_versions_heuristic(
-    chains: tuple[TableVersion],
+    chains: tuple[TableVersion, ...],
     rows: dict[TableVersion | TablePartition, int],
     meta: dict[str, Attributes],
     model_num: int,
