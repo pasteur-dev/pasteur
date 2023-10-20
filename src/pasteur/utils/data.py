@@ -135,6 +135,65 @@ def _wrap_lazy(d, cls):
     return cls(partial(_dummy_return, d))
 
 
+def _load_partition(_partition, _cache, _id, _pid):
+    key = (_id, _pid)
+    if key in _cache:
+        return _cache[key]
+
+    data = _partition()
+    _cache[key] = data
+    return data
+
+
+def _cache_partitions(d, cls, _cache=None, _ofs=0):
+    if _cache is None:
+        _cache = {}
+
+    if isinstance(d, tuple):
+        return tuple(
+            [_cache_partitions(v, cls, _cache, _ofs + i) for i, v in enumerate(d)]
+        )
+    if isinstance(d, list):
+        return [_cache_partitions(v, cls, _cache, _ofs + i) for i, v in enumerate(d)]
+    if isinstance(d, dict):
+        return {
+            k: _cache_partitions(v, cls, _cache, _ofs + i)
+            for i, (k, v) in enumerate(d.items())
+        }
+
+    _ofs += 1
+
+    if isinstance(d, LazyDataset):
+        merged = (
+            LazyPartition(
+                partial(
+                    _load_partition, _partition=d.merged_load, _cache=_cache, _id=_ofs, _pid=None
+                ),
+                d.merged_load.shape_fun,
+            )
+            if d.merged_load is not None
+            else None
+        )
+        partitions = (
+            {
+                k: LazyPartition(
+                    partial(_load_partition, _partition=v, _cache=_cache, _id=_ofs, _pid=i),
+                    v.shape_fun,
+                )
+                for i, (k, v) in enumerate(d._partitions.items())
+            }
+            if d._partitions is not None
+            else None
+        )
+
+        return cls(merged, partitions)
+    if isinstance(d, LazyPartition):
+        return LazyPartition(
+            partial(_load_partition, _partition=d, _id=_ofs, _pid=None), d.shape_fun
+        )
+    return d
+
+
 class LazyDataset(Generic[A], LazyPartition[A]):
     def __init__(
         self,
@@ -332,6 +391,18 @@ class LazyDataset(Generic[A], LazyPartition[A]):
             return _wrap_lazy(keyword, cls)
         return None
 
+    @classmethod
+    def cache(cls, *positional, **keyword) -> Any:
+        if positional and keyword:
+            return _cache_partitions((positional, keyword), cls)
+        elif positional and len(positional) == 1:
+            return _cache_partitions(positional[0], cls)
+        elif positional:
+            return _cache_partitions(positional, cls)
+        elif keyword:
+            return _cache_partitions(keyword, cls)
+        return None
+
 
 LazyFrame = LazyDataset["pd.DataFrame"]
 
@@ -493,22 +564,20 @@ def apply_fun(obj: Any, *args, _fun: str, **kwargs):
 
 @overload
 def data_to_tables(
-    data: dict[str, LazyDataset]
+    data: Mapping[str, LazyDataset]
 ) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
     ...
 
 
 @overload
 def data_to_tables(
-    data: dict[str, LazyPartition]
+    data: Mapping[str, LazyPartition]
 ) -> tuple[dict[str, LazyChunk], dict[str, LazyChunk]]:
     ...
 
 
 @overload
-def data_to_tables(
-    data: dict[str, A]
-) -> tuple[dict[str, A], dict[str, A]]:
+def data_to_tables(data: Mapping[str, A]) -> tuple[dict[str, A], dict[str, A]]:
     ...
 
 
