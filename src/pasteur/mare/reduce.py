@@ -3,272 +3,170 @@ dataset."""
 
 from collections import defaultdict
 from functools import reduce
+from heapq import heappop, heappush
 from itertools import combinations, product
-from typing import Any, Generator, Literal, NamedTuple, cast
+from typing import (
+    Generator,
+    Generic,
+    Protocol,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 from ..attribute import Attributes
 from .chains import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
 
-
-class TableNode(NamedTuple):
-    vers: set[TableVersion]
-    children: dict[str, "TableNode | PartitionedNode"]
-    vals: set[int]
+A = TypeVar("A", covariant=True)
+B = TypeVar("B")
+C = TypeVar("C", contravariant=True)
 
 
-class PartitionedNode(NamedTuple):
-    vers: set[TablePartition]
-    children: dict[tuple[int, ...], TableNode]
+class PreprocFn(Protocol, Generic[A]):
+    def __call__(self, v: TableVersion) -> A:
+        ...
 
 
-def merge_partitions(a: PartitionedNode, b: PartitionedNode):
-    new_vers = a.vers.union(b.vers)
-    new_children = {}
-    keys = list({**a.children, **b.children})
-    for k in keys:
-        if k in a.children and k in b.children:
-            new_children[k] = merge_nodes(a.children[k], b.children[k])
-        else:
-            new_children[k] = a.children.get(k, b.children.get(k, None))
-
-    return PartitionedNode(new_vers, new_children)
+class MergeFn(Protocol, Generic[B]):
+    def __call__(self, a: B, b: B) -> B:
+        ...
 
 
-def merge_nodes(a: TableNode, b: TableNode):
-    # merge vals
-    new_vals = a.vals.union(b.vals)
-    new_vers = a.vers.union(b.vers)
-
-    # Merge children
-    keys = list({**a.children, **b.children})
-    new_children = {}
-    for k in keys:
-        if k not in a.children:
-            new_children[k] = b.children[k]
-        elif k not in b.children:
-            new_children[k] = a.children[k]
-        else:
-            ac = a.children[k]
-            bc = b.children[k]
-            if isinstance(ac, TableNode):
-                assert isinstance(bc, TableNode)
-                new_children[k] = merge_nodes(ac, bc)
-            else:
-                assert isinstance(bc, PartitionedNode)
-                new_children[k] = merge_partitions(ac, bc)
-
-    return TableNode(new_vers, new_children, new_vals)
+class ScoreFn(Protocol, Generic[C]):
+    def __call__(self, a: C, b: C) -> int:
+        ...
 
 
-def merge_check(a: TableNode | PartitionedNode, b: TableNode | PartitionedNode):
-    if isinstance(a, TableNode):
-        assert isinstance(b, TableNode)
-        return merge_nodes(a, b)
-    else:
-        assert isinstance(b, PartitionedNode)
-        return merge_partitions(a, b)
+class Pair:
+    def __init__(self, name, a, b, score):
+        self.name = name
+        self.a = a
+        self.b = b
+        self.score = score
+
+    def __lt__(self, other: "Pair"):
+        return self.score < other.score
+
+    def __iter__(self):
+        return iter((self.name, self.a, self.b))
 
 
-def create_partition(
-    p: TablePartition,
-    children: dict[
-        TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]
-    ],
-):
-    if p in children:
-        child_arr = []
-        for c in children[p]:
-            assert isinstance(c, TableVersion)
-            child_arr.append(create_node(c, children))
+def _get_partitions_names(ver: TableVersion):
+    out = []
+    for p in ver.parents:
+        if isinstance(p, TablePartition):
+            out.append(p.table.name)
+            p = p.table
+        out.extend(_get_partitions_names(p))
 
-        new_children = {p.partitions: reduce(merge_nodes, child_arr)}
-    else:
-        new_children = {}
-    return PartitionedNode({p}, new_children)
-
-
-def create_node(
-    ver: TableVersion,
-    children: dict[
-        TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]
-    ],
-):
-    vers = {ver}
-
-    if ver in children:
-        child_arr = defaultdict(list)
-        for c in children[ver]:
-            if isinstance(c, TableVersion):
-                child_arr[c.name].append(create_node(c, children))
-            else:
-                child_arr[c.table.name].append(create_partition(c, children))
-
-        new_children = {k: reduce(merge_check, v) for k, v in child_arr.items()}
-    else:
-        new_children = {}
-
-    vals = set(ver.unrolls) if ver.unrolls else set()
-    return TableNode(vers, new_children, vals)
-
-
-def _compute_version_graph(
-    ver: TableVersion | TablePartition,
-    out: dict[TableVersion | TablePartition, dict[TableVersion | TablePartition, None]],
-):
-    if isinstance(ver, TableVersion):
-        for parent in ver.parents:
-            out[parent][ver] = None
-            _compute_version_graph(parent, out)
-    else:
-        out[ver.table][ver] = None
-        _compute_version_graph(ver.table, out)
-
-
-def compute_version_graph(
-    vers: tuple[TableVersion, ...],
-) -> dict[TableVersion | TablePartition, tuple[TableVersion | TablePartition, ...]]:
-    out = defaultdict(dict)
-    for v in vers:
-        _compute_version_graph(v, out)
-
-    return {k: tuple(v) for k, v in out.items()}
-
-
-def print_node(node: TableNode, ofs=0, pre=""):
-    out = ""
-    pre = "\t" * ofs + pre
-    table_name = next(iter(node.vers)).name
-    out += f"{pre}> {table_name} V({len(node.vers)}) vals={node.vals}"
-
-    if node.children:
-        out += ":\n"
-        for child in node.children.values():
-            if isinstance(child, PartitionedNode):
-                for vals, table_chld in child.children.items():
-                    out += print_node(table_chld, ofs + 1, str(vals))
-            else:
-                out += print_node(child, ofs + 1)  # type: ignore
-
-    if node.children:
-        out += "\n"
     return out
 
 
-def print_nodes(heads: dict[str, TableNode]):
-    out = ""
-    for k, v in heads.items():
-        out += f"{k}\n-------------\n"
-        out += print_node(v)
+def _get_partitions(ver: TableVersion, out):
+    for p in ver.parents:
+        if isinstance(p, TablePartition):
+            out.append(p.partitions)
+            p = p.table
+        _get_partitions(p, out)
+
     return out
 
 
-def calc_col_increase(a: TableNode, b: TableNode):
-    # Removed checks for speed
-    inc = 0
-    if not a.children and a.vals and b.vals:
-        inc = len(a.vals.symmetric_difference(b.vals))
+def get_combos(
+    vers: Sequence[TableVersion], tables: Sequence[str] | None = None
+) -> tuple[Sequence[str], dict[tuple[tuple[int, ...], ...], TableVersion]]:
+    names = _get_partitions_names(vers[0])
+    unique_names = tables or sorted(set(names))
 
-    for k in a.children:
-        # if k not in b.children:
-        #     continue
+    if not unique_names:
+        return [], {}
 
-        l = a.children[k]
-        m = b.children[k]
+    name_idx = [names.index(u) for u in unique_names]
 
-        if isinstance(l, TableNode):
-            # assert isinstance(m, TableNode)
-            inc += calc_col_increase(l, m)  # type: ignore
-        else:
-            # assert isinstance(m, PartitionedNode)
-            for j in l.children:
-                if j not in m.children:
-                    continue
-                inc += calc_col_increase(l.children[j], m.children[j])  # type: ignore
-    return inc
+    candidates = {}
+    for ver in vers:
+        parts = []
+        _get_partitions(ver, parts)
+        candidates[tuple([parts[i] for i in name_idx])] = ver
+
+    return unique_names, candidates
 
 
-def calculate_merge_order(node: TableNode) -> tuple[tuple[set[int], ...], ...]:
-    data = defaultdict(dict)
-    for table, part in node.children.items():
-        assert isinstance(part, PartitionedNode)
-        for pids, node in part.children.items():
-            data[pids][table] = node
+def merge_versions_heuristic(
+    vers: Sequence[TableVersion],
+    max_vers: int,
+    preproc_fn: PreprocFn[B],
+    merge_fn: MergeFn[B],
+    score_fn: ScoreFn[B],
+):
+    names, combos = get_combos(vers)
 
-    resolution = []
-    inc_cache = {}
-    while len(data) > 1:
-        mins = None
-        no_increase = False
-        mins_inc = -1
-        for x in combinations(data, 2):
-            if x in inc_cache:
-                inc = inc_cache[x]
-            else:
-                inc = 0
-                a, b = data[x[0]], data[x[1]]
-                for name in a.keys():
-                    if name not in b.keys():
-                        continue
-                    inc += calc_col_increase(a[name], b[name])
-                inc_cache[x] = inc
+    lookups = {}
+    for i, name in enumerate(names):
+        lookup = defaultdict(list)
+        for combo, val in combos.items():
+            lookup[combo[i]].append(val)
 
-            if inc == 0:
-                mins = x
-                no_increase = True
-                break
-            elif mins is None or inc < mins_inc:
-                mins = x
-                mins_inc = inc
+        lookups[name] = {k: preproc_fn(merge_versions(v)) for k, v in lookup.items()}
 
-        assert mins is not None
-        a, b = mins
+    heap = []
+    used = {k: set() for k in lookups}
+
+    for name, lookup in lookups.items():
+        for a, b in combinations(lookup, 2):
+            score = score_fn(lookups[name][a], lookups[name][b])
+            heappush(heap, Pair(name, a, b, score))
+
+    while True:
+        if not heap or len(combos) <= max_vers:
+            break
+
+        name, a, b = heappop(heap)
+        if a in used[name] or b in used[name]:
+            continue
+
         c = tuple(sorted(set(a + b)))
+        lookup = lookups[name]
+        lookup[c] = merge_fn(lookup[a], lookup[b])
+        lookup.pop(a)
+        lookup.pop(b)
+        used[name].add(a)
+        used[name].add(b)
 
-        part_a = data[a]
-        part_b = data[b]
+        for other in lookup:
+            if other != c:
+                score = score_fn(lookups[name][c], lookups[name][other])
+                heappush(heap, Pair(name, c, other, score))
 
-        part_c = {}
-        for k in {**part_a, **part_b}:
-            if k in part_a and k in part_b:
-                part_c[k] = merge_nodes(part_a[k], part_b[k])
+        i = names.index(name)
+        merge_a = {}
+        merge_b = {}
+        for combo in combos:
+            parts = combo[i]
+            if a == parts:
+                key = tuple(v for j, v in enumerate(combo) if j != i)
+                merge_a[key] = combo
+            elif b == parts:
+                key = tuple(v for j, v in enumerate(combo) if j != i)
+                merge_b[key] = combo
+
+        for key in sorted(set(merge_a.keys()).union(merge_b.keys())):
+            if key in merge_a and key in merge_b:
+                template = merge_a[key]
+                a_val = combos.pop(merge_a[key])
+                b_val = combos.pop(merge_b[key])
+                c_val = merge_versions([a_val, b_val])
+            elif key in merge_a:
+                template = merge_a[key]
+                c_val = combos.pop(template)
             else:
-                part_c[k] = part_a.get(k, part_b.get(k, None))
+                template = merge_b[key]
+                c_val = combos.pop(template)
 
-        del data[a]
-        del data[b]
-        data[c] = part_c
-        
-        if no_increase and resolution:
-            # If there is no column increase, this solution should be preferred
-            # over the previous one always, so remove the previous one.
-            resolution.pop()
-        resolution.append(tuple(map(set, data)))
+            new_c = tuple(k if j != i else c for j, k in enumerate(template))
+            combos[new_c] = c_val
 
-    return tuple(resolution)
-
-
-def calculate_variations(
-    chains: tuple[TableVersion, ...],
-    rows: dict[TableVersion | TablePartition, int],
-    meta: dict[str, Attributes],
-) -> dict[str, tuple[tuple[set[int], ...], ...]]:
-    smeta = _calculate_stripped_meta(meta)
-    children = compute_version_graph(chains)
-    partitioned = {}
-    for v in children:
-        if isinstance(v, TableVersion) and smeta[v.name].partition:
-            new_node = create_node(v, children)
-
-            if v.name in partitioned:
-                partitioned[v.name] = merge_nodes(partitioned[v.name], (new_node))
-            else:
-                partitioned[v.name] = new_node
-
-    out = {}
-    for p, head in partitioned.items():
-        out[p] = calculate_merge_order(head)
-
-    return out
+    return tuple(combos.values())
 
 
 def _estimate_columns_for_chain_recurse(
@@ -332,7 +230,7 @@ def tuple_unique(a, b):
     return tuple(sorted(set(a + b)))
 
 
-def merge_versions(vers: list[TableVersion]):
+def merge_versions(vers: Sequence[TableVersion]):
     ref = vers[0]
 
     new_parents = []
@@ -370,7 +268,11 @@ def merge_versions(vers: list[TableVersion]):
     else:
         unrolls = None
 
-    return TableVersion(ref.name, partitions, unrolls, tuple(new_parents))
+    rows = 0
+    for ver in vers:
+        rows += ver.rows
+
+    return TableVersion(ref.name, rows, partitions, unrolls, tuple(new_parents))
 
 
 def calc_rows_cols(
@@ -401,59 +303,3 @@ def calc_rows_cols(
         col_count = estimate_columns_for_chain(new_version, meta)
         out.append((new_version, row_count, col_count))
     return out
-
-
-def choose_variation(
-    variations: dict[str, tuple[tuple[set[int], ...], ...]],
-    chains: tuple[TableVersion, ...],
-    rows: dict[TableVersion | TablePartition, int],
-    meta: dict[str, Attributes],
-    model_num: int,
-) -> tuple[TableVersion, ...]:
-    solutions = []
-    valid = 0
-    for combo in product(*variations.values()):
-        combo = {k: v for k, v in zip(variations, combo)}
-
-        if not calc_model_num(combo) <= model_num:
-            continue
-
-        solutions.append(
-            tuple([s[0] for s in calc_rows_cols(combo, chains, rows, meta)])
-        )
-        # print(valid)
-        valid += 1
-
-    return tuple(max(solutions, key=lambda x: len(x)))
-
-    # max_cols = [max(s[2] for s in sol) for sol in solutions]
-    # min_max_col = min(max_cols)
-
-    # for sol in solutions:
-    #     print(f"N: {len(sol):4d} Max Cols: {max(s[2] for s in sol)}, Min rows: {min(s[1] for s in sol):5d}, AVG Cols: {sum(s[2] for s in sol) / len(sol):.1f}")
-
-    # sol = solutions[30]
-    # plt.hist([s[2] for s in sol], bins=20)
-    # plt.title("Columns")
-
-    # plt.figure()
-    # plt.hist([s[1] for s in sol], bins=20, range=(0, 10_000))
-    # plt.title("Rows (up to 10k)")
-
-    # plt.figure()
-    # plt.hist([s[1] for s in sol], bins=20, range=(0, 50_000))
-    # plt.title("Rows (up to 50k)")
-
-    # plt.figure()
-    # plt.hist([s[1] for s in sol], bins=20)
-    # plt.title("Rows Unbounded")
-
-
-def choose_versions_heuristic(
-    chains: tuple[TableVersion, ...],
-    rows: dict[TableVersion | TablePartition, int],
-    meta: dict[str, Attributes],
-    model_num: int,
-):
-    variations = calculate_variations(chains, rows, meta)
-    return choose_variation(variations, chains, rows, meta, model_num)

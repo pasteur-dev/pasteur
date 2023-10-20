@@ -17,6 +17,7 @@ class TableVersion(NamedTuple):
     with name `name`, by recursing on its parents."""
 
     name: str
+    rows: int
     partitions: tuple[int, ...] | None
     unrolls: tuple[int, ...] | None
     parents: tuple["TableVersion | TablePartition", ...]
@@ -217,7 +218,7 @@ def _calculate_chains_of_table(
     ids: dict[str, LazyFrame],
     tables: dict[str, LazyFrame],
     parents: dict[str, tuple[TableVersion, ...]],
-) -> tuple[tuple[TableVersion, ...], dict[TablePartition | TableVersion, int]]:
+) -> tuple[TableVersion, ...]:
     """Calculates the possible markov chains for the table with `name`, by
     iterating over its parent combinations.
 
@@ -277,7 +278,6 @@ def _calculate_chains_of_table(
                 for k, v in counts.items():
                     rows_per_partition[(combo, k)] += v
 
-    rows = {}
     versions = []
     for combo in combos:
         # Extract data from loading tables
@@ -290,15 +290,10 @@ def _calculate_chains_of_table(
         else:
             unrolls = None
 
-        ver = TableVersion(name, partitions, unrolls, combo)
+        ver = TableVersion(name, rows_per_combo[combo], partitions, unrolls, combo)
         versions.append(ver)
-        rows[ver] = rows_per_combo[combo]
 
-        if partitions:
-            for p in partitions:
-                rows[TablePartition((p,), ver)] = rows_per_partition[(combo, p)]
-
-    return tuple(versions), rows
+    return tuple(versions)
 
 
 def calculate_table_chains(
@@ -308,7 +303,7 @@ def calculate_table_chains(
     return_all_tables=True,
     _parents=None,
     _cache=None,
-) -> tuple[dict[str, tuple[TableVersion]], dict[TableVersion | TablePartition, int]]:
+) -> dict[str, tuple[TableVersion]]:
     """Returns a tuple of all possible chain combinations for the tables in the
     provided view (as a dictionary of table -> chains) and a dictionary of chain
     to row count mappings."""
@@ -319,25 +314,22 @@ def calculate_table_chains(
     smeta = _calculate_stripped_meta(meta)
 
     out = {}
-    rows = {}
     for name, parents in _parents.items():
         if name in _cache:
             out[name] = _cache[name]
         else:
-            parent_versions, parent_rows = calculate_table_chains(
+            parent_versions = calculate_table_chains(
                 meta, ids, tables, False, parents, _cache
             )
-            versions, table_rows = _calculate_chains_of_table(
+            versions = _calculate_chains_of_table(
                 name, smeta, ids, tables, parent_versions
             )
             _cache[name] = versions
-            rows.update(table_rows)
-            rows.update(parent_rows)
             out[name] = versions
 
     if return_all_tables:
-        return _cache, rows
-    return out, rows
+        return _cache
+    return out
 
 
 __all__ = [

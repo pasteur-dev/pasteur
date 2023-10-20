@@ -1,18 +1,12 @@
 import logging
 from itertools import combinations
-from typing import NamedTuple, Sequence, cast
+from typing import Any, NamedTuple, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
 from ....attribute import Attributes, CatValue, get_dtype
-from ....marginal import (
-    ZERO_FILL,
-    AttrSelector,
-    AttrSelectors,
-    MarginalOracle,
-    MarginalRequest,
-)
+from ....marginal import ZERO_FILL, MarginalOracle, MarginalRequests
 from ....utils.progress import piter, prange, process_in_parallel
 
 logger = logging.getLogger(__name__)
@@ -35,7 +29,7 @@ class Node(NamedTuple):
     col: str
     domain: int
     partial: bool
-    p: dict[str, AttrSelector]
+    p: dict[str, Any]
 
 
 Nodes = list[Node]
@@ -96,11 +90,11 @@ def add_multiple_to_pset(s: tuple, x: Sequence[int], h: list[int]):
         y[x[i]] = h[i]
     return tuple(s)
 
-def find_maximal_parents(heights, domain, common, A, tau, partial):
 
+def find_maximal_parents(heights, domain, common, A, tau, partial):
     def maximal_parents(
         A: tuple[tuple[int], ...], tau: float, partial: bool = False
-    ) -> list[tuple[int]]:
+    ) -> list[tuple[int, ...]]:
         """Given a set V containing hierarchical attributes (by int) and a tau
         score that is divided by the size of the domain, return a set of all
         possible combinations of attributes, such that if t > 1 there isn't an
@@ -190,8 +184,9 @@ def find_maximal_parents(heights, domain, common, A, tau, partial):
                 S.append(z)
 
         return S
-    
+
     return maximal_parents(A, tau, partial)
+
 
 def greedy_bayes(
     oracle: MarginalOracle,
@@ -351,7 +346,7 @@ def greedy_bayes(
             )
         else:
             new_scores = []
-            
+
         # Update cache
         scores[~cached] = new_scores
         for i, candidate in enumerate(candidates):
@@ -443,12 +438,8 @@ def greedy_bayes(
 
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
-        
-        base_args = {
-            "heights": heights,
-            "domain": domain,
-            "common": common
-        } 
+
+        base_args = {"heights": heights, "domain": domain, "common": common}
         per_call_args = []
         info = []
 
@@ -457,15 +448,14 @@ def greedy_bayes(
             Vg = group_nodes(V, x)
             new_tau = t / (domain[x][0] - (common[x] if partial else 0))
 
-            per_call_args.append({
-                "A": Vg,
-                "partial": partial,
-                "tau": new_tau
-            })
+            per_call_args.append({"A": Vg, "partial": partial, "tau": new_tau})
             info.append((x, partial))
-        
+
         node_psets = process_in_parallel(
-            find_maximal_parents, per_call_args, base_args, desc="Finding Maximal Parent sets"
+            find_maximal_parents,
+            per_call_args,
+            base_args,
+            desc="Finding Maximal Parent sets",
         )
 
         for (x, partial), psets in zip(info, node_psets):
@@ -633,7 +623,10 @@ def sample_rows(
 
     attr_sampled_cols: dict[str, str] = {}
     for (x_attr, x, x_domain, partial, p), marginal in piter(
-        zip(nodes, marginals), total=len(nodes), desc="Sampling values sequentially", leave=False
+        zip(nodes, marginals),
+        total=len(nodes),
+        desc="Sampling values sequentially",
+        leave=False,
     ):
         if len(p) == 0:
             # No parents = use 1-way marginal
