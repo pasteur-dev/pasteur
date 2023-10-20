@@ -510,13 +510,13 @@ class Attribute:
 
 Attributes = Mapping[str | tuple[str, ...], Attribute]
 
-
 class SeqAttributes(NamedTuple):
     order: int
     seq: StratifiedValue
     attrs: Attributes | None
     hist: dict[int, Attributes]
-    
+
+DatasetAttributes = dict[str | None, Attributes | SeqAttributes]
 
 def OrdAttribute(
     name: str,

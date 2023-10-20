@@ -98,8 +98,9 @@ def merge_versions_heuristic(
     preproc_fn: PreprocFn[B],
     merge_fn: MergeFn[B],
     score_fn: ScoreFn[B],
+    tables: Sequence[str] | None = None,
 ):
-    names, combos = get_combos(vers)
+    names, combos = get_combos(vers, tables)
 
     lookups = {}
     for i, name in enumerate(names):

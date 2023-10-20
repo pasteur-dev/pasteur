@@ -166,7 +166,7 @@ def _calculate_included_ids(
     return out
 
 
-def _calculate_stripped_meta(attrs: dict[str, Attributes]):
+def _calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta]:
     out = {}
     for name in attrs:
         sequence = None
@@ -199,7 +199,7 @@ def _calculate_stripped_meta(attrs: dict[str, Attributes]):
                 else:
                     assert len(attr.vals) == 1
                     unroll = next(iter(attr.vals))
-                
+
                 along = []
                 along.extend(attr.vals)
 
@@ -297,13 +297,13 @@ def _calculate_chains_of_table(
 
 
 def calculate_table_chains(
-    meta: dict[str, Attributes],
+    attrs: dict[str, Attributes],
     ids: dict[str, LazyFrame],
     tables: dict[str, LazyFrame],
     return_all_tables=True,
     _parents=None,
     _cache=None,
-) -> dict[str, tuple[TableVersion]]:
+) -> dict[str, tuple[TableVersion, ...]]:
     """Returns a tuple of all possible chain combinations for the tables in the
     provided view (as a dictionary of table -> chains) and a dictionary of chain
     to row count mappings."""
@@ -311,7 +311,7 @@ def calculate_table_chains(
         _parents = get_parents(ids)
     if _cache is None:
         _cache = {}
-    smeta = _calculate_stripped_meta(meta)
+    meta = _calculate_stripped_meta(attrs)
 
     out = {}
     for name, parents in _parents.items():
@@ -319,10 +319,10 @@ def calculate_table_chains(
             out[name] = _cache[name]
         else:
             parent_versions = calculate_table_chains(
-                meta, ids, tables, False, parents, _cache
+                attrs, ids, tables, False, parents, _cache
             )
             versions = _calculate_chains_of_table(
-                name, smeta, ids, tables, parent_versions
+                name, meta, ids, tables, parent_versions
             )
             _cache[name] = versions
             out[name] = versions

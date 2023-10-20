@@ -15,7 +15,7 @@ import pandas as pd
 
 from ..utils.data import LazyPartition
 
-from ..attribute import Attributes, CatValue, SeqAttributes
+from ..attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
 from ..utils import LazyChunk, LazyFrame
 from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory, merge_memory
@@ -201,8 +201,8 @@ class MarginalOracle:
 
     def __init__(
         self,
-        attrs: dict[str | None, Attributes | SeqAttributes],
         data: dict[str, LazyPartition],
+        attrs: DatasetAttributes,
         preprocess: PreprocessFun = _tabular_load,
         mode: "MarginalOracle.MODES" = "out_of_core",
         *,

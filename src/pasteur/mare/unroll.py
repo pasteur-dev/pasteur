@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import NamedTuple, cast
+from functools import partial
+from typing import Mapping, NamedTuple, cast
 
 import pandas as pd
 
@@ -7,6 +8,7 @@ from ..attribute import (
     Attribute,
     Attributes,
     CommonValue,
+    DatasetAttributes,
     GenAttribute,
     Grouping,
     SeqAttributes,
@@ -14,10 +16,19 @@ from ..attribute import (
     StratifiedValue,
     get_dtype,
 )
+from ..marginal.numpy import TableSelector
+from ..marginal.oracle import PreprocessFun
 from ..utils import LazyChunk
-from ..utils.data import LazyPartition, data_to_tables
-from .chains import TablePartition, TableVersion
-from .reduce import TableMeta, TablePartition, TableVersion, _calculate_stripped_meta
+from ..utils.data import LazyDataset, LazyPartition, data_to_tables
+from .chains import TablePartition, TableVersion, calculate_table_chains
+from .reduce import (
+    TableMeta,
+    TablePartition,
+    TableVersion,
+    _calculate_stripped_meta,
+    merge_versions,
+    merge_versions_heuristic,
+)
 
 
 def _unroll_sequence(seq_name: str, order: int, ids: pd.DataFrame, data: pd.DataFrame):
@@ -325,7 +336,7 @@ def gen_history_attributes(
 
 def generate_fit_attrs(
     ver: TableVersion, attrs: dict[str, Attributes], ctx: bool
-) -> tuple[dict[str, SeqAttributes | Attributes], Attributes] | None:
+) -> DatasetAttributes | None:
     unroll = None
     seq = None
     for attr in attrs[ver.name].values():
@@ -344,7 +355,7 @@ def generate_fit_attrs(
         if ctx:
             assert ver.unrolls
             synth = recurse_unroll_attr(ver.unrolls, attrs[ver.name])
-            return hist, synth[0]
+            hist[None] = synth[0]
         else:
             unroll_attrs = {unroll: attrs[ver.name][unroll]}
             other_attrs = {}
@@ -357,11 +368,11 @@ def generate_fit_attrs(
                     other_attrs[name] = attr
 
             hist[ver.name] = unroll_attrs
-            return hist, other_attrs
+            hist[None] = other_attrs
     elif seq:
         if ctx:
             assert seq.max is not None
-            return hist, {seq.name: GenAttribute(seq.name, seq.max)}
+            hist[None] = {seq.name: GenAttribute(seq.name, seq.max)}
         else:
             order = seq.order
             ahist = {}
@@ -377,21 +388,24 @@ def generate_fit_attrs(
                 {seq.name: GenAttribute(seq.name, seq.max)},
                 ahist,
             )
-            synth = strip_seq_vals(attrs[ver.name])
+            hist[None] = strip_seq_vals(attrs[ver.name])
     else:
         if ctx:
-            return None
+            hist = None
         else:
-            return hist, attrs[ver.name]
+            hist[None] = attrs[ver.name]
+    
+    return hist
 
 
 def generate_fit_tables(
-    ver: TableVersion,
+    data: dict[str, LazyPartition],
     attrs: dict[str, Attributes],
-    tables: dict[str, LazyChunk],
-    ids: dict[str, LazyChunk],
+    ver: TableVersion,
     ctx: bool,
-) -> tuple[dict[tuple[str, int] | str, pd.DataFrame], pd.DataFrame]:
+) -> dict[TableSelector, pd.DataFrame]:
+    tables, ids = data_to_tables(data)
+
     # Get history
     meta = _calculate_stripped_meta(attrs)
     hist = gen_history(ver.parents, tables, ids, meta)
@@ -441,10 +455,13 @@ def generate_fit_tables(
 
             utab = pd.concat(udfs, axis=1).fillna(0)
             synth = utab.astype(
-                dtype={k: str(v).lower() for k, v in utab.dtypes.to_dict().items()}
+                dtype={k: str(v).lower() for k, v in utab.dtypes.to_dict().items()}  # type: ignore
             )
         else:
-            unroll_cols = [unroll, *meta[ver.name].along]
+            unroll_cols = [unroll]
+            along = meta[ver.name].along
+            if along:
+                unroll_cols.extend(along)
             new_hist[ver.name] = table[unroll_cols]
             synth = table.drop(columns=unroll_cols)
     elif sequence:
@@ -474,15 +491,57 @@ def generate_fit_tables(
         new_hist[idx] = (
             fids[[name]].join(table, on=name, how="inner").drop(columns=name)
         )
-    return new_hist, synth
+    return {**new_hist, None: synth}
 
 
-def marginal_preprocess(
-    data: dict[str, LazyPartition],
-    attrs: dict[str, Attributes],
-    ver: TableVersion,
-    ctx: bool,
-):
-    tables, ids = data_to_tables(data)
-    hist_tables, table = generate_fit_tables(ver, attrs, tables, ids, ctx)
-    return {**hist_tables, None: table}
+class ModelVersion(NamedTuple):
+    ver: TableVersion
+    ctx: bool
+
+
+def calculate_model_versions(
+    attrs: dict[str, Attributes], data: Mapping[str, LazyDataset], max_vers: int
+) -> dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]]:
+    ids, tables = data_to_tables(data)
+    chains = calculate_table_chains(attrs, ids, tables)
+    meta = _calculate_stripped_meta(attrs)
+
+    out: dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]] = {}
+    for name, vers in chains.items():
+        assert vers, f"Table {name} has 0 versions."
+        tmeta = meta[name]
+
+        if tmeta.unroll:
+            preproc_fn = lambda v: set(v.unrolls) if v.unrolls else set()
+            merge_fn = lambda a, b: a.union(b)
+            score_fn = lambda a, b: len(a.symmetric_difference(b))
+
+            # Unroll context models
+            new_vers = merge_versions_heuristic(
+                vers, max_vers, preproc_fn, merge_fn, score_fn
+            )
+            for ver in new_vers:
+                new_attrs = generate_fit_attrs(ver, attrs, True)
+                assert new_attrs is not None
+
+                load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=True)
+                out[ModelVersion(ver, True)] = new_attrs, load_fn
+
+            # Unroll series model
+            ver = merge_versions(vers)
+            new_attrs = generate_fit_attrs(ver, attrs, True)
+            assert new_attrs is not None
+
+            load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=False)
+            out[ModelVersion(ver, False)] = new_attrs, load_fn
+        else:
+            # Apart from unroll, create one ctx model and one series model
+            # for each table
+            ver = merge_versions(vers)
+            for ctx in (False, True):
+                new_attrs = generate_fit_attrs(ver, attrs, ctx)
+                if new_attrs is not None:
+                    load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=ctx)
+                    out[ModelVersion(ver, ctx)] = new_attrs, load_fn
+
+    return out
