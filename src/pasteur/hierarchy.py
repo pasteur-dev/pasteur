@@ -343,6 +343,7 @@ class RebalancedValue(CatValue):
         c: float | None = None,
         **_,
     ) -> None:
+        self.name = col.name
         # FIXME: Use new common format
         self.common = common
         self.grouping = make_grouping(counts, col.head, common.head if common else None)

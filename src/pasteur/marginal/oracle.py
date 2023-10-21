@@ -3,8 +3,10 @@ from typing import (
     Callable,
     Generic,
     Literal,
+    Mapping,
     Protocol,
     Sequence,
+    TypeGuard,
     TypeVar,
     cast,
     overload,
@@ -13,9 +15,15 @@ from typing import (
 import numpy as np
 import pandas as pd
 
-from ..utils.data import LazyPartition
+from ..utils.data import LazyDataset, LazyPartition
 
-from ..attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
+from ..attribute import (
+    Attribute,
+    Attributes,
+    CatValue,
+    DatasetAttributes,
+    SeqAttributes,
+)
 from ..utils import LazyChunk, LazyFrame
 from ..utils.progress import PROGRESS_STEP_NS, piter, process_in_parallel
 from .memory import load_from_memory, map_to_memory, merge_memory
@@ -56,7 +64,7 @@ def convert_reqs(
 class PreprocessFun(Protocol):
     def __call__(
         self,
-        data: dict[str, LazyPartition],
+        data: Mapping[str, LazyPartition],
     ) -> dict[TableSelector, pd.DataFrame]:
         ...
 
@@ -67,14 +75,14 @@ class PostprocessFun(Protocol, Generic[A]):
 
 
 def _tabular_load(
-    data: dict[str, LazyPartition],
+    data: Mapping[str, LazyPartition],
 ) -> dict[TableSelector, pd.DataFrame]:
-    return {None: cast(pd.DataFrame, next(iter(data.values())))}
+    return {None: next(iter(v for d, v in data.items() if "ids_" not in d))()}
 
 
 def sequential_load(
     attrs: dict[str | None, Attributes | SeqAttributes],
-    data: dict[str, LazyPartition],
+    data: Mapping[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
     out = preprocess(data)
@@ -86,7 +94,7 @@ def sequential_load(
 
 def parallel_load(
     attrs: dict[str | None, Attributes | SeqAttributes],
-    data: dict[str, LazyPartition],
+    data: Mapping[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
 
@@ -190,6 +198,12 @@ def _marginal_batch_worker_load(
     return out
 
 
+def _is_attributes(a) -> TypeGuard[Attributes]:
+    if not len(a):
+        return False
+    return isinstance(next(iter(a.values())), Attribute)
+
+
 class MarginalOracle:
     MODES = Literal[
         "out_of_core",
@@ -201,8 +215,8 @@ class MarginalOracle:
 
     def __init__(
         self,
-        data: dict[str, LazyPartition],
-        attrs: DatasetAttributes,
+        data: Mapping[str, LazyPartition],
+        attrs: DatasetAttributes | Attributes,
         preprocess: PreprocessFun = _tabular_load,
         mode: "MarginalOracle.MODES" = "out_of_core",
         *,
@@ -211,7 +225,10 @@ class MarginalOracle:
         repartitions: int | None = None,
         log: bool = True,
     ) -> None:
-        self.attrs = attrs
+        if _is_attributes(attrs):
+            self.attrs: DatasetAttributes = {None: attrs}
+        else:
+            self.attrs = cast(DatasetAttributes, attrs)
         self.data = data
         self.preprocess = preprocess
 
@@ -452,7 +469,9 @@ class MarginalOracle:
                 convert_reqs(requests), desc, preprocess, postprocess
             )
 
-    def get_counts(self, desc: str = "Calculating counts"):
+    def get_counts(
+        self, desc: str = "Calculating counts"
+    ) -> dict[str | None, dict[str, np.ndarray]]:
         if self.counts:
             return self.counts
 
@@ -478,8 +497,11 @@ class MarginalOracle:
                             reqs.append([(table_name, attr.name, {val_name: 0})])
                             cols.append((table_name, val_name))
 
-        count_arr = self.process(reqs, preprocess=_counts_load, desc=desc)  # type: ignore
-        self.counts = {name: count for name, count in zip(cols, count_arr)}
+        count_arr = self.process(reqs, desc=desc)  # type: ignore
+
+        self.counts = {v: {} for v in self.attrs}
+        for (table, name), count in zip(cols, count_arr):
+            self.counts[table][name] = count
 
         return self.counts
 

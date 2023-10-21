@@ -2,18 +2,94 @@ from __future__ import annotations
 
 import logging
 from math import ceil
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+import pandas as pd
+
+from ....attribute import Attributes, DatasetAttributes
+from ....mare.synth import MareModel
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 
-if TYPE_CHECKING:
-    import pandas as pd
-
-    from ....attribute import Attributes
-
 logger = logging.getLogger(__name__)
+
+
+class PrivBayesMare(MareModel):
+    def __init__(
+        self,
+        ep: float | None = None,
+        e1: float = 0.3,
+        e2: float = 0.7,
+        theta: float = 4,
+        use_r: bool = True,
+        seed: float | None = None,
+        rebalance: bool = False,
+        unbounded_dp: bool = False,
+        random_init: bool = False,
+        skip_zero_counts: bool = False,
+        **kwargs,
+    ) -> None:
+        self.ep = ep
+        self.e1 = e1
+        self.e2 = e2
+        self.theta = theta
+        self.use_r = use_r
+        self.seed = seed
+        self.random_init = random_init
+        self.unbounded_dp = unbounded_dp
+        self.rebalance = rebalance
+        self.skip_zero_counts = skip_zero_counts
+        self.kwargs = kwargs
+
+    @make_deterministic
+    def fit(self, n: int, attrs: DatasetAttributes, oracle: MarginalOracle):
+        from .implementation import MAX_EPSILON, calc_noisy_marginals, greedy_bayes
+
+        # Fit network
+        nodes, t = greedy_bayes(
+            oracle,
+            attrs,
+            n,
+            self.e1,
+            self.e2,
+            self.theta,
+            self.use_r,
+            self.unbounded_dp,
+            self.random_init,
+            self.skip_zero_counts,
+        )
+
+        # Nodes are a tuple of a x attribute
+        self.t = t
+        self.nodes = nodes
+        self.attrs = cast(Attributes, attrs[None])
+        logger.info(self)
+
+        d = 0
+        for attr in cast(Attributes, attrs[None]).values():
+            d += len(attr.vals)
+
+        noise = (1 if self.unbounded_dp else 2) * d / self.e2 / n
+        if self.e2 > MAX_EPSILON:
+            logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
+            noise = 0
+
+        self.marginals = calc_noisy_marginals(
+            oracle, self.nodes, noise, self.skip_zero_counts
+        )
+
+    def __str__(self) -> str:
+        from .implementation import print_tree
+
+        return print_tree(
+            self.attrs,
+            self.nodes,
+            self.e1,
+            self.e2,
+            self.theta,
+            self.t,
+        )
 
 
 class PrivBayesSynth(Synth):
@@ -65,14 +141,15 @@ class PrivBayesSynth(Synth):
         table_name = next(iter(tables.keys()))
         table = tables[table_name]
         table_attrs = attrs[table_name]
+        self.table_attrs = table_attrs
 
         self._n = table.shape[0]
         self._partitions = len(table)
 
         if self.rebalance:
             with MarginalOracle(
+                data,  # type: ignore
                 table_attrs,
-                table,
                 mode=self.marginal_mode,
                 min_chunk_size=self.marginal_min_chunk,
                 max_worker_mult=self.marginal_worker_mult,
@@ -80,7 +157,7 @@ class PrivBayesSynth(Synth):
                 counts = o.get_counts(desc="Calculating counts for column rebalancing")
 
             self.attrs = rebalance_attributes(
-                counts,
+                counts[None],
                 table_attrs,
                 self.ep,
                 unbounded_dp=self.unbounded_dp,
@@ -101,17 +178,18 @@ class PrivBayesSynth(Synth):
         table = tables[table_name]
 
         with MarginalOracle(
+            data,  # type: ignore
             self.attrs,
-            table,
             mode=self.marginal_mode,
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            self.n, self.d = oracle.get_shape()
+            self.n, self.d = table.shape
             # Fit network
             nodes, t = greedy_bayes(
                 oracle,
-                self.attrs,
+                {None: self.table_attrs},
+                table.shape[0],
                 self.e1,
                 self.e2,
                 self.theta,
@@ -142,14 +220,14 @@ class PrivBayesSynth(Synth):
             noise = 0
 
         with MarginalOracle(
-            self.attrs,
-            table,
+            data,  # type: ignore
+            self.table_attrs,
             mode=self.marginal_mode,
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as o:
             self.marginals = calc_noisy_marginals(
-                o, self.attrs, self.nodes, noise, self.skip_zero_counts
+                o, self.nodes, noise, self.skip_zero_counts
             )
 
     @make_deterministic("i")

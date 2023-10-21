@@ -38,8 +38,8 @@ def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
 
     @wraps(obj_func)
     def wrapped(self, *args, **kwargs):
-        if self.seed is not None:
-            seed = self.seed
+        if hasattr(self, "seed") and getattr(self, "seed") is not None:
+            seed = getattr(self, "seed")
 
             if noise_kw is not None:
                 seed += kwargs[noise_kw]
@@ -49,7 +49,7 @@ def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
 
         a = obj_func(self, *args, **kwargs)
 
-        if self.seed is not None:
+        if hasattr(self, "seed") and getattr(self, "seed") is not None:
             noise_info = f" ('{noise_kw}': {kwargs[noise_kw]:3d})" if noise_kw else ""
             logger.info(
                 f"Deterministic check: random number after "

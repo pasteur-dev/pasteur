@@ -399,12 +399,12 @@ def generate_fit_attrs(
 
 
 def generate_fit_tables(
-    data: dict[str, LazyPartition],
+    data: Mapping[str, LazyPartition],
     attrs: dict[str, Attributes],
     ver: TableVersion,
     ctx: bool,
 ) -> dict[TableSelector, pd.DataFrame]:
-    tables, ids = data_to_tables(data)
+    ids, tables = data_to_tables(data)
 
     # Get history
     meta = _calculate_stripped_meta(attrs)
