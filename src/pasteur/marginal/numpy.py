@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import NamedTuple, Sequence, cast, TypeGuard
+from typing import Mapping, NamedTuple, Sequence, TypeGuard, cast
 
 import numpy as np
 import pandas as pd
@@ -12,7 +12,6 @@ from ..attribute import (
     StratifiedValue,
     get_dtype,
 )
-
 
 ChildSelector = dict[str, int]
 CommonSelector = int
@@ -115,7 +114,7 @@ def _map_column(table: pd.DataFrame, col: CatValue, common: CatValue | None):
 
 
 def expand_table(
-    attrs: dict[str | None, Attributes | SeqAttributes] = {},
+    attrs: Mapping[str | None, Attributes | SeqAttributes] = {},
     tables: dict[TableSelector, pd.DataFrame] = {},
     *,
     prealloc: CalculationData | None = None,

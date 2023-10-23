@@ -337,6 +337,10 @@ def gen_history_attributes(
 def generate_fit_attrs(
     ver: TableVersion, attrs: dict[str, Attributes], ctx: bool
 ) -> DatasetAttributes | None:
+    # Don't generate context tables for top level tables
+    if not ver.parents and ctx:
+        return None
+
     unroll = None
     seq = None
     for attr in attrs[ver.name].values():
@@ -345,8 +349,6 @@ def generate_fit_attrs(
         for v in attr.vals.values():
             if isinstance(v, SeqValue):
                 seq = v
-    if not unroll and not seq:
-        return
     assert not (unroll and seq), f"Both unrolling and sequence found on the same table."
 
     hist = gen_history_attributes(ver.parents, attrs)
@@ -369,32 +371,29 @@ def generate_fit_attrs(
 
             hist[ver.name] = unroll_attrs
             hist[None] = other_attrs
+    elif ctx:
+        # Context tables for normal tables and sequence tables same
+        assert ver.children is not None
+        hist[None] = {f"{ver.name}_n": GenAttribute(f"{ver.name}_n", ver.children)}
     elif seq:
-        if ctx:
-            assert seq.max is not None
-            hist[None] = {seq.name: GenAttribute(seq.name, seq.max)}
-        else:
-            order = seq.order
-            ahist = {}
+        order = seq.order
+        ahist = {}
 
-            assert order is not None, f"Table '{ver.name}'s order is None"
-            for i in range(order):
-                ahist[i] = convert_to_seq_attr(attrs[ver.name], i)
+        assert order is not None, f"Table '{ver.name}'s order is None"
+        for i in range(order):
+            ahist[i] = convert_to_seq_attr(attrs[ver.name], i)
 
-            assert seq.max is not None
-            hist[ver.name] = SeqAttributes(
-                order,
-                SeqCommonValue(seq.name, order),
-                {seq.name: GenAttribute(seq.name, seq.max)},
-                ahist,
-            )
-            hist[None] = strip_seq_vals(attrs[ver.name])
+        assert ver.children is not None
+        hist[ver.name] = SeqAttributes(
+            order,
+            SeqCommonValue(seq.name, order),
+            {seq.name: GenAttribute(f"{ver.name}_n", ver.children)},
+            ahist,
+        )
+        hist[None] = strip_seq_vals(attrs[ver.name])
     else:
-        if ctx:
-            hist = None
-        else:
-            hist[None] = attrs[ver.name]
-    
+        hist[None] = attrs[ver.name]
+
     return hist
 
 
@@ -418,6 +417,12 @@ def generate_fit_tables(
         fids = fids.join(table[[]], on=name, how="inner")
 
     table = tables[ver.name]().loc[fids.index]
+
+    # If no parents, assume normal table and return it
+    if not ver.parents:
+        tmeta = meta[ver.name]
+        assert not tmeta.unroll and not tmeta.sequence
+        return {None: table}
 
     # Create new id that is unique per sequence
     SID_NAME = "nid_jsdi78"
@@ -467,7 +472,7 @@ def generate_fit_tables(
     elif sequence:
         if ctx:
             fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
-            synth = pd.DataFrame(sid.join(table[sequence]).groupby(SID_NAME).max() + 1)
+            synth = pd.DataFrame(sid.groupby(SID_NAME).size().rename(f"{ver.name}_n"))
         else:
             assert order is not None
 
@@ -477,10 +482,11 @@ def generate_fit_tables(
             new_hist[ver.name] = pd.DataFrame(table[sequence].clip(upper=order))
             synth = table
     else:
-        assert (
-            not ctx
-        ), f"ctx=True should not be set for a table that doesn't have unrolling or sequencing."
-        synth = table
+        if ctx:
+            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
+            synth = pd.DataFrame(sid.groupby(SID_NAME).size().rename(f"{ver.name}_n"))
+        else:
+            synth = table
 
     # With the new ids, prune the history
     for idx, table in hist.items():
@@ -541,7 +547,9 @@ def calculate_model_versions(
             for ctx in (False, True):
                 new_attrs = generate_fit_attrs(ver, attrs, ctx)
                 if new_attrs is not None:
-                    load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=ctx)
+                    load_fn = partial(
+                        generate_fit_tables, attrs=attrs, ver=ver, ctx=ctx
+                    )
                     out[ModelVersion(ver, ctx)] = new_attrs, load_fn
 
     return out

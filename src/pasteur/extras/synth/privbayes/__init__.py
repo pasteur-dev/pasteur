@@ -9,6 +9,7 @@ import pandas as pd
 from ....attribute import Attributes, DatasetAttributes
 from ....mare.synth import MareModel
 from ....marginal import MarginalOracle
+from ....marginal.numpy import TableSelector
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 
@@ -63,7 +64,7 @@ class PrivBayesMare(MareModel):
         # Nodes are a tuple of a x attribute
         self.t = t
         self.nodes = nodes
-        self.attrs = cast(Attributes, attrs[None])
+        self.attrs = attrs
         logger.info(self)
 
         d = 0
@@ -79,11 +80,20 @@ class PrivBayesMare(MareModel):
             oracle, self.nodes, noise, self.skip_zero_counts
         )
 
+    def sample(
+        self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
+    ) -> pd.DataFrame:
+        import pandas as pd
+
+        from .implementation import sample_rows
+
+        return sample_rows(index, self.attrs, hist, self.nodes, self.marginals)
+
     def __str__(self) -> str:
         from .implementation import print_tree
 
         return print_tree(
-            self.attrs,
+            cast(Attributes, self.attrs[None]),
             self.nodes,
             self.e1,
             self.e2,
@@ -133,7 +143,9 @@ class PrivBayesSynth(Synth):
         self.kwargs = kwargs
 
     @make_deterministic
-    def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
+    def preprocess(
+        self, meta: dict[str | None, Attributes], data: dict[str, LazyFrame]
+    ):
         from ....hierarchy import rebalance_attributes
 
         attrs = meta
@@ -145,26 +157,27 @@ class PrivBayesSynth(Synth):
 
         self._n = table.shape[0]
         self._partitions = len(table)
+        self.attrs = attrs
 
-        if self.rebalance:
-            with MarginalOracle(
-                data,  # type: ignore
-                table_attrs,
-                mode=self.marginal_mode,
-                min_chunk_size=self.marginal_min_chunk,
-                max_worker_mult=self.marginal_worker_mult,
-            ) as o:
-                counts = o.get_counts(desc="Calculating counts for column rebalancing")
+        # if self.rebalance:
+        #     with MarginalOracle(
+        #         data,  # type: ignore
+        #         table_attrs,
+        #         mode=self.marginal_mode,
+        #         min_chunk_size=self.marginal_min_chunk,
+        #         max_worker_mult=self.marginal_worker_mult,
+        #     ) as o:
+        #         counts = o.get_counts(desc="Calculating counts for column rebalancing")
 
-            self.attrs = rebalance_attributes(
-                counts[None],
-                table_attrs,
-                self.ep,
-                unbounded_dp=self.unbounded_dp,
-                **self.kwargs,
-            )
-        else:
-            self.attrs = table_attrs
+        #     self.attrs = rebalance_attributes(
+        #         counts[None],
+        #         table_attrs,
+        #         self.ep,
+        #         unbounded_dp=self.unbounded_dp,
+        #         **self.kwargs,
+        #     )
+        # else:
+        #     self.attrs = table_attrs
 
     @make_deterministic
     def bake(self, data: dict[str, LazyFrame]):
@@ -236,9 +249,11 @@ class PrivBayesSynth(Synth):
 
         from .implementation import sample_rows
 
+        if n is None:
+            n = self.n
         tables = {
             self.table_name: sample_rows(
-                self.attrs, self.nodes, self.marginals, self.n if n is None else n  # type: ignore
+                pd.RangeIndex(n), self.attrs, {}, self.nodes, self.marginals
             )
         }
         ids = {self.table_name: pd.DataFrame()}
@@ -249,7 +264,7 @@ class PrivBayesSynth(Synth):
         from .implementation import print_tree
 
         return print_tree(
-            self.attrs,
+            self.attrs[None],
             self.nodes,
             self.e1,
             self.e2,

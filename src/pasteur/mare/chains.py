@@ -18,6 +18,7 @@ class TableVersion(NamedTuple):
 
     name: str
     rows: int
+    children: int | None
     partitions: tuple[int, ...] | None
     unrolls: tuple[int, ...] | None
     parents: tuple["TableVersion | TablePartition", ...]
@@ -166,7 +167,7 @@ def _calculate_included_ids(
     return out
 
 
-def _calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta]:
+def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta]:
     out = {}
     for name in attrs:
         sequence = None
@@ -212,6 +213,9 @@ def _calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMet
     return out
 
 
+_calculate_stripped_meta = calculate_stripped_meta
+
+
 def _calculate_chains_of_table(
     name: str,
     meta: dict[str, TableMeta],
@@ -250,7 +254,7 @@ def _calculate_chains_of_table(
     # Unrolling and Partitioning have values that are extracted from data so have
     # to run per partution
     rows_per_combo = defaultdict(lambda: 0)
-    rows_per_partition = defaultdict(lambda: 0)
+    children_per_combo: dict[tuple, int | None] = defaultdict(lambda: None)
     unrolls_per_combo = defaultdict(set)
     partitions_per_combo = defaultdict(set)
 
@@ -269,14 +273,30 @@ def _calculate_chains_of_table(
 
             rows_per_combo[combo] += len(table)
 
+            if parents:
+                SID_NAME = "nid_jsdi78"
+                fids = get_ids(name)
+                if pmask is not None:
+                    fids = fids.loc[pmask]
+                sid = fids.join(
+                    fids.drop_duplicates()
+                    .reset_index(drop=True)
+                    .reset_index(names=SID_NAME)
+                    .set_index(list(fids.columns)),
+                    on=list(fids.columns),
+                ).drop(columns=list(fids.columns))
+                new_children = sid.groupby(SID_NAME).size().max()
+
+                children = children_per_combo[combo]
+                if children is None or children < new_children:
+                    children_per_combo[combo] = new_children
+
             if unroll:
                 unrolls_per_combo[combo].update(table[unroll].unique())
 
             if partition:
                 counts = table[partition].value_counts().to_dict()
                 partitions_per_combo[combo].update(counts.keys())
-                for k, v in counts.items():
-                    rows_per_partition[(combo, k)] += v
 
     versions = []
     for combo in combos:
@@ -290,7 +310,14 @@ def _calculate_chains_of_table(
         else:
             unrolls = None
 
-        ver = TableVersion(name, rows_per_combo[combo], partitions, unrolls, combo)
+        ver = TableVersion(
+            name,
+            rows_per_combo[combo],
+            children_per_combo[combo],
+            partitions,
+            unrolls,
+            combo,
+        )
         versions.append(ver)
 
     return tuple(versions)

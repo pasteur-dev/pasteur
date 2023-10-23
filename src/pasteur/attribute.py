@@ -516,7 +516,7 @@ class SeqAttributes(NamedTuple):
     attrs: Attributes | None
     hist: dict[int, Attributes]
 
-DatasetAttributes = dict[str | None, Attributes | SeqAttributes]
+DatasetAttributes = Mapping[str | None, Attributes | SeqAttributes]
 
 def OrdAttribute(
     name: str,

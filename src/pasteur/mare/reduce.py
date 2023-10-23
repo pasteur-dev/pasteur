@@ -252,6 +252,11 @@ def merge_versions(vers: Sequence[TableVersion]):
             new_parents.append(
                 merge_versions([cast(TableVersion, ver.parents[i]) for ver in vers])
             )
+    
+    if ref.children is not None:
+        children = max(cast(int, v.children) for v in vers)
+    else:
+        children = None
 
     if ref.partitions:
         partitions = set()
@@ -273,7 +278,7 @@ def merge_versions(vers: Sequence[TableVersion]):
     for ver in vers:
         rows += ver.rows
 
-    return TableVersion(ref.name, rows, partitions, unrolls, tuple(new_parents))
+    return TableVersion(ref.name, rows, children, partitions, unrolls, tuple(new_parents))
 
 
 def calc_rows_cols(

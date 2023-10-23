@@ -14,7 +14,7 @@ from ....marginal import (
     normalize,
     two_way_normalize,
 )
-from ....marginal.numpy import AttrSelectors, CalculationInfo
+from ....marginal.numpy import AttrSelectors, CalculationInfo, TableSelector
 from ....utils.progress import piter, prange, process_in_parallel
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ def find_maximal_parents(heights, domain, common, A, tau, partial):
             return [tuple(-1 for _ in range(len(domain)))]
 
         a_full = A[0]
-        cmn = 0 # common[a_full[0]]
+        cmn = 0  # common[a_full[0]]
 
         A = A[1:]
         S = []
@@ -518,7 +518,7 @@ def print_tree(
         if len(x) > tlen:
             tlen = len(x)
 
-    for name in attrs:
+    for name in attrs.keys():
         if len(name) > tlen:
             tlen = len(name)
 
@@ -634,9 +634,14 @@ def calc_noisy_marginals(
 
 
 def sample_rows(
-    attrs: Attributes, nodes: list[Node], marginals: np.ndarray, n: int
+    idx: pd.Index,
+    attrs: DatasetAttributes,
+    hist: dict[TableSelector, pd.DataFrame],
+    nodes: list[Node],
+    marginals: list[np.ndarray],
 ) -> pd.DataFrame:
-    out = pd.DataFrame()
+    out = pd.DataFrame(index=idx)
+    n = len(idx)
 
     attr_sampled_cols: dict[str, str] = {}
     for (x_attr, x, x_domain, partial, p), marginal in piter(
@@ -674,8 +679,10 @@ def sample_rows(
                 p_partial = partial and attr_name == x_attr
                 assert isinstance(attr, dict), "Add support for common"
                 for i, (col_name, h) in enumerate(attr.items()):
-                    col = attrs[attr_name].vals[col_name]
-                    col = cast(CatValue, col)
+                    col = cast(
+                        CatValue,
+                        cast(Attributes, attrs[None])[attr_name].vals[col_name],
+                    )
                     mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 

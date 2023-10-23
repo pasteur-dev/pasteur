@@ -81,7 +81,7 @@ def _tabular_load(
 
 
 def sequential_load(
-    attrs: dict[str | None, Attributes | SeqAttributes],
+    attrs: Mapping[str | None, Attributes | SeqAttributes],
     data: Mapping[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
@@ -93,7 +93,7 @@ def sequential_load(
 
 
 def parallel_load(
-    attrs: dict[str | None, Attributes | SeqAttributes],
+    attrs: Mapping[str | None, Attributes | SeqAttributes],
     data: Mapping[str, LazyPartition],
     preprocess: PreprocessFun,
 ):
