@@ -11,6 +11,7 @@ from ..attribute import (
     DatasetAttributes,
     GenAttribute,
     Grouping,
+    SeqAttribute,
     SeqAttributes,
     SeqValue,
     StratifiedValue,
@@ -237,9 +238,9 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
 def SeqCommonValue(name: str, order: int):
     g = f"O{order}"
     for ord in reversed(range(order)):
-        name = f"O{ord}"
-        g = Grouping("cat", [name, g], title=name)
-    return StratifiedValue(name, g)  # type: ignore
+        title = f"O{ord}"
+        g = Grouping("cat", [title, g], title=title)
+    return StratifiedValue(name, cast(Grouping, g))
 
 
 def convert_to_seq_val(s: StratifiedValue, order: int):
@@ -387,7 +388,7 @@ def generate_fit_attrs(
         hist[ver.name] = SeqAttributes(
             order,
             SeqCommonValue(seq.name, order),
-            {seq.name: GenAttribute(f"{ver.name}_n", ver.children)},
+            {seq.name: SeqAttribute(seq.name, order=order, max=ver.children)},
             ahist,
         )
         hist[None] = strip_seq_vals(attrs[ver.name])
@@ -535,7 +536,7 @@ def calculate_model_versions(
 
             # Unroll series model
             ver = merge_versions(vers)
-            new_attrs = generate_fit_attrs(ver, attrs, True)
+            new_attrs = generate_fit_attrs(ver, attrs, False)
             assert new_attrs is not None
 
             load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=False)

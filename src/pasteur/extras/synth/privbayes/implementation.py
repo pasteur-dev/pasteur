@@ -443,6 +443,7 @@ def greedy_bayes(
     V_groups = set()
     N: list[tuple[int, bool, tuple[int, ...]]] = [(cast(int, x1), False, EMPTY_PSET)]
 
+    first = True
     for _ in prange(1, d, desc="Finding Nodes: "):
         O = list()
 
@@ -458,12 +459,18 @@ def greedy_bayes(
             per_call_args.append({"A": Vg, "partial": partial, "tau": new_tau})
             info.append((x, partial))
 
-        node_psets = process_in_parallel(
-            find_maximal_parents,
-            per_call_args,
-            base_args,
-            desc="Finding Maximal Parent sets",
-        )
+        if d > 30:
+            if first:
+                logger.error('Too many columns, disabling parent correlations.')
+                first = False
+            node_psets = [[] for _ in range(len(per_call_args))]
+        else:
+            node_psets = process_in_parallel(
+                find_maximal_parents,
+                per_call_args,
+                base_args,
+                desc="Finding Maximal Parent sets",
+            )
 
         for (x, partial), psets in zip(info, node_psets):
             for pset in psets:
@@ -640,7 +647,7 @@ def sample_rows(
     nodes: list[Node],
     marginals: list[np.ndarray],
 ) -> pd.DataFrame:
-    out = pd.DataFrame(index=idx)
+    out_cols = {}
     n = len(idx)
 
     attr_sampled_cols: dict[str, str] = {}
@@ -686,7 +693,7 @@ def sample_rows(
                     mapping = np.array(col.get_mapping(h), dtype=dtype)
                     domain = col.get_domain(h)
 
-                    col_lvl = mapping[out[col_name]]
+                    col_lvl = mapping[out_cols[col_name]]
                     # if common != 0 and (i != 0 or p_partial):
                     #     col_lvl = np.where(col_lvl > common, col_lvl - common, 0)
                     np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
@@ -735,7 +742,7 @@ def sample_rows(
             #     out_col[col < common] = col[col < common]
 
         # Output column
-        out[x] = out_col
+        out_cols[x] = out_col
         attr_sampled_cols[x_attr] = x
 
-    return out
+    return pd.DataFrame(out_cols, index=idx)

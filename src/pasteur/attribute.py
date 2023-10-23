@@ -193,11 +193,17 @@ class Value:
 
 
 class SeqValue(Value):
-    table: str
+    table: str | None
     order: int | None
     max: int | None
 
-    def __init__(self, name: str, table: str, order: int | None = None, max: int | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        table: str | None,
+        order: int | None = None,
+        max: int | None = None,
+    ) -> None:
         self.name = name
         self.table = table
         self.order = order
@@ -510,13 +516,16 @@ class Attribute:
 
 Attributes = Mapping[str | tuple[str, ...], Attribute]
 
+
 class SeqAttributes(NamedTuple):
     order: int
     seq: StratifiedValue
     attrs: Attributes | None
     hist: dict[int, Attributes]
 
+
 DatasetAttributes = Mapping[str | None, Attributes | SeqAttributes]
+
 
 def OrdAttribute(
     name: str,
@@ -561,7 +570,12 @@ def NumAttribute(
     return Attribute(name, [NumValue(name, bins, nullable, min, max)])
 
 
-def SeqAttribute(name: str, table: str, order: int | None = None, max: int | None = None):
+def SeqAttribute(
+    name: str,
+    table: str | None = None,
+    order: int | None = None,
+    max: int | None = None,
+):
     """Returns an Attribute holding a single SeqValue with the provided data."""
     return Attribute(name, [SeqValue(name, table, order, max)])
 

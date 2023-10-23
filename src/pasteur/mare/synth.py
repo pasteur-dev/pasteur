@@ -1,6 +1,6 @@
 from collections import defaultdict
 import logging
-from typing import Any, Type
+from typing import Any, Type, cast
 
 import pandas as pd
 
@@ -14,12 +14,23 @@ from .chains import (
     calculate_stripped_meta,
 )
 
-from ..attribute import Attributes, DatasetAttributes
+from ..attribute import (
+    Attributes,
+    CatValue,
+    DatasetAttributes,
+    SeqAttributes,
+    get_dtype,
+)
 from ..marginal import MarginalOracle
 from ..marginal.numpy import TableSelector
 from ..synth import Synth, make_deterministic
 from ..utils import LazyDataset
-from .unroll import ModelVersion, calculate_model_versions, gen_history
+from .unroll import (
+    ModelVersion,
+    calculate_model_versions,
+    gen_history,
+    recurse_unroll_attr,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +112,10 @@ class MareSynth(Synth):
             assert ver is not None
             todo.pop(i)
 
-            # Sample model
-            table_ids, table = sample_model(ver, self.models[ver], n, meta, ids, tables)
+            # Sample model0
+            table_ids, table = sample_model(
+                ver, self.models[ver], self.versions[ver][0], n, meta, ids, tables
+            )
             inprogress_tables[(ver.ver.name, ver.ctx)].append(table)
             inprogress_ids[(ver.ver.name, ver.ctx)].append(table_ids)
 
@@ -114,12 +127,17 @@ class MareSynth(Synth):
                     dfs = inprogress_ids.pop((name, ctx))
                     ids[(name, ctx)] = pd.concat(dfs, axis=1)
 
-        return ids, tables
+        # Remove context tables
+        out_ids = {name: df for (name, ctx), df in ids.items() if not ctx}
+        out_tables = {name: df for (name, ctx), df in tables.items() if not ctx}
+
+        return out_ids, out_tables
 
 
 def sample_model(
     ver: ModelVersion,
     model: MareModel,
+    attrs: DatasetAttributes,
     n: int,
     meta: dict[str, TableMeta],
     ids: dict[tuple[str, bool], pd.DataFrame],
@@ -129,9 +147,6 @@ def sample_model(
     if not ver.ver.parents:
         assert not ver.ctx, "Can't generate a context model for a primary relation"
 
-        logger.info(
-            f"Generating n={n} tuples for primary relation table '{ver.ver.name}'"
-        )
         idx = pd.RangeIndex(n).rename(ver.ver.name)
         data = model.sample(idx, {})
         return pd.DataFrame(index=idx), data
@@ -155,32 +170,162 @@ def sample_model(
         pname = p.name
 
         pids = ids[(pname, False)].reset_index()
-        for name in hist:
-            pids = pids[pids[name].isin(hist[name].index)]
-        for name in list(hist):
-            hist[name] = pids[[name]].join(hist[name], on=name, how='left').drop(columns=name)
+        for sel in hist:
+            name = sel[0] if isinstance(sel, tuple) else sel
+            pids = pids[pids[name].isin(hist[sel].index)]
+        for sel in list(hist):
+            name = sel[0] if isinstance(sel, tuple) else sel
+            hist[name] = (
+                pids[[name]].join(hist[name], on=name, how="left").drop(columns=name)
+            )
         idx = pids.index
 
         table = model.sample(idx, hist)
         return pids, table
     else:
+        PARENT_KEY = "_key_jhuiojkj"
         pids = ids[(ver.ver.name, True)]
 
         if tmeta.unroll:
-            pass
+            unrolls = ver.ver.unrolls
+            along = tmeta.along
+            assert unrolls and along, "TODO: Fix along being empty"
+
+            # Reroll context rows for series history
+            ptable = tables[(ver.ver.name, True)]
+            _, _, col_maps, col_ofs = recurse_unroll_attr(
+                unrolls, cast(Attributes, attrs[ver.ver.name])
+            )
+            ctx_dfs = []
+            for unroll in unrolls:
+                rev_maps = {v: k for k, v in col_maps[unroll].items()}
+                df = (
+                    ptable.loc[ptable[next(iter(rev_maps))] > 0, list(rev_maps)]
+                    .reset_index(names=PARENT_KEY)
+                    .rename(columns=rev_maps)
+                )
+                sers = [df[PARENT_KEY]]
+                for col, ofs in col_ofs[unroll].items():
+                    sers.append(
+                        df[col].astype(get_dtype(df[col].max() + ofs + 1)) + ofs
+                    )
+                ctx_dfs.append(pd.concat(sers, axis=1))
+            ctx_rerolled = pd.concat(ctx_dfs, axis=0, ignore_index=True)
+
+            # Create ids by using the unrolled context index
+            pkey = ctx_rerolled[[PARENT_KEY]]
+            pids = pkey.join(pids, on=PARENT_KEY, how="left").drop(columns=PARENT_KEY)
+            pids.index.name = ver.ver.name
+            # Repeat for history dfs
+            new_hist = {}
+            for sel, df in hist.items():
+                new_hist[sel] = pkey.join(df, on=PARENT_KEY, how="left").drop(
+                    columns=PARENT_KEY
+                )
+            # Drop context index to form history
+            ctx_cols = ctx_rerolled.drop(columns=PARENT_KEY)
+            new_hist[ver.ver.name] = ctx_cols
+            series_cols = model.sample(pkey.index, new_hist)
+            table = pd.concat([ctx_cols, series_cols], axis=1)
+
+            return pids, table
         elif tmeta.sequence:
             children = ver.ver.children
             assert children is not None
 
-            
+            seq_attrs = attrs[ver.ver.name]
+            assert isinstance(seq_attrs, SeqAttributes)
+            order = seq_attrs.order
+            name = ver.ver.name
+            num = tables[(ver.ver.name, True)][f"{name}_n"]
 
+            # Find values and their domains for placeholder history
+            vals = {}
+            for attr in seq_attrs.hist[0].values():
+                if attr.common:
+                    vals[attr.common.name] = attr.common.get_domain(0)
+                for val_name, val in attr.vals.items():
+                    if isinstance(val, CatValue):
+                        vals[val_name] = val.get_domain(0)
+
+            # Create sample history
+            sampled = []
             for i in range(children):
-                pass
-            pids.index.name = ver.ver.name
-        else:
-            pass
+                idx = num[i < num].index
+                if not len(idx):
+                    break
 
-    return pd.DataFrame(), pd.DataFrame()
+                # Add seq value to history
+                new_hist = dict(hist)
+                new_hist[ver.ver.name] = pd.DataFrame(
+                    {seq_attrs.seq.name: i},
+                    index=idx,
+                    dtype="uint8",
+                )
+
+                # Add placeholder if not enough history is sampled
+                if i < order:
+                    placeholder = pd.DataFrame(
+                        {k: i for k in vals}, index=idx, dtype="uint8"
+                    )
+                    for j in range(i, order):
+                        new_hist[(name, j)] = placeholder
+
+                # Add the rest of history
+                for j in range(min(len(sampled), order)):
+                    new_hist[(name, j)] = (
+                        sampled[-j - 1].astype(
+                            {k: get_dtype(v + j) for k, v in vals.items()}
+                        )
+                        + j
+                    ).loc[idx]
+
+                table = model.sample(idx, new_hist)
+                table[seq_attrs.seq.name] = i
+                sampled.append(table)
+
+            # Concat to single table with a context index column
+            table = pd.concat(
+                [s.reset_index(names=PARENT_KEY) for s in sampled], axis=0
+            ).reset_index(drop=True)
+
+            # Join context ids to the new index to form the new ids table
+            pids = (
+                table[[PARENT_KEY]]
+                .join(pids, on=PARENT_KEY, how="left")
+                .drop(columns=PARENT_KEY)
+            )
+            pids.index.name = ver.ver.name
+            # Drop context index
+            table = table.drop(columns=PARENT_KEY)
+            return pids, table
+        else:
+            # Reroll context rows for series history
+            ptable = tables[(ver.ver.name, True)]
+            children = ver.ver.children
+            assert children
+
+            key = ptable[[]].reset_index(names=PARENT_KEY)
+            key_dfs = []
+            for i in range(children):
+                name = ver.ver.name
+                num = tables[(ver.ver.name, True)][f"{name}_n"]
+                key_dfs.append(key[num > i])
+            key = pd.concat(key_dfs, axis=0, ignore_index=True)
+
+            # Create ids by using the unrolled context index
+            pids = key.join(pids, on=PARENT_KEY, how='left').drop(columns=PARENT_KEY)
+            pids.index.name = ver.ver.name
+
+            # Repeat for history dfs
+            new_hist = {}
+            for sel, df in hist.items():
+                new_hist[sel] = key.join(df, on=PARENT_KEY, how="left").drop(
+                    columns=PARENT_KEY
+                )
+            # Drop context index to form history
+            table = model.sample(pids.index, new_hist)
+            return pids, table
 
 
 def get_parents(version: TableVersion):
