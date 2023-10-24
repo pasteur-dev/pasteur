@@ -4,7 +4,7 @@ from typing import Any, Type, cast
 
 import pandas as pd
 
-from ..utils.data import LazyFrame
+from ..utils.data import LazyFrame, tables_to_data
 
 from .chains import (
     TableMeta,
@@ -71,6 +71,12 @@ class MareSynth(Synth):
             f"Calculating required model versions for dataset (max versions per model: {self.max_vers})..."
         )
         self.versions = calculate_model_versions(meta, data, self.max_vers)
+        # TODO: Find better sampling strategy. Pick a top level table and
+        # use its stats for now.
+        for ver in self.versions:
+            if not ver.ver.parents:
+                self._n = ver.ver.rows
+                self._partitions = len(data[ver.ver.name])
         self.attrs = meta
         logger.info(f"Calculated {len(self.versions)} model versions.")
 
@@ -112,7 +118,7 @@ class MareSynth(Synth):
             assert ver is not None
             todo.pop(i)
 
-            # Sample model0
+            # Sample model
             table_ids, table = sample_model(
                 ver, self.models[ver], self.versions[ver][0], n, meta, ids, tables
             )
@@ -122,16 +128,52 @@ class MareSynth(Synth):
             # Concat finished tables
             for name, ctx in list(inprogress_tables):
                 if is_finished(name, ctx, todo):
+                    # TODO: Cleanup botch.
+                    # Check if there are inconsistencies in the columns
+                    # If there are, convert to nullable integers
                     dfs = inprogress_tables.pop((name, ctx))
-                    tables[(name, ctx)] = pd.concat(dfs, axis=1)
+                    missing_cols = False
+                    cols = set()
+                    for df in dfs:
+                        cols.update(df.columns)
+                        if cols.difference(df.columns):
+                            missing_cols = True
+                    if missing_cols:
+                        new_dfs = []
+                        for df in dfs:
+                            new_dfs.append(df.convert_dtypes())
+                        dfs = new_dfs
+
+                    new_table = (
+                        pd.concat(dfs, axis=0, ignore_index=True)
+                        .rename_axis(name)
+                        .fillna(0)
+                    )
+                    # After creating new table, convert nullable integers back
+                    # to non-nullable.
+                    if missing_cols:
+                        new_table = new_table.astype(
+                            {
+                                k: str(v).lower()
+                                for k, v in new_table.dtypes.items()
+                                if str(v).startswith("UI")
+                            }
+                        )
+
+                    tables[(name, ctx)] = new_table
                     dfs = inprogress_ids.pop((name, ctx))
-                    ids[(name, ctx)] = pd.concat(dfs, axis=1)
+                    ids[(name, ctx)] = pd.concat(
+                        dfs, axis=0, ignore_index=True
+                    ).rename_axis(name)
+
+                    # Sanity index check
+                    assert tables[(name, ctx)].index.equals(ids[(name, ctx)].index)
 
         # Remove context tables
         out_ids = {name: df for (name, ctx), df in ids.items() if not ctx}
         out_tables = {name: df for (name, ctx), df in tables.items() if not ctx}
 
-        return out_ids, out_tables
+        return tables_to_data(out_ids, out_tables)
 
 
 def sample_model(
@@ -204,7 +246,10 @@ def sample_model(
                     .reset_index(names=PARENT_KEY)
                     .rename(columns=rev_maps)
                 )
-                sers = [df[PARENT_KEY]]
+                sers = [
+                    df[PARENT_KEY],
+                    pd.Series(unroll, index=df.index, name=tmeta.unroll),
+                ]
                 for col, ofs in col_ofs[unroll].items():
                     sers.append(
                         df[col].astype(get_dtype(df[col].max() + ofs + 1)) + ofs
@@ -314,7 +359,7 @@ def sample_model(
             key = pd.concat(key_dfs, axis=0, ignore_index=True)
 
             # Create ids by using the unrolled context index
-            pids = key.join(pids, on=PARENT_KEY, how='left').drop(columns=PARENT_KEY)
+            pids = key.join(pids, on=PARENT_KEY, how="left").drop(columns=PARENT_KEY)
             pids.index.name = ver.ver.name
 
             # Repeat for history dfs

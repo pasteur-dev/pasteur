@@ -162,7 +162,12 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             else:
                 out_cols.append(data[name])
 
-        if self.common_name and self.common_name not in self.attr.vals:
+        if (
+            self.common_name
+            and self.common_name not in self.attr.vals
+            and self.common_name in data
+        ):
+            # TODO: FIll in common value in the case it is missing
             out_cols.append(data[self.common_name])
 
         return pd.concat(out_cols, axis=1, copy=False, join="inner")

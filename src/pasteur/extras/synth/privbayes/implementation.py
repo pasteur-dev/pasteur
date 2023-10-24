@@ -477,7 +477,7 @@ def greedy_bayes(
                 O.append((x, partial, pset))
             if not psets:
                 O.append((x, partial, EMPTY_PSET))
-
+        
         node = pick_candidate(O)
         V.append(node[0])
         V_groups.add(groups[node[0]])
@@ -664,7 +664,11 @@ def sample_rows(
             # TODO: Readd partial support
             # common = attrs[x_attr].common if partial else 0
             # out_col = np.random.choice(x_domain - common, size=n, p=m) + common
-            out_col = np.random.choice(x_domain, size=n, p=m)
+            try:
+                out_col = np.random.choice(x_domain, size=n, p=m)
+            except ValueError as e:
+                logger.warning(f'Received error when sampling probabilities, picking at random:\n{e}')
+                out_col = np.random.randint(x_domain, size=n)
 
             # if common:
             #     col = out[attr_sampled_cols[x_attr]]
