@@ -214,13 +214,13 @@ def calc_model_num(combos: dict[str, tuple[set[int]]]):
     return num
 
 
-def _get_parents(ver: TableVersion) -> Generator[TablePartition, None, None]:
+def get_parents(ver: TableVersion) -> Generator[TablePartition, None, None]:
     for p in ver.parents:
         if isinstance(p, TablePartition):
             yield p
-            yield from _get_parents(p.table)
+            yield from get_parents(p.table)
         else:
-            yield from _get_parents(p)
+            yield from get_parents(p)
 
 
 def tuple_unique(a, b):
@@ -294,7 +294,7 @@ def calc_rows_cols(
 
         for ver in chains:
             reject = False
-            for p in _get_parents(ver):
+            for p in get_parents(ver):
                 if p.partitions[0] not in partitions[p.table.name]:
                     reject = True
                     break

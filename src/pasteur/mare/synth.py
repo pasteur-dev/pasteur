@@ -83,6 +83,29 @@ class MareSynth(Synth):
     def bake(self, data: dict[str, LazyDataset]):
         ...
 
+    def __str__(self) -> str:
+        out = ""
+        out += f"MARE synthesis algorithm encapsulating model type '{self.model_cls}'.\n"
+        out += f"Created {len(self.models)} models, which synthesize the following {len(set(v.ver.name for v in self.models))} tables:\n"
+        out += str(sorted(set(v.ver.name for v in self.models))) + "\n"
+
+        seen = defaultdict(lambda: 1)
+        for i, (ver, model) in enumerate(self.models.items()):
+            mtype = "context" if ver.ctx else "series"
+            n_versions = len(
+                [
+                    other
+                    for other in self.models
+                    if other.ctx == ver.ctx and other.ver.name == ver.ver.name
+                ]
+            )
+            out += f"\nModel {i+1:02d}/{len(self.versions):02d}: '{mtype}' model for table '{ver.ver.name}' (version {seen[(ver.ver.name, ver.ctx)]:2d}/{n_versions})\n"
+            seen[(ver.ver.name, ver.ctx)] += 1
+            out += str(model)
+            out += '\n'
+
+        return out
+
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
