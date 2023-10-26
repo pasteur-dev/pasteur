@@ -68,25 +68,51 @@ class Grouping(list["Grouping | str"]):
         return self.pref + base
 
     @property
-    def height(self) -> int:
+    def height(self):
+        return self.get_height()
+
+    def get_height(self, common: "Grouping | None" = None) -> int:
         if not self:
             return 0
-        return max(g.height if isinstance(g, Grouping) else 0 for g in self) + 1
+        if common:
+            assert len(self) == len(common)
+            return (
+                max(
+                    g.get_height(c if isinstance(c, Grouping) else None)
+                    - (1 if isinstance(c, Grouping) else 0)
+                    if isinstance(g, Grouping)
+                    else 0
+                    for g, c in zip(self, common)
+                )
+                + 1
+            )
+        else:
+            return (
+                max(g.get_height() if isinstance(g, Grouping) else 0 for g in self) + 1
+            )
 
     @property
     def size(self) -> int:
         return sum(g.size if isinstance(g, Grouping) else 1 for g in self)
 
-    def get_domain(self, height: int):
-        return len(self.get_groups(height))
+    def get_domain(self, height: int, common: "Grouping | None" = None):
+        return len(self.get_groups(height, common))
 
-    def _get_groups_by_level(self, lvl: int, ofs: int = 0):
+    def _get_groups_by_level(
+        self, lvl: int, common: "Grouping | None" = None, ofs: int = 0
+    ):
         groups: list[list | int] = []
-        for l in self:
+        for i, l in enumerate(self):
             if isinstance(l, Grouping):
-                g, ofs = l._get_groups_by_level(lvl - 1, ofs)
+                if common is not None and isinstance(cmn_i := common[i], Grouping):
+                    new_lvl = lvl
+                else:
+                    new_lvl = lvl - 1
+                    cmn_i = None
 
-                if lvl == 0:
+                g, ofs = l._get_groups_by_level(new_lvl, cmn_i, ofs)
+
+                if lvl == 0 and not cmn_i:
                     groups.append(g)
                 else:
                     groups.extend(g)
@@ -95,11 +121,20 @@ class Grouping(list["Grouping | str"]):
                 ofs += 1
         return groups, ofs
 
-    def get_groups(self, height: int) -> list[list | int]:
-        return self._get_groups_by_level(self.height - 1 - height)[0]
+    def get_groups(
+        self, height: int, common: "Grouping | None" = None
+    ) -> list[list | int]:
+        max_height = self.get_height(common)
+        lvl = max_height - 1 - height
+        assert (
+            lvl >= 0
+        ), f"Max height for group is {max_height} and zero-based (e.g., {max_height} - 1 = {max_height - 1}), received {height}."
+        return self._get_groups_by_level(lvl, common)[0]
 
-    def get_dict_mapping(self, height: int) -> dict[int, int]:
-        groups = self.get_groups(height)
+    def get_dict_mapping(
+        self, height: int, common: "Grouping | None" = None
+    ) -> dict[int, int]:
+        groups = self.get_groups(height, common)
         mapping = {}
         for i, g in enumerate(groups):
             if isinstance(g, list):
@@ -110,11 +145,11 @@ class Grouping(list["Grouping | str"]):
 
         return mapping
 
-    def get_mapping(self, height: int) -> np.ndarray:
+    def get_mapping(self, height: int, common: "Grouping | None" = None) -> np.ndarray:
         domain = self.size
         a = np.ndarray((domain), dtype=get_dtype(domain))
 
-        dmap = self.get_dict_mapping(height)
+        dmap = self.get_dict_mapping(height, common)
         for i, j in dmap.items():
             a[i] = j
         return a
@@ -296,9 +331,12 @@ class StratifiedValue(CatValue):
     with nodes where the child order matters.
     By traversing the tree in DFS, each leaf is mapped to an integer."""
 
-    def __init__(self, name: str, head: Grouping) -> None:
+    def __init__(
+        self, name: str, head: Grouping, common: Grouping | None = None
+    ) -> None:
         self.name = name
         self.head = head
+        self.common = common
 
     def __str__(self) -> str:
         return "Idx" + str(self.head)
@@ -307,17 +345,25 @@ class StratifiedValue(CatValue):
         return "Idx" + repr(self.head)
 
     def get_domain(self, height: int):
-        return self.head.get_domain(height)
+        return self.head.get_domain(height, self.common)
 
     def get_mapping(self, height: int):
-        return self.head.get_mapping(height)
+        return self.head.get_mapping(height, self.common)
 
     def is_ordinal(self) -> bool:
         return self.head.type == "ord" and self.head.size == len(self.head)
 
+    def replace(self, **kwargs):
+        from copy import copy
+
+        c = copy(self)
+        for k, v in kwargs.items():
+            setattr(c, k, v)
+        return c
+
     @property
     def height(self):
-        return self.head.height
+        return self.head.get_height(self.common)
 
 
 class GenerationValue(StratifiedValue):
@@ -400,6 +446,7 @@ class StratifiedNumValue(StratifiedValue):
         name_cnt: str,
         head: Grouping,
         null: None | Sequence[bool] = None,
+        common: Grouping | None = None,
     ) -> None:
         self.name_cnt = name_cnt
         if null:
@@ -408,7 +455,7 @@ class StratifiedNumValue(StratifiedValue):
         else:
             self.null = [False for _ in range(head.get_domain(0))]
 
-        super().__init__(name, head)
+        super().__init__(name, head, common)
 
     def __str__(self) -> str:
         return "NumIdx" + str(self.head)
@@ -482,6 +529,11 @@ class Attribute:
                 if isinstance(common, StratifiedValue) and isinstance(
                     v, StratifiedValue
                 ):
+                    if v.common:
+                        assert v.common == common.head
+                    else:
+                        self.vals[v.name] = v.replace(common=common.head)
+
                     # For stratified values we traverse the tree and check if it matches
                     assert _groups_match(common.head, v.head)
                 else:
