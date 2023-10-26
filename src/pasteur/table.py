@@ -936,7 +936,7 @@ class AttributeEncoderHolder(
                 for enc in encs.values():
                     out[table].update(enc.get_metadata())
 
-        return out
+        return dict(out)
 
 
 def _backref_cols(
@@ -1037,6 +1037,7 @@ class SeqTransformerWrapper(SeqTransformer):
 
         # Grab parent from seq_val if available
         if seq_val is not None:
+            assert seq_val.table is not None, f"Transformer Wrapper does not support seq values without parents yet"
             self.parent = seq_val.table
             self.col_seq = seq_val.name
         else:

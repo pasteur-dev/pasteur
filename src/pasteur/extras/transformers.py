@@ -159,7 +159,7 @@ class IdxTransformer(Transformer):
         out_col = data.map(mapping)
 
         # Handle categorical columns without blowing them up to full blown columns
-        if isinstance(out_col, pd.CategoricalDtype):
+        if out_col.dtype == "category":
             out_col = out_col.cat.add_categories(range(self.ofs))
 
         # Handle NAs correctly
@@ -657,7 +657,17 @@ class DatetimeTransformer(RefTransformer):
     def _finalize_props(self):
         cdt = next(iter(self.dt.get_attributes().values()))
         ctt = next(iter(self.tt.get_attributes().values()))
-        self.attr = Attribute(self.col, vals=[*cdt.vals.values(), *ctt.vals.values()])
+
+        if self.nullable:
+            common = CommonValue(f"{self.col}_cmn", na=True, normal_name="Datetime")
+        else:
+            common = None
+
+        self.attr = Attribute(
+            self.col,
+            common=common,
+            vals=[*cdt.vals.values(), *ctt.vals.values()],
+        )
 
     def get_attributes(self) -> Attributes:
         return {self.attr.name: self.attr}
