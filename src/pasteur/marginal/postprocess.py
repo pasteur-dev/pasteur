@@ -41,34 +41,34 @@ def unpack(req: AttrSelectors, mar: np.ndarray, info: CalculationInfo):
 
     out = np.zeros(full_doms)
     slices = [slice(d) for d in packed_doms]
-    out[*slices] = mar.reshape(packed_doms)
+    out[slices] = mar.reshape(packed_doms)
     del mar
 
     for i, (common, val, packed) in enumerate(zip(commons, val_doms, packed_doms)):
         if not common:
             continue
 
-        write_slices = [
+        write_slices = tuple([
             slice(-packed + common, None) if j == i else slice(None)
             for j in range(len(packed_doms))
-        ]
-        read_slices = [
+        ])
+        read_slices = tuple([
             slice(common, packed) if j == i else slice(None)
             for j in range(len(packed_doms))
-        ]
-        out[*write_slices] = out[*read_slices]
+        ])
+        out[write_slices] = out[read_slices]
 
         ofs = sum(val[:-1])
         for k in reversed(range(1, common)):
-            write_slices = [
+            write_slices = tuple([
                 slice(ofs * k, ofs * k + 1) if j == i else slice(None)
                 for j in range(len(packed_doms))
-            ]
-            read_slices = [
+            ])
+            read_slices = tuple([
                 slice(k, k + 1) if j == i else slice(None)
                 for j in range(len(packed_doms))
-            ]
-            out[*write_slices] = out[*read_slices]
+            ])
+            out[write_slices] = out[read_slices]
 
     expanded_doms = []
     for v in val_doms:
