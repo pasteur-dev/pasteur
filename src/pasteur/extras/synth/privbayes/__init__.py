@@ -192,7 +192,7 @@ class PrivBayesSynth(Synth):
 
         with MarginalOracle(
             data,  # type: ignore
-            self.attrs,
+            self.attrs[table_name],
             mode=self.marginal_mode,
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
@@ -253,7 +253,7 @@ class PrivBayesSynth(Synth):
             n = self.n
         tables = {
             self.table_name: sample_rows(
-                pd.RangeIndex(n), self.attrs, {}, self.nodes, self.marginals
+                pd.RangeIndex(n), {None: self.attrs[self.table_name]}, {}, self.nodes, self.marginals
             )
         }
         ids = {self.table_name: pd.DataFrame()}
@@ -264,7 +264,7 @@ class PrivBayesSynth(Synth):
         from .implementation import print_tree
 
         return print_tree(
-            self.attrs[None],
+            self.attrs[self.table_name],
             self.nodes,
             self.e1,
             self.e2,
