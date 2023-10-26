@@ -94,6 +94,10 @@ class Grouping(list["Grouping | str"]):
     @property
     def size(self) -> int:
         return sum(g.size if isinstance(g, Grouping) else 1 for g in self)
+    
+    @property
+    def domain(self):
+        return self.size
 
     def get_domain(self, height: int, common: "Grouping | None" = None):
         return len(self.get_groups(height, common))

@@ -336,7 +336,6 @@ class RebalancedValue(CatValue):
         self,
         counts: np.ndarray,
         col: StratifiedValue,
-        common: StratifiedValue | None,
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
@@ -344,17 +343,16 @@ class RebalancedValue(CatValue):
         **_,
     ) -> None:
         self.name = col.name
-        # FIXME: Use new common format
-        self.common = common
-        self.grouping = make_grouping(counts, col.head, common.head if common else None)
         self.counts = counts
+        self.common = col.common
+        self.grouping = make_grouping(counts, col.head, self.common)
         self.c = c
         self.reshape_domain = reshape_domain
 
         if reshape_domain:
             max_domain = self.grouping.shape[1]
             domains = generate_domain_list(
-                max_domain, common.get_domain(0) if common else 0, u, fixed
+                max_domain, self.common.domain if self.common else 0, u, fixed
             )
 
             self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
@@ -438,7 +436,6 @@ class RebalancedValue(CatValue):
 def rebalance_value(
     counts: np.ndarray,
     col: StratifiedValue,
-    common: StratifiedValue | None,
     num_cols: int = 1,
     ep: float | None = None,
     gaussian: bool = False,
@@ -455,7 +452,7 @@ def rebalance_value(
         counts = counts + noise
 
     assert isinstance(col, StratifiedValue)
-    return RebalancedValue(counts, col, common, **kwargs)
+    return RebalancedValue(counts, col, **kwargs)
 
 
 def rebalance_attributes(
@@ -485,7 +482,6 @@ def rebalance_attributes(
             common = rebalance_value(
                 counts[acommon.name],
                 acommon,
-                None,
                 num_cols,
                 ep,
                 **kwargs,
@@ -501,7 +497,6 @@ def rebalance_attributes(
                 rebalance_value(
                     counts[col_name],
                     col,
-                    acommon,
                     num_cols,
                     ep,
                     **kwargs,
