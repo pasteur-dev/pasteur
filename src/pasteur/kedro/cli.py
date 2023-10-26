@@ -377,9 +377,12 @@ def bootstrap(
                 logger.error(f"Module for dataset `{dataset}` not currently loaded.")
                 return
 
-        params = ctx.params
-        raw_location = params["raw_location"]
-        base_location = params["base_location"]
+        locations = ctx.config_loader.get("locations")
+        raw_location = locations["raw"]
+        base_location = locations["base"]
+        bootstrap_location = locations.get(
+            "bootstrap", path.join(base_location, "bootstrap")
+        )
 
         with logging_redirect_pbar(), init_pool():
             for name in datasets:
@@ -390,13 +393,13 @@ def bootstrap(
                     ds.folder_name
                 ), "Folder name for a dataset shouldn't be null when bootstrap is supplied."
 
-                ds_raw_location = params.get(
+                ds_raw_location = locations.get(
                     NAME_LOCATION.format(ds.folder_name),
                     path.join(raw_location, ds.folder_name),
                 )
-                bootstrap_location = path.join(base_location, "bootstrap", ds.folder_name)  # type: ignore
-                logger.info(f'Initializing dataset "{name}" in:\n{bootstrap_location}')
-                ds.bootstrap(ds_raw_location, bootstrap_location)
+                bootstrap_location_ds = path.join(bootstrap_location, ds.folder_name)
+                logger.info(f'Initializing dataset "{name}" in:\n{bootstrap_location_ds}')
+                ds.bootstrap(ds_raw_location, bootstrap_location_ds)
 
 
 @click.command()
