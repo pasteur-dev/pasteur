@@ -19,7 +19,8 @@ An Attribute holds multiple values and a set of common conditions. When a common
 condition is active, all of the Attribute's Values are expected to have the same
 value."""
 
-from typing import Any, Literal, Mapping, NamedTuple, Sequence, TypeVar
+from itertools import product
+from typing import Any, Literal, Mapping, NamedTuple, Sequence, TypeVar, cast
 
 import numpy as np
 
@@ -94,13 +95,23 @@ class Grouping(list["Grouping | str"]):
     @property
     def size(self) -> int:
         return sum(g.size if isinstance(g, Grouping) else 1 for g in self)
-    
+
     @property
     def domain(self):
         return self.size
 
     def get_domain(self, height: int, common: "Grouping | None" = None):
         return len(self.get_groups(height, common))
+
+    @staticmethod
+    def get_domain_multiple(
+        heights: Sequence[int], common: "Grouping | None", groups: Sequence["Grouping"]
+    ):
+        return len(
+            Grouping._get_groups_by_level_multiple(
+                [g.height - 1 - h for h, g in zip(heights, groups)], common, groups
+            )[0]
+        )
 
     def _get_groups_by_level(
         self, lvl: int, common: "Grouping | None" = None, ofs: int = 0
@@ -124,6 +135,58 @@ class Grouping(list["Grouping | str"]):
                 groups.append(ofs)
                 ofs += 1
         return groups, ofs
+
+    @staticmethod
+    def _unwrap_multiple_groups(
+        lvl: Sequence[int], groups: Sequence["Grouping"], ofs: list[int]
+    ):
+        out = []
+        ranges = []
+        for j, g in enumerate(groups):
+            if isinstance(g, Grouping):
+                r, o = g._get_groups_by_level(lvl[j], None, ofs[j])
+                ranges.append([k if isinstance(k, list) else [k] for k in r])
+                ofs[j] = o
+            else:
+                ranges.append([[ofs[j]]])
+                ofs[j] += 1
+
+        for combo_outer in product(*ranges):
+            cont = []
+            for combo_inner in product(*combo_outer):
+                cont.append(combo_inner)
+
+            if len(cont) == 1:
+                cont = cont[0]
+            out.append(cont)
+
+        return out, ofs
+
+    @staticmethod
+    def _get_groups_by_level_multiple(
+        lvl: Sequence[int],
+        common: "Grouping | None",
+        groups: Sequence["Grouping"],
+        ofs: list[int] | None = None,
+    ) -> tuple[list[tuple[int, ...]], list[int]]:
+        if ofs is None:
+            ofs = [0 for _ in range(len(groups))]
+        if common is None:
+            return Grouping._unwrap_multiple_groups(lvl, groups, ofs)
+
+        out = []
+
+        for i, l in enumerate(common):
+            if isinstance(l, Grouping):
+                g, ofs = Grouping._get_groups_by_level_multiple(
+                    lvl, l, [cast(Grouping, g[i]) for g in groups], ofs
+                )
+            else:
+                g, ofs = Grouping._unwrap_multiple_groups(
+                    lvl, [cast(Grouping, g[i]) for g in groups], ofs
+                )
+            out.extend(g)
+        return out, ofs
 
     def get_groups(
         self, height: int, common: "Grouping | None" = None

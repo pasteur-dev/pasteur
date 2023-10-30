@@ -162,13 +162,26 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             else:
                 out_cols.append(data[name])
 
-        if (
-            self.common_name
-            and self.common_name not in self.attr.vals
-            and self.common_name in data
-        ):
-            # TODO: FIll in common value in the case it is missing
-            out_cols.append(data[self.common_name])
+        if self.common_name and self.common_name not in self.attr.vals:
+            if self.common_name in data:
+                out_cols.append(data[self.common_name])
+            else:
+                # Reconstruct common value from provided values
+                val = next(iter(self.attr.vals.values()))
+                for c in out_cols:
+                    if isinstance(c, pd.DataFrame) and val.name in c:
+                        col = c[val.name]
+                    elif isinstance(c, pd.Series) and c.name == val.name:
+                        col = c
+                    else:
+                        continue
+                    assert isinstance(val, CatValue)
+                    out_cols.append(
+                        pd.Series(
+                            val.get_mapping(val.height - 1)[col], index=col.index
+                        ).rename(self.common_name)
+                    )
+                    break
 
         return pd.concat(out_cols, axis=1, copy=False, join="inner")
 

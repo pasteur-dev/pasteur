@@ -1,12 +1,22 @@
 import logging
+import random
 from functools import partial as ft_partial
-from itertools import combinations
+from itertools import combinations, product
 from typing import Any, NamedTuple, Sequence, cast
 
 import numpy as np
 import pandas as pd
 
-from ....attribute import Attributes, CatValue, DatasetAttributes, get_dtype
+from ....attribute import (
+    Attribute,
+    Attributes,
+    CatValue,
+    DatasetAttributes,
+    Grouping,
+    SeqAttributes,
+    StratifiedValue,
+    get_dtype,
+)
 from ....marginal import (
     ZERO_FILL,
     MarginalOracle,
@@ -14,30 +24,26 @@ from ....marginal import (
     normalize,
     two_way_normalize,
 )
-from ....marginal.numpy import AttrSelectors, CalculationInfo, TableSelector
+from ....marginal.numpy import (
+    AttrSelector,
+    AttrSelectors,
+    CalculationInfo,
+    TableSelector,
+)
 from ....utils.progress import piter, prange, process_in_parallel
 
 logger = logging.getLogger(__name__)
 
 MAX_EPSILON = 1e3 - 10
 MAX_T = 1e5
-# MAX_COLS = 128
-MAX_ATTR_COLS = 8
-
-# Represents a parent set, immutable, hashable, fast
-# index is col, val is height. -1 means not included
-# EMPTY_PSET = tuple(-1 for _ in range(MAX_COLS))
-
-EMPTY_LIST = [-1 for _ in range(MAX_ATTR_COLS)]
-EMPTY_ACTIVE = [False for _ in range(MAX_ATTR_COLS)]
 
 
 class Node(NamedTuple):
     attr: str
-    col: str
+    value: str
+    p: MarginalRequest
     domain: int
     partial: bool
-    p: MarginalRequest
 
 
 Nodes = list[Node]
@@ -102,101 +108,112 @@ def add_multiple_to_pset(s: tuple, x: Sequence[int], h: list[int]):
     return tuple(s)
 
 
-def find_maximal_parents(heights, domain, common, A, tau, partial):
-    def maximal_parents(
-        A: tuple[tuple[int], ...], tau: float, partial: bool = False
-    ) -> list[tuple[int, ...]]:
-        """Given a set V containing hierarchical attributes (by int) and a tau
-        score that is divided by the size of the domain, return a set of all
-        possible combinations of attributes, such that if t > 1 there isn't an
-        attribute that can be indexed in a higher level
+def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...]]:
+    """Given a set V containing hierarchical attributes (by int) and a tau
+    score that is divided by the size of the domain, return a set of all
+    possible combinations of attributes, such that if t > 1 there isn't an
+    attribute that can be indexed in a higher level
 
-        If `partial` is true the first set domain will be reduced by common"""
+    This is a modification of the original maximal_parents algorithm,
+    that uses an unrolled counter to calculate the combinations, which
+    avoids unecessary overhead incurred by the original version
+    (set allocation, recursion, hashing)."""
 
-        if not A:
-            return [tuple(-1 for _ in range(len(domain)))]
+    MULT = (1 << 16) - 1
+    to_log = lambda a: int(np.log(a) * MULT)
 
-        a_full = A[0]
-        cmn = 0  # common[a_full[0]]
+    out = []
+    heights = [len(d) for d in domains]
+    length = len(domains)
 
-        A = A[1:]
-        S = []
-        U_global = set()
-        U = set()
+    # Use log integer for tau to remove error accumulation
+    ltau = to_log(tau)
+    ldom = [[to_log(d) for d in ds] for ds in domains]
+    ctau = ltau
 
-        # First do single combinations, they are simplified
-        not_first = False
-        for x in a_full:
-            U = set()
-            # Only the first variable can have a only common domain (last height)
-            # (all last heights are equivalent for the same attribute; skip to prevent bias)
-            for h in range(heights[x] - not_first):
-                # Find domain
-                l_dom = domain[x][h] - (cmn if partial else 0)
+    # When h is max, attr is not included, otherwise, it is included
+    # with its maximum domain
+    counter = list(heights)
+    not_overflow = True
+    while not_overflow:
+        out.append(tuple(counter))
 
-                # Run check to skip recursion
-                if tau < l_dom:
-                    continue
+        for i in range(length):
+            c_i = counter[i]
+            if c_i <= 0:
+                # If overflow, reset to not including the height
+                counter[i] = heights[i]
+                ctau += ldom[i][c_i]
+                # Detect overflow condition once last count goes to -1
+                if i == length - 1:
+                    not_overflow = False
+            else:
+                # Attribute was used before, so we add its tau value
+                if c_i < heights[i]:
+                    ctau += ldom[i][c_i]
+                # Lower by one at least
+                c_i -= 1
 
-                for z in maximal_parents(A, tau / l_dom):
-                    if z not in U:
-                        U_global.add(z)
-                        U.add(z)
-                        S.append(add_to_pset(z, x, h))
-            not_first = True
+                # It might be the case that the domain is too high
+                # for it to be included, so lower complexity until it is feasible
+                while c_i >= 0 and ctau < ldom[i][c_i]:
+                    c_i -= 1
 
-        a_full_n = len(a_full)
-        if a_full_n > 1:
-            for l in range(2, a_full_n + 1):
-                for a in combinations(a_full, r=l):
-                    U = set()
+                if c_i >= 0:
+                    # If it was possible to include a height, update counter[i],
+                    # ctau, and break
+                    counter[i] = c_i
+                    ctau -= ldom[i][c_i]
+                    break
+                else:
+                    # Otherwise, we have an overflow condition and we move on to
+                    # lowering the complexity of the next attribute
+                    counter[i] = heights[i]
 
-                    # Compensating for multi-domain attrs is more complicated
-                    curr_attrs = list(EMPTY_LIST)
-                    has_combs = True
+    return out
 
-                    while has_combs:
-                        # Find domain
-                        l_dom = 1
-                        for i in range(l):
-                            dom = domain[a[i]][curr_attrs[i]]
-                            l_dom *= dom - cmn
-                        if not partial:
-                            l_dom += cmn
-                        # print(curr_attrs[:a_n], l_dom)
 
-                        # Run check to skip recursion
-                        if tau > l_dom:
-                            for z in maximal_parents(A, tau / l_dom):
-                                if z not in U:
-                                    U_global.add(z)
-                                    U.add(z)
-                                    S.append(add_multiple_to_pset(z, a, curr_attrs))
+def calculate_attr_combinations(table: TableSelector, attr: Attribute):
+    vers: list[tuple[AttrSelector, int, tuple[str, ...]]] = []
+    if attr.common:
+        for h in range(attr.common.height):
+            sel = (table, attr.name, h)
+            dom = attr.common.get_domain(h)
+            vers.append((sel, dom, (attr.common.name,)))
 
-                        # Simple counter structure without iterators that will iterate over
-                        # all attribute height combinations
-                        for i in range(l):
-                            # In multi-attr mode, none of the variables cah have
-                            # a common only domain (last height)
-                            if curr_attrs[i] < heights[a[i]] - 2:
-                                curr_attrs[i] += 1
-                                break
-                            else:
-                                curr_attrs[i] = 0
-                                # Detect overflow and break
-                                # Placing check on with condition would make it run every time
-                                if i == l - 1:
-                                    has_combs = False
+    names = list(attr.vals)
+    heights = product(
+        *[
+            range(-1, cast(StratifiedValue, v).height - (1 if attr.common else 0))
+            for v in attr.vals.values()
+        ]
+    )
 
-        # As in the default privbayes maximal_parents, add all combinations that don't include
-        # parents
-        for z in maximal_parents(A, tau):
-            if z not in U_global:
-                S.append(z)
+    for combo in heights:
+        sel = {n: h for n, h in zip(names, combo) if h > -1}
+        if not sel:
+            continue
+        if attr.common:
+            common = cast(StratifiedValue, attr.common).head
+        else:
+            common = None
+        dom = Grouping.get_domain_multiple(
+            list(sel.values()),
+            common,
+            [cast(StratifiedValue, attr[n]).head for n in sel],
+        )
+        deps = tuple(sel)
+        vers.append(((table, attr.name, sel), dom, deps))
 
-        return S
+    return sorted(vers, key=lambda c: c[1])
 
-    return maximal_parents(A, tau, partial)
+
+def calculate_attrs_combinations(table: TableSelector, attrs: Attributes):
+    return {
+        (table, n): calculate_attr_combinations(table, a)
+        for n, a in attrs.items()
+        if a.vals
+    }
 
 
 def greedy_bayes(
@@ -209,7 +226,6 @@ def greedy_bayes(
     use_r: bool,
     unbounded_dp: bool,
     random_init: bool,
-    skip_zero_counts: bool,
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -219,88 +235,29 @@ def greedy_bayes(
 
     Binary domains are not supported due to computational intractability."""
 
-    hist_attrs = dict(ds_attrs)
-    attrs = cast(Attributes, hist_attrs.pop(None))
-
-    d = 0
-    for attr in attrs.values():
-        d += len(attr.vals)
-    EMPTY_PSET = tuple(-1 for _ in range(d))
-
-    n_chosen = 1 if random_init else 0
     calc_fun = calc_r_function if use_r else calc_mutual_info
     sens_fun = sens_r_function if use_r else sens_mutual_info
 
     #
-    # Set up maximal parents algorithm as shown in paper
-    # (recursive implementation is a bit slow)
+    # Set up maximal parents algorithm
+    # - with unrolled recursion into while + for loop
+    # - unroll attribute combinations into one attribute for improved perf.
+    # - sort by domain. Combinations with higher domain more maximal.
+    # - Not necessarily true, one value might be higher in one combination, one in other.
+    # - Prevents complex logic in maximal parents
     #
-    col_names = []  # col -> str name
-    groups = []  # col -> attribute parent
-    group_names = []  # attr (group) -> str name
-    heights = []  # col -> max height
-    # common = []  # col -> common val number
-    domain = []  # col, height -> domain
-    for i, (an, a) in enumerate(attrs.items()):
-        group_names.append(an)
-        for c_n, c in a.vals.items():
-            c = cast(CatValue, c)
-            col_names.append(c_n)
-            groups.append(i)
-            heights.append(c.height)
-            # common.append(a.common.get_domain(0) if a.common else 0)
-            domain.append([c.get_domain(h) for h in range(c.height)])
-
-    # If skip_zero_counts is on, calculate domain based on non-zero values
-    domain_orig = domain
-    # TODO: Restore this
-    # if skip_zero_counts:
-    #     domain = []
-    #     counts = oracle.get_counts(f"Calculating counts for nonzero domain")
-
-    #     for i, (an, a) in enumerate(attrs.items()):
-    #         for c_n, c in a.vals.items():
-    #             c = cast(CatValue, c)
-
-    #             doms = []
-    #             for i in range(c.height):
-    #                 mapping = c.get_mapping(i)
-    #                 d = c.get_domain(i)
-    #                 count = np.zeros((d,))
-
-    #                 for j in range(len(counts[c_n])):
-    #                     count[mapping[j]] += counts[c_n][j]
-
-    #                 doms.append(np.count_nonzero(count))
-    #             domain.append(doms)
-
-    def group_nodes(V: Sequence[int], x: int):
-        """Groups nodes in set `V` into tuples based on their group.
-
-        This allows the `maximal_parent` algorithm to skip calculating the domain
-        every time.
-
-        Then shifts the group of `x` to be first so that `maximal_parent` can
-        calculate the partial domain. The rest of the tuples are sorted based on
-        length, due to the higher complexity of calculating multi-domain attributes."""
-        A_dict = {}
-        for c in V:
-            group = groups[c]
-            if group in A_dict:
-                A_dict[groups[c]].append(c)
-            else:
-                A_dict[groups[c]] = [c]
-
-        x_group = A_dict.pop(groups[x], None)
-        A = [tuple(group) for group in A_dict.values()]
-        A.sort(key=len, reverse=True)
-
-        if x_group:
-            A = (x_group, *A)
+    # Find attribute combinations
+    combos = {}
+    for t, table_attrs in ds_attrs.items():
+        if isinstance(table_attrs, SeqAttributes):
+            if table_attrs.attrs:
+                combos.update(calculate_attrs_combinations(t, table_attrs.attrs))
+            for s, hist in table_attrs.hist.items():
+                assert isinstance(t, str)
+                combos.update(calculate_attrs_combinations((t, s), hist))
         else:
-            A = tuple(A)
-
-        return A
+            combos.update(calculate_attrs_combinations(t, table_attrs))
+    names = list(combos.keys())
 
     #
     # Implement misc functions for summating the scores
@@ -309,24 +266,16 @@ def greedy_bayes(
 
     def pset_to_attr_sel(pset: tuple[int, ...]) -> MarginalRequest:
         """Converts a parent set to the format required by the marginal calculation."""
-        p_groups: dict[int, dict[int, int]] = {}
+        p_attrs: MarginalRequest = []
         for p, h in enumerate(pset):
             if h == -1:
                 continue
 
-            g = groups[p]
-            if g in p_groups:
-                p_groups[g][p] = h
-            else:
-                p_groups[g] = {p: h}
-
-        p_attrs: MarginalRequest = []
-        for i, g in p_groups.items():
-            p_attrs.append((group_names[i], {col_names[p]: h for p, h in g.items()}))
+            p_attrs.append(combos[names[p]][h][0])
 
         return p_attrs
 
-    def calc_candidate_scores(candidates: list[tuple[int, bool, tuple[int]]]):
+    def calc_candidate_scores(candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
 
@@ -335,20 +284,16 @@ def greedy_bayes(
         cached = np.zeros((len(candidates)), dtype="bool")
 
         requests = []
-        for i, candidate in enumerate(candidates):
-            if candidate in score_cache:
-                scores[i] = score_cache[candidate]
+        for i, (x, pset, cand_hash) in enumerate(candidates):
+            if cand_hash in score_cache:
+                scores[i] = score_cache[cand_hash]
                 cached[i] = True
                 continue
 
-            x, _, pset = candidate
-
-            # Create selector for x
-            x_attr = group_names[groups[x]], {col_names[x]: 0}
-
-            # Create selectors for parents by first merging into attribute groups
-            p_attrs = pset_to_attr_sel(pset)
-            requests.append((*p_attrs, x_attr))
+            # Convert parent selector to marginal by adding x to the end
+            mar = list(pset)
+            mar.append((None, val_to_attr[x], {x: 0}))
+            requests.append(mar)
 
         # Process new ones
         new_mar = np.sum(~cached)
@@ -364,23 +309,22 @@ def greedy_bayes(
 
         # Update cache
         scores[~cached] = new_scores
-        for i, candidate in enumerate(candidates):
+        for i, (x, pset, cand_hash) in enumerate(candidates):
             if not cached[i]:
-                score_cache[candidate] = scores[i]
+                score_cache[cand_hash] = scores[i]
 
         return scores
 
     def pick_candidate(
-        candidates: list[tuple[int, bool, tuple[int]]]
-    ) -> tuple[int, bool, tuple[int]]:
+        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]
+    ) -> tuple[str, MarginalRequest]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
-        candidates = list(candidates)
         vals = np.array(calc_candidate_scores(candidates))
 
         # If e1 is bigger than max_epsilon, assume it's infinite.
         if e1 is None or e1 > MAX_EPSILON:
-            return candidates[np.argmax(vals)]
+            return candidates[int(np.argmax(vals))][:2]
 
         # np.exp is unstable for large vals
         # subtract max (taken from original source)
@@ -393,20 +337,35 @@ def greedy_bayes(
 
         choice = np.random.choice(len(candidates), size=1, p=p)[0]
 
-        return candidates[choice]
+        return candidates[choice][:2]
 
     #
     # Implement greedy bayes (as shown in the paper)
     #
-    if random_init:
-        x1 = np.random.randint(d)
+    attrs = cast(Attributes, ds_attrs[None])
+    val_to_attr = {}
+    val_idx = []
+    todo = []
+    for attr in attrs.values():
+        todo.extend(list(attr.vals))
+        for val in attr.vals:
+            val_to_attr[val] = attr.name
+            val_idx.append(val)
+        if attr.common:
+            val_to_attr[attr.common.name] = attr.name
+            val_idx.append(attr.common.name)
+    d = len(todo)
+    EMPTY_HASH = tuple(-1 for _ in range(len(val_idx)))
+
+    if len(ds_attrs) > 1:
+        x1 = -1
+    elif random_init:
+        x1 = random.choice(range(d))
     else:
         # Pick x1 based on entropy
         # consumes some privacy budget, but starting with a bad choice can lead
         # to a bad network.
-        reqs: list[MarginalRequest] = [
-            [(group_names[groups[x]], {col_names[x]: 0})] for x in range(d)
-        ]
+        reqs: list[MarginalRequest] = [[(None, a, {n: 0})] for a, n in names]
 
         vals = list(
             oracle.process(
@@ -427,7 +386,17 @@ def greedy_bayes(
         else:
             x1: int = np.random.choice(range(d), size=1, p=p)[0]
 
-    A = [a for a in range(d) if a != x1]
+    if x1 != -1:
+        val = todo.pop(x1)
+        generated = [val]
+        generated_attrs = set([val_to_attr[val]])
+        n_chosen = 1 if not random_init else 0
+    else:
+        generated = []
+        generated_attrs = set()
+        n_chosen = 0
+
+    # Calculate theta
     t = (n * (e2 if e2 is not None else 1)) / ((1 if unbounded_dp else 2) * d * theta)
 
     # Allow for "unbounded" privacy budget without destroying the computer.
@@ -438,62 +407,96 @@ def greedy_bayes(
         logger.warning(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
-
-    V = [x1]
-    V_groups = set()
-    N: list[tuple[int, bool, tuple[int, ...]]] = [(cast(int, x1), False, EMPTY_PSET)]
-
+    
+    nodes = []
     first = True
-    for _ in prange(1, d, desc="Finding Nodes: "):
-        O = list()
-
-        base_args = {"heights": heights, "domain": domain, "common": 0}  # common}
+    for _ in prange(len(todo), desc="Finding Nodes: "):
+        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
+        base_args = {}
         per_call_args = []
         info = []
 
-        for x in A:
-            partial = groups[x] in V_groups
-            Vg = group_nodes(V, x)
-            new_tau = t / (domain[x][0])  # - (common[x] if partial else 0))
+        for x in todo:
+            domains = []
+            selectors = []
 
-            per_call_args.append({"A": Vg, "partial": partial, "tau": new_tau})
-            info.append((x, partial))
+            # Create customized domain, with relevant selectors, by
+            # Removing combinations with unmet dependencies
+            for name, attr_combos in combos.items():
+                doms = []
+                sels = []
+                for sel, dom, deps in attr_combos:
+                    # For each combination, check that its dependencies are met
+                    # This is the case when a dependency is not in todo (generated values)
+                    # and its attribute has been partially generated (common values)
+                    deps_met = True
+                    for dep in deps:
+                        if dep in todo or not val_to_attr[dep] in generated_attrs:
+                            deps_met = False
+                            break
+
+                    if deps_met:
+                        doms.append(dom)
+                        sels.append(sel)
+
+                if doms and sels:
+                    domains.append(doms)
+                    selectors.append(sels)
+
+            new_tau = t / cast(CatValue, attrs[val_to_attr[x]][x]).domain
+            per_call_args.append({"tau": new_tau, "domains": domains})
+            info.append((x, selectors))
 
         if d > 30:
             if first:
-                logger.error('Too many columns, disabling parent correlations.')
+                logger.error("Too many columns, disabling parent correlations.")
                 first = False
             node_psets = [[] for _ in range(len(per_call_args))]
         else:
             node_psets = process_in_parallel(
-                find_maximal_parents,
+                maximal_parents,
                 per_call_args,
                 base_args,
                 desc="Finding Maximal Parent sets",
             )
 
-        for (x, partial), psets in zip(info, node_psets):
+        for (val, sels), psets in zip(info, node_psets):
             for pset in psets:
-                O.append((x, partial, pset))
-            if not psets:
-                O.append((x, partial, EMPTY_PSET))
-        
-        node = pick_candidate(O)
-        V.append(node[0])
-        V_groups.add(groups[node[0]])
-        A.remove(node[0])
-        N.append(node)
+                cand_hash = list(EMPTY_HASH)
 
-    nodes = []
-    for x, partial, pset in N:
-        node = Node(
-            attr=group_names[groups[x]],
-            col=col_names[x],
-            domain=domain_orig[x][0],
-            partial=partial,
-            p=pset_to_attr_sel(pset),
-        )
-        nodes.append(node)
+                mar: MarginalRequest = []
+                for i, h in enumerate(pset):
+                    if h < len(sels[i]):
+                        sel = sels[i][h]
+                        mar.append(sel)
+                        
+                        # Create custom hash which is a tuple with an integer
+                        # indicating which values are used and with what heights
+                        phs = sel[-1]
+                        if isinstance(phs, dict):
+                            for p, ph in phs.items():
+                                cand_hash[val_idx.index(p)] = ph
+                        else:
+                            cmn = attrs[sel[1]].common
+                            assert cmn is not None
+                            cand_hash[val_idx.index(cmn.name)] = phs
+                candidates.append((val, mar, (val, tuple(cand_hash))))
+            if not psets:
+                candidates.append((val, [], (val, EMPTY_HASH)))
+
+        x, pset = pick_candidate(candidates)
+        attr = val_to_attr[x]
+        generated.append(x)
+        todo.remove(x)
+
+        nodes.append(Node(
+            attr=attr,
+            value=x,
+            p=pset,
+            domain=cast(CatValue, attrs[attr][x]).domain,
+            partial=attr in generated_attrs,
+        ))
+        generated_attrs.add(attr)
 
     return nodes, t
 
@@ -534,7 +537,7 @@ def print_tree(
     s += f"\n┌{'─'*(tlen+1)}┬──────┬──────────┬{'─'*pset_len}┐"
     s += f"\n│{'Column Nodes'.rjust(tlen)} │  Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
     s += f"\n├{'─'*(tlen+1)}┼──────┼──────────┼{'─'*pset_len}┤"
-    for x_attr, x, domain, partial, p in nodes:
+    for x_attr, x, p, domain, partial in nodes:
         # Show * when using a reduced marginal + correct domain
         # cmn_val = attrs[x_attr].common
         # common = cmn_val.get_domain(0) if cmn_val else 0
@@ -667,7 +670,9 @@ def sample_rows(
             try:
                 out_col = np.random.choice(x_domain, size=n, p=m)
             except ValueError as e:
-                logger.warning(f'Received error when sampling probabilities, picking at random:\n{e}')
+                logger.warning(
+                    f"Received error when sampling probabilities, picking at random:\n{e}"
+                )
                 out_col = np.random.randint(x_domain, size=n)
 
             # if common:
