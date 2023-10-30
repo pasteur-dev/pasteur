@@ -23,6 +23,7 @@ from ....marginal import (
     MarginalRequest,
     normalize,
     two_way_normalize,
+    unpack,
 )
 from ....marginal.numpy import (
     AttrSelector,
@@ -427,6 +428,8 @@ def greedy_bayes(
         for x in todo:
             domains = []
             selectors = []
+            x_dom = cast(CatValue, attrs[val_to_attr[x]][x]).domain
+            new_tau = t / x_dom
 
             # Create customized domain, with relevant selectors, by
             # Removing combinations with unmet dependencies
@@ -445,6 +448,34 @@ def greedy_bayes(
                                 break
 
                     if deps_met:
+                        if name[0] is None and name[1] == val_to_attr[x]:
+                            val_sel = sel[-1]
+                            if isinstance(val_sel, int):
+                                # If val_sel is an int, we're sampling the common value
+                                # on x already, making this an invalid combination
+                                deps_met = False
+                            else:
+                                # There needs to be a common value
+                                attr = attrs[name[1]]
+                                cmn = attr.common
+                                # Adjust domain if x is in the same attribute
+                                # Find full domain when including x for attribute
+                                # Divide by x's domain
+                                # This is not a representative domain, but will
+                                # be equivalent in the `maximal_parents` computation
+                                # as tau /= x_dom
+                                if isinstance(cmn, StratifiedValue):
+                                    full_dom = Grouping.get_domain_multiple(
+                                        [*val_sel.values(), 0],
+                                        cmn.head,
+                                        [
+                                            cast(StratifiedValue, attr[n]).head
+                                            for n in [*val_sel, x]
+                                        ],
+                                    )
+                                    dom = full_dom // x_dom
+
+                    if deps_met:
                         doms.append(dom)
                         sels.append(sel)
 
@@ -452,7 +483,6 @@ def greedy_bayes(
                     domains.append(doms)
                     selectors.append(sels)
 
-            new_tau = t / cast(CatValue, attrs[val_to_attr[x]][x]).domain
             per_call_args.append({"tau": new_tau, "domains": domains})
             info.append((x, selectors))
 
@@ -535,7 +565,7 @@ def print_tree(
 
     pset_len = 57
 
-    tlen = len(" Column Nodes")
+    tlen = len(" Value Nodes")
     for _, x, _, _, _ in nodes:
         if len(x) > tlen:
             tlen = len(x)
@@ -548,7 +578,7 @@ def print_tree(
     tlen += 1
 
     s += f"\n┌{'─'*(tlen+1)}┬──────┬──────────┬{'─'*pset_len}┐"
-    s += f"\n│{'Column Nodes'.rjust(tlen)} │  Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
+    s += f"\n│{'Value Nodes'.rjust(tlen)} │  Dom │ Avail. t │ Attribute Parents{' '*(pset_len - 18)}│"
     s += f"\n├{'─'*(tlen+1)}┼──────┼──────────┼{'─'*pset_len}┤"
     for x_attr, x, p, domain, partial in nodes:
         # Show * when using a reduced marginal + correct domain
@@ -609,7 +639,7 @@ def print_tree(
 
     # Print mutli-column attrs
     s += f"\n├{'─'*(tlen+1)}┼──────┼──────────┴{'─'*pset_len}┤"
-    s += f"\n│{'Multi-Col Attrs'.rjust(tlen)} │  Cmn │ Columns   {' '*pset_len}│"
+    s += f"\n│{'Multi-Val Attrs'.rjust(tlen)} │  Cmn │ Values    {' '*pset_len}│"
     s += f"\n├{'─'*(tlen+1)}┼──────┼───────────{'─'*pset_len}┤"
 
     for name, attr in tattrs.items():
@@ -647,20 +677,23 @@ def calc_noisy_marginals(
 ):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
     requests = []
-    for x_attr, x, _, partial, p in nodes:
-        requests.append((*p, (x_attr, {x: 0})))
+    for x_attr, x, p, _, _ in nodes:
+        mar = list(p)
+        mar.append((None, x_attr, {x: 0}))
+        requests.append(mar)
 
     marginals = oracle.process(
         requests,
         desc="Calculating noisy marginals.",
-        postprocess=ft_partial(two_way_normalize, zero_fill=None),
+        postprocess=unpack,
     )
 
     noised_marginals = []
-    for (x_attr, x, _, partial, p), (marginal, _, _) in zip(nodes, marginals):
+    for (x_attr, x, p, _, _), marginal in zip(nodes, marginals):
         noise = cast(
             np.ndarray, np.random.laplace(scale=noise_scale, size=marginal.shape)
         )
+        marginal /= marginal.sum()
 
         if skip_zero_counts:
             # Skip adding noise to zero counts
