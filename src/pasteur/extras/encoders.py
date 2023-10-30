@@ -103,7 +103,7 @@ class DiscretizationColumnTransformer:
             )
 
         if self.nullable:
-            new_col[pd.isna(enc[self.col])] = np.nan
+            new_col[enc[self.col] == 0] = np.nan
 
         return new_col
 

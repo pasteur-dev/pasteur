@@ -401,7 +401,13 @@ def greedy_bayes(
         generated_attrs = set([val_to_attr[val]])
         n_chosen = 1 if not random_init else 0
         nodes = [
-            Node(val_to_attr[val], val, [], cast(CatValue, attrs[val_to_attr[val]][val]).domain, False)
+            Node(
+                val_to_attr[val],
+                val,
+                [],
+                cast(CatValue, attrs[val_to_attr[val]][val]).domain,
+                False,
+            )
         ]
     else:
         generated = []
@@ -746,7 +752,7 @@ def sample_rows(
             # Get groups for marginal
             i = 0
             mul = 1
-            dtype = get_dtype(marginal.shape[0])
+            dtype = get_dtype(marginal.shape[0] * marginal.shape[1])
             _sum_nd = np.zeros((n,), dtype=dtype)
             _tmp_nd = np.zeros((n,), dtype=dtype)
             for parent in p:
@@ -804,17 +810,51 @@ def sample_rows(
                     i += 1
                 mul *= l_mul
 
+            # Add common group from sampled parent if exists
+            attr = cast(Attributes, attrs[None])[x_attr]
+            cmn = attr.common
+            if partial and cmn:
+                # Find common data
+                mapping = np.array(cmn.get_mapping(0), dtype=dtype)
+
+                # Grab parent col
+                cmn_col = None
+                for nc, c in out_cols.items():
+                    if nc in attr.vals:
+                        meta = attr[nc]
+                        assert isinstance(meta, CatValue)
+                        cmn_col = meta.get_mapping(meta.height - 1)[c]
+                        break
+                assert cmn_col is not None
+
+                # Apply to sum
+                col_lvl = mapping[cmn_col]
+                np.multiply(col_lvl, mul, out=_tmp_nd, dtype=dtype)
+                np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+
             # Sample groups
-            x_domain = cast(CatValue, cast(Attributes, attrs[None])[x_attr][x]).domain
+            tattrs = cast(Attributes, attrs[None])
+            x_domain = cast(CatValue, tattrs[x_attr][x]).domain
             out_col = np.zeros((n,), dtype=get_dtype(x_domain))
             groups = _sum_nd
 
+            # Group rows based on parent values + co-dependent common value
             for group in np.unique(groups):
+                # When common was applied `mul` was not modified
+                # So the parent and common groups can be separated with modulo
+                parent_group = group % mul
+                common_group = group // mul
+
                 m = marginal
-                m_g = m[group, :]  # m[:, group]
-                m_sum = m_g.sum()
+                m_g = m[parent_group, :]  # m[:, group]
+
+                # If we have sampled the common value, mask the marginal to allow only common values
+                if partial and cmn:
+                    cv = cast(CatValue, tattrs[x_attr][x])
+                    m_g = m_g * (cv.get_mapping(cv.height - 1) == common_group)
 
                 # FIXME: find sampling strategy for this
+                m_sum = m_g.sum()
                 if m_sum < 1e-6:
                     # If the sum of the group is zero, there are no samples
                     # Use the average probability of the variable
