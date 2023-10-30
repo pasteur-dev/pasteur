@@ -92,7 +92,7 @@ class PrivBayesMare(MareModel):
         from .implementation import print_tree
 
         return print_tree(
-            cast(Attributes, self.attrs[None]),
+            self.attrs,
             self.nodes,
             self.e1,
             self.e2,
@@ -262,7 +262,7 @@ class PrivBayesSynth(Synth):
         from .implementation import print_tree
 
         return print_tree(
-            self.attrs[self.table_name],
+            {None: self.attrs[self.table_name]},
             self.nodes,
             self.e1,
             self.e2,

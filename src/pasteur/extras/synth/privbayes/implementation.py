@@ -270,15 +270,11 @@ def greedy_bayes(
                 val_idx.extend(tval_to_idx)
             for s, hist in table_attrs.hist.items():
                 assert isinstance(t, str)
-                tcombos, tval_to_idx = calculate_attrs_combinations(
-                    (t, s), hist
-                )
+                tcombos, tval_to_idx = calculate_attrs_combinations((t, s), hist)
                 combos.update(tcombos)
                 val_idx.extend(tval_to_idx)
         else:
-            tcombos, tval_to_idx = calculate_attrs_combinations(
-                t, table_attrs
-            )
+            tcombos, tval_to_idx = calculate_attrs_combinations(t, table_attrs)
             combos.update(tcombos)
             val_idx.extend(tval_to_idx)
 
@@ -525,7 +521,7 @@ def to_str(a: str | tuple):
 
 
 def print_tree(
-    attrs: Attributes,
+    attrs: DatasetAttributes,
     nodes: Nodes,
     e1: float,
     e2: float,
@@ -539,14 +535,15 @@ def print_tree(
 
     pset_len = 57
 
-    tlen = len("Column Nodes")
+    tlen = len(" Column Nodes")
     for _, x, _, _, _ in nodes:
         if len(x) > tlen:
             tlen = len(x)
 
-    for name in attrs.keys():
-        if len(name) > tlen:
-            tlen = len(name)
+    for name in cast(Attributes, attrs[None]).keys():
+        al = to_str(name)
+        if len(al) > tlen:
+            tlen = len(al)
 
     tlen += 1
 
@@ -557,28 +554,42 @@ def print_tree(
         # Show * when using a reduced marginal + correct domain
         # cmn_val = attrs[x_attr].common
         # common = cmn_val.get_domain(0) if cmn_val else 0
-        common = 0
-        if partial and common:
-            dom = f"{domain-common:>4d}*"
-        else:
-            dom = f"{domain:>4d} "
+        dom = f"{domain:>4d}"
 
         # Print Line start
-        s += f"\n│{x.rjust(tlen)} │ {dom}│ {t/domain:>8.2f} │"
+        s += f"\n│{x.rjust(tlen)} │ {dom}{'*' if partial else ' '}│ {t/domain:>8.2f} │"
 
         # Print Parents
         line_str = ""
         for parent in p:
-            p_name = parent[-2]
-            attr_sel = parent[-1]
-            assert isinstance(attr_sel, dict), "@TODO: Add common support"
+            if len(parent) == 3:
+                table, p_name, attr_sel = parent
+            else:
+                p_name, attr_sel = parent
+                table = None
 
-            p_str = f" {p_name}["
-            for col in attrs[p_name].vals:
-                if col in attr_sel:
-                    p_str += str(attr_sel[col])
-                else:
-                    p_str += "."
+            p_str = " "
+
+            if isinstance(table, tuple):
+                table_name, order = table
+                hist = cast(SeqAttributes, attrs[table[0]]).hist
+                tattrs = hist[order]
+                p_str += f"{table_name}[-{len(hist) - order}]."
+            elif isinstance(table, str):
+                p_str += f"{table}."
+                tattrs = cast(Attributes, attrs[table])
+            else:
+                tattrs = cast(Attributes, attrs[None])
+
+            p_str += f"{p_name}["
+            if isinstance(attr_sel, dict):
+                for col in tattrs[p_name].vals:
+                    if col in attr_sel:
+                        p_str += str(attr_sel[col])
+                    else:
+                        p_str += "."
+            else:
+                p_str += f"c{attr_sel}"
             p_str += "]"
 
             if len(p_str) + len(line_str) >= pset_len:
@@ -591,7 +602,8 @@ def print_tree(
         s += f"{line_str:57s}│"
 
     # Skip multi-col attr printing if there aren't any of them.
-    if not any(len(attr.vals) > 1 for attr in attrs.values()):
+    tattrs = cast(Attributes, attrs[None])
+    if not any(len(attr.vals) > 1 for attr in tattrs.values()):
         s += f"\n└{'─'*(tlen+1)}┴──────┴──────────┴{'─'*pset_len}┘"
         return s
 
@@ -600,14 +612,16 @@ def print_tree(
     s += f"\n│{'Multi-Col Attrs'.rjust(tlen)} │  Cmn │ Columns   {' '*pset_len}│"
     s += f"\n├{'─'*(tlen+1)}┼──────┼───────────{'─'*pset_len}┤"
 
-    for name, attr in attrs.items():
+    for name, attr in tattrs.items():
         cols = attr.vals
         if len(cols) <= 1:
             continue
 
-        # cmn = attr.common.get_domain(0) if attr.common else 0
-        cmn = 0
-        s += f"\n│{to_str(name).rjust(tlen)} │ {cmn:>4d} │"
+        if attr.common:
+            cmn = str(attr.common.domain)
+        else:
+            cmn = "NIL"
+        s += f"\n│{to_str(name).rjust(tlen)} │ {cmn:>4s} │"
         line_str = ""
         for i, col in enumerate(cols):
             c_str = f" {col}"
