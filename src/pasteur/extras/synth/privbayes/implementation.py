@@ -400,10 +400,14 @@ def greedy_bayes(
         generated = [val]
         generated_attrs = set([val_to_attr[val]])
         n_chosen = 1 if not random_init else 0
+        nodes = [
+            Node(val_to_attr[val], val, [], cast(CatValue, attrs[val_to_attr[val]][val]).domain, False)
+        ]
     else:
         generated = []
         generated_attrs = set()
         n_chosen = 0
+        nodes = []
 
     # Calculate theta
     t = (n * (e2 if e2 is not None else 1)) / ((1 if unbounded_dp else 2) * d * theta)
@@ -417,7 +421,6 @@ def greedy_bayes(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
 
-    nodes = []
     first = True
     for _ in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
@@ -697,7 +700,7 @@ def calc_noisy_marginals(
 
         if skip_zero_counts:
             # Skip adding noise to zero counts
-            noise[marginal.sum(axis=1) == 0] = 0
+            noise[marginal == 0] = 0
 
         noised_marginal = (marginal + noise).clip(0)
         noised_marginal /= noised_marginal.sum()
@@ -717,7 +720,7 @@ def sample_rows(
     n = len(idx)
 
     attr_sampled_cols: dict[str, str] = {}
-    for (x_attr, x, x_domain, partial, p), marginal in piter(
+    for (x_attr, x, p, domain, partial), marginal in piter(
         zip(nodes, marginals),
         total=len(nodes),
         desc="Sampling values sequentially",
@@ -727,63 +730,84 @@ def sample_rows(
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
             m = marginal.reshape(-1)
-            # TODO: Readd partial support
-            # common = attrs[x_attr].common if partial else 0
-            # out_col = np.random.choice(x_domain - common, size=n, p=m) + common
             try:
-                out_col = np.random.choice(x_domain, size=n, p=m)
+                out_col = np.random.choice(domain, size=n, p=m)
             except ValueError as e:
                 logger.warning(
                     f"Received error when sampling probabilities, picking at random:\n{e}"
                 )
-                out_col = np.random.randint(x_domain, size=n)
-
-            # if common:
-            #     col = out[attr_sampled_cols[x_attr]]
-            #     out_col[col < common] = col[col < common]
-
-            out_col = out_col.astype(get_dtype(x_domain))
+                out_col = np.random.randint(domain, size=n)
+            out_col = out_col.astype(get_dtype(domain))
         else:
             # Use conditional probability
+            # Reshape marginal to one dimension for p, x
+            domains = tuple(marginal.shape)
+            marginal = marginal.reshape((-1, marginal.shape[-1]))
             # Get groups for marginal
+            i = 0
             mul = 1
-            dtype = get_dtype(marginal.shape[0] * marginal.shape[1])
+            dtype = get_dtype(marginal.shape[0])
             _sum_nd = np.zeros((n,), dtype=dtype)
             _tmp_nd = np.zeros((n,), dtype=dtype)
             for parent in p:
-                attr_name = parent[-2]
-                attr = parent[-1]
-                # common = attr.common
-                l_mul = 1
-                p_partial = partial and attr_name == x_attr
-                assert isinstance(attr, dict), "Add support for common"
-                for i, (col_name, h) in enumerate(attr.items()):
-                    col = cast(
-                        CatValue,
-                        cast(Attributes, attrs[None])[attr_name].vals[col_name],
-                    )
-                    mapping = np.array(col.get_mapping(h), dtype=dtype)
-                    domain = col.get_domain(h)
+                if len(parent) == 3:
+                    table, attr_name, sel = parent
+                else:
+                    attr_name, sel = parent
+                    table = None
+                tattrs = (
+                    cast(SeqAttributes, attrs[table[0]]).hist[table[1]]
+                    if isinstance(table, tuple)
+                    else cast(Attributes, attrs[table])
+                )
 
-                    col_lvl = mapping[out_cols[col_name]]
-                    # if common != 0 and (i != 0 or p_partial):
-                    #     col_lvl = np.where(col_lvl > common, col_lvl - common, 0)
-                    np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
+                if isinstance(sel, dict):
+                    l_mul = 1
+                    for val, h in sel.items():
+                        meta = cast(
+                            CatValue,
+                            tattrs[attr_name].vals[val],
+                        )
+                        mapping = np.array(meta.get_mapping(h), dtype=dtype)
+                        domain = meta.get_domain(h)
+                        assert domain == domains[i], "Domain mismatch"
+
+                        col_lvl = mapping[out_cols[val]]
+                        np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
+                        np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
+                        l_mul *= domain
+                        i += 1
+                else:
+                    # Find common data
+                    attr = tattrs[attr_name]
+                    cmn = attr.common
+                    assert cmn is not None
+                    mapping = np.array(cmn.get_mapping(sel), dtype=dtype)
+
+                    # Derive common column
+                    cmn_col = None
+                    for nc, c in out_cols.items():
+                        if nc in attr.vals:
+                            meta = attr[nc]
+                            assert isinstance(meta, CatValue)
+                            cmn_col = meta.get_mapping(meta.height - 1)[c]
+                            break
+                    assert cmn_col is not None
+
+                    # Apply common col
+                    col_lvl = mapping[cmn_col]
+                    np.multiply(col_lvl, mul, out=_tmp_nd, dtype=dtype)
                     np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
-                    l_mul *= domain  # - common
 
+                    l_mul = cmn.get_domain(sel)
+                    assert l_mul == domains[i], "Domain mismatch"
+                    i += 1
                 mul *= l_mul
-                # if p_partial:
-                #     mul *= l_mul
-                # else:
-                #     mul *= l_mul + common
 
             # Sample groups
+            x_domain = cast(CatValue, cast(Attributes, attrs[None])[x_attr][x]).domain
             out_col = np.zeros((n,), dtype=get_dtype(x_domain))
             groups = _sum_nd
-            # Use reduced marginal if column has been sampled before
-            # if `common=0` behavior is identical
-            # common = attrs[x_attr].common if partial else 0
 
             for group in np.unique(groups):
                 m = marginal
@@ -803,15 +827,7 @@ def sample_rows(
                     m_g = m_g / m_sum
 
                 size = np.count_nonzero(groups == group)
-                # out_col[groups == group] = (
-                #     np.random.choice(x_domain - common, size=size, p=m_g) + common
-                # )
                 out_col[groups == group] = np.random.choice(x_domain, size=size, p=m_g)
-
-            # Pin common values to equal the parent
-            # if common:
-            #     col = out[attr_sampled_cols[x_attr]]
-            #     out_col[col < common] = col[col < common]
 
         # Output column
         out_cols[x] = out_col

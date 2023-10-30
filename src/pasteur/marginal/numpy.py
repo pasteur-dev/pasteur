@@ -262,11 +262,11 @@ def calc_marginal(
     _tmp_nd = np.empty((n,), dtype=dtype)
 
     mul = 1
-    for (table, attr, sel) in x:
+    for (table, attr, sel) in reversed(x):
         common = info.common[(table, attr)]
         if isinstance(sel, dict):
             l_mul = 1
-            for i, (n, h) in enumerate(sel.items()):
+            for i, (n, h) in enumerate(reversed(sel.items())):
                 if common == 0 or i == 0:
                     np.multiply(
                         data[(table, n, False)][h],

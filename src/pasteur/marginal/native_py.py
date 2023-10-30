@@ -16,11 +16,11 @@ def calc_marginal(
     """Calculates the 1 way marginal of the subsections of attributes x"""
     ops: list[Op] = []
     mul = 1
-    for (table, attr, sel) in x:
+    for (table, attr, sel) in reversed(x):
         common = info.common[(table, attr)]
         l_mul = 1
         if isinstance(sel, dict):
-            for i, (n, h) in enumerate(sel.items()):
+            for i, (n, h) in enumerate(reversed(sel.items())):
                 if common == 0 or i == 0:
                     ops.append((l_mul * mul, data[(table, n, False)][h]))
                 else:
