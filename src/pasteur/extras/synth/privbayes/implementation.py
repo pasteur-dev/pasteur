@@ -169,6 +169,9 @@ def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...
                     # Otherwise, we have an overflow condition and we move on to
                     # lowering the complexity of the next attribute
                     counter[i] = heights[i]
+                    # Detect overflow condition once last count goes to -1
+                    if i == length - 1:
+                        not_overflow = False
 
     return out
 
@@ -209,11 +212,18 @@ def calculate_attr_combinations(table: TableSelector, attr: Attribute):
 
 
 def calculate_attrs_combinations(table: TableSelector, attrs: Attributes):
-    return {
+    combos = {
         (table, n): calculate_attr_combinations(table, a)
         for n, a in attrs.items()
         if a.vals
     }
+    val_to_idx = []
+    for attr in attrs.values():
+        for val in attr.vals:
+            val_to_idx.append((table, val))
+        if attr.common:
+            val_to_idx.append((table, attr.common.name))
+    return combos, val_to_idx
 
 
 def greedy_bayes(
@@ -246,36 +256,40 @@ def greedy_bayes(
     # - Not necessarily true, one value might be higher in one combination, one in other.
     # - Prevents complex logic in maximal parents
     #
+
     # Find attribute combinations
     combos = {}
+    val_idx = []
     for t, table_attrs in ds_attrs.items():
         if isinstance(table_attrs, SeqAttributes):
             if table_attrs.attrs:
-                combos.update(calculate_attrs_combinations(t, table_attrs.attrs))
+                tcombos, tval_to_idx = calculate_attrs_combinations(
+                    t, table_attrs.attrs
+                )
+                combos.update(tcombos)
+                val_idx.extend(tval_to_idx)
             for s, hist in table_attrs.hist.items():
                 assert isinstance(t, str)
-                combos.update(calculate_attrs_combinations((t, s), hist))
+                tcombos, tval_to_idx = calculate_attrs_combinations(
+                    (t, s), hist
+                )
+                combos.update(tcombos)
+                val_idx.extend(tval_to_idx)
         else:
-            combos.update(calculate_attrs_combinations(t, table_attrs))
-    names = list(combos.keys())
+            tcombos, tval_to_idx = calculate_attrs_combinations(
+                t, table_attrs
+            )
+            combos.update(tcombos)
+            val_idx.extend(tval_to_idx)
 
     #
     # Implement misc functions for summating the scores
     #
     score_cache = {}
 
-    def pset_to_attr_sel(pset: tuple[int, ...]) -> MarginalRequest:
-        """Converts a parent set to the format required by the marginal calculation."""
-        p_attrs: MarginalRequest = []
-        for p, h in enumerate(pset):
-            if h == -1:
-                continue
-
-            p_attrs.append(combos[names[p]][h][0])
-
-        return p_attrs
-
-    def calc_candidate_scores(candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]):
+    def calc_candidate_scores(
+        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]
+    ):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
 
@@ -343,17 +357,15 @@ def greedy_bayes(
     # Implement greedy bayes (as shown in the paper)
     #
     attrs = cast(Attributes, ds_attrs[None])
-    val_to_attr = {}
-    val_idx = []
     todo = []
-    for attr in attrs.values():
+    val_to_attr = {}
+    for name, attr in attrs.items():
         todo.extend(list(attr.vals))
         for val in attr.vals:
-            val_to_attr[val] = attr.name
-            val_idx.append(val)
+            val_to_attr[val] = name
         if attr.common:
-            val_to_attr[attr.common.name] = attr.name
-            val_idx.append(attr.common.name)
+            val_to_attr[attr.common.name] = name
+
     d = len(todo)
     EMPTY_HASH = tuple(-1 for _ in range(len(val_idx)))
 
@@ -365,7 +377,7 @@ def greedy_bayes(
         # Pick x1 based on entropy
         # consumes some privacy budget, but starting with a bad choice can lead
         # to a bad network.
-        reqs: list[MarginalRequest] = [[(None, a, {n: 0})] for a, n in names]
+        reqs: list[MarginalRequest] = [[(None, val_to_attr[v], {v: 0})] for v in todo]
 
         vals = list(
             oracle.process(
@@ -407,7 +419,7 @@ def greedy_bayes(
         logger.warning(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
-    
+
     nodes = []
     first = True
     for _ in prange(len(todo), desc="Finding Nodes: "):
@@ -430,10 +442,11 @@ def greedy_bayes(
                     # This is the case when a dependency is not in todo (generated values)
                     # and its attribute has been partially generated (common values)
                     deps_met = True
-                    for dep in deps:
-                        if dep in todo or not val_to_attr[dep] in generated_attrs:
-                            deps_met = False
-                            break
+                    if sel[0] == None:
+                        for dep in deps:
+                            if dep in todo or not val_to_attr[dep] in generated_attrs:
+                                deps_met = False
+                                break
 
                     if deps_met:
                         doms.append(dom)
@@ -469,17 +482,18 @@ def greedy_bayes(
                     if h < len(sels[i]):
                         sel = sels[i][h]
                         mar.append(sel)
-                        
+
                         # Create custom hash which is a tuple with an integer
                         # indicating which values are used and with what heights
+                        table = sel[0]
                         phs = sel[-1]
                         if isinstance(phs, dict):
                             for p, ph in phs.items():
-                                cand_hash[val_idx.index(p)] = ph
+                                cand_hash[val_idx.index((table, p))] = ph
                         else:
                             cmn = attrs[sel[1]].common
                             assert cmn is not None
-                            cand_hash[val_idx.index(cmn.name)] = phs
+                            cand_hash[val_idx.index((table, cmn.name))] = phs
                 candidates.append((val, mar, (val, tuple(cand_hash))))
             if not psets:
                 candidates.append((val, [], (val, EMPTY_HASH)))
@@ -489,13 +503,15 @@ def greedy_bayes(
         generated.append(x)
         todo.remove(x)
 
-        nodes.append(Node(
-            attr=attr,
-            value=x,
-            p=pset,
-            domain=cast(CatValue, attrs[attr][x]).domain,
-            partial=attr in generated_attrs,
-        ))
+        nodes.append(
+            Node(
+                attr=attr,
+                value=x,
+                p=pset,
+                domain=cast(CatValue, attrs[attr][x]).domain,
+                partial=attr in generated_attrs,
+            )
+        )
         generated_attrs.add(attr)
 
     return nodes, t

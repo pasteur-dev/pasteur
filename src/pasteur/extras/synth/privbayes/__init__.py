@@ -58,7 +58,6 @@ class PrivBayesMare(MareModel):
             self.use_r,
             self.unbounded_dp,
             self.random_init,
-            self.skip_zero_counts,
         )
 
         # Nodes are a tuple of a x attribute
@@ -209,7 +208,6 @@ class PrivBayesSynth(Synth):
                 self.use_r,
                 self.unbounded_dp,
                 self.random_init,
-                self.skip_zero_counts,
             )
 
         # Nodes are a tuple of a x attribute
