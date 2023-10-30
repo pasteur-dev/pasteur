@@ -37,10 +37,10 @@ def unpack(req: AttrSelectors, mar: np.ndarray, info: CalculationInfo):
             v_dom = info.domains[(table, info.common_names[(table, attr)])][sel]
             packed_doms.append(v_dom)
             full_doms.append(v_dom)
-            val_doms.append(None)
+            val_doms.append([v_dom])
 
     out = np.zeros(full_doms)
-    slices = [slice(d) for d in packed_doms]
+    slices = tuple(slice(d) for d in packed_doms)
     out[slices] = mar.reshape(packed_doms)
     del mar
 
@@ -48,26 +48,26 @@ def unpack(req: AttrSelectors, mar: np.ndarray, info: CalculationInfo):
         if not common:
             continue
 
-        write_slices = tuple([
+        write_slices = tuple(
             slice(-packed + common, None) if j == i else slice(None)
             for j in range(len(packed_doms))
-        ])
-        read_slices = tuple([
+        )
+        read_slices = tuple(
             slice(common, packed) if j == i else slice(None)
             for j in range(len(packed_doms))
-        ])
+        )
         out[write_slices] = out[read_slices]
 
         ofs = sum(val[:-1])
         for k in reversed(range(1, common)):
-            write_slices = tuple([
+            write_slices = tuple(
                 slice(ofs * k, ofs * k + 1) if j == i else slice(None)
                 for j in range(len(packed_doms))
-            ])
-            read_slices = tuple([
+            )
+            read_slices = tuple(
                 slice(k, k + 1) if j == i else slice(None)
                 for j in range(len(packed_doms))
-            ])
+            )
             out[write_slices] = out[read_slices]
 
     expanded_doms = []

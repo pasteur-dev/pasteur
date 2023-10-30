@@ -28,7 +28,7 @@ class PrivBayesMare(MareModel):
         rebalance: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
-        skip_zero_counts: bool = False,
+        skip_zero_counts: bool = True,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -123,7 +123,7 @@ class PrivBayesSynth(Synth):
         marginal_mode: MarginalOracle.MODES = "out_of_core",
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
-        skip_zero_counts: bool = False,
+        skip_zero_counts: bool = True,
         **kwargs,
     ) -> None:
         self.ep = ep
