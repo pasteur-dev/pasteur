@@ -85,7 +85,9 @@ class MareSynth(Synth):
 
     def __str__(self) -> str:
         out = ""
-        out += f"MARE synthesis algorithm encapsulating model type '{self.model_cls}'.\n"
+        out += (
+            f"MARE synthesis algorithm encapsulating model type '{self.model_cls}'.\n"
+        )
         out += f"Created {len(self.models)} models, which synthesize the following {len(set(v.ver.name for v in self.models))} tables:\n"
         out += str(sorted(set(v.ver.name for v in self.models))) + "\n"
 
@@ -102,7 +104,7 @@ class MareSynth(Synth):
             out += f"\nModel {i+1:02d}/{len(self.versions):02d}: '{mtype}' model for table '{ver.ver.name}' (version {seen[(ver.ver.name, ver.ctx)]:2d}/{n_versions})\n"
             seen[(ver.ver.name, ver.ctx)] += 1
             out += str(model)
-            out += '\n'
+            out += "\n"
 
         return out
 
@@ -113,7 +115,14 @@ class MareSynth(Synth):
             logger.info(
                 f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' model for table '{ver.ver.name}'"
             )
-            with MarginalOracle(data, attrs, load, mode=self.marginal_mode) as o:
+            with MarginalOracle(
+                data,
+                attrs,
+                load,
+                mode=self.marginal_mode,
+                max_worker_mult=self.marginal_worker_mult,
+                min_chunk_size=self.marginal_min_chunk,
+            ) as o:
                 model = self.model_cls(**self.kwargs)
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model
@@ -288,8 +297,8 @@ def sample_model(
             new_hist = {}
             for sel, df in hist.items():
                 pname = sel[0] if isinstance(sel, tuple) else sel
-                new_hist[sel] = pids[[pname]].join(df, on=pname, how="left").drop(
-                    columns=pname
+                new_hist[sel] = (
+                    pids[[pname]].join(df, on=pname, how="left").drop(columns=pname)
                 )
             # Drop context index to form history
             ctx_cols = ctx_rerolled.drop(columns=PARENT_KEY)
@@ -312,8 +321,8 @@ def sample_model(
             # Find values and their domains for placeholder history
             vals = {}
             for attr in seq_attrs.hist[0].values():
-                if attr.common:
-                    vals[attr.common.name] = attr.common.get_domain(0)
+                # if attr.common:
+                #     vals[attr.common.name] = attr.common.get_domain(0)
                 for val_name, val in attr.vals.items():
                     if isinstance(val, CatValue):
                         vals[val_name] = val.get_domain(0)
@@ -326,7 +335,10 @@ def sample_model(
                     break
 
                 # Add seq value to history
-                new_hist = {n: h.loc[tids.loc[idx, n[0] if isinstance(n, tuple) else n]] for n, h in hist.items()}
+                new_hist = {
+                    n: h.loc[tids.loc[idx, n[0] if isinstance(n, tuple) else n]]
+                    for n, h in hist.items()
+                }
                 new_hist[ver.ver.name] = pd.DataFrame(
                     {seq_attrs.seq.name: i},
                     index=idx,

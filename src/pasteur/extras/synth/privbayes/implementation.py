@@ -454,77 +454,78 @@ def greedy_bayes(
     first = True
     for _ in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
-        base_args = {}
-        per_call_args = []
-        info = []
-
-        for x in todo:
-            domains = []
-            selectors = []
-            x_dom = cast(CatValue, attrs[val_to_attr[x]][x]).domain
-            new_tau = t / x_dom
-
-            # Create customized domain, with relevant selectors, by
-            # Removing combinations with unmet dependencies
-            for name, attr_combos in combos.items():
-                doms = []
-                sels = []
-                for sel, dom, deps in attr_combos:
-                    # For each combination, check that its dependencies are met
-                    # This is the case when a dependency is not in todo (generated values)
-                    # and its attribute has been partially generated (common values)
-                    deps_met = True
-                    if sel[0] == None:
-                        for dep in deps:
-                            if dep in todo or not val_to_attr[dep] in generated_attrs:
-                                deps_met = False
-                                break
-
-                    if deps_met:
-                        if name[0] is None and name[1] == val_to_attr[x]:
-                            val_sel = sel[-1]
-                            if isinstance(val_sel, int):
-                                # If val_sel is an int, we're sampling the common value
-                                # on x already, making this an invalid combination
-                                deps_met = False
-                            else:
-                                # There needs to be a common value
-                                attr = attrs[name[1]]
-                                cmn = attr.common
-                                # Adjust domain if x is in the same attribute
-                                # Find full domain when including x for attribute
-                                # Divide by x's domain
-                                # This is not a representative domain, but will
-                                # be equivalent in the `maximal_parents` computation
-                                # as tau /= x_dom
-                                if isinstance(cmn, StratifiedValue):
-                                    full_dom = Grouping.get_domain_multiple(
-                                        [*val_sel.values(), 0],
-                                        cmn.head,
-                                        [
-                                            cast(StratifiedValue, attr[n]).head
-                                            for n in [*val_sel, x]
-                                        ],
-                                    )
-                                    dom = full_dom // x_dom
-
-                    if deps_met:
-                        doms.append(dom)
-                        sels.append(sel)
-
-                if doms and sels:
-                    domains.append(doms)
-                    selectors.append(sels)
-
-            per_call_args.append({"tau": new_tau, "domains": domains})
-            info.append((x, selectors))
-
         if d > 30:
             if first:
                 logger.error("Too many columns, disabling parent correlations.")
                 first = False
-            node_psets = [[] for _ in range(len(per_call_args))]
+                     
+            info = [(x, []) for x in todo]
+            node_psets = [[] for _ in range(len(todo))]
         else:
+            base_args = {}
+            per_call_args = []
+            info = []
+
+            for x in todo:
+                domains = []
+                selectors = []
+                x_dom = cast(CatValue, attrs[val_to_attr[x]][x]).domain
+                new_tau = t / x_dom
+
+                # Create customized domain, with relevant selectors, by
+                # Removing combinations with unmet dependencies
+                for name, attr_combos in combos.items():
+                    doms = []
+                    sels = []
+                    for sel, dom, deps in attr_combos:
+                        # For each combination, check that its dependencies are met
+                        # This is the case when a dependency is not in todo (generated values)
+                        # and its attribute has been partially generated (common values)
+                        deps_met = True
+                        if sel[0] == None:
+                            for dep in deps:
+                                if dep in todo or not val_to_attr[dep] in generated_attrs:
+                                    deps_met = False
+                                    break
+
+                        if deps_met:
+                            if name[0] is None and name[1] == val_to_attr[x]:
+                                val_sel = sel[-1]
+                                if isinstance(val_sel, int):
+                                    # If val_sel is an int, we're sampling the common value
+                                    # on x already, making this an invalid combination
+                                    deps_met = False
+                                else:
+                                    # There needs to be a common value
+                                    attr = attrs[name[1]]
+                                    cmn = attr.common
+                                    # Adjust domain if x is in the same attribute
+                                    # Find full domain when including x for attribute
+                                    # Divide by x's domain
+                                    # This is not a representative domain, but will
+                                    # be equivalent in the `maximal_parents` computation
+                                    # as tau /= x_dom
+                                    if isinstance(cmn, StratifiedValue):
+                                        full_dom = Grouping.get_domain_multiple(
+                                            [*val_sel.values(), 0],
+                                            cmn.head,
+                                            [
+                                                cast(StratifiedValue, attr[n]).head
+                                                for n in [*val_sel, x]
+                                            ],
+                                        )
+                                        dom = full_dom // x_dom
+
+                        if deps_met:
+                            doms.append(dom)
+                            sels.append(sel)
+
+                    if doms and sels:
+                        domains.append(doms)
+                        selectors.append(sels)
+                per_call_args.append({"tau": new_tau, "domains": domains})
+                info.append((x, selectors))
+
             node_psets = process_in_parallel(
                 maximal_parents,
                 per_call_args,
@@ -773,7 +774,7 @@ def sample_rows(
         else:
             # Use conditional probability
             # Reshape marginal to one dimension for p, x
-            domains = tuple(marginal.shape)
+            domains = tuple(reversed(marginal.shape[:-1]))
             marginal = marginal.reshape((-1, marginal.shape[-1]))
             # Get groups for marginal
             i = 0
@@ -781,7 +782,7 @@ def sample_rows(
             dtype = get_dtype(marginal.shape[0] * marginal.shape[1])
             _sum_nd = np.zeros((n,), dtype=dtype)
             _tmp_nd = np.zeros((n,), dtype=dtype)
-            for parent in p:
+            for parent in reversed(p):
                 if len(parent) == 3:
                     table, attr_name, sel = parent
                 else:
@@ -791,14 +792,13 @@ def sample_rows(
 
                 if isinstance(sel, dict):
                     l_mul = 1
-                    for val, h in sel.items():
+                    for val, h in reversed(sel.items()):
                         meta = cast(
                             CatValue,
                             tattrs[attr_name].vals[val],
                         )
                         mapping = np.array(meta.get_mapping(h), dtype=dtype)
                         domain = meta.get_domain(h)
-                        assert domain == domains[i], "Domain mismatch"
 
                         if table is None:
                             pcol = out_cols[val]
@@ -808,6 +808,8 @@ def sample_rows(
                         np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
                         np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                         l_mul *= domain
+
+                        assert domain == domains[i], "Domain mismatch"
                         i += 1
                 else:
                     # Find common data
