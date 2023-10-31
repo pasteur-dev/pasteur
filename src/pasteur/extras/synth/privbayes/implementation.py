@@ -136,9 +136,12 @@ def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...
     # with its maximum domain
     counter = list(heights)
     not_overflow = True
+    is_maximal = True
     while not_overflow:
-        out.append(tuple(counter))
+        if is_maximal:
+            out.append(tuple(counter))
 
+        is_maximal = False
         for i in range(length):
             c_i = counter[i]
             if c_i <= 0:
@@ -152,6 +155,8 @@ def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...
                 # Attribute was used before, so we add its tau value
                 if c_i < heights[i]:
                     ctau += ldom[i][c_i]
+                else:
+                    is_maximal = True
                 # Lower by one at least
                 c_i -= 1
 
@@ -177,6 +182,21 @@ def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...
     return out
 
 
+def get_attrs(ds_attrs: DatasetAttributes, sel: TableSelector):
+    if isinstance(sel, tuple):
+        table_name, order = sel
+        hist = cast(SeqAttributes, ds_attrs[table_name]).hist
+        return hist[order]
+    elif isinstance(sel, str):
+        tattrs = ds_attrs[sel]
+        if isinstance(tattrs, SeqAttributes):
+            tattrs = tattrs.attrs
+            assert tattrs is not None
+        return tattrs
+    else:
+        return cast(Attributes, ds_attrs[None])
+
+
 def calculate_attr_combinations(table: TableSelector, attr: Attribute):
     vers: list[tuple[AttrSelector, int, tuple[str, ...]]] = []
     if attr.common:
@@ -188,8 +208,9 @@ def calculate_attr_combinations(table: TableSelector, attr: Attribute):
     names = list(attr.vals)
     heights = product(
         *[
-            range(-1, cast(StratifiedValue, v).height - (1 if attr.common else 0))
+            range(-1, v.height - (1 if attr.common else 0))
             for v in attr.vals.values()
+            if isinstance(v, StratifiedValue)
         ]
     )
 
@@ -237,6 +258,7 @@ def greedy_bayes(
     use_r: bool,
     unbounded_dp: bool,
     random_init: bool,
+    prefer_table: str | None = None,
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -269,11 +291,13 @@ def greedy_bayes(
                 )
                 combos.update(tcombos)
                 val_idx.extend(tval_to_idx)
-            for s, hist in table_attrs.hist.items():
-                assert isinstance(t, str)
-                tcombos, tval_to_idx = calculate_attrs_combinations((t, s), hist)
-                combos.update(tcombos)
-                val_idx.extend(tval_to_idx)
+
+            if not prefer_table or prefer_table == t:
+                for s, hist in table_attrs.hist.items():
+                    assert isinstance(t, str)
+                    tcombos, tval_to_idx = calculate_attrs_combinations((t, s), hist)
+                    combos.update(tcombos)
+                    val_idx.extend(tval_to_idx)
         else:
             tcombos, tval_to_idx = calculate_attrs_combinations(t, table_attrs)
             combos.update(tcombos)
@@ -520,13 +544,12 @@ def greedy_bayes(
 
                         # Create custom hash which is a tuple with an integer
                         # indicating which values are used and with what heights
-                        table = sel[0]
-                        phs = sel[-1]
+                        table, aname, phs = sel
                         if isinstance(phs, dict):
                             for p, ph in phs.items():
                                 cand_hash[val_idx.index((table, p))] = ph
                         else:
-                            cmn = attrs[sel[1]].common
+                            cmn = get_attrs(ds_attrs, table)[aname].common
                             assert cmn is not None
                             cand_hash[val_idx.index((table, cmn.name))] = phs
                 candidates.append((val, mar, (val, tuple(cand_hash))))
@@ -574,7 +597,7 @@ def print_tree(
 
     pset_len = 57
 
-    tlen = len(" Value Nodes")
+    tlen = len(" Multi-Val Attrs")
     for _, x, _, _, _ in nodes:
         if len(x) > tlen:
             tlen = len(x)
@@ -616,7 +639,10 @@ def print_tree(
                 p_str += f"{table_name}[-{len(hist) - order}]."
             elif isinstance(table, str):
                 p_str += f"{table}."
-                tattrs = cast(Attributes, attrs[table])
+                tattrs = attrs[table]
+                if isinstance(tattrs, SeqAttributes):
+                    tattrs = tattrs.attrs
+                    assert tattrs is not None
             else:
                 tattrs = cast(Attributes, attrs[None])
 
@@ -761,11 +787,7 @@ def sample_rows(
                 else:
                     attr_name, sel = parent
                     table = None
-                tattrs = (
-                    cast(SeqAttributes, attrs[table[0]]).hist[table[1]]
-                    if isinstance(table, tuple)
-                    else cast(Attributes, attrs[table])
-                )
+                tattrs = get_attrs(attrs, table)
 
                 if isinstance(sel, dict):
                     l_mul = 1
@@ -778,7 +800,11 @@ def sample_rows(
                         domain = meta.get_domain(h)
                         assert domain == domains[i], "Domain mismatch"
 
-                        col_lvl = mapping[out_cols[val]]
+                        if table is None:
+                            pcol = out_cols[val]
+                        else:
+                            pcol = hist[table][val]
+                        col_lvl = mapping[pcol]
                         np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
                         np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
                         l_mul *= domain
@@ -792,12 +818,19 @@ def sample_rows(
 
                     # Derive common column
                     cmn_col = None
-                    for nc, c in out_cols.items():
-                        if nc in attr.vals:
-                            meta = attr[nc]
-                            assert isinstance(meta, CatValue)
-                            cmn_col = meta.get_mapping(meta.height - 1)[c]
-                            break
+                    if table is None:
+                        for nc, c in out_cols.items():
+                            if nc in attr.vals:
+                                meta = attr[nc]
+                                assert isinstance(meta, CatValue)
+                                cmn_col = meta.get_mapping(meta.height - 1)[c]
+                                break
+                    else:
+                        nc, meta = next(iter(attr.vals.items()))
+                        meta = attr[nc]
+                        assert isinstance(meta, CatValue)
+                        cmn_col = meta.get_mapping(meta.height - 1)[hist[table][nc]]
+                        
                     assert cmn_col is not None
 
                     # Apply common col

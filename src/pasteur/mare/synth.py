@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class MareModel:
-    def fit(self, n: int, attrs: DatasetAttributes, oracle: MarginalOracle):
+    def fit(self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle):
         ...
 
     def sample(
@@ -115,7 +115,7 @@ class MareSynth(Synth):
             )
             with MarginalOracle(data, attrs, load, mode=self.marginal_mode) as o:
                 model = self.model_cls(**self.kwargs)
-                model.fit(ver.ver.rows, attrs, o)
+                model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model
 
     @make_deterministic("i")
@@ -287,8 +287,9 @@ def sample_model(
             # Repeat for history dfs
             new_hist = {}
             for sel, df in hist.items():
-                new_hist[sel] = pkey.join(df, on=PARENT_KEY, how="left").drop(
-                    columns=PARENT_KEY
+                pname = sel[0] if isinstance(sel, tuple) else sel
+                new_hist[sel] = pids[[pname]].join(df, on=pname, how="left").drop(
+                    columns=pname
                 )
             # Drop context index to form history
             ctx_cols = ctx_rerolled.drop(columns=PARENT_KEY)
@@ -306,6 +307,7 @@ def sample_model(
             order = seq_attrs.order
             name = ver.ver.name
             num = tables[(ver.ver.name, True)][f"{name}_n"]
+            tids = ids[(ver.ver.name, True)]
 
             # Find values and their domains for placeholder history
             vals = {}
@@ -324,7 +326,7 @@ def sample_model(
                     break
 
                 # Add seq value to history
-                new_hist = dict(hist)
+                new_hist = {n: h.loc[tids.loc[idx, n[0] if isinstance(n, tuple) else n]] for n, h in hist.items()}
                 new_hist[ver.ver.name] = pd.DataFrame(
                     {seq_attrs.seq.name: i},
                     index=idx,
