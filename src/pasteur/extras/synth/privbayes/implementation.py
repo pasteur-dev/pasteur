@@ -14,7 +14,6 @@ from ....attribute import (
     DatasetAttributes,
     Grouping,
     SeqAttributes,
-    StratifiedValue,
     get_dtype,
 )
 from ....marginal import (
@@ -188,7 +187,7 @@ def calculate_attr_combinations(table: TableSelector, attr: Attribute):
     names = list(attr.vals)
     heights = product(
         *[
-            range(-1, cast(StratifiedValue, v).height - (1 if attr.common else 0))
+            range(-1, cast(CatValue, v).height - (1 if attr.common else 0))
             for v in attr.vals.values()
         ]
     )
@@ -197,14 +196,10 @@ def calculate_attr_combinations(table: TableSelector, attr: Attribute):
         sel = {n: h for n, h in zip(names, combo) if h > -1}
         if not sel:
             continue
-        if attr.common:
-            common = cast(StratifiedValue, attr.common).head
-        else:
-            common = None
-        dom = Grouping.get_domain_multiple(
+        dom = CatValue.get_domain_multiple(
             list(sel.values()),
-            common,
-            [cast(StratifiedValue, attr[n]).head for n in sel],
+            attr.common,
+            [cast(CatValue, attr[n]) for n in sel],
         )
         deps = tuple(sel)
         vers.append(((table, attr.name, sel), dom, deps))
@@ -473,13 +468,13 @@ def greedy_bayes(
                                 # This is not a representative domain, but will
                                 # be equivalent in the `maximal_parents` computation
                                 # as tau /= x_dom
-                                if isinstance(cmn, StratifiedValue):
-                                    full_dom = Grouping.get_domain_multiple(
+                                if isinstance(cmn, CatValue):
+                                    full_dom = cmn.get_domain_multiple(
                                         [*val_sel.values(), 0],
-                                        cmn.head,
+                                        cmn,
                                         [
-                                            cast(StratifiedValue, attr[n]).head
-                                            for n in [*val_sel, x]
+                                            *[cast(CatValue, attr[v]) for v in val_sel],
+                                            cast(CatValue, attr[x]),
                                         ],
                                     )
                                     dom = full_dom // x_dom

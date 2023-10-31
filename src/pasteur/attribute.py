@@ -386,6 +386,18 @@ class CatValue(Value):
     def select_height(self) -> int:
         return 0
 
+    @staticmethod
+    def get_domain_multiple(
+        heights: Sequence[int], common: "CatValue | None", vals: Sequence["CatValue"]
+    ):
+        for v in [*vals, common]:
+            if v:
+                try:
+                    return v.get_domain_multiple(heights, common, vals)
+                except NotImplementedError:
+                    pass
+        raise NotImplementedError()
+
 
 IdxValue = CatValue
 
@@ -431,6 +443,29 @@ class StratifiedValue(CatValue):
     @property
     def height(self):
         return self.head.get_height(self.common)
+
+    @staticmethod
+    def get_domain_multiple(
+        heights: Sequence[int], common: CatValue | None, vals: Sequence[CatValue]
+    ):
+        invalid = None
+        for v in [*vals, common]:
+            if v and not isinstance(v, StratifiedValue):
+                invalid = v
+                try:
+                    return v.get_domain_multiple(heights, common, vals)
+                except NotImplementedError:
+                    pass
+        assert not invalid, (
+            "Invalid val passed to `get_domain_multiple`."
+            + f"Val `{invalid.name}` of type `{type(invalid)}` is not a StratifiedValue and does not implement get_domain_multiple"
+        )
+
+        return Grouping.get_domain_multiple(
+            heights,
+            cast(StratifiedValue, common).head if common else None,
+            [cast(StratifiedValue, v).head for v in vals],
+        )
 
 
 class GenerationValue(StratifiedValue):

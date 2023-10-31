@@ -6,7 +6,7 @@ with Differential Privacy.
 import logging
 from itertools import combinations
 from math import ceil, log
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import numpy as np
 
@@ -336,6 +336,7 @@ class RebalancedValue(CatValue):
         self,
         counts: np.ndarray,
         col: StratifiedValue,
+        *,
         reshape_domain: bool = True,
         u: float = 1.3,
         fixed: list[int] = [2, 4, 5, 8, 12],
@@ -433,59 +434,29 @@ class RebalancedValue(CatValue):
         return upsampled
 
 
-def rebalance_value(
-    counts: np.ndarray,
-    col: StratifiedValue,
-    num_cols: int = 1,
-    ep: float | None = None,
-    gaussian: bool = False,
-    unbounded_dp: bool = False,
-    **kwargs,
-):
-    assert not gaussian, "Gaussian dp not supported yet"
-
-    counts = counts.astype(np.float32)
-
-    if ep is not None:
-        noise_scale = (1 if unbounded_dp else 2) * num_cols / ep
-        noise = np.random.laplace(scale=noise_scale, size=counts.shape)
-        counts = counts + noise
-
-    assert isinstance(col, StratifiedValue)
-    return RebalancedValue(counts, col, **kwargs)
-
-
 def rebalance_attributes(
     counts: dict[str, np.ndarray],
     attrs: Attributes,
-    ep: float | None = None,
     warn: bool = True,
     **kwargs,
 ):
-    from copy import copy
-
-    if warn:
-        if ep:
-            logger.info(f"Rebalancing columns with e_p={ep}")
-        else:
-            logger.warning(
-                f"Rebalancing columns without using Differential Privacy (e_p=inf)"
-            )
-
-    num_cols = len(counts)
-
     new_attrs = {}
     for name, attr in attrs.items():
         acommon = attr.common
         if acommon:
             assert isinstance(acommon, StratifiedValue)
-            common = rebalance_value(
-                counts[acommon.name],
-                acommon,
-                num_cols,
-                ep,
-                **kwargs,
-            )
+            if acommon.name not in counts:
+                # If common is not sampled, substitute with the value with the
+                # smallest domain
+                sub_val = min(
+                    [v for v in attr.vals.values() if isinstance(v, CatValue)],
+                    key=lambda v: v.domain,
+                )
+                acounts = sub_val.get_mapping(sub_val.height - 1)[counts[sub_val.name]]
+            else:
+                acounts = counts[acommon.name]
+
+            common = RebalancedValue(acounts, acommon, **kwargs)
         else:
             common = None
 
@@ -494,11 +465,9 @@ def rebalance_attributes(
             assert isinstance(col, StratifiedValue)
             # FIXME: The new format from common needs to be passed down to `rebalance_value`
             cols.append(
-                rebalance_value(
+                RebalancedValue(
                     counts[col_name],
                     col,
-                    num_cols,
-                    ep,
                     **kwargs,
                 )
             )
