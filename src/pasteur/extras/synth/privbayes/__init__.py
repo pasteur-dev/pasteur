@@ -44,7 +44,7 @@ class PrivBayesMare(MareModel):
         self.kwargs = kwargs
 
     @make_deterministic
-    def fit(self, n: int, attrs: DatasetAttributes, oracle: MarginalOracle):
+    def fit(self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle):
         from .implementation import MAX_EPSILON, calc_noisy_marginals, greedy_bayes
 
         # Fit network
@@ -58,6 +58,7 @@ class PrivBayesMare(MareModel):
             self.use_r,
             self.unbounded_dp,
             self.random_init,
+            prefer_table=table
         )
 
         # Nodes are a tuple of a x attribute
