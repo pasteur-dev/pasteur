@@ -138,10 +138,20 @@ def prune_tree(tree: list):
         if not isinstance(child, list):
             continue
 
-        if len(child) == 1:
+        if len(child) == 1 and not isinstance(child, CommonNode):
             tree[i] = child[0]
         else:
             prune_tree(child)
+
+
+def get_common_sizes(tree):
+    if not isinstance(tree, CommonNode):
+        return [len(tree)]
+
+    out = []
+    for n in tree:
+        out.extend(get_common_sizes(n))
+    return out
 
 
 N = TypeVar("N", CatNode, OrdNode, set)
@@ -245,7 +255,7 @@ def create_node_to_group_map(
 
 def make_grouping(
     counts: np.ndarray, head: Grouping, common: Grouping | None
-) -> np.ndarray:
+) -> tuple[np.ndarray, list[list[int]]]:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
@@ -268,15 +278,18 @@ def make_grouping(
     tree = create_tree(head, common)
     n = head.get_domain(0)
     grouping = np.empty((n - cmn + 1, n), dtype=get_dtype(n))
+    
+    common_sizes = [get_common_sizes(tree)]
     create_node_to_group_map(tree, grouping[0, :])
 
     for i in range(1, n - cmn + 1):
         node, a, b, _ = find_smallest_group(counts, tree)
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
+        common_sizes.append(get_common_sizes(tree))
         create_node_to_group_map(tree, grouping[i, :])
 
-    return grouping
+    return grouping, common_sizes
 
 
 def generate_domain_list(
@@ -348,7 +361,7 @@ class RebalancedValue(CatValue):
         self.name = col.name
         self.counts = counts
         self.common = col.common
-        self.grouping = make_grouping(counts, col.head, self.common)
+        self.grouping, self.common_sizes = make_grouping(counts, col.head, self.common)
         self.c = c
         self.reshape_domain = reshape_domain
 
@@ -437,24 +450,19 @@ class RebalancedValue(CatValue):
 
     @staticmethod
     def get_domain_multiple(
-        heights: Sequence[int], common: CatValue | None, vals: Sequence[CatValue]
+        heights: Sequence[int], vals: Sequence[CatValue]
     ):
-        groups = []
-        for v in vals:
-            if isinstance(v, StratifiedValue):
-                groups.append(v.head)
-            elif isinstance(v, RebalancedValue):
-                groups.append(v.original.head)
-        assert len(groups) == len(heights)
+        assert len(vals) == len(heights)
 
-        vc = None
-        if common is not None:
-            if isinstance(common, StratifiedValue):
-                vc = common.head
-            elif isinstance(common, RebalancedValue):
-                vc = common.original.head
+        dom = 0
+        for l in range(len(cast(RebalancedValue, vals[0]).common_sizes[0])):
+            l_dom = 1
+            for v, h in zip(vals, heights):
+                assert isinstance(v, RebalancedValue)
+                l_dom *= v.common_sizes[v.height_to_grouping[h]][l]
+            dom += l_dom
+        return dom
 
-        return Grouping.get_domain_multiple(heights, vc, groups)
 
 
 def rebalance_attributes(
@@ -485,15 +493,16 @@ def rebalance_attributes(
 
         cols = []
         for col_name, col in attr.vals.items():
-            assert isinstance(col, StratifiedValue)
-            # FIXME: The new format from common needs to be passed down to `rebalance_value`
-            cols.append(
-                RebalancedValue(
-                    counts[col_name],
-                    col,
-                    **kwargs,
+            if isinstance(col, StratifiedValue):
+                cols.append(
+                    RebalancedValue(
+                        counts[col_name],
+                        col,
+                        **kwargs,
+                    )
                 )
-            )
+            else:
+                cols.append(col)
 
         new_attr = Attribute(name, cols, common)
         new_attrs[name] = new_attr

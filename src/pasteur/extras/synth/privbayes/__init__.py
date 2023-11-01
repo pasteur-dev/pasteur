@@ -157,7 +157,7 @@ class PrivBayesSynth(Synth):
 
         self._n = table.shape[0]
         self._partitions = len(table)
-        self.attrs = attrs
+        self.original_attrs = attrs
         self.table_name = table_name
 
         if self.rebalance:
@@ -171,6 +171,8 @@ class PrivBayesSynth(Synth):
             ) as o:
                 counts = o.get_counts(desc="Calculating counts for column rebalancing")
 
+            # TODO: Add noise and remove save support
+            self.counts = counts
             self.attrs = {
                 k: rebalance_attributes(
                     counts[k],

@@ -388,12 +388,12 @@ class CatValue(Value):
 
     @staticmethod
     def get_domain_multiple(
-        heights: Sequence[int], common: "CatValue | None", vals: Sequence["CatValue"]
+        heights: Sequence[int], vals: Sequence["CatValue"]
     ):
-        for v in [*vals, common]:
+        for v in vals:
             if v:
                 try:
-                    return v.get_domain_multiple(heights, common, vals)
+                    return v.get_domain_multiple(heights, vals)
                 except NotImplementedError:
                     pass
         raise NotImplementedError()
@@ -446,14 +446,14 @@ class StratifiedValue(CatValue):
 
     @staticmethod
     def get_domain_multiple(
-        heights: Sequence[int], common: CatValue | None, vals: Sequence[CatValue]
+        heights: Sequence[int], vals: Sequence[CatValue]
     ):
         invalid = None
-        for v in [*vals, common]:
+        for v in vals:
             if v and not isinstance(v, StratifiedValue):
                 invalid = v
                 try:
-                    return v.get_domain_multiple(heights, common, vals)
+                    return v.get_domain_multiple(heights, vals)
                 except NotImplementedError:
                     pass
         assert not invalid, (
@@ -463,7 +463,7 @@ class StratifiedValue(CatValue):
 
         return Grouping.get_domain_multiple(
             heights,
-            cast(StratifiedValue, common).head if common else None,
+            cast(StratifiedValue, next(iter(vals))).common,
             [cast(StratifiedValue, v).head for v in vals],
         )
 

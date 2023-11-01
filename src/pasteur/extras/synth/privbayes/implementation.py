@@ -219,7 +219,6 @@ def calculate_attr_combinations(table: TableSelector, attr: Attribute):
             continue
         dom = CatValue.get_domain_multiple(
             list(sel.values()),
-            attr.common,
             [cast(CatValue, attr[n]) for n in sel],
         )
         deps = tuple(sel)
@@ -503,7 +502,6 @@ def greedy_bayes(
                                     if isinstance(cmn, CatValue):
                                         full_dom = cmn.get_domain_multiple(
                                             [*val_sel.values(), 0],
-                                            cmn,
                                             [
                                                 *[cast(CatValue, attr[v]) for v in val_sel],
                                                 cast(CatValue, attr[x]),
