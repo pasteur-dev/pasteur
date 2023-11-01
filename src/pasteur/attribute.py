@@ -639,8 +639,7 @@ class Attribute:
                     # For stratified values we traverse the tree and check if it matches
                     assert _groups_match(common.head, v.head)
                 else:
-                    for h in range(common.height + 1):
-                        assert v.get_domain(v.height - h) == common.get_domain(h)
+                    assert v.get_domain(v.height - 1) == common.domain
 
     def _str_pref(self):
         flags = []

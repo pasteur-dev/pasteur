@@ -6,7 +6,7 @@ with Differential Privacy.
 import logging
 from itertools import combinations
 from math import ceil, log
-from typing import Any, TypeVar, cast
+from typing import Any, Sequence, TypeVar, cast
 
 import numpy as np
 
@@ -264,13 +264,13 @@ def make_grouping(
     This also means that the minimum domain of this column will be `common + 1`.
     """
 
-    cmn = len(common) if common else 0
+    cmn = len(common) if common else 2
     tree = create_tree(head, common)
     n = head.get_domain(0)
-    grouping = np.empty((n - cmn, n), dtype=get_dtype(n))
+    grouping = np.empty((n - cmn + 1, n), dtype=get_dtype(n))
     create_node_to_group_map(tree, grouping[0, :])
 
-    for i in range(1, n - cmn):
+    for i in range(1, n - cmn + 1):
         node, a, b, _ = find_smallest_group(counts, tree)
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
@@ -307,7 +307,7 @@ def generate_domain_list(
     new_domains = []
 
     if common != 0:
-        new_domains.append(common + 1)
+        new_domains.append(common)
 
     for i, dom in enumerate(fixed):
         if dom >= max_domain:
@@ -343,6 +343,8 @@ class RebalancedValue(CatValue):
         c: float | None = None,
         **_,
     ) -> None:
+        self.original = col
+
         self.name = col.name
         self.counts = counts
         self.common = col.common
@@ -355,7 +357,7 @@ class RebalancedValue(CatValue):
             domains = generate_domain_list(
                 max_domain, self.common.domain if self.common else 0, u, fixed
             )
-
+            self.domains = domains
             self.height_to_grouping = [max_domain - dom for dom in reversed(domains)]
 
         else:
@@ -432,6 +434,27 @@ class RebalancedValue(CatValue):
             upsampled[mask] = np.random.choice(group_idx, p=p, size=(group_size,))
 
         return upsampled
+
+    @staticmethod
+    def get_domain_multiple(
+        heights: Sequence[int], common: CatValue | None, vals: Sequence[CatValue]
+    ):
+        groups = []
+        for v in vals:
+            if isinstance(v, StratifiedValue):
+                groups.append(v.head)
+            elif isinstance(v, RebalancedValue):
+                groups.append(v.original.head)
+        assert len(groups) == len(heights)
+
+        vc = None
+        if common is not None:
+            if isinstance(common, StratifiedValue):
+                vc = common.head
+            elif isinstance(common, RebalancedValue):
+                vc = common.original.head
+
+        return Grouping.get_domain_multiple(heights, vc, groups)
 
 
 def rebalance_attributes(

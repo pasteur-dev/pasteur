@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 from math import ceil
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import pandas as pd
 
+from ....marginal.oracle import counts_preprocess
+
 from ....attribute import Attributes, DatasetAttributes
 from ....mare.synth import MareModel
-from ....marginal import MarginalOracle
+from ....marginal import MarginalOracle, PreprocessFun, PostprocessFun
 from ....marginal.numpy import TableSelector
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
@@ -58,7 +60,7 @@ class PrivBayesMare(MareModel):
             self.use_r,
             self.unbounded_dp,
             self.random_init,
-            prefer_table=table
+            prefer_table=table,
         )
 
         # Nodes are a tuple of a x attribute
@@ -152,32 +154,36 @@ class PrivBayesSynth(Synth):
         _, tables = data_to_tables(data)
         table_name = next(iter(tables.keys()))
         table = tables[table_name]
-        table_attrs = attrs[table_name]
-        self.table_attrs = table_attrs
 
         self._n = table.shape[0]
         self._partitions = len(table)
         self.attrs = attrs
+        self.table_name = table_name
 
-        # if self.rebalance:
-        #     with MarginalOracle(
-        #         data,  # type: ignore
-        #         table_attrs,
-        #         mode=self.marginal_mode,
-        #         min_chunk_size=self.marginal_min_chunk,
-        #         max_worker_mult=self.marginal_worker_mult,
-        #     ) as o:
-        #         counts = o.get_counts(desc="Calculating counts for column rebalancing")
+        if self.rebalance:
+            with MarginalOracle(
+                data,  # type: ignore
+                attrs,
+                mode=self.marginal_mode,
+                min_chunk_size=self.marginal_min_chunk,
+                max_worker_mult=self.marginal_worker_mult,
+                preprocess=counts_preprocess,
+            ) as o:
+                counts = o.get_counts(desc="Calculating counts for column rebalancing")
 
-        #     self.attrs = rebalance_attributes(
-        #         counts[None],
-        #         table_attrs,
-        #         self.ep,
-        #         unbounded_dp=self.unbounded_dp,
-        #         **self.kwargs,
-        #     )
-        # else:
-        #     self.attrs = table_attrs
+            self.attrs = {
+                k: rebalance_attributes(
+                    counts[k],
+                    v,
+                    unbounded_dp=self.unbounded_dp,
+                    **self.kwargs,
+                )
+                for k, v in attrs.items()
+            }
+        else:
+            self.attrs = attrs
+
+        self.table_attrs: DatasetAttributes = {None: self.attrs[table_name]}
 
     @make_deterministic
     def bake(self, data: dict[str, LazyFrame]):
@@ -192,7 +198,7 @@ class PrivBayesSynth(Synth):
 
         with MarginalOracle(
             data,  # type: ignore
-            self.attrs[table_name],
+            self.table_attrs,
             mode=self.marginal_mode,
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
@@ -201,7 +207,7 @@ class PrivBayesSynth(Synth):
             # Fit network
             nodes, t = greedy_bayes(
                 oracle,
-                {None: self.table_attrs},
+                self.table_attrs,
                 table.shape[0],
                 self.e1,
                 self.e2,
@@ -252,7 +258,11 @@ class PrivBayesSynth(Synth):
             n = self.n
         tables = {
             self.table_name: sample_rows(
-                pd.RangeIndex(n), {None: self.attrs[self.table_name]}, {}, self.nodes, self.marginals
+                pd.RangeIndex(n),
+                {None: self.attrs[self.table_name]},
+                {},
+                self.nodes,
+                self.marginals,
             )
         }
         ids = {self.table_name: pd.DataFrame()}

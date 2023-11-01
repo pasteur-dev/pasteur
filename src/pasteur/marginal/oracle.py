@@ -1,3 +1,4 @@
+from collections import defaultdict
 import logging
 from typing import (
     Callable,
@@ -72,6 +73,12 @@ class PreprocessFun(Protocol):
 class PostprocessFun(Protocol, Generic[A]):
     def __call__(self, req: AttrSelectors, mar: np.ndarray, info: CalculationInfo) -> A:
         ...
+
+
+def counts_preprocess(
+    data: Mapping[str, LazyPartition]
+) -> dict[TableSelector, pd.DataFrame]:
+    return {k: v() for k, v in data.items() if not k.startswith("ids_")}
 
 
 def _tabular_load(
@@ -499,11 +506,11 @@ class MarginalOracle:
 
         count_arr = self.process(reqs, desc=desc)  # type: ignore
 
-        self.counts = {v: {} for v in self.attrs}
+        self.counts = defaultdict(dict)
         for (table, name), count in zip(cols, count_arr):
             self.counts[table][name] = count
 
-        return self.counts
+        return dict(self.counts)
 
     def close(self):
         if self.log:
