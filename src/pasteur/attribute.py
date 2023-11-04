@@ -105,13 +105,25 @@ class Grouping(list["Grouping | str"]):
 
     @staticmethod
     def get_domain_multiple(
-        heights: Sequence[int], common: "Grouping | None", groups: Sequence["Grouping"]
+        heights: Sequence[int],
+        common: "Grouping | None",
+        groups: Sequence["Grouping | str"],
     ):
-        return len(
-            Grouping._get_groups_by_level_multiple(
-                [g.height - 1 - h for h, g in zip(heights, groups)], common, groups
-            )[0]
-        )
+        if common:
+            dom = 0
+            for i, c in enumerate(common):
+                dom += Grouping.get_domain_multiple(
+                    heights,
+                    c if isinstance(c, Grouping) else None,
+                    [g[i] for g in groups],
+                )
+        else:
+            dom = 1
+            for g in groups:
+                if isinstance(g, Grouping):
+                    dom *= g.domain
+
+        return dom
 
     def _get_groups_by_level(
         self, lvl: int, common: "Grouping | None" = None, ofs: int = 0
@@ -387,9 +399,7 @@ class CatValue(Value):
         return 0
 
     @staticmethod
-    def get_domain_multiple(
-        heights: Sequence[int], vals: Sequence["CatValue"]
-    ):
+    def get_domain_multiple(heights: Sequence[int], vals: Sequence["CatValue"]):
         for v in vals:
             if v:
                 try:
@@ -445,9 +455,7 @@ class StratifiedValue(CatValue):
         return self.head.get_height(self.common)
 
     @staticmethod
-    def get_domain_multiple(
-        heights: Sequence[int], vals: Sequence[CatValue]
-    ):
+    def get_domain_multiple(heights: Sequence[int], vals: Sequence[CatValue]):
         invalid = None
         for v in vals:
             if v and not isinstance(v, StratifiedValue):
@@ -590,7 +598,6 @@ def _groups_match(main: Grouping, other: Grouping):
 def CommonValue(
     name: str, na: bool = False, ukn_val: Any | None = None, normal_name: str = "Normal"
 ):
-
     vals = []
     if na:
         vals.append(None)

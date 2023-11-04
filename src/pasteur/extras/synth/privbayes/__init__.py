@@ -2,18 +2,26 @@ from __future__ import annotations
 
 import logging
 from math import ceil
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import pandas as pd
 
-from ....marginal.oracle import counts_preprocess
-
-from ....attribute import Attributes, DatasetAttributes
+from ....attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
+from ....hierarchy import rebalance_attributes
 from ....mare.synth import MareModel
-from ....marginal import MarginalOracle, PreprocessFun, PostprocessFun
+from ....marginal import MarginalOracle, PostprocessFun, PreprocessFun
 from ....marginal.numpy import TableSelector
+from ....marginal.oracle import counts_preprocess
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
+from .implementation import (
+    MAX_EPSILON,
+    Node,
+    calc_noisy_marginals,
+    greedy_bayes,
+    print_tree,
+    sample_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -148,8 +156,6 @@ class PrivBayesSynth(Synth):
     def preprocess(
         self, meta: dict[str | None, Attributes], data: dict[str, LazyFrame]
     ):
-        from ....hierarchy import rebalance_attributes
-
         attrs = meta
         _, tables = data_to_tables(data)
         table_name = next(iter(tables.keys()))
@@ -189,8 +195,6 @@ class PrivBayesSynth(Synth):
 
     @make_deterministic
     def bake(self, data: dict[str, LazyFrame]):
-        from .implementation import greedy_bayes
-
         _, tables = data_to_tables(data)
 
         assert len(tables) == 1, "Only tabular data supported for now"
@@ -227,8 +231,6 @@ class PrivBayesSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
-        from .implementation import MAX_EPSILON, calc_noisy_marginals
-
         _, tables = data_to_tables(data)
         table = tables[self.table_name]
         self.partitions = len(table)
@@ -254,8 +256,6 @@ class PrivBayesSynth(Synth):
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
         import pandas as pd
 
-        from .implementation import sample_rows
-
         if n is None:
             n = self.n
         tables = {
@@ -272,8 +272,6 @@ class PrivBayesSynth(Synth):
         return tables_to_data(ids, tables)
 
     def __str__(self) -> str:
-        from .implementation import print_tree
-
         return print_tree(
             {None: self.attrs[self.table_name]},
             self.nodes,
@@ -282,3 +280,78 @@ class PrivBayesSynth(Synth):
             self.theta,
             self.t,
         )
+
+
+def derive_graph_from_nodes(nodes: Sequence[Node], attrs: DatasetAttributes):
+    import networkx as nx
+
+    get_name = (
+        lambda table, attr, val: f"{table}_{attr}_{val}" if table else f"{attr}_{val}"
+    )
+
+    g = nx.DiGraph()
+    for name, attr in cast(Attributes, attrs[None]).items():
+        cmn = attr.common.name if attr.common else None
+        if cmn:
+            g.add_node(
+                get_name(None, name, cmn), table=None, attr=name, value=cmn, heights={}
+            )
+
+        for v in attr.vals.values():
+            g.add_node(
+                get_name(None, name, v.name),
+                table=None,
+                attr=name,
+                value=v.name,
+                heights={},
+            )
+            if cmn:
+                val_name = get_name(None, name, v.name)
+                cmn_name = get_name(None, name, cmn)
+
+                g.add_edge(cmn_name, val_name)
+                g.nodes[cmn_name]["heights"][val_name] = 0
+                g.nodes[val_name]["heights"][cmn_name] = (
+                    cast(CatValue, attr.vals[v.name]).height - 1
+                )
+
+    for node in nodes:
+        for parent in node.p:
+            node_name = get_name(None, node.attr, node.value)
+            if len(parent) == 3:
+                table, aname, sel = parent
+            else:
+                table = None
+                aname, sel = parent
+
+            if isinstance(sel, int):
+                if isinstance(table, tuple):
+                    cmn = (
+                        cast(SeqAttributes, attrs[table[0]])
+                        .hist[table[1]][aname]
+                        .common
+                    )
+                else:
+                    tattrs = attrs[table]
+                    if isinstance(tattrs, SeqAttributes):
+                        assert tattrs.attrs
+                        cmn = tattrs.attrs[aname].common
+                    else:
+                        cmn = tattrs[aname].common
+
+                assert cmn
+                cmn = cmn.name
+                cmn_name = get_name(table, aname, cmn)
+
+                g.add_edge(cmn_name, node_name)
+                g.nodes[cmn_name]["heights"][node_name] = sel
+                g.nodes[node_name]["heights"][cmn_name] = 0
+            else:
+                for k, v in sel.items():
+                    other_name = get_name(table, aname, k)
+
+                    g.add_edge(other_name, node_name)
+                    g.nodes[other_name]["heights"][node_name] = v
+                    g.nodes[node_name]["heights"][other_name] = 0
+
+    return g
