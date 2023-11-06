@@ -24,8 +24,6 @@ def to_moral(g: nx.DiGraph, to_undirected=True):
             h.edges[descendent, a]["immoral"] = True
             h.edges[descendent, b]["immoral"] = True
             h.add_edge(a, b, immorality=True)
-            h.nodes[a]["heights"][b] = h.nodes[a]["heights"][descendent]
-            h.nodes[b]["heights"][a] = h.nodes[b]["heights"][descendent]
     return h
 
 
@@ -49,19 +47,13 @@ def elimination_order_greedy(
             # @Warning: traversing set, code might not be reproducible
             new_factor = set(chain.from_iterable(cls))
 
-            heights = {}
-            for var in new_factor:
-                for n, h in g.nodes[var]["heights"].items():
-                    if n in new_factor and (var not in heights or h < heights[var]):
-                        heights[var] = h
-
             sels = defaultdict(dict)
             for var in new_factor:
                 table = g.nodes[var]["table"]
                 attr = g.nodes[var]["attr"]
                 val = g.nodes[var]["value"]
-                h = heights.get(var, 0)
-                sels[(table, attr)][val] = h
+                height = g.nodes[var]["height"]
+                sels[(table, attr)][val] = height
 
             dom = 1
             for (table, attr), sel in sels.items():
@@ -98,8 +90,6 @@ def elimination_order_greedy(
                 # Apply operations in both the
                 for k in (g, triangulated):
                     k.add_edge(a, b, triangulated=True)
-                    k.nodes[a]["heights"][b] = k.nodes[a]["heights"][popped]
-                    k.nodes[b]["heights"][a] = k.nodes[b]["heights"][popped]
 
         if display:
             logger.info(f"Removing node `{popped}` with cost: {costs[idx]:_d}")

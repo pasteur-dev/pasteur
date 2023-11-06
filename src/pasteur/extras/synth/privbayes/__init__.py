@@ -1,4 +1,5 @@
 from __future__ import annotations
+from itertools import chain
 
 import logging
 from math import ceil
@@ -282,55 +283,94 @@ class PrivBayesSynth(Synth):
         )
 
 
-def derive_graph_from_nodes(nodes: Sequence[Node], attrs: DatasetAttributes):
+def derive_graph_from_nodes(
+    nodes: Sequence[Node], attrs: DatasetAttributes, prune: bool = True
+):
     import networkx as nx
 
-    get_name = (
-        lambda table, attr, val: f"{table}_{attr}_{val}" if table else f"{attr}_{val}"
-    )
+    def get_name(table, order, attr, val, height):
+        out = ""
+        if table:
+            out += table
+            if order is not None:
+                out += f"[{order}]"
+            out += "_"
+        out += f"{attr}.{val}[{height}]"
+        return out
 
     g = nx.DiGraph()
-    for name, attr in cast(Attributes, attrs[None]).items():
-        cmn = attr.common.name if attr.common else None
-        if cmn:
-            g.add_node(
-                get_name(None, name, cmn), table=None, attr=name, value=cmn, heights={}
-            )
+    commons = {}
+    max_heights = {}
+    for table, tattrs in attrs.items():
+        if isinstance(tattrs, SeqAttributes):
+            attr_sets = {**tattrs.hist, None: tattrs.attrs}
+        else:
+            attr_sets = {None: tattrs}
 
-        for v in attr.vals.values():
-            g.add_node(
-                get_name(None, name, v.name),
-                table=None,
-                attr=name,
-                value=v.name,
-                heights={},
-            )
-            if cmn:
-                val_name = get_name(None, name, v.name)
-                cmn_name = get_name(None, name, cmn)
+        for order, attr_set in attr_sets.items():
+            for name, attr in attr_set.items():
+                cmn = attr.common
+                if cmn:
+                    commons[(table, order, name)] = cmn.name
+                    for h in range(cmn.height):
+                        g.add_node(
+                            get_name(table, order, name, cmn.name, h),
+                            table=table,
+                            order=order,
+                            attr=name,
+                            value=cmn.name,
+                            height=h,
+                        )
+                        if h:
+                            g.add_edge(
+                                get_name(table, order, name, cmn.name, h),
+                                get_name(table, order, name, cmn.name, h - 1),
+                            )
 
-                g.add_edge(cmn_name, val_name)
-                g.nodes[cmn_name]["heights"][val_name] = 0
-                g.nodes[val_name]["heights"][cmn_name] = (
-                    cast(CatValue, attr.vals[v.name]).height - 1
-                )
+                for v in attr.vals.values():
+                    if not isinstance(v, CatValue):
+                        continue
+
+                    h_range = v.height if cmn is None else v.height - 1
+                    max_heights[(table, order, name, v.name)] = h_range - 1
+                    for h in range(h_range):
+                        g.add_node(
+                            get_name(table, order, name, v.name, h),
+                            table=table,
+                            order=order,
+                            attr=name,
+                            value=v.name,
+                            height=h,
+                        )
+
+                        if h:
+                            g.add_edge(
+                                get_name(table, order, name, v.name, h),
+                                get_name(table, order, name, v.name, h - 1),
+                            )
+
+                    if cmn:
+                        g.add_edge(
+                            get_name(table, order, name, cmn.name, 0),
+                            get_name(table, order, name, v.name, v.height - 2),
+                        )
 
     for node in nodes:
         for parent in node.p:
-            node_name = get_name(None, node.attr, node.value)
+            node_name = get_name(None, None, node.attr, node.value, 0)
+            order = None
             if len(parent) == 3:
                 table, aname, sel = parent
+                if isinstance(table, tuple):
+                    order = table[1]
+                    table = table[0]
             else:
                 table = None
                 aname, sel = parent
 
             if isinstance(sel, int):
-                if isinstance(table, tuple):
-                    cmn = (
-                        cast(SeqAttributes, attrs[table[0]])
-                        .hist[table[1]][aname]
-                        .common
-                    )
+                if table and order is not None:
+                    cmn = cast(SeqAttributes, attrs[table]).hist[order][aname].common
                 else:
                     tattrs = attrs[table]
                     if isinstance(tattrs, SeqAttributes):
@@ -341,17 +381,54 @@ def derive_graph_from_nodes(nodes: Sequence[Node], attrs: DatasetAttributes):
 
                 assert cmn
                 cmn = cmn.name
-                cmn_name = get_name(table, aname, cmn)
+                cmn_name = get_name(table, order, aname, cmn, sel)
 
                 g.add_edge(cmn_name, node_name)
-                g.nodes[cmn_name]["heights"][node_name] = sel
-                g.nodes[node_name]["heights"][cmn_name] = 0
             else:
                 for k, v in sel.items():
-                    other_name = get_name(table, aname, k)
+                    other_name = get_name(table, order, aname, k, v)
 
                     g.add_edge(other_name, node_name)
-                    g.nodes[other_name]["heights"][node_name] = v
-                    g.nodes[node_name]["heights"][other_name] = 0
+
+    if prune:
+        for node, d in list(g.nodes(data=True)):
+            if not d["height"]:
+                continue  # keep all height 0 nodes
+
+            next_neighbor = None
+            prev_neighbor = None
+            prune_node = True
+            for neighbor in chain(g.successors(node), g.predecessors(node)):
+                nd = g.nodes[neighbor]
+
+                # Prune all nodes where their only neighbor is a different height
+                # of their value
+                if (
+                    d["table"] != nd["table"]
+                    or d["order"] != nd["order"]
+                    or d["attr"] != nd["attr"]
+                ):
+                    prune_node = False
+                elif d["value"] != nd["value"]:
+                    if (
+                        commons.get((d["table"], d["order"], d["attr"]), None)
+                        == nd["value"]
+                        and d["height"]
+                        == max_heights[(d["table"], d["order"], d["attr"], d["value"])]
+                    ):
+                        prev_neighbor = neighbor
+                    else:
+                        prune_node = False
+                elif d["height"] < nd["height"]:
+                    prev_neighbor = neighbor
+                else:
+                    next_neighbor = neighbor
+
+            if prune_node:
+                g.remove_node(node)
+                if next_neighbor is not None and prev_neighbor is not None:
+                    g.add_edge(prev_neighbor, next_neighbor)
+                else:
+                    pass
 
     return g
