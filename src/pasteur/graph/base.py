@@ -1,13 +1,17 @@
+import logging
 from collections import defaultdict
 from copy import deepcopy
 from itertools import chain, combinations
+from time import perf_counter
 from typing import cast
 
 import networkx as nx
 import numpy as np
 
 from ..attribute import CatValue, DatasetAttributes
-from time import perf_counter
+from .utils import enchanced_display
+
+logger = logging.getLogger(__name__)
 
 
 def to_moral(g: nx.DiGraph, to_undirected=True):
@@ -26,12 +30,16 @@ def to_moral(g: nx.DiGraph, to_undirected=True):
 
 
 def elimination_order_greedy(
-    g: nx.Graph, attrs: DatasetAttributes, stochastic: bool = False
+    g: nx.Graph,
+    attrs: DatasetAttributes,
+    stochastic: bool = False,
+    display: bool = False,
 ):
-    g = g.copy()
+    triangulated = deepcopy(g)
+    g = deepcopy(g)
+
     order = []
     total_cost = 0
-
     for _ in range(len(g)):
         costs = []
 
@@ -87,24 +95,36 @@ def elimination_order_greedy(
         popped = unmarked[idx]
         for a, b in combinations(g[popped], 2):
             if not g.has_edge(a, b):
-                g.add_edge(a, b)
-                g.nodes[a]["heights"][b] = g.nodes[a]["heights"][popped]
-                g.nodes[b]["heights"][a] = g.nodes[b]["heights"][popped]
+                # Apply operations in both the
+                for k in (g, triangulated):
+                    k.add_edge(a, b, triangulated=True)
+                    k.nodes[a]["heights"][b] = k.nodes[a]["heights"][popped]
+                    k.nodes[b]["heights"][a] = k.nodes[b]["heights"][popped]
+
+        if display:
+            logger.info(f"Removing node `{popped}` with cost: {costs[idx]:_d}")
+            g.nodes[popped]["marked"] = True
+            enchanced_display(g)
         g.remove_node(popped)
-        # enchanced_display(g)
         order.append(popped)
 
-    return order, total_cost
+    if display:
+        logger.info(f"Final cordal graph with cost {total_cost}:")
+        enchanced_display(triangulated)
+        logger.info(f"Elimination order:\n{order}")
+
+    return order, triangulated, total_cost
 
 
 def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10):
     start = perf_counter()
-    min_order, min_cost = elimination_order_greedy(g, attrs, False)
+    min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False)
 
     while perf_counter() - start < max_time:
-        order, cost = elimination_order_greedy(g, attrs, True)
+        order, triag, cost = elimination_order_greedy(g, attrs, True)
         if cost < min_cost:
             min_order = order
             min_cost = cost
+            min_triag = triag
 
-    return min_order, min_cost
+    return min_order, min_triag, min_cost

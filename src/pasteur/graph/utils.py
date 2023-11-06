@@ -25,7 +25,14 @@ def enchanced_display(g):
         else:
             label += data["value"]
 
-        o.add_node(name, label=label)
+        new_data = {
+            "label": label
+        }
+
+        if data.get('marked', False):
+            new_data['color'] = 'green'
+
+        o.add_node(name, **new_data)
 
     for a, b, data in g.edges(data=True):
         h_a = g.nodes[a]["heights"][b]
@@ -40,6 +47,8 @@ def enchanced_display(g):
             new_data["color"] = "red"
         if data.get("immoral", False):
             new_data["color"] = "blue"
+        if data.get("triangulated", False):
+            new_data["color"] = "green"
         o.add_edge(a, b, **new_data)
 
     display_graph(o, edges={"labeldistance": 1.5})
