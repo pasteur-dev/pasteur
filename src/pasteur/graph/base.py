@@ -53,6 +53,9 @@ def elimination_order_greedy(
                 attr = g.nodes[var]["attr"]
                 val = g.nodes[var]["value"]
                 height = g.nodes[var]["height"]
+                
+                if (table, attr) in sels and val in sels[(table, attr)]:
+                    height = min(sels[(table, attr)][val], height)
                 sels[(table, attr)][val] = height
 
             dom = 1
