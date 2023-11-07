@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 import networkx as nx
 from IPython.core.display import display, SVG
 
@@ -172,27 +172,19 @@ def display_junction_tree(
 
     o = pydot.Dot(graph_type="graph")
 
-    for cl, data in junction.nodes(data=True):
-        cl_attrs = defaultdict(dict)
-        for node in cl:
-            d = g.nodes[node]
-            if d["value"] not in cl_attrs[(d["table"], d["order"], d["attr"])]:
-                cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]] = d["height"]
-            else:
-                cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]] = min(
-                    d["height"],
-                    cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]],
-                )
-
+    for cl in junction.nodes():
         label = '<<TABLE CELLBORDER="1" BORDER="0">'
-        for attr, vals in cl_attrs.items():
-            if len(vals) > 1:
-                label += f'<TR><TD COLSPAN="2"><B>{attr[-1]}</B></TD></TR>'
-                for val, h in sorted(vals.items(), key=lambda a: a[0]):
-                    label += f'<TR><TD ALIGN="LEFT">{val}</TD><TD>{h}</TD></TR>'
-            else:
-                val, h = next(iter(vals.items()))
+        for table, order, attr, sel in cl:
+            # @TODO: Integrate table meta into figure
+            if isinstance(sel, int):
+                label += f'<TR><TD ALIGN="LEFT"><B>{attr}</B></TD><TD>{sel}</TD></TR>'
+            elif len(sel) == 1:
+                val, h = next(iter(sel))
                 label += f'<TR><TD ALIGN="LEFT"><B>{val}</B></TD><TD>{h}</TD></TR>'
+            else:
+                label += f'<TR><TD COLSPAN="2"><B>{attr}</B></TD></TR>'
+                for val, h in sorted(sel):
+                    label += f'<TR><TD ALIGN="LEFT">{val}</TD><TD>{h}</TD></TR>'
 
         label += "</TABLE>>"
 

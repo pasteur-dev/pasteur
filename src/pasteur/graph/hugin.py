@@ -180,8 +180,8 @@ def get_junction_tree(
 
     for a, b in combinations(nx.find_cliques(triangulated), 2):
         full_tree.add_edge(
-            tuple(sorted(a)),
-            tuple(sorted(b)),
+            create_clique_meta(a, triangulated, attrs),
+            create_clique_meta(b, triangulated, attrs),
             common=len(set(a) & set(b)),
             domain=get_factor_domain(set(a) & set(b), triangulated, attrs),
         )
