@@ -153,5 +153,39 @@ def display_induced_graph(g, condensed=True):
 
     display_pydot(o, edges={"labeldistance": 1.5})
 
-def display_junction_tree(tree: nx.Graph, g: nx.Graph | nx.DiGraph):
-    pass
+
+def display_junction_tree(junction: nx.Graph, g: nx.Graph | nx.DiGraph):
+    import pydot
+
+    o = pydot.Dot(graph_type="graph")
+
+    for cl, data in junction.nodes(data=True):
+        cl_attrs = defaultdict(dict)
+        for node in cl:
+            d = g.nodes[node]
+            if d["value"] not in cl_attrs[(d["table"], d["order"], d["attr"])]:
+                cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]] = d["height"]
+            else:
+                cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]] = min(
+                    d["height"],
+                    cl_attrs[(d["table"], d["order"], d["attr"])][d["value"]],
+                )
+
+        label = '<<TABLE CELLBORDER="1" BORDER="0">'
+        for attr, vals in cl_attrs.items():
+            if len(vals) > 1:
+                label += f'<TR><TD COLSPAN="2"><B>{attr[-1]}</B></TD></TR>'
+                for val, h in sorted(vals.items(), key=lambda a: a[0]):
+                    label += f'<TR><TD ALIGN="LEFT">{val}</TD><TD>{h}</TD></TR>'
+            else:
+                val, h = next(iter(vals.items()))
+                label += f'<TR><TD ALIGN="LEFT"><B>{val}</B></TD><TD>{h}</TD></TR>'
+
+        label += "</TABLE>>"
+
+        o.add_node(pydot.Node(str(cl), label=label, shape="plaintext"))
+
+    for a, b, d in junction.edges(data=True):
+        o.add_edge(pydot.Edge(str(a), str(b), label=f"{d['common']} ({d['domain']:,d})"))
+
+    display_pydot(o, "dot")
