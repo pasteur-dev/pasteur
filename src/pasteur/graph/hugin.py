@@ -3,15 +3,65 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import chain, combinations
 from time import perf_counter
-from typing import Collection, Literal, cast
+from typing import Collection, Literal, NamedTuple, cast
 
 import networkx as nx
 import numpy as np
 
-from ..attribute import CatValue, DatasetAttributes
+from ..attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
 from .utils import display_induced_graph
 
 logger = logging.getLogger(__name__)
+
+
+class AttrMeta(NamedTuple):
+    table: str | None
+    order: int | None
+    attr: str | tuple[str, ...]
+    sel: int | tuple[tuple[str, int], ...]
+
+
+CliqueMeta = tuple[AttrMeta, ...]
+
+
+def create_clique_meta(cl: Collection[str], g: nx.Graph, attrs: DatasetAttributes) -> CliqueMeta:
+    """Creates a hashable metadata holder for tuples with a fixed ordering."""
+
+    sels = defaultdict(dict)
+    for var in cl:
+        table = g.nodes[var]["table"]
+        order = g.nodes[var]["order"]
+        attr = g.nodes[var]["attr"]
+        val = g.nodes[var]["value"]
+        height = g.nodes[var]["height"]
+
+        if (table, order, attr) in sels and val in sels[(table, order, attr)]:
+            height = min(sels[(table, order, attr)][val], height)
+        sels[(table, order, attr)][val] = height
+
+    out = []
+    for (table, order, attr_name), sel in sels.items():
+        if order is not None:
+            tattrs = cast(SeqAttributes, attrs[table]).hist[order]
+        else:
+            tattrs = attrs[table]
+            if isinstance(tattrs, SeqAttributes):
+                tattrs = cast(Attributes, tattrs.attrs)
+
+        attr = tattrs[attr_name]
+        if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
+            new_sel = sel[attr.common.name]
+        else:
+            cmn = attr.common.name if attr.common else None
+            new_sel = []
+            for val, h in sel.items():
+                if val == cmn:
+                    continue # skip common
+                new_sel.append((val, h))
+            new_sel = tuple(sorted(new_sel))
+        out.append(AttrMeta(table, order, attr_name, new_sel))
+
+    return tuple(sorted(out, key=lambda x: x[:-1]))
 
 
 def to_moral(g: nx.DiGraph, to_undirected=True):
@@ -28,33 +78,26 @@ def to_moral(g: nx.DiGraph, to_undirected=True):
 
 
 def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttributes):
-    sels = defaultdict(dict)
-    for var in factor:
-        table = g.nodes[var]["table"]
-        attr = g.nodes[var]["attr"]
-        val = g.nodes[var]["value"]
-        height = g.nodes[var]["height"]
-
-        if (table, attr) in sels and val in sels[(table, attr)]:
-            height = min(sels[(table, attr)][val], height)
-        sels[(table, attr)][val] = height
+    meta = create_clique_meta(factor, g, attrs)
 
     dom = 1
-    for (table, attr), sel in sels.items():
-        cmn = attrs[table][attr].common
-        if cmn and cmn.name in sel and len(sel) > 1:
-            sel = dict(sel)
-            sel.pop(cmn.name)
-            dom *= CatValue.get_domain_multiple(
-                list(sel.values()),
-                [cast(CatValue, attrs[table][attr][v]) for v in sel.keys()],
-            )
-        elif cmn and cmn.name in sel:
-            dom *= cmn.get_domain(sel[cmn.name])
+    for table, order, attr_name, sel in meta:
+        if order is not None:
+            tattrs = cast(SeqAttributes, attrs[table]).hist[order]
+        else:
+            tattrs = attrs[table]
+            if isinstance(tattrs, SeqAttributes):
+                tattrs = cast(Attributes, tattrs.attrs)
+        attr = tattrs[attr_name]
+        cmn = attr.common
+
+        if isinstance(sel, int):
+            assert cmn
+            dom *= cmn.get_domain(sel)
         else:
             dom *= CatValue.get_domain_multiple(
-                list(sel.values()),
-                [cast(CatValue, attrs[table][attr][v]) for v in sel.keys()],
+                [v[1] for v in sel],
+                [cast(CatValue, attr[v[0]]) for v in sel],
             )
 
     return dom
@@ -144,6 +187,7 @@ def get_junction_tree(
         )
 
     return nx.maximum_spanning_tree(full_tree, weight=metric)
+
 
 def get_message_passing_order(junction: nx.Graph):
     # The messages that need to be sent are
