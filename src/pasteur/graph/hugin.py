@@ -144,3 +144,20 @@ def get_junction_tree(
         )
 
     return nx.maximum_spanning_tree(full_tree, weight=metric)
+
+def get_message_passing_order(junction: nx.Graph):
+    # The messages that need to be sent are
+    # all directed versions of the junction tree edges
+    messages = nx.DiGraph()
+    for a, b in junction.edges:
+        messages.add_node((a, b))
+        messages.add_node((b, a))
+
+    # In order for the message a -> b to be sent,
+    # all n -> a messages need to have been received (other than b -> a)
+    for a, b in messages.nodes:
+        for n in junction.neighbors(a):
+            if b != n:
+                messages.add_edge((n, a), (a, b))
+
+    return tuple(nx.topological_generations(messages))

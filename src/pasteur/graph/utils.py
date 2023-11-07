@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Sequence
 import networkx as nx
 from IPython.core.display import display, SVG
 
@@ -154,8 +155,20 @@ def display_induced_graph(g, condensed=True):
     display_pydot(o, edges={"labeldistance": 1.5})
 
 
-def display_junction_tree(junction: nx.Graph, g: nx.Graph | nx.DiGraph):
+def display_junction_tree(
+    junction: nx.Graph,
+    g: nx.Graph | nx.DiGraph,
+    messages: Sequence[Sequence] | None = None,
+):
     import pydot
+
+    if messages:
+        message_order = {}
+        for i, generation in enumerate(messages):
+            for message in generation:
+                message_order[message] = i + 1
+    else:
+        message_order = None
 
     o = pydot.Dot(graph_type="graph")
 
@@ -186,6 +199,13 @@ def display_junction_tree(junction: nx.Graph, g: nx.Graph | nx.DiGraph):
         o.add_node(pydot.Node(str(cl), label=label, shape="plaintext"))
 
     for a, b, d in junction.edges(data=True):
-        o.add_edge(pydot.Edge(str(a), str(b), label=f"{d['common']} ({d['domain']:,d})"))
+        new_data = {"label": f"{d['common']} ({d['domain']:,d})"}
 
-    display_pydot(o, "dot")
+        if message_order:
+            new_data["dir"] = "both"
+            new_data["taillabel"] = f"<<B>{message_order[(b, a)]}</B>>"
+            new_data["headlabel"] = f"<<B>{message_order[(a, b)]}</B>>"
+
+        o.add_edge(pydot.Edge(str(a), str(b), **new_data))
+
+    display_pydot(o, edges={"labeldistance": 1.5})
