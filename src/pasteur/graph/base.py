@@ -9,7 +9,7 @@ import networkx as nx
 import numpy as np
 
 from ..attribute import CatValue, DatasetAttributes
-from .utils import enchanced_display
+from .utils import display_induced_graph
 
 logger = logging.getLogger(__name__)
 
@@ -97,13 +97,13 @@ def elimination_order_greedy(
         if display:
             logger.info(f"Removing node `{popped}` with cost: {costs[idx]:_d}")
             g.nodes[popped]["marked"] = True
-            enchanced_display(g)
+            display_induced_graph(g)
         g.remove_node(popped)
         order.append(popped)
 
     if display:
         logger.info(f"Final cordal graph with cost {total_cost}:")
-        enchanced_display(triangulated)
+        display_induced_graph(triangulated)
         logger.info(f"Elimination order:\n{order}")
 
     return order, triangulated, total_cost

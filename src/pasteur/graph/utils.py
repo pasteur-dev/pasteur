@@ -18,7 +18,7 @@ def display_pydot(g, prog="dot", graph={}, nodes={}, edges={}):
     display(SVG(g.create(format="svg", prog=[prog, *args])))
 
 
-def enchanced_display(g, condensed=True):
+def display_induced_graph(g, condensed=True):
     import pydot
 
     if g.is_directed():
@@ -152,3 +152,6 @@ def enchanced_display(g, condensed=True):
         dst.add_edge(pydot.Edge(a, b, **new_data))
 
     display_pydot(o, edges={"labeldistance": 1.5})
+
+def display_junction_tree(tree: nx.Graph, g: nx.Graph | nx.DiGraph):
+    pass
