@@ -4,7 +4,7 @@ with Differential Privacy.
 @TODO: Documentation."""
 
 import logging
-from itertools import combinations
+from itertools import combinations, product
 from math import ceil, log
 from typing import Any, Sequence, TypeVar, cast
 
@@ -41,7 +41,8 @@ def create_tree(
 ) -> CommonNode | OrdNode | CatNode:
     """Receives the top node of the tree of a hierarchical attribute and
     converts it into the same tree structure, where the leaves have been
-    replaced by bucket groups, with each bucket group containing the node it replaced."""
+    replaced by bucket groups, with each bucket group containing the node it replaced.
+    """
     if n is None:
         n = node.get_domain(0)
 
@@ -154,6 +155,18 @@ def get_common_sizes(tree):
     return out
 
 
+def get_common_groups(tree):
+    if isinstance(tree, CommonNode):
+        out = []
+        for n in tree:
+            out.extend(get_common_groups(n))
+        return out
+    elif isinstance(tree, set):
+        return [[len(tree)]]
+    else:
+        return [[len(c) for c in tree]]
+
+
 N = TypeVar("N", CatNode, OrdNode, set)
 
 
@@ -255,7 +268,7 @@ def create_node_to_group_map(
 
 def make_grouping(
     counts: np.ndarray, head: Grouping, common: Grouping | None
-) -> tuple[np.ndarray, list[list[int]]]:
+) -> tuple[np.ndarray, list[list[int]], list[list[list[int]]]]:
     """Converts the hierarchical attribute level tree provided into a node-to-group
     mapping, where `group[i][j] = z`, where `i` is the height of the mapping
     `j` is node `j` and `z` is the group the node is associated at that height.
@@ -278,8 +291,9 @@ def make_grouping(
     tree = create_tree(head, common)
     n = head.get_domain(0)
     grouping = np.empty((n - cmn + 1, n), dtype=get_dtype(n))
-    
+
     common_sizes = [get_common_sizes(tree)]
+    common_groups = [get_common_groups(tree)]
     create_node_to_group_map(tree, grouping[0, :])
 
     for i in range(1, n - cmn + 1):
@@ -287,9 +301,10 @@ def make_grouping(
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
         common_sizes.append(get_common_sizes(tree))
+        common_groups.append(get_common_groups(tree))
         create_node_to_group_map(tree, grouping[i, :])
 
-    return grouping, common_sizes
+    return grouping, common_sizes, common_groups
 
 
 def generate_domain_list(
@@ -361,7 +376,9 @@ class RebalancedValue(CatValue):
         self.name = col.name
         self.counts = counts
         self.common = col.common
-        self.grouping, self.common_sizes = make_grouping(counts, col.head, self.common)
+        self.grouping, self.common_sizes, self.common_groups = make_grouping(
+            counts, col.head, self.common
+        )
         self.c = c
         self.reshape_domain = reshape_domain
 
@@ -449,9 +466,7 @@ class RebalancedValue(CatValue):
         return upsampled
 
     @staticmethod
-    def get_domain_multiple(
-        heights: Sequence[int], vals: Sequence[CatValue]
-    ):
+    def get_domain_multiple(heights: Sequence[int], vals: Sequence[CatValue]):
         assert len(vals) == len(heights)
 
         dom = 0
@@ -463,6 +478,57 @@ class RebalancedValue(CatValue):
             dom += l_dom
         return dom
 
+    @staticmethod
+    def get_mapping_multiple(
+        heights: Sequence[int] | int, common: 'RebalancedValue', vals: Sequence["RebalancedValue"]
+    ) -> np.ndarray:
+        if isinstance(heights, int):
+            assert common
+            all_ofs = common.grouping[common.height_to_grouping[heights]]
+
+            out = []
+            for l, ofs in enumerate(all_ofs):
+                combos = [v.common_sizes[0][l] for v in vals]
+                nums = list(combos)
+                finished = False
+                while not finished:
+                    out.append(ofs)
+                    for i in range(len(nums)):
+                        if nums[i] > 1:
+                            nums[i] -= 1
+                            break
+                        elif i == len(nums) - 1:
+                            finished = True
+                            break
+                        else:
+                            nums[i] = combos[i]
+        else:
+            assert len(vals) == len(heights)
+
+            out = []
+            ofs = 0
+            for l in range(len(vals[0].common_groups[0])):
+                groupings = [
+                    v.common_groups[v.height_to_grouping[h]][l]
+                    for v, h in zip(vals, heights)
+                ]
+                for combos in product(*groupings):
+                    nums = list(combos)
+                    finished = False
+                    while not finished:
+                        out.append(ofs)
+                        for i in range(len(nums)):
+                            if nums[i] > 1:
+                                nums[i] -= 1
+                                break
+                            elif i == len(nums) - 1:
+                                finished = True
+                                break
+                            else:
+                                nums[i] = combos[i]
+                    ofs += 1
+
+        return np.array(out)
 
 
 def rebalance_attributes(

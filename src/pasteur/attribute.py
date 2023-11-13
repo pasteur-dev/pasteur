@@ -20,6 +20,7 @@ condition is active, all of the Attribute's Values are expected to have the same
 value."""
 
 from itertools import product
+from re import I
 from typing import Any, Literal, Mapping, NamedTuple, Sequence, TypeVar, cast
 
 import numpy as np
@@ -119,11 +120,75 @@ class Grouping(list["Grouping | str"]):
                 )
         else:
             dom = 1
-            for g in groups:
+            for h, g in zip(heights, groups):
                 if isinstance(g, Grouping):
-                    dom *= g.domain
+                    dom *= g.get_domain(h)
 
         return dom
+
+    @staticmethod
+    def get_mapping_common(
+        height: int,
+        common: "Grouping | None",
+        groups: Sequence["Grouping | str"],
+        ofs: int = 0,
+    ):
+        out = []
+        if common:
+            for i, c in enumerate(common):
+                out_g, ofs_g = Grouping.get_mapping_common(
+                    height - 1,
+                    c if isinstance(c, Grouping) else None,
+                    [g[i] for g in groups],
+                    ofs,
+                )
+                out += out_g
+                ofs = ofs_g
+        else:
+            groupings = [g.get_groups(0) if isinstance(g, Grouping) else [g] for g in groups]
+            for _ in product(*groupings):
+                out.append(ofs)
+
+        if height < 0:
+            ofs += 1
+        return out, ofs
+
+    @staticmethod
+    def get_mapping_multiple(
+        heights: Sequence[int],
+        common: "Grouping | None",
+        groups: Sequence["Grouping | str"],
+        ofs: int = 0,
+        has_common: bool = False,
+    ):
+        out = []
+        if common:
+            for i, c in enumerate(common):
+                out_g, ofs_g = Grouping.get_mapping_multiple(
+                    heights,
+                    c if isinstance(c, Grouping) else None,
+                    [g[i] for g in groups],
+                    ofs,
+                    True,
+                )
+                out += out_g
+                ofs = ofs_g
+        else:
+            groupings = []
+            for h, g in zip(heights, groups):
+                if isinstance(g, Grouping):
+                    if g.height - 1 == h - int(has_common):
+                        groupings.append([g.get_groups(0)])
+                    else:
+                        groupings.append(g.get_groups(h - int(has_common)))
+                else:
+                    groupings.append([[g]])
+            for combos in product(*groupings):
+                for _ in product(*[c if isinstance(c, list) else [c] for c in combos]):
+                    out.append(ofs)
+                ofs += 1
+
+        return out, ofs
 
     def _get_groups_by_level(
         self, lvl: int, common: "Grouping | None" = None, ofs: int = 0
@@ -408,6 +473,20 @@ class CatValue(Value):
                     pass
         raise NotImplementedError()
 
+    @staticmethod
+    def get_mapping_multiple(
+        heights: Sequence[int] | int,
+        common: "CatValue | None",
+        vals: Sequence["CatValue"],
+    ) -> np.ndarray:
+        for v in vals:
+            if v:
+                try:
+                    return v.get_mapping_multiple(heights, common, vals)
+                except NotImplementedError:
+                    pass
+        raise NotImplementedError()
+
 
 IdxValue = CatValue
 
@@ -474,6 +553,24 @@ class StratifiedValue(CatValue):
             cast(StratifiedValue, next(iter(vals))).common,
             [cast(StratifiedValue, v).head for v in vals],
         )
+
+    @staticmethod
+    def get_mapping_multiple(
+        heights: Sequence[int] | int, common: CatValue, vals: Sequence[CatValue]
+    ) -> np.ndarray:
+        if isinstance(heights, int):
+            out, _ = Grouping.get_mapping_common(
+                heights,
+                cast(StratifiedValue, next(iter(vals))).common,
+                [cast(StratifiedValue, v).head for v in vals],
+            )
+        else:
+            out, _ = Grouping.get_mapping_multiple(
+                heights,
+                cast(StratifiedValue, next(iter(vals))).common,
+                [cast(StratifiedValue, v).head for v in vals],
+            )
+        return np.array(out)
 
 
 class GenerationValue(StratifiedValue):
@@ -672,6 +769,34 @@ class Attribute:
 
     def __getitem__(self, col: str) -> Value:
         return self.vals[col]
+
+    def get_domain(self, height: int | Mapping[str, int]) -> int:
+        if isinstance(height, int):
+            assert self.common
+            return self.common.get_domain(height)
+        else:
+            vals = list(height.keys())
+            return CatValue.get_domain_multiple(
+                [height[v] for v in vals], [cast(CatValue, self.vals[v]) for v in vals]
+            )
+
+    def get_mapping(self, height: int | Mapping[str, int]):
+        if isinstance(height, int):
+            return CatValue.get_mapping_multiple(
+                height,
+                self.common,
+                [v for v in self.vals.values() if isinstance(v, CatValue)],
+            )
+        else:
+            return CatValue.get_mapping_multiple(
+                [
+                    height[n] if n in height else v.height - 1
+                    for n, v in self.vals.items()
+                    if isinstance(v, CatValue)
+                ],
+                self.common,
+                [v for v in self.vals.values() if isinstance(v, CatValue)],
+            )
 
 
 Attributes = Mapping[str | tuple[str, ...], Attribute]

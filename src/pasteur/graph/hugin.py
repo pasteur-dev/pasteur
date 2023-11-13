@@ -24,7 +24,19 @@ class AttrMeta(NamedTuple):
 CliqueMeta = tuple[AttrMeta, ...]
 
 
-def create_clique_meta(cl: Collection[str], g: nx.Graph, attrs: DatasetAttributes) -> CliqueMeta:
+def get_attrs(attrs: DatasetAttributes, table: str | None, order: int | None) -> Attributes:
+    if order is not None:
+        tattrs = cast(SeqAttributes, attrs[table]).hist[order]
+    else:
+        tattrs = attrs[table]
+        if isinstance(tattrs, SeqAttributes):
+            tattrs = cast(Attributes, tattrs.attrs)
+    return tattrs
+
+
+def create_clique_meta(
+    cl: Collection[str], g: nx.Graph, attrs: DatasetAttributes
+) -> CliqueMeta:
     """Creates a hashable metadata holder for tuples with a fixed ordering."""
 
     sels = defaultdict(dict)
@@ -41,14 +53,7 @@ def create_clique_meta(cl: Collection[str], g: nx.Graph, attrs: DatasetAttribute
 
     out = []
     for (table, order, attr_name), sel in sels.items():
-        if order is not None:
-            tattrs = cast(SeqAttributes, attrs[table]).hist[order]
-        else:
-            tattrs = attrs[table]
-            if isinstance(tattrs, SeqAttributes):
-                tattrs = cast(Attributes, tattrs.attrs)
-
-        attr = tattrs[attr_name]
+        attr = get_attrs(attrs, table, order)[attr_name]
         if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
             new_sel = sel[attr.common.name]
         else:
@@ -56,7 +61,7 @@ def create_clique_meta(cl: Collection[str], g: nx.Graph, attrs: DatasetAttribute
             new_sel = []
             for val, h in sel.items():
                 if val == cmn:
-                    continue # skip common
+                    continue  # skip common
                 new_sel.append((val, h))
             new_sel = tuple(sorted(new_sel))
         out.append(AttrMeta(table, order, attr_name, new_sel))
@@ -82,13 +87,7 @@ def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttrib
 
     dom = 1
     for table, order, attr_name, sel in meta:
-        if order is not None:
-            tattrs = cast(SeqAttributes, attrs[table]).hist[order]
-        else:
-            tattrs = attrs[table]
-            if isinstance(tattrs, SeqAttributes):
-                tattrs = cast(Attributes, tattrs.attrs)
-        attr = tattrs[attr_name]
+        attr = get_attrs(attrs, table, order)[attr_name]
         cmn = attr.common
 
         if isinstance(sel, int):
