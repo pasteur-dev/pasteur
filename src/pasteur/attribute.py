@@ -177,7 +177,7 @@ class Grouping(list["Grouping | str"]):
             groupings = []
             for h, g in zip(heights, groups):
                 if isinstance(g, Grouping):
-                    if g.height - 1 == h - int(has_common):
+                    if h == -1:
                         groupings.append([g.get_groups(0)])
                     else:
                         groupings.append(g.get_groups(h - int(has_common)))
@@ -790,7 +790,7 @@ class Attribute:
         else:
             return CatValue.get_mapping_multiple(
                 [
-                    height[n] if n in height else v.height - 1
+                    height[n] if n in height else -1
                     for n, v in self.vals.items()
                     if isinstance(v, CatValue)
                 ],

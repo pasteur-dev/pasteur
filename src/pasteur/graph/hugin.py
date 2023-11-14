@@ -3,7 +3,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import chain, combinations
 from time import perf_counter
-from typing import Collection, Literal, NamedTuple, cast
+from typing import Collection, Literal, NamedTuple, Sequence, cast
 
 import networkx as nx
 import numpy as np
@@ -188,7 +188,7 @@ def get_junction_tree(
     return nx.maximum_spanning_tree(full_tree, weight=metric)
 
 
-def get_message_passing_order(junction: nx.Graph):
+def get_message_passing_order(junction: nx.Graph) -> Sequence[Sequence[tuple[CliqueMeta, CliqueMeta]]]:
     # The messages that need to be sent are
     # all directed versions of the junction tree edges
     messages = nx.DiGraph()

@@ -480,7 +480,9 @@ class RebalancedValue(CatValue):
 
     @staticmethod
     def get_mapping_multiple(
-        heights: Sequence[int] | int, common: 'RebalancedValue', vals: Sequence["RebalancedValue"]
+        heights: Sequence[int] | int,
+        common: "RebalancedValue",
+        vals: Sequence["RebalancedValue"],
     ) -> np.ndarray:
         if isinstance(heights, int):
             assert common
@@ -510,6 +512,8 @@ class RebalancedValue(CatValue):
             for l in range(len(vals[0].common_groups[0])):
                 groupings = [
                     v.common_groups[v.height_to_grouping[h]][l]
+                    if h != -1
+                    else [v.common_sizes[0][l]]
                     for v, h in zip(vals, heights)
                 ]
                 for combos in product(*groupings):
