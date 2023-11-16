@@ -559,18 +559,18 @@ class StratifiedValue(CatValue):
         heights: Sequence[int] | int, common: CatValue, vals: Sequence[CatValue]
     ) -> np.ndarray:
         if isinstance(heights, int):
-            out, _ = Grouping.get_mapping_common(
+            out, ofs = Grouping.get_mapping_common(
                 heights,
                 cast(StratifiedValue, next(iter(vals))).common,
                 [cast(StratifiedValue, v).head for v in vals],
             )
         else:
-            out, _ = Grouping.get_mapping_multiple(
+            out, ofs = Grouping.get_mapping_multiple(
                 heights,
                 cast(StratifiedValue, next(iter(vals))).common,
                 [cast(StratifiedValue, v).head for v in vals],
             )
-        return np.array(out)
+        return np.array(out, dtype=get_dtype(ofs))
 
 
 class GenerationValue(StratifiedValue):

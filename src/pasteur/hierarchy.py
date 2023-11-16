@@ -487,6 +487,7 @@ class RebalancedValue(CatValue):
         if isinstance(heights, int):
             assert common
             all_ofs = common.grouping[common.height_to_grouping[heights]]
+            ofs = 0
 
             out = []
             for l, ofs in enumerate(all_ofs):
@@ -532,7 +533,7 @@ class RebalancedValue(CatValue):
                                 nums[i] = combos[i]
                     ofs += 1
 
-        return np.array(out)
+        return np.array(out, dtype=get_dtype(ofs))
 
 
 def rebalance_attributes(
