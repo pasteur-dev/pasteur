@@ -196,7 +196,8 @@ def numpy_perform_pass(
                 op[1, :] if k == j else slice(None) for k in range(len(proc.shape))
             ]
             tmp = np.zeros([new_dom if j == k else s for k, s in enumerate(proc.shape)])
-            tmp[tuple(b_slice)] += proc[tuple(a_slice)]
+            tmp2 = proc[tuple(a_slice)]
+            np.add.at(tmp, tuple(b_slice), tmp2) # type: ignore
             proc = tmp
 
         # Keep version for backprop
