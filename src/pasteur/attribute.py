@@ -145,7 +145,9 @@ class Grouping(list["Grouping | str"]):
                 out += out_g
                 ofs = ofs_g
         else:
-            groupings = [g.get_groups(0) if isinstance(g, Grouping) else [g] for g in groups]
+            groupings = [
+                g.get_groups(0) if isinstance(g, Grouping) else [g] for g in groups
+            ]
             for _ in product(*groupings):
                 out.append(ofs)
 
@@ -724,6 +726,9 @@ class Attribute:
         self.partition = partition
         self.vals = {k.name: k for k in vals}
 
+        self.domain_lru = {}
+        self.mapping_lru = {}
+
         # Perform a check for a valid common value
         if common:
             # Categorical Value check
@@ -771,24 +776,46 @@ class Attribute:
         return self.vals[col]
 
     def get_domain(self, height: int | Mapping[str, int]) -> int:
+        # Use cache to accelerate domain accesses
+        key = (
+            height
+            if isinstance(height, int)
+            else tuple(sorted(height.items(), key=lambda v: v[0]))
+        )
+        if key in self.domain_lru:
+            return self.domain_lru[key]
+
         if isinstance(height, int):
             assert self.common
-            return self.common.get_domain(height)
+            out = self.common.get_domain(height)
         else:
             vals = list(height.keys())
-            return CatValue.get_domain_multiple(
+            out = CatValue.get_domain_multiple(
                 [height[v] for v in vals], [cast(CatValue, self.vals[v]) for v in vals]
             )
 
+        self.domain_lru[key] = out
+        return out
+
     def get_mapping(self, height: int | Mapping[str, int]):
+        # Use cache to accelerate mapping accesses
+        # @FIXME: Make LRU, return size is large
+        key = (
+            height
+            if isinstance(height, int)
+            else tuple(sorted(height.items(), key=lambda v: v[0]))
+        )
+        if key in self.mapping_lru:
+            return self.mapping_lru[key]
+        
         if isinstance(height, int):
-            return CatValue.get_mapping_multiple(
+            out = CatValue.get_mapping_multiple(
                 height,
                 self.common,
                 [v for v in self.vals.values() if isinstance(v, CatValue)],
             )
         else:
-            return CatValue.get_mapping_multiple(
+            out = CatValue.get_mapping_multiple(
                 [
                     height[n] if n in height else -1
                     for n, v in self.vals.items()
@@ -797,6 +824,9 @@ class Attribute:
                 self.common,
                 [v for v in self.vals.values() if isinstance(v, CatValue)],
             )
+
+        self.mapping_lru[key] = out
+        return out
 
 
 Attributes = Mapping[str | tuple[str, ...], Attribute]

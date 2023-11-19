@@ -1,5 +1,6 @@
 from typing import (
     TYPE_CHECKING,
+    Any,
     Generic,
     NamedTuple,
     Protocol,
@@ -12,22 +13,19 @@ import numpy as np
 from ..attribute import DatasetAttributes
 from .hugin import CliqueMeta, get_attrs
 
-if TYPE_CHECKING:
-    import torch
-
 
 A = TypeVar("A")
 B = TypeVar("B", covariant=True)
 
 
-class MappingReprFun(Protocol, Generic[B]):
-    def __call__(
-        self, a_map: np.ndarray, b_map: np.ndarray, a_dom: int, b_dom: int
-    ) -> B:
-        raise NotImplementedError()
+class IndexArg(NamedTuple):
+    a_map: tuple[int, ...]
+    b_map: tuple[int, ...]
+    a_dom: int
+    b_dom: int
 
 
-class Message(Generic[A]):
+class Message:
     # This message is sent from clique a -> b
     # Cliques use an alphabetical canonical order for their attributes, so
     # common attributes of a, b are in the same order.
@@ -49,7 +47,7 @@ class Message(Generic[A]):
     # In this case, we indexing operations to move between them.
     # After the summing operations, only the message attributes are left
     # In the order they appear in, index_args provides either an op or None for no-op.
-    index_args: tuple[A | None, ...]
+    index_args: tuple[IndexArg | None, ...]
 
     # In the end, we have to add singleton dims so that the resulting message
     # is broadcastable to clique b.
@@ -88,8 +86,7 @@ def convert_sel(sel):
 def create_messages(
     generations: Sequence[Sequence[tuple[CliqueMeta, CliqueMeta]]],
     attrs: DatasetAttributes,
-    repr_fun: MappingReprFun[A],
-) -> Sequence[Message[A]]:
+) -> Sequence[Message]:
     done = set()
     messages = []
     for generation in generations:
@@ -113,7 +110,7 @@ def create_messages(
                         assert len(a_map) == len(b_map)
                         assert np.max(a_map) < a_dom and np.max(b_map) < b_dom
 
-                        args.append(repr_fun(a_map, b_map, a_dom, b_dom))
+                        args.append(IndexArg(tuple(a_map), tuple(b_map), a_dom, b_dom))
                     else:
                         args.append(None)
                 else:
@@ -138,87 +135,6 @@ def create_messages(
     return messages
 
 
-def torch_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
-    import torch
-
-    theta = {}
-    for cl in cliques:
-        shape = []
-        for meta in cl:
-            shape.append(
-                get_attrs(attrs, meta.table, meta.order)[meta.attr].get_domain(
-                    convert_sel(meta.sel)
-                )
-            )
-        theta[cl] = torch.zeros(shape)
-    return theta
-
-
-def torch_to_mapping_repr(
-    a_map: np.ndarray, b_map: np.ndarray, a_dom: int, b_dom: int
-) -> tuple["torch.Tensor", int]:
-    import torch
-
-    uniques = np.unique(np.stack([a_map, b_map]), axis=1)
-    return torch.from_numpy(uniques.astype("int32")), b_dom
-
-
-def torch_perform_pass(
-    cliques: dict[CliqueMeta, "torch.Tensor"],
-    messages: Sequence[Message[tuple["torch.Tensor", int]]],
-):
-    import torch
-
-    cliques = dict(cliques)
-
-    with torch.no_grad():
-        done = {}
-        for m in messages:
-            # Start with clique
-            proc = cliques[m.a]
-
-            if m.sum_dims:
-                proc = torch.sum(proc, dim=m.sum_dims)
-
-            # If backward pass, remove duplicate beliefs
-            if not m.forward:
-                proc = proc - done[(m.b, m.a)]
-
-            # Apply indexing ops
-            assert len(m.index_args) == len(proc.shape)
-            for j, op_dom in enumerate(m.index_args):
-                if not op_dom:
-                    continue
-                op, new_dom = op_dom
-                a_slice = [
-                    op[0, :] if k == j else slice(None) for k in range(len(proc.shape))
-                ]
-                proc = torch.zeros(
-                    size=[new_dom if j == k else s for k, s in enumerate(proc.shape)]
-                ).index_add_(j, op[1, :], proc[a_slice])
-
-            # Keep version for backprop
-            if m.forward:
-                done[(m.a, m.b)] = proc
-
-            # Expand dims
-            shape = proc.shape
-            new_shape = []
-            ofs = 0
-            for is_common in m.reshape_dims:
-                if is_common:
-                    new_shape.append(shape[ofs])
-                    ofs += 1
-                else:
-                    new_shape.append(1)
-            proc = proc.reshape(new_shape)
-
-            # Apply to clique
-            cliques[m.b] = cliques[m.b] + proc
-
-    return cliques
-
-
 def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
     theta = {}
     for cl in cliques:
@@ -233,16 +149,27 @@ def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes
     return theta
 
 
-def numpy_to_mapping_repr(a_map: np.ndarray, b_map: np.ndarray, a_dom: int, b_dom: int):
-    return np.unique(np.stack([a_map, b_map]), axis=1), b_dom
+def numpy_gen_index_args(messages: Sequence[Message]):
+    index_args = []
+    for m in messages:
+        index_args.append(
+            tuple(
+                np.unique(np.stack([idx.a_map, idx.b_map]), axis=1)
+                if idx is not None
+                else None
+                for idx in m.index_args
+            )
+        )
+    return tuple(index_args)
 
 
 def numpy_perform_pass(
     cliques: dict[CliqueMeta, np.ndarray],
-    messages: Sequence[Message[np.ndarray]],
+    messages: Sequence[Message],
+    index_args: tuple[tuple[np.ndarray | None, ...], ...],
 ):
     done = {}
-    for m in messages:
+    for i, m in enumerate(messages):
         # Start with clique
         proc = cliques[m.a]
 
@@ -255,10 +182,13 @@ def numpy_perform_pass(
 
         # Apply indexing ops
         assert len(m.index_args) == len(proc.shape)
-        for j, op_dom in enumerate(m.index_args):
-            if not op_dom:
+        for j, ia in enumerate(m.index_args):
+            if not ia:
                 continue
-            op, new_dom = op_dom
+            op = index_args[i][j]
+            assert op is not None
+
+            new_dom = ia.b_dom
             a_slice = [
                 op[0, :] if k == j else slice(None) for k in range(len(proc.shape))
             ]
