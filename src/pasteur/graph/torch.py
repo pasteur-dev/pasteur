@@ -1,10 +1,11 @@
-from typing import cast
+from functools import reduce
+from typing import NamedTuple, cast
 import numpy as np
 import torch
 from git import Sequence
 
 from ..attribute import DatasetAttributes
-from .beliefs import Message, convert_sel
+from .beliefs import Message, convert_sel, numpy_gen_args
 from .hugin import CliqueMeta, get_attrs
 
 
@@ -149,6 +150,7 @@ def torch_to_matrix_mul(
 
 class BeliefPropagationMul(torch.nn.Module):
     """Worse in every way than default."""
+
     def __init__(
         self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
     ) -> None:
@@ -228,3 +230,125 @@ class BeliefPropagationMul(torch.nn.Module):
 
         return theta
 
+
+class TorchIndexArgs(NamedTuple):
+    transpose: tuple[int, ...]
+    transpose_undo: tuple[int, ...]
+    b_doms: tuple[int, ...]
+    idx_a: int | None
+    idx_b: int | None
+
+
+def torch_gen_args(
+    messages: Sequence[Message],
+):
+    args = []
+    idx_a = []
+    idx_b = []
+    for a in numpy_gen_args(messages):
+        if a:
+            # TODO: Verify this function works
+            idx_a_idx = idx_b_idx = None
+            if a.idx_a[-1] != len(a.idx_a) - 1:
+                idx_a_idx = len(idx_a)
+                idx_a.append(
+                    torch.nn.Parameter(
+                        torch.from_numpy(a.idx_a.astype("int64")), requires_grad=False
+                    )
+                )
+            if a.idx_b[-1] != len(a.idx_b) - 1:
+                idx_b_idx = len(idx_b)
+                idx_b.append(
+                    torch.nn.Parameter(
+                        torch.from_numpy(a.idx_b.astype("int64")), requires_grad=False
+                    )
+                )
+
+            args.append(
+                TorchIndexArgs(
+                    a.transpose, a.transpose_undo, a.b_doms, idx_a_idx, idx_b_idx
+                )
+            )
+        else:
+            args.append(None)
+
+    return args, torch.nn.ParameterList(idx_a), torch.nn.ParameterList(idx_b)
+
+
+class BeliefPropagationSingle(torch.nn.Module):
+    def __init__(
+        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
+    ) -> None:
+        super().__init__()
+        self.cliques = cliques
+        self.messages = messages
+        self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
+
+        self.args, self.idx_a, self.idx_b = torch_gen_args(messages)
+
+    def forward(self, theta: Sequence[torch.Tensor]):
+        theta = list(theta)
+
+        with torch.no_grad():
+            done = {}
+            for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
+                # Start with clique
+                proc = theta[a_idx]
+
+                if m.sum_dims:
+                    proc = torch.sum(proc, dim=m.sum_dims)
+
+                # If backward pass, remove duplicate beliefs
+                if not m.forward:
+                    proc = proc - done[(m.b, m.a)]
+
+                arg = self.args[i]
+                if arg:
+                    proc = proc.permute(arg.transpose)
+                    og_shape = proc.shape
+
+                    # Find domains of front dimensions and back dimension
+                    # the front dimension changes during indexing, the back stays the same.
+                    a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
+                    b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
+                    rest_dom = reduce(
+                        lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1
+                    )
+
+                    # Perform index add on new tensor
+                    # because index_add is expensive, only do it when it's required.
+                    proc = proc.reshape((a_idx_dom, -1))
+                    if arg.idx_a is not None:
+                        proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
+                    if arg.idx_b is not None:
+                        proc = torch.zeros(
+                            (b_idx_dom, rest_dom),
+                            dtype=torch.float32,
+                            device=proc.device,
+                        ).index_add_(0, self.idx_b[arg.idx_b], proc)
+
+                    # Reshape to individual columns and undo transpose
+                    proc = proc.reshape(
+                        list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
+                    ).permute(arg.transpose_undo)
+
+                # Keep version for backprop
+                if m.forward:
+                    done[(m.a, m.b)] = proc
+
+                # Expand dims
+                shape = proc.shape
+                new_shape = []
+                ofs = 0
+                for is_common in m.reshape_dims:
+                    if is_common:
+                        new_shape.append(shape[ofs])
+                        ofs += 1
+                    else:
+                        new_shape.append(1)
+                proc = proc.reshape(new_shape)
+
+                # Apply to clique
+                theta[b_idx] = theta[b_idx] + proc
+
+        return theta

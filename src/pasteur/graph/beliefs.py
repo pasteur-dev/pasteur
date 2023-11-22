@@ -1,3 +1,4 @@
+from functools import reduce
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -10,7 +11,7 @@ from typing import (
 
 import numpy as np
 
-from ..attribute import DatasetAttributes
+from ..attribute import DatasetAttributes, get_dtype
 from .hugin import CliqueMeta, get_attrs
 
 
@@ -149,7 +150,7 @@ def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes
     return theta
 
 
-def numpy_gen_index_args(messages: Sequence[Message]):
+def numpy_gen_multi_index(messages: Sequence[Message]):
     index_args = []
     for m in messages:
         index_args.append(
@@ -163,7 +164,7 @@ def numpy_gen_index_args(messages: Sequence[Message]):
     return tuple(index_args)
 
 
-def numpy_perform_pass(
+def numpy_perform_pass_multi_index(
     cliques: dict[CliqueMeta, np.ndarray],
     messages: Sequence[Message],
     index_args: tuple[tuple[np.ndarray | None, ...], ...],
@@ -197,8 +198,140 @@ def numpy_perform_pass(
             ]
             tmp = np.zeros([new_dom if j == k else s for k, s in enumerate(proc.shape)])
             tmp2 = proc[tuple(a_slice)]
-            np.add.at(tmp, tuple(b_slice), tmp2) # type: ignore
+            np.add.at(tmp, tuple(b_slice), tmp2)  # type: ignore
             proc = tmp
+
+        # Keep version for backprop
+        if m.forward:
+            done[(m.a, m.b)] = proc
+
+        # Expand dims
+        shape = proc.shape
+        new_shape = []
+        ofs = 0
+        for is_common in m.reshape_dims:
+            if is_common:
+                new_shape.append(shape[ofs])
+                ofs += 1
+            else:
+                new_shape.append(1)
+        proc = proc.reshape(new_shape)
+
+        # Apply to clique
+        cliques[m.b] = cliques[m.b] + proc
+
+    return cliques
+
+
+class NumpyIndexArgs(NamedTuple):
+    transpose: tuple[int, ...]
+    transpose_undo: tuple[int, ...]
+
+    idx_a: np.ndarray
+    idx_b: np.ndarray
+    b_doms: tuple[int, ...]
+
+
+def numpy_gen_args(messages: Sequence[Message]):
+    index_args = []
+    for m in messages:
+        transpose_front = []
+        transpose_back = []
+
+        idx_a_dims = []
+        idx_a_doms = []
+        idx_b_dims = []
+        idx_b_doms = []
+
+        for i, arg in enumerate(m.index_args):
+            if arg:
+                uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+                idx_a_dims.append(uniques[0, :])
+                idx_a_doms.append(arg.a_dom)
+                idx_b_dims.append(uniques[1, :])
+                idx_b_doms.append(arg.b_dom)
+
+                transpose_front.append(i)
+            else:
+                transpose_back.append(i)
+
+        # When reshaping is not needed, the `if arg` block
+        # of the loop won't run so arrays will be empty. SKip.
+        if not idx_a_dims:
+            index_args.append(None)
+            continue
+
+        dtype_a = get_dtype(reduce(lambda a, b: a * b, idx_a_doms))
+        dtype_b = get_dtype(reduce(lambda a, b: a * b, idx_b_doms))
+        mesh_a = np.meshgrid(*idx_a_dims, indexing="ij")
+        mesh_b = np.meshgrid(*idx_b_dims, indexing="ij")
+        idx_a = np.zeros_like(mesh_a[0], dtype=dtype_a)
+        idx_b = np.zeros_like(mesh_a[0], dtype=dtype_b)
+        a_dom = 1
+        b_dom = 1
+        for i in reversed(list(range(len(idx_a_doms)))):
+            idx_a += a_dom * mesh_a[i].astype(dtype_a)
+            idx_b += b_dom * mesh_b[i].astype(dtype_b)
+            a_dom *= idx_a_doms[i]
+            b_dom *= idx_b_doms[i]
+
+        idx_a = idx_a.reshape(-1)
+        idx_b = idx_b.reshape(-1)
+
+        b_doms = tuple(idx_b_doms)
+        transpose = tuple(transpose_front + transpose_back)
+        transpose_undo = tuple(transpose.index(i) for i in range(len(transpose)))
+        index_args.append(
+            NumpyIndexArgs(transpose, transpose_undo, idx_a, idx_b, b_doms)
+        )
+
+    return tuple(index_args)
+
+
+def numpy_perform_pass(
+    cliques: dict[CliqueMeta, np.ndarray],
+    messages: Sequence[Message],
+    args: tuple[NumpyIndexArgs | None, ...],
+):
+    done = {}
+    for i, m in enumerate(messages):
+        # Start with clique
+        proc: np.ndarray = cliques[m.a]
+
+        if m.sum_dims:
+            proc = np.sum(proc, axis=m.sum_dims)
+
+        # If backward pass, remove duplicate beliefs
+        if not m.forward:
+            proc = proc - done[(m.b, m.a)]
+
+        # Apply single indexing op
+        # Reshape common attributes in cliques a, b that have different heights
+        # by bringing them in front, reshaping the message to have one front dim
+        # and one back dim, and then reindexing the front dim into a new tensor.
+        # By combining all indexing ops into one big op, memory accesses are minimized.
+        # By bringing the indexing dims to the front, spatial locality is maximized.
+        arg = args[i]
+        if arg:
+            proc = proc.transpose(arg.transpose)
+            og_shape = proc.shape
+
+            # Find domains of front dimensions and back dimension
+            # the front dimension changes during indexing, the back stays the same.
+            a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
+            b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
+            rest_dom = reduce(lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1)
+
+            # Perform index add on new tensor
+            tmp = np.zeros((b_idx_dom, rest_dom), dtype="float32")
+            tmp2 = proc.reshape((a_idx_dom, -1))[arg.idx_a]
+            # np.add.at(tmp, arg.idx_b, tmp2)
+            tmp[arg.idx_b] += tmp2
+
+            # Reshape to individual columns and undo transpose
+            proc = tmp.reshape(
+                list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
+            ).transpose(arg.transpose_undo)
 
         # Keep version for backprop
         if m.forward:
