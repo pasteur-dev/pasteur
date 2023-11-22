@@ -5,7 +5,7 @@ import torch
 from git import Sequence
 
 from ..attribute import DatasetAttributes
-from .beliefs import Message, convert_sel, numpy_gen_args
+from .beliefs import Message, convert_sel, numpy_gen_args, get_clique_shapes
 from .hugin import CliqueMeta, get_attrs
 
 
@@ -14,17 +14,9 @@ def torch_create_cliques(
     attrs: DatasetAttributes,
     device: "torch.device | None" = None,
 ):
-    theta = {}
-    for cl in cliques:
-        shape = []
-        for meta in cl:
-            shape.append(
-                get_attrs(attrs, meta.table, meta.order)[meta.attr].get_domain(
-                    convert_sel(meta.sel)
-                )
-            )
-        theta[cl] = torch.zeros(shape, device=device)
-    return list(theta.values())
+    return [
+        torch.zeros(shape, device=device) for shape in get_clique_shapes(cliques, attrs)
+    ]
 
 
 def torch_to_mapping_repr(
@@ -277,18 +269,18 @@ def torch_gen_args(
 
 class BeliefPropagationSingle(torch.nn.Module):
     def __init__(
-        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
+        self,
+        cliques: Sequence[CliqueMeta],
+        messages: Sequence[Message]
     ) -> None:
         super().__init__()
         self.cliques = cliques
         self.messages = messages
         self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
-
         self.args, self.idx_a, self.idx_b = torch_gen_args(messages)
 
     def forward(self, theta: Sequence[torch.Tensor]):
         theta = list(theta)
-
         with torch.no_grad():
             done = {}
             for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
@@ -321,16 +313,13 @@ class BeliefPropagationSingle(torch.nn.Module):
                     if arg.idx_a is not None:
                         proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
                     if arg.idx_b is not None:
-                        proc = torch.zeros(
-                            (b_idx_dom, rest_dom),
-                            dtype=torch.float32,
-                            device=proc.device,
-                        ).index_add_(0, self.idx_b[arg.idx_b], proc)
+                        proc = proc.new_zeros((b_idx_dom, rest_dom)).index_add_(
+                            0, self.idx_b[arg.idx_b], proc
+                        )
 
                     # Reshape to individual columns and undo transpose
-                    proc = proc.reshape(
-                        list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
-                    ).permute(arg.transpose_undo)
+                    new_shape = list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
+                    proc = proc.reshape(new_shape).permute(arg.transpose_undo)
 
                 # Keep version for backprop
                 if m.forward:

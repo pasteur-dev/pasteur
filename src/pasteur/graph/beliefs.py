@@ -133,11 +133,12 @@ def create_messages(
                 tuple(unsqueeze_dims),
             )
             messages.append(msg)
+            done.add((a, b))
     return messages
 
 
-def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
-    theta = {}
+def get_clique_shapes(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
+    shapes = []
     for cl in cliques:
         shape = []
         for meta in cl:
@@ -146,8 +147,11 @@ def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes
                     convert_sel(meta.sel)
                 )
             )
-        theta[cl] = np.zeros(shape)
-    return theta
+        shapes.append(shape)
+    return shapes
+
+def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
+    return [np.zeros(shape) for shape in get_clique_shapes(cliques, attrs)]
 
 
 def numpy_gen_multi_index(messages: Sequence[Message]):
