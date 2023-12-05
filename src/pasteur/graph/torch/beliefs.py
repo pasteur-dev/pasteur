@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from git import Sequence
 
-from ..attribute import DatasetAttributes
-from .beliefs import Message, convert_sel, numpy_gen_args, get_clique_shapes
-from .hugin import CliqueMeta, get_attrs
+from ...attribute import DatasetAttributes
+from ..beliefs import Message, convert_sel, numpy_gen_args, get_clique_shapes
+from ..hugin import CliqueMeta, get_attrs
 
 
 def torch_create_cliques(
