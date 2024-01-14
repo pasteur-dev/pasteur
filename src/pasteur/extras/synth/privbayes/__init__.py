@@ -6,6 +6,7 @@ from math import ceil
 from typing import Any, Sequence, cast
 
 import pandas as pd
+import numpy as np
 
 from ....attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
 from ....hierarchy import rebalance_attributes
@@ -432,3 +433,53 @@ def derive_graph_from_nodes(
                     pass
 
     return g
+
+
+def derive_obs_from_model(
+    nodes: Sequence[Node], attrs: DatasetAttributes, marginals: Sequence[np.ndarray]
+):
+    from ....graph.hugin import AttrMeta, get_attrs
+    from ....graph.loss import LinearObservation
+
+    lin_obs = []
+    for node, obs in zip(nodes, marginals):
+        out = []
+        used_parent = False
+        for s in node.p:
+            if len(s) == 3:
+                table_sel, attr_name, sel = s
+            else:
+                table_sel = None
+                attr_name, sel = s
+
+            if isinstance(table_sel, tuple):
+                table = table_sel[0]
+                order = table_sel[1]
+            else:
+                table = table_sel
+                order = None
+
+            attr = get_attrs(attrs, table, order)[attr_name]
+            if isinstance(sel, int):
+                new_sel = sel
+            else:
+                cmn = attr.common.name if attr.common else None
+                new_sel = []
+                for val, h in sel.items():
+                    if val == cmn:
+                        continue  # skip common
+                    new_sel.append((val, h))
+                if node.attr == attr_name:
+                    new_sel.append((node.value, 0))
+                    used_parent = True
+                new_sel = tuple(sorted(new_sel))
+            out.append(AttrMeta(table, order, attr_name, new_sel))
+
+        if not used_parent:
+            out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
+
+        lin_obs.append(
+            LinearObservation(tuple(sorted(out, key=lambda x: x[:-1])), None, obs, 1)
+        )
+        
+    return lin_obs

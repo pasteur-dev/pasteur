@@ -24,7 +24,9 @@ class AttrMeta(NamedTuple):
 CliqueMeta = tuple[AttrMeta, ...]
 
 
-def get_attrs(attrs: DatasetAttributes, table: str | None, order: int | None) -> Attributes:
+def get_attrs(
+    attrs: DatasetAttributes, table: str | None, order: int | None
+) -> Attributes:
     if order is not None:
         tattrs = cast(SeqAttributes, attrs[table]).hist[order]
     else:
@@ -82,11 +84,9 @@ def to_moral(g: nx.DiGraph, to_undirected=True):
     return h
 
 
-def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttributes):
-    meta = create_clique_meta(factor, g, attrs)
-
+def get_clique_domain(clique: CliqueMeta, attrs: DatasetAttributes):
     dom = 1
-    for table, order, attr_name, sel in meta:
+    for table, order, attr_name, sel in clique:
         attr = get_attrs(attrs, table, order)[attr_name]
         cmn = attr.common
 
@@ -100,6 +100,11 @@ def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttrib
             )
 
     return dom
+
+
+def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttributes):
+    meta = create_clique_meta(factor, g, attrs)
+    return get_clique_domain(meta, attrs)
 
 
 def elimination_order_greedy(
@@ -188,7 +193,9 @@ def get_junction_tree(
     return nx.maximum_spanning_tree(full_tree, weight=metric)
 
 
-def get_message_passing_order(junction: nx.Graph) -> Sequence[Sequence[tuple[CliqueMeta, CliqueMeta]]]:
+def get_message_passing_order(
+    junction: nx.Graph,
+) -> Sequence[Sequence[tuple[CliqueMeta, CliqueMeta]]]:
     # The messages that need to be sent are
     # all directed versions of the junction tree edges
     messages = nx.DiGraph()

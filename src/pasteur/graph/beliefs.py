@@ -35,7 +35,7 @@ class Message:
 
     # This message can be either part of the forward pass (a -> b before b -> a)
     # or part of the backward pass.
-    # If it's part of the backward pass, the forward message  (b -> a)
+    # If it's part of the backward pass, the forward message (b -> a)
     # which has been sent needs to be subtracted from it, so a version of the
     # forward message that is broadcastable has to be stored during the forward pass.
     forward: bool
@@ -45,7 +45,7 @@ class Message:
     sum_dims: tuple[int, ...]
 
     # The attribute domains between cliques are expected to be different.
-    # In this case, we indexing operations to move between them.
+    # In this case, we use indexing operations to move between them.
     # After the summing operations, only the message attributes are left
     # In the order they appear in, index_args provides either an op or None for no-op.
     index_args: tuple[IndexArg | None, ...]
