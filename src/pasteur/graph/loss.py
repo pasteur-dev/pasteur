@@ -8,18 +8,25 @@ from .beliefs import IndexArg, convert_sel, has_attr, is_same
 from .hugin import CliqueMeta, get_attrs, get_clique_domain
 
 
-def sel_is_subset(ssel, sel):
-    if isinstance(ssel, int):
-        if isinstance(sel, int):
-            return ssel <= sel
+def sel_is_subset(source_sel, clique_sel):
+    if isinstance(source_sel, int):
+        # If source sel is an int, if clique sel is not it eclipses it,
+        # if it is we compare heights
+        if isinstance(clique_sel, int):
+            return source_sel >= clique_sel
         else:
             return True
 
-    for sn, sh in ssel:
+    # Source sel is not an int, if clique sel is, that means it does not
+    # eclipse source sel
+    if isinstance(clique_sel, int):
+        return False
+
+    for sn, sh in source_sel:
         found = False
-        for cn, ch in sel:
+        for cn, ch in clique_sel:
             if cn == sn:
-                if sh > ch:
+                if sh < ch:
                     return False
                 found = True
         if not found:
@@ -89,7 +96,7 @@ class ParentMeta(NamedTuple):
 
     sum_dims: tuple[int, ...]
 
-    idx_a: np.ndarray | None = None
+    idx: np.ndarray | None = None
     b_doms: tuple[int, ...] = tuple()
     transpose: tuple[int, ...] = tuple()
     transpose_undo: tuple[int, ...] = tuple()
@@ -101,23 +108,23 @@ def get_parent_meta(
     # Use the parent with the smallest domain as that should be faster
     # computationally (?)
     sum_dims = []
-    args = []
+    args: list[IndexArg | None] = []
 
-    for i in range(len(source)):
-        if has_attr(parent, source[i]):
+    for i in range(len(parent)):
+        if has_attr(source, parent[i]):
             j = 0
-            while not is_same(source[i], parent[j]):
+            while not is_same(parent[i], source[j]):
                 j += 1
 
-            if source[i].sel != parent[j].sel:
-                attr = get_attrs(attrs, source[i].table, source[i].order)[
-                    source[i].attr
+            if parent[i].sel != source[j].sel:
+                attr = get_attrs(attrs, parent[i].table, parent[i].order)[
+                    parent[i].attr
                 ]
 
-                a_map = attr.get_mapping(convert_sel(source[i].sel))
-                a_dom = attr.get_domain(convert_sel(source[i].sel))
-                b_map = attr.get_mapping(convert_sel(parent[j].sel))
-                b_dom = attr.get_domain(convert_sel(parent[j].sel))
+                a_map = attr.get_mapping(convert_sel(parent[i].sel))
+                a_dom = attr.get_domain(convert_sel(parent[i].sel))
+                b_map = attr.get_mapping(convert_sel(source[j].sel))
+                b_dom = attr.get_domain(convert_sel(source[j].sel))
                 assert len(a_map) == len(b_map)
                 assert np.max(a_map) < a_dom and np.max(b_map) < b_dom
 
@@ -132,13 +139,18 @@ def get_parent_meta(
 
     idx_a_dims = []
     idx_a_doms = []
+    idx_b_dims = []
     idx_b_doms = []
+
     for i, arg in enumerate(args):
         if arg:
+            # FIXME: Unique does nothing
             uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
             idx_a_dims.append(uniques[0, :])
             idx_a_doms.append(arg.a_dom)
+            idx_b_dims.append(uniques[1, :])
             idx_b_doms.append(arg.b_dom)
+
             transpose_front.append(i)
         else:
             transpose_back.append(i)
@@ -149,16 +161,29 @@ def get_parent_meta(
         return ParentMeta(tuple(sum_dims), None)
 
     dtype_a = get_dtype(reduce(lambda a, b: a * b, idx_a_doms))
+    dtype_b = get_dtype(reduce(lambda a, b: a * b, idx_b_doms))
     mesh_a = np.meshgrid(*idx_a_dims, indexing="ij")
+    mesh_b = np.meshgrid(*idx_b_dims, indexing="ij")
     idx_a = np.zeros_like(mesh_a[0], dtype=dtype_a)
+    idx_b = np.zeros_like(mesh_a[0], dtype=dtype_b)
     a_dom = 1
+    b_dom = 1
     for i in reversed(list(range(len(idx_a_doms)))):
         idx_a += a_dom * mesh_a[i].astype(dtype_a)
+        idx_b += b_dom * mesh_b[i].astype(dtype_b)
         a_dom *= idx_a_doms[i]
+        b_dom *= idx_b_doms[i]
+
     idx_a = idx_a.reshape(-1)
+    idx_b = idx_b.reshape(-1)
+
+    # Only a single index op is performed to align parent to source
+    # where each unique value in idx_a is mapped to idx_b
+    _, uidx = np.unique(idx_a, return_index=True)
+    idx = idx_b[uidx]
 
     b_doms = tuple(idx_b_doms)
     transpose = tuple(transpose_front + transpose_back)
     transpose_undo = tuple(transpose.index(i) for i in range(len(transpose)))
 
-    return ParentMeta(tuple(sum_dims), idx_a, b_doms, transpose, transpose_undo)
+    return ParentMeta(tuple(sum_dims), idx, b_doms, transpose, transpose_undo)
