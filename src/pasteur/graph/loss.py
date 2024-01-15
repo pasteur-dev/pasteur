@@ -1,12 +1,11 @@
+from functools import reduce
 from typing import Callable, NamedTuple, Sequence
 
 import numpy as np
 
 from ..attribute import DatasetAttributes, get_dtype
-from .beliefs import has_attr, is_same, convert_sel, IndexArg
+from .beliefs import IndexArg, convert_sel, has_attr, is_same
 from .hugin import CliqueMeta, get_attrs, get_clique_domain
-
-from typing import Sequence
 
 
 def sel_is_subset(ssel, sel):
@@ -80,8 +79,20 @@ class LinearObservation(NamedTuple):
 
 
 class ParentMeta(NamedTuple):
+    """Contains the necessary metadata to align a parent clique to an observation
+    clique.
+
+    First, attributes that are not present in an observation clique are summed
+    out. Then the common dimensions that are different are transposed to the
+    front and indexed. Finally, the transpose is undone and the cliques are
+    aligned."""
+
     sum_dims: tuple[int, ...]
-    index_args: tuple[IndexArg, ...]
+
+    idx_a: np.ndarray | None = None
+    b_doms: tuple[int, ...] = tuple()
+    transpose: tuple[int, ...] = tuple()
+    transpose_undo: tuple[int, ...] = tuple()
 
 
 def get_parent_meta(
@@ -116,4 +127,38 @@ def get_parent_meta(
         else:
             sum_dims.append(i)
 
-    return ParentMeta(tuple(sum_dims), tuple(args))
+    transpose_front = []
+    transpose_back = []
+
+    idx_a_dims = []
+    idx_a_doms = []
+    idx_b_doms = []
+    for i, arg in enumerate(args):
+        if arg:
+            uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+            idx_a_dims.append(uniques[0, :])
+            idx_a_doms.append(arg.a_dom)
+            idx_b_doms.append(arg.b_dom)
+            transpose_front.append(i)
+        else:
+            transpose_back.append(i)
+
+    # When reshaping is not needed, the `if arg` block
+    # of the loop won't run so arrays will be empty. SKip.
+    if not idx_a_dims:
+        return ParentMeta(tuple(sum_dims), None)
+
+    dtype_a = get_dtype(reduce(lambda a, b: a * b, idx_a_doms))
+    mesh_a = np.meshgrid(*idx_a_dims, indexing="ij")
+    idx_a = np.zeros_like(mesh_a[0], dtype=dtype_a)
+    a_dom = 1
+    for i in reversed(list(range(len(idx_a_doms)))):
+        idx_a += a_dom * mesh_a[i].astype(dtype_a)
+        a_dom *= idx_a_doms[i]
+    idx_a = idx_a.reshape(-1)
+
+    b_doms = tuple(idx_b_doms)
+    transpose = tuple(transpose_front + transpose_back)
+    transpose_undo = tuple(transpose.index(i) for i in range(len(transpose)))
+
+    return ParentMeta(tuple(sum_dims), idx_a, b_doms, transpose, transpose_undo)
