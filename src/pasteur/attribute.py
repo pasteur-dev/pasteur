@@ -486,6 +486,20 @@ class CatValue(Value):
                     pass
         raise NotImplementedError()
 
+    @staticmethod
+    def get_naive_mapping_multiple(
+        heights: Sequence[int] | int,
+        common: "CatValue | None",
+        vals: Sequence["CatValue"],
+    ):
+        for v in vals:
+            if v:
+                try:
+                    return v.get_naive_mapping_multiple(heights, common, vals)
+                except NotImplementedError:
+                    pass
+        raise NotImplementedError()
+
 
 IdxValue = CatValue
 
@@ -570,6 +584,24 @@ class StratifiedValue(CatValue):
                 [cast(StratifiedValue, v).head for v in vals],
             )
         return np.array(out, dtype=get_dtype(ofs))
+
+    @staticmethod
+    def get_naive_mapping_multiple(
+        heights: Sequence[int] | int, common: CatValue, vals: Sequence[CatValue]
+    ):
+        if isinstance(heights, int):
+            out, ofs = Grouping.get_mapping_common(
+                heights,
+                cast(StratifiedValue, next(iter(vals))).common,
+                [cast(StratifiedValue, v).head for v in vals],
+            )
+        else:
+            out, ofs = Grouping.get_naive_mapping_multiple(
+                heights,
+                cast(StratifiedValue, next(iter(vals))).common,
+                [cast(StratifiedValue, v).head for v in vals],
+            )
+        return out
 
 
 class GenerationValue(StratifiedValue):
@@ -823,6 +855,30 @@ class Attribute:
             )
 
         self.mapping_lru[key] = out
+        return out
+    
+    def get_naive_mapping(self, height: int | Mapping[str, int]):
+        # Use cache to accelerate mapping accesses
+        # @FIXME: Make LRU, return size is large
+        vals = [v for v in self.vals.values() if isinstance(v, CatValue)]
+        if isinstance(height, int):
+            out = CatValue.get_naive_mapping_multiple(
+                height,
+                self.common,
+                vals,
+            )
+        else:
+            out = CatValue.get_naive_mapping_multiple(
+                [
+                    height[n] if n in height else -1
+                    for n, v in self.vals.items()
+                    if isinstance(v, CatValue)
+                ],
+                self.common,
+                vals,
+            )
+
+        
         return out
 
 

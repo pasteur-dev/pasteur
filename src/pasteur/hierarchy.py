@@ -573,11 +573,14 @@ class RebalancedValue(CatValue):
                     if h == -1:
                         indexes.append([-1])
                     else:
-                        o = sum(v.common_sizes[v.height_to_grouping[h]][:l])
+                        o = sum(
+                            len(v.common_groups[v.height_to_grouping[h]][j])
+                            for j in range(l)
+                        )
                         out2 = []
-                        for j in v.common_groups[v.height_to_grouping[h]][l]:
+                        for _ in v.common_groups[v.height_to_grouping[h]][l]:
                             out2.append(o)
-                            o += j
+                            o += 1
                         indexes.append(out2)
                 groupings = [
                     v.common_groups[v.height_to_grouping[h]][l]
@@ -586,7 +589,7 @@ class RebalancedValue(CatValue):
                     for v, h in zip(vals, heights)
                 ]
 
-                combined = [zip(a, b) for a, b in zip(indexes, groupings)]
+                combined = [list(zip(a, b)) for a, b in zip(indexes, groupings)]
 
                 for combos in product(*combined):
                     ofs = [c[0] for c in combos]
@@ -602,7 +605,7 @@ class RebalancedValue(CatValue):
                                 finished = True
                                 break
                             else:
-                                nums[i] = combos[1][i]
+                                nums[i] = combos[i][1]
             return out
 
 
