@@ -535,6 +535,76 @@ class RebalancedValue(CatValue):
 
         return np.array(out, dtype=get_dtype(ofs))
 
+    @staticmethod
+    def get_naive_mapping_multiple(
+        heights: Sequence[int] | int,
+        common: "RebalancedValue",
+        vals: Sequence["RebalancedValue"],
+    ):
+        if isinstance(heights, int):
+            assert common
+            all_ofs = common.grouping[common.height_to_grouping[heights]]
+            ofs = 0
+
+            out = []
+            for l, ofs in enumerate(all_ofs):
+                combos = [v.common_sizes[0][l] for v in vals]
+                nums = list(combos)
+                finished = False
+                while not finished:
+                    out.append(ofs)
+                    for i in range(len(nums)):
+                        if nums[i] > 1:
+                            nums[i] -= 1
+                            break
+                        elif i == len(nums) - 1:
+                            finished = True
+                            break
+                        else:
+                            nums[i] = combos[i]
+            return out
+        else:
+            assert len(vals) == len(heights)
+
+            out = []
+            for l in range(len(vals[0].common_groups[0])):
+                indexes = []
+                for v, h in zip(vals, heights):
+                    if h == -1:
+                        indexes.append([-1])
+                    else:
+                        o = sum(v.common_sizes[v.height_to_grouping[h]][:l])
+                        out2 = []
+                        for j in v.common_groups[v.height_to_grouping[h]][l]:
+                            out2.append(o)
+                            o += j
+                        indexes.append(out2)
+                groupings = [
+                    v.common_groups[v.height_to_grouping[h]][l]
+                    if h != -1
+                    else [v.common_sizes[0][l]]
+                    for v, h in zip(vals, heights)
+                ]
+
+                combined = [zip(a, b) for a, b in zip(indexes, groupings)]
+
+                for combos in product(*combined):
+                    ofs = [c[0] for c in combos]
+                    nums = [c[1] for c in combos]
+                    finished = False
+                    while not finished:
+                        out.append(ofs)
+                        for i in range(len(nums)):
+                            if nums[i] > 1:
+                                nums[i] -= 1
+                                break
+                            elif i == len(nums) - 1:
+                                finished = True
+                                break
+                            else:
+                                nums[i] = combos[1][i]
+            return out
+
 
 def rebalance_attributes(
     counts: dict[str, np.ndarray],

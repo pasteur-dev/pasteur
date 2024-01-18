@@ -192,6 +192,50 @@ class Grouping(list["Grouping | str"]):
 
         return out, ofs
 
+    @staticmethod
+    def get_naive_mapping_multiple(
+        heights: Sequence[int],
+        common: "Grouping | None",
+        groups: Sequence["Grouping | str"],
+        ofs: list[int] | None = None,
+        has_common: bool = False,
+    ):
+        if ofs is None:
+            ofs = [0 for _ in groups]
+        out = []
+        if common:
+            for i, c in enumerate(common):
+                out_g, ofs_g = Grouping.get_naive_mapping_multiple(
+                    heights,
+                    c if isinstance(c, Grouping) else None,
+                    [g[i] for g in groups],
+                    ofs,
+                    True,
+                )
+                out += out_g
+                ofs = ofs_g
+        else:
+            groupings = []
+            for i, (h, g) in enumerate(zip(heights, groups)):
+                if isinstance(g, Grouping):
+                    if h == -1:
+                        new_groups, new_ofs = g._get_groups_by_height(0, ofs=ofs[i])
+                        groupings.append([new_groups])
+                    else:
+                        new_groups, new_ofs = g._get_groups_by_height(
+                            h - int(has_common), ofs=ofs[i]
+                        )
+                        groupings.append([new_groups])
+                    ofs[i] = new_ofs
+                else:
+                    groupings.append([[ofs[i]]])
+                    ofs[i] += 1
+            for combos in product(*groupings):
+                for l in product(*[c if isinstance(c, list) else [c] for c in combos]):
+                    out.append(l)
+
+        return out, ofs
+
     def _get_groups_by_level(
         self, lvl: int, common: "Grouping | None" = None, ofs: int = 0
     ):
@@ -215,67 +259,20 @@ class Grouping(list["Grouping | str"]):
                 ofs += 1
         return groups, ofs
 
-    @staticmethod
-    def _unwrap_multiple_groups(
-        lvl: Sequence[int], groups: Sequence["Grouping"], ofs: list[int]
+    def _get_groups_by_height(
+        self, height: int, common: "Grouping | None" = None, ofs: int = 0
     ):
-        out = []
-        ranges = []
-        for j, g in enumerate(groups):
-            if isinstance(g, Grouping):
-                r, o = g._get_groups_by_level(lvl[j], None, ofs[j])
-                ranges.append([k if isinstance(k, list) else [k] for k in r])
-                ofs[j] = o
-            else:
-                ranges.append([[ofs[j]]])
-                ofs[j] += 1
-
-        for combo_outer in product(*ranges):
-            cont = []
-            for combo_inner in product(*combo_outer):
-                cont.append(combo_inner)
-
-            if len(cont) == 1:
-                cont = cont[0]
-            out.append(cont)
-
-        return out, ofs
-
-    @staticmethod
-    def _get_groups_by_level_multiple(
-        lvl: Sequence[int],
-        common: "Grouping | None",
-        groups: Sequence["Grouping"],
-        ofs: list[int] | None = None,
-    ) -> tuple[list[tuple[int, ...]], list[int]]:
-        if ofs is None:
-            ofs = [0 for _ in range(len(groups))]
-        if common is None:
-            return Grouping._unwrap_multiple_groups(lvl, groups, ofs)
-
-        out = []
-
-        for i, l in enumerate(common):
-            if isinstance(l, Grouping):
-                g, ofs = Grouping._get_groups_by_level_multiple(
-                    lvl, l, [cast(Grouping, g[i]) for g in groups], ofs
-                )
-            else:
-                g, ofs = Grouping._unwrap_multiple_groups(
-                    lvl, [cast(Grouping, g[i]) for g in groups], ofs
-                )
-            out.extend(g)
-        return out, ofs
-
-    def get_groups(
-        self, height: int, common: "Grouping | None" = None
-    ) -> list[list | int]:
         max_height = self.get_height(common)
         lvl = max_height - 1 - height
         assert (
             lvl >= 0
         ), f"Max height for group is {max_height} and zero-based (e.g., {max_height} - 1 = {max_height - 1}), received {height}."
-        return self._get_groups_by_level(lvl, common)[0]
+        return self._get_groups_by_level(lvl, common, ofs=ofs)
+
+    def get_groups(
+        self, height: int, common: "Grouping | None" = None
+    ) -> list[list | int]:
+        return self._get_groups_by_height(height, common)[0]
 
     def get_dict_mapping(
         self, height: int, common: "Grouping | None" = None
@@ -807,7 +804,7 @@ class Attribute:
         )
         if key in self.mapping_lru:
             return self.mapping_lru[key]
-        
+
         if isinstance(height, int):
             out = CatValue.get_mapping_multiple(
                 height,
