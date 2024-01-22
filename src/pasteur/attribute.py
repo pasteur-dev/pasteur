@@ -856,29 +856,35 @@ class Attribute:
 
         self.mapping_lru[key] = out
         return out
-    
+
     def get_naive_mapping(self, height: int | Mapping[str, int]):
         # Use cache to accelerate mapping accesses
         # @FIXME: Make LRU, return size is large
+        if isinstance(height, int) or len(height) == 1:
+            return self.get_mapping(height)
         vals = [v for v in self.vals.values() if isinstance(v, CatValue)]
-        if isinstance(height, int):
-            out = CatValue.get_naive_mapping_multiple(
-                height,
-                self.common,
-                vals,
-            )
-        else:
-            out = CatValue.get_naive_mapping_multiple(
-                [
-                    height[n] if n in height else -1
-                    for n, v in self.vals.items()
-                    if isinstance(v, CatValue)
-                ],
-                self.common,
-                vals,
-            )
+        names = list(self.vals)
+        data = CatValue.get_naive_mapping_multiple(
+            [
+                height[n] if n in height else -1
+                for n, v in self.vals.items()
+                if isinstance(v, CatValue)
+            ],
+            self.common,
+            vals,
+        )
+        arrs = [np.array([v[i] for v in data]) for i in range(len(data[0]))]
+        dom = 1
+        out = None
+        for n, h in reversed(height.items()):
+            i = names.index(n)
+            arr = arrs[i]
+            if out is None:
+                out = arr
+            else:
+                out += arr * dom
+            dom *= vals[i].get_domain(h)
 
-        
         return out
 
 

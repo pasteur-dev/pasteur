@@ -443,8 +443,10 @@ def derive_obs_from_model(
 
     lin_obs = []
     for node, obs in zip(nodes, marginals):
+        # Create Attr Meta
         out = []
         used_parent = False
+        orig = []
         for s in node.p:
             if len(s) == 3:
                 table_sel, attr_name, sel = s
@@ -462,6 +464,7 @@ def derive_obs_from_model(
             attr = get_attrs(attrs, table, order)[attr_name]
             if isinstance(sel, int):
                 new_sel = sel
+                orig.append((table, order, attr_name, None))
             else:
                 cmn = attr.common.name if attr.common else None
                 new_sel = []
@@ -469,6 +472,7 @@ def derive_obs_from_model(
                     if val == cmn:
                         continue  # skip common
                     new_sel.append((val, h))
+                    orig.append((table, order, attr_name, val))
                 if node.attr == attr_name:
                     new_sel.append((node.value, 0))
                     used_parent = True
@@ -477,9 +481,65 @@ def derive_obs_from_model(
 
         if not used_parent:
             out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
+        orig.append((None, None, node.attr, node.value))
 
-        lin_obs.append(
-            LinearObservation(tuple(sorted(out, key=lambda x: x[:-1])), None, obs, 1)
+        # Transpose observation
+        source = tuple(sorted(out, key=lambda x: x[:-1]))
+        vals = list(
+            chain.from_iterable(
+                [(a.table, a.order, a.attr, None)]
+                if isinstance(a.sel, int)
+                else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
+                for a in source
+            )
         )
-        
+
+        # Find new domain and transpose dimensions to be alphabetical
+        new_obs = obs.transpose([orig.index(v) for v in vals])
+        new_dom = []
+        i = 0
+        for a in source:
+            if isinstance(a.sel, int):
+                l = 1
+            else:
+                l = len(a.sel)
+            nd = 1
+            for d in new_obs.shape[i : i + l]:
+                nd *= d
+            new_dom.append(nd)
+            i += l
+        new_obs = new_obs.reshape(new_dom)
+
+        # Align naive and compressed representations
+        for i, a in enumerate(source):
+            if isinstance(a.sel, int):  # or len(a.sel) == 1:
+                # Skip single dimension
+                continue
+
+            attr = get_attrs(attrs, a.table, a.order)[a.attr]
+            i_map = tuple(
+                attr.get_naive_mapping(dict(a.sel)) if j == i else slice(None)
+                for j in range(len(new_obs.shape))
+            )
+            o_map = tuple(
+                attr.get_mapping(dict(a.sel)) if j == i else slice(None)
+                for j in range(len(new_obs.shape))
+            )
+            tmp = np.zeros(
+                [
+                    attr.get_domain(dict(a.sel)) if j == i else d
+                    for j, d in enumerate(new_obs.shape)
+                ]
+            )
+            np.add.at(tmp, o_map, new_obs[i_map]) # type: ignore
+            new_obs = tmp
+
+        lo = LinearObservation(
+            source,
+            None,
+            new_obs,
+            1,
+        )
+        lin_obs.append(lo)
+
     return lin_obs
