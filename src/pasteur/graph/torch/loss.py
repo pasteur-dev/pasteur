@@ -59,7 +59,14 @@ class LinearLoss(torch.nn.Module):
     ) -> None:
         super().__init__()
         self.obs_meta = obs
-        self.obs = torch.nn.ParameterList([torch.from_numpy(o.obs) for o in obs])
+        self.obs = torch.nn.ParameterList(
+            [
+                torch.nn.Parameter(
+                    torch.from_numpy(o.obs).to(torch.float32), requires_grad=False
+                )
+                for o in obs
+            ]
+        )
         self.parents = [get_smallest_parent(o.source, cliques, attrs) for o in obs]
 
         self.cidx = [cliques.index(p) for p in self.parents]
@@ -70,7 +77,7 @@ class LinearLoss(torch.nn.Module):
         self.loss_fun = loss_fun
 
     def forward(self, theta: Sequence[torch.Tensor]):
-        loss = None
+        losses = []
 
         for idx, obs, ometa, pmeta in zip(
             self.cidx, self.obs, self.obs_meta, self.parent_meta
@@ -105,13 +112,10 @@ class LinearLoss(torch.nn.Module):
             # Apply loss function
             if ometa.mapping is not None:
                 proc = ometa.mapping @ proc
-            obs_loss = self.loss_fun(proc, obs)
+            obs_loss = self.loss_fun(obs, proc)
             if ometa.confidence != 1:
                 obs_loss *= ometa.confidence
 
-            if loss is None:
-                loss = obs_loss
-            else:
-                loss += obs_loss
+            losses.append(obs_loss)
 
-        return loss
+        return torch.mean(torch.stack(losses))

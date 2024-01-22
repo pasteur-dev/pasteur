@@ -495,7 +495,7 @@ def derive_obs_from_model(
         )
 
         # Find new domain and transpose dimensions to be alphabetical
-        new_obs = obs.transpose([orig.index(v) for v in vals])
+        new_obs = obs.astype('float32').transpose([orig.index(v) for v in vals])
         new_dom = []
         i = 0
         for a in source:

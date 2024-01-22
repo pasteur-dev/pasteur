@@ -15,7 +15,8 @@ def torch_create_cliques(
     device: "torch.device | None" = None,
 ):
     return [
-        torch.zeros(shape, device=device) for shape in get_clique_shapes(cliques, attrs)
+        torch.zeros(shape, device=device, requires_grad=True)
+        for shape in get_clique_shapes(cliques, attrs)
     ]
 
 
@@ -269,9 +270,7 @@ def torch_gen_args(
 
 class BeliefPropagationSingle(torch.nn.Module):
     def __init__(
-        self,
-        cliques: Sequence[CliqueMeta],
-        messages: Sequence[Message]
+        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
     ) -> None:
         super().__init__()
         self.cliques = cliques
@@ -280,7 +279,6 @@ class BeliefPropagationSingle(torch.nn.Module):
         self.args, self.idx_a, self.idx_b = torch_gen_args(messages)
 
     def forward(self, theta: Sequence[torch.Tensor]):
-        theta = list(theta)
         with torch.no_grad():
             done = {}
             for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
@@ -338,6 +336,7 @@ class BeliefPropagationSingle(torch.nn.Module):
                 proc = proc.reshape(new_shape)
 
                 # Apply to clique
-                theta[b_idx] = theta[b_idx] + proc
+                # print(a_idx, b_idx, proc.sum().cpu().numpy(), m.forward)
+                theta[b_idx].add_(proc)
 
         return theta
