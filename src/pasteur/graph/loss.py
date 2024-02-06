@@ -4,7 +4,7 @@ from typing import Callable, NamedTuple, Sequence
 import numpy as np
 
 from ..attribute import DatasetAttributes, get_dtype
-from .beliefs import IndexArg, convert_sel, has_attr, is_same
+from .beliefs import IndexArg, convert_sel, has_attr, is_same, deduplicate
 from .hugin import CliqueMeta, get_attrs, get_clique_domain
 
 
@@ -145,7 +145,8 @@ def get_parent_meta(
     for i, arg in enumerate(args):
         if arg:
             # FIXME: Unique does nothing
-            uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+            # uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+            uniques = deduplicate(arg.a_map, arg.b_map)
             idx_a_dims.append(uniques[0, :])
             idx_a_doms.append(arg.a_dom)
             idx_b_dims.append(uniques[1, :])

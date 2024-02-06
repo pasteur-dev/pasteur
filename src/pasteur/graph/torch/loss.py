@@ -82,7 +82,7 @@ class LinearLoss(torch.nn.Module):
         for idx, obs, ometa, pmeta in zip(
             self.cidx, self.obs, self.obs_meta, self.parent_meta
         ):
-            proc = theta[idx]
+            proc = theta[idx].exp()
 
             if pmeta.sum_dims:
                 proc = torch.sum(proc, dim=pmeta.sum_dims)

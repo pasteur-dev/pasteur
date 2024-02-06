@@ -5,8 +5,19 @@ import torch
 from git import Sequence
 
 from ...attribute import DatasetAttributes
-from ..beliefs import Message, convert_sel, numpy_gen_args, get_clique_shapes
+from ..beliefs import (
+    Message,
+    convert_sel,
+    numpy_gen_args,
+    get_clique_shapes,
+    get_clique_weights,
+    deduplicate,
+)
 from ..hugin import CliqueMeta, get_attrs
+
+
+def dom(a):
+    return reduce(lambda a, b: a * b, a)
 
 
 def torch_create_cliques(
@@ -14,10 +25,16 @@ def torch_create_cliques(
     attrs: DatasetAttributes,
     device: "torch.device | None" = None,
 ):
-    return [
-        torch.zeros(shape, device=device, requires_grad=True)
-        for shape in get_clique_shapes(cliques, attrs)
-    ]
+    out = []
+    for shape, weight in zip(
+        get_clique_shapes(cliques, attrs), get_clique_weights(cliques, attrs)
+    ):
+        v = torch.scalar_tensor(1).to(device)
+        for s, w in zip(shape, weight):
+            v = torch.from_numpy(w).to(device) * v.unsqueeze(-1)
+            assert v.shape[-1] == s
+        out.append(v.log())
+    return out
 
 
 def torch_to_mapping_repr(
@@ -27,7 +44,8 @@ def torch_to_mapping_repr(
     b_dom: int,
     device: "torch.device | None" = None,
 ) -> "torch.Tensor":
-    uniques = np.unique(np.stack([a_map, b_map]), axis=1)
+    # uniques = np.unique(np.stack([a_map, b_map]), axis=1)
+    uniques = deduplicate(a_map, b_map)
     out = torch.from_numpy(uniques.astype("int32"))
     out.requires_grad = False
     if device:
@@ -125,7 +143,8 @@ def torch_to_matrix_mul(
     b_dom: int,
     device: "torch.device | None" = None,
 ):
-    uniques = np.unique(np.stack([a_map, b_map]), axis=1)
+    # uniques = np.unique(np.stack([a_map, b_map]), axis=1)
+    uniques = deduplicate(a_map, b_map)
 
     with torch.no_grad():
         idx = torch.from_numpy(uniques.astype("int64")).to(device)
@@ -279,6 +298,9 @@ class BeliefPropagationSingle(torch.nn.Module):
         self.args, self.idx_a, self.idx_b = torch_gen_args(messages)
 
     def forward(self, theta: Sequence[torch.Tensor]):
+        theta = list(theta)
+        print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
+
         with torch.no_grad():
             done = {}
             for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
@@ -286,7 +308,7 @@ class BeliefPropagationSingle(torch.nn.Module):
                 proc = theta[a_idx]
 
                 if m.sum_dims:
-                    proc = torch.sum(proc, dim=m.sum_dims)
+                    proc = torch.logsumexp(proc, dim=m.sum_dims)
 
                 # If backward pass, remove duplicate beliefs
                 if not m.forward:
@@ -308,11 +330,17 @@ class BeliefPropagationSingle(torch.nn.Module):
                     # Perform index add on new tensor
                     # because index_add is expensive, only do it when it's required.
                     proc = proc.reshape((a_idx_dom, -1))
+                    if arg.idx_b is not None:
+                        # Exponentiate to prepare for addition if idx_b exists
+                        # Proc is dimensionally smaller before idx_a is applied.
+                        proc = proc.exp()
                     if arg.idx_a is not None:
                         proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
                     if arg.idx_b is not None:
-                        proc = proc.new_zeros((b_idx_dom, rest_dom)).index_add_(
-                            0, self.idx_b[arg.idx_b], proc
+                        proc = (
+                            proc.new_zeros((b_idx_dom, rest_dom))
+                            .index_add_(0, self.idx_b[arg.idx_b], proc)
+                            .log()
                         )
 
                     # Reshape to individual columns and undo transpose
@@ -336,7 +364,18 @@ class BeliefPropagationSingle(torch.nn.Module):
                 proc = proc.reshape(new_shape)
 
                 # Apply to clique
-                # print(a_idx, b_idx, proc.sum().cpu().numpy(), m.forward)
-                theta[b_idx].add_(proc)
+                print(
+                    a_idx,
+                    b_idx,
+                    proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
+                    m.forward,
+                )
+                theta[b_idx] = theta[b_idx] + proc
+
+            # # Normalize resulting cliques
+            print("Z: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
+            Z = theta[0].logsumexp(list(range(len(theta[0].shape))))
+            for i in range(len(theta)):
+                theta[i] = theta[i] - Z
 
         return theta

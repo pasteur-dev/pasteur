@@ -18,6 +18,14 @@ from .hugin import CliqueMeta, get_attrs
 A = TypeVar("A")
 B = TypeVar("B", covariant=True)
 
+def deduplicate(arr1, arr2):
+    check = set()
+    out = []
+    for t in zip(arr1, arr2):
+        if t not in check:
+            out.append(t)
+            check.add(t)
+    return np.stack(out).T
 
 class IndexArg(NamedTuple):
     a_map: tuple[int, ...]
@@ -150,6 +158,24 @@ def get_clique_shapes(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
         shapes.append(shape)
     return shapes
 
+
+def get_clique_weights(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
+    weights = []
+    for cl in cliques:
+        weight = []
+        for meta in cl:
+            attr = get_attrs(attrs, meta.table, meta.order)[meta.attr]
+            mapping = attr.get_mapping(convert_sel(meta.sel))
+            dom = attr.get_domain(convert_sel(meta.sel))
+            
+            w = np.zeros(dom)
+            np.add.at(w, mapping, 1)
+            w /= len(mapping)
+            weight.append(w)
+        weights.append(weight)
+    return weights
+
+
 def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
     return [np.zeros(shape) for shape in get_clique_shapes(cliques, attrs)]
 
@@ -159,7 +185,8 @@ def numpy_gen_multi_index(messages: Sequence[Message]):
     for m in messages:
         index_args.append(
             tuple(
-                np.unique(np.stack([idx.a_map, idx.b_map]), axis=1)
+                # np.unique(np.stack([idx.a_map, idx.b_map]), axis=1)
+                deduplicate(idx.a_map, idx.b_map)
                 if idx is not None
                 else None
                 for idx in m.index_args
@@ -235,7 +262,6 @@ class NumpyIndexArgs(NamedTuple):
     idx_b: np.ndarray
     b_doms: tuple[int, ...]
 
-
 def numpy_gen_args(messages: Sequence[Message]):
     index_args = []
     for m in messages:
@@ -249,7 +275,8 @@ def numpy_gen_args(messages: Sequence[Message]):
 
         for i, arg in enumerate(m.index_args):
             if arg:
-                uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+                # uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
+                uniques = deduplicate(arg.a_map, arg.b_map)
                 idx_a_dims.append(uniques[0, :])
                 idx_a_doms.append(arg.a_dom)
                 idx_b_dims.append(uniques[1, :])
