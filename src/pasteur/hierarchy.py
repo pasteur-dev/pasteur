@@ -155,18 +155,6 @@ def get_common_sizes(tree):
     return out
 
 
-def get_common_groups(tree):
-    if isinstance(tree, CommonNode):
-        out = []
-        for n in tree:
-            out.extend(get_common_groups(n))
-        return out
-    elif isinstance(tree, set):
-        return [[len(tree)]]
-    else:
-        return [[len(c) for c in tree]]
-
-
 N = TypeVar("N", CatNode, OrdNode, set)
 
 
@@ -266,34 +254,50 @@ def create_node_to_group_map(
     return ofs
 
 
-def make_grouping(
-    counts: np.ndarray, head: Grouping, common: Grouping | None
-) -> tuple[np.ndarray, list[list[int]], list[list[list[int]]]]:
-    """Converts the hierarchical attribute level tree provided into a node-to-group
-    mapping, where `group[i][j] = z`, where `i` is the height of the mapping
-    `j` is node `j` and `z` is the group the node is associated at that height.
+def get_len(tree):
+    if isinstance(tree, set):
+        return len(tree)
+    return sum([get_len(c) for c in tree])
 
-    `counts` provides the class densities. It doesn't need to be normalized and
-    some of its values may be *negative*.
 
-    Reason: if `counts` is differentially private, then some values will have
-    negative probability after adding noise. If we clip to 0, then the mean added
-    value of noise will become positive, and large groups of small classes will have
-    their probability increase by `m*n` (where `m` is the noise scale, `n` the
-    number of groups).
+def get_children(tree):
+    if isinstance(tree, set):
+        for c in tree:
+            yield c
+    else:
+        for c in tree:
+            yield from get_children(c)
 
-    `common` is the number of values in the beginning of the domain are shared with other
-    columns in the attribute. Those values will never be merged.
-    This also means that the minimum domain of this column will be `common + 1`.
-    """
 
+def get_common_groups(tree, ofs: int = 0):
+    if isinstance(tree, CommonNode):
+        out = []
+        for n in tree:
+            c, ofs = get_common_groups(n, ofs)
+            out.extend(c)
+        return out, ofs
+    else:
+        if isinstance(tree, set):
+            return [[0 for _ in range(len(tree))]], ofs + len(tree)
+        else:
+            arr = [0 for _ in range(get_len(tree))]
+            tmp = 0
+            for i, c in enumerate(tree):
+                for child in get_children(c):
+                    arr[child - ofs] = i
+                    tmp += 1
+
+            return [arr], ofs + tmp
+
+
+def make_grouping(counts: np.ndarray, head: Grouping, common: Grouping | None):
     cmn = len(common) if common else 2
     tree = create_tree(head, common)
     n = head.get_domain(0)
     grouping = np.empty((n - cmn + 1, n), dtype=get_dtype(n))
 
     common_sizes = [get_common_sizes(tree)]
-    common_groups = [get_common_groups(tree)]
+    common_groups = [get_common_groups(tree)[0]]
     create_node_to_group_map(tree, grouping[0, :])
 
     for i in range(1, n - cmn + 1):
@@ -301,7 +305,7 @@ def make_grouping(
         merge_groups_in_node(node, a, b)
         prune_tree(tree)
         common_sizes.append(get_common_sizes(tree))
-        common_groups.append(get_common_groups(tree))
+        common_groups.append(get_common_groups(tree)[0])
         create_node_to_group_map(tree, grouping[i, :])
 
     return grouping, common_sizes, common_groups
@@ -512,26 +516,26 @@ class RebalancedValue(CatValue):
             ofs = 0
             for l in range(len(vals[0].common_groups[0])):
                 groupings = [
-                    v.common_groups[v.height_to_grouping[h]][l]
-                    if h != -1
-                    else [v.common_sizes[0][l]]
-                    for v, h in zip(vals, heights)
+                    (
+                        v.common_groups[v.height_to_grouping[h]][l]
+                        if h != -1
+                        else [0 for _ in range(v.common_sizes[0][l])]
+                    )
+                    for v, h in reversed(list(zip(vals, heights)))
                 ]
+                domains = [max(g) + 1 for g in groupings]
+
+                pass
+
                 for combos in product(*groupings):
-                    nums = list(combos)
-                    finished = False
-                    while not finished:
-                        out.append(ofs)
-                        for i in range(len(nums)):
-                            if nums[i] > 1:
-                                nums[i] -= 1
-                                break
-                            elif i == len(nums) - 1:
-                                finished = True
-                                break
-                            else:
-                                nums[i] = combos[i]
-                    ofs += 1
+                    l_dom = 1
+                    num = ofs
+                    for dom, comb in zip(domains, combos):
+                        num += l_dom * comb
+                        l_dom *= dom
+                    out.append(num)
+
+                ofs = max(out) + 1
 
         return np.array(out, dtype=get_dtype(ofs))
 
@@ -562,51 +566,40 @@ class RebalancedValue(CatValue):
                             break
                         else:
                             nums[i] = combos[i]
-            return out
+
+            return np.array(out, dtype=get_dtype(max(out)))
         else:
             assert len(vals) == len(heights)
 
             out = []
+            new_ofs = [0 for _ in range(len(vals))]
+            domains = [v.grouping.shape[1] for v in vals]
+
             for l in range(len(vals[0].common_groups[0])):
-                indexes = []
-                for v, h in zip(vals, heights):
-                    if h == -1:
-                        indexes.append([-1])
-                    else:
-                        o = sum(
-                            len(v.common_groups[v.height_to_grouping[h]][j])
-                            for j in range(l)
-                        )
-                        out2 = []
-                        for _ in v.common_groups[v.height_to_grouping[h]][l]:
-                            out2.append(o)
-                            o += 1
-                        indexes.append(out2)
                 groupings = [
-                    v.common_groups[v.height_to_grouping[h]][l]
-                    if h != -1
-                    else [v.common_sizes[0][l]]
-                    for v, h in zip(vals, heights)
+                    (
+                        v.common_groups[v.height_to_grouping[h]][l]
+                        if h != -1
+                        else [0 for _ in range(v.common_sizes[0][l])]
+                    )
+                    for v, h in reversed(list(zip(vals, heights)))
                 ]
 
-                combined = [list(zip(a, b)) for a, b in zip(indexes, groupings)]
+                ofs = list(new_ofs)
+                for combos in product(*groupings):
+                    l_dom = 1
+                    num = 0
+                    for i, c in enumerate(combos):
+                        val = ofs[i] + c
+                        new_ofs[i] = max(val, new_ofs[i])
+                        num += val * l_dom + ofs[i]
+                        l_dom *= domains[i]
+                    out.append(num)
 
-                for combos in product(*combined):
-                    ofs = [c[0] for c in combos]
-                    nums = [c[1] for c in combos]
-                    finished = False
-                    while not finished:
-                        out.append(ofs)
-                        for i in range(len(nums)):
-                            if nums[i] > 1:
-                                nums[i] -= 1
-                                break
-                            elif i == len(nums) - 1:
-                                finished = True
-                                break
-                            else:
-                                nums[i] = combos[i][1]
-            return out
+                for i in range(len(new_ofs)):
+                    new_ofs[i] += 1
+
+            return np.array(out, dtype=get_dtype(max(out)))
 
 
 def rebalance_attributes(
