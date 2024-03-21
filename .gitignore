@@ -15,6 +15,7 @@ external
 data/**
 raw/**
 logs/**
+notebooks/**
 
 # except their sub-folders
 !data/**/
