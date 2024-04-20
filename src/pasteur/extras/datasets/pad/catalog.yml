@@ -1,0 +1,120 @@
+_pad_in_csv: &pad_csv
+  type: pasteur.kedro.dataset.FragmentedCSVDataset
+  filepath: ""
+  metadata:
+    kedro-viz:
+      layer: raw
+
+  load_args: &pad_csv_load
+    sep: ","
+    engine: "c"
+    header: 0
+    date_format: "%Y-%m-%d"
+
+pad1:
+  <<: *pad_csv
+  filepath: "${bootstrap}/pad1.csv"
+  load_args: 
+    <<: *pad_csv_load
+    dtype:
+      id: int16
+      site: int8
+      pad: category
+      sex: category
+      claud.yr: Int16
+      claud.m: Int16
+      limb.isch: Int16
+      diabetes: bool
+      yr.diab: Int16
+      hyperlipidemia: bool
+      yr.hyperl: Int16
+      hypertension: bool
+      yr.hyperten: Int16
+      smoking: category
+      start.smoke: Int16
+      end.smoke: Int16
+      cigarettes: Int8
+      futime: Int32
+      status: category
+      age: float32
+    parse_dates:
+      - d.first
+      - d.birth
+      - lastfu
+
+pad2:
+  <<: *pad_csv
+  filepath: "${bootstrap}/pad2.csv"
+  load_args:
+    <<: *pad_csv_load
+    dtype:
+      id: int16
+      visit: int16
+      day: int32
+      pad: category
+      abp.r: float32
+      abp.l: float32
+      anxiety: int8
+      sleep: int8
+      alcohol: int8
+      fruit: int8
+      vegetable: int8
+      active1: int8
+      active2: int8
+      hlc1: int8
+      hlc2: int8
+      weight: uint8
+      height: uint8
+      bmi: float32
+      circum: UInt8
+      systolic: UInt8
+      diastolic: UInt8
+      dpulse.r: UInt8
+      dpulse.l: UInt8
+      tpulse.r: UInt8
+      tpulse.l: UInt8
+      erythrocytes: float32
+      hemoglobin: uint16
+      hematocrit: float32
+      wbc: float32
+      platelets: uint16
+      glucose: float32
+      potassium: float32
+      urea: float32
+      creatine: uint16
+      crp: float32
+      chol: float32
+      hdl: float32
+      ldl: float32
+      trig: float32
+      uprotein: category
+      uglucose: category
+      cvscore: float32
+      coop.1: uint8
+      coop.2: uint8
+      coop.3: uint8
+      coop.4: uint8
+      coop.5: uint8
+      coop.6: uint8
+      aspirin: bool
+      clopridrogel: bool
+      anticlot: bool
+      ezetimibe: bool
+      statins: bool
+      ace: bool
+    parse_dates:
+      - date
+
+pad3:
+  <<: *pad_csv
+  filepath: "${bootstrap}/pad3.csv"
+  load_args:
+    <<: *pad_csv_load
+    dtype:
+      id: int32
+      event: category
+      type: category
+      pad: category
+      day: int32
+    parse_dates:
+      - date
