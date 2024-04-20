@@ -335,7 +335,7 @@ def download(
                 return
             sel_datasets[ds] = all_datasets[ds]
 
-        download_dir = download_dir or ctx.params.get("raw_location", None)
+        download_dir = download_dir or getattr(ctx, "pasteur").raw_location
         assert download_dir, f"Download dir is empty"
 
         if not accept:
