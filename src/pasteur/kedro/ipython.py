@@ -1,4 +1,5 @@
 """ This module extends Kedro's ipython functionality. """
+
 # Disable default kedro logging config
 import os
 import logging
@@ -72,7 +73,7 @@ def _reconfigure_rich(tracebacks: bool = True):
     if tracebacks:
         import rich.traceback
 
-        rich.traceback.install(**RICH_TRACEBACK_ARGS, console=rich._console) # type: ignore
+        rich.traceback.install(**RICH_TRACEBACK_ARGS, console=rich._console)  # type: ignore
 
 
 def _pipe(pipe: str, params_str: str, params: dict):
@@ -131,7 +132,9 @@ def register_kedro(path: str | None = None, tracebacks: bool = True):
         raise Exception(f"Kedro project not found along path: '{top_level}'")
     else:
         reload_kedro(proj_path)  # type: ignore
+
     _reconfigure_rich(tracebacks)
+    ipy.register_magic_function(lambda _: reload_kedro(proj_path), "line", "reload_kedro")  # type: ignore
 
 
 def load_ipython_extension(ipython):
