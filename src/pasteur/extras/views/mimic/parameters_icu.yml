@@ -1,0 +1,63 @@
+tables:
+  patients:
+    primary_key: subject_id
+    fields:
+      subject_id: id
+      gender: categorical
+      # year_group: categorical
+      dod:
+        type: date
+        span: year
+        ref: birth_year
+        nullable: True
+        max_len: 99
+        bins: 32
+      birth_year: fixed|date
+
+  events:
+    primary_key: id
+    fields:
+      birth_year: fixed|date
+      # dod:
+      #   type: date
+      #   span: year
+      #   ref: birth_year
+      #   nullable: True
+      #   max_len: 99
+      #   bins: 32
+
+      intime:
+        type: datetime
+        span: year.hour
+        ref: birth_year
+        max_len: 99
+        bins: 32
+
+      outtime:
+        type: datetime
+        span: week.hour
+        ref: intime
+        max_len: 8
+        bins: 8
+      
+      charttime:
+        type: datetime
+        span: week.hour
+        ref: intime
+        max_len: 12
+        bins: 12
+
+      # itemid: categorical|UKN
+      # value: categorical?|ukn
+      valuenum:
+        type: numerical
+        nullable: True
+        min: 0
+        max: 200
+        bins: 32
+      
+      valueuom: categorical?|ukn
+      warning: categorical
+      first_careunit: categorical|ukn
+      last_careunit: categorical|ukn
+      gender: categorical

@@ -54,7 +54,7 @@ class MimicCore(View):
             case "admissions":
                 return tables["admissions"]()
             case "transfers":
-                return tables["transfers"]().dropna(subset=['hadm_id'])
+                return tables["transfers"]().dropna(subset=["hadm_id"])
             case other:
                 assert False, f"Table {other} not part of view {self.name}"
 
@@ -148,7 +148,7 @@ class MimicBillion(TabularView):
     def ingest(
         self,
         name,
-        core_patients: LazyFrame,
+        patients: LazyFrame,
         icu_icustays: LazyFrame,
         icu_chartevents: LazyFrame,
     ):
@@ -158,11 +158,50 @@ class MimicBillion(TabularView):
         # ColumnResampler(icu_chartevents.sample(), )
 
         funs = set()
-        for part_id, (patients, stays, events) in LazyFrame.zip(
-            core_patients, icu_icustays, icu_chartevents
+        for part_id, (_patients, stays, events) in LazyFrame.zip(
+            patients, icu_icustays, icu_chartevents
         ).items():
-            funs.add(partial(_ingest_chunk, part_id, 3, 4, patients, stays, events))
+            funs.add(partial(_ingest_chunk, part_id, 3, 4, _patients, stays, events))
         return funs
+
+    def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
+        n = keys.shape[0]
+
+        if n < 2000:
+            return filter_by_keys_merged(
+                keys, tables[name], reset_index=True, drop_index=True
+            )
+
+        funcs = filter_by_keys(keys, tables[name], drop_index=True)
+        return {partial(_remove_empty_partitions, func) for func in funcs}  # type: ignore
+
+
+class MimicIcu(View):
+    """The mimic icu chart events, with additional columns from patients, icu stays."""
+
+    name = "mimic_icu"
+    dataset = "mimic"
+    deps = {
+        "patients": ["patients"],
+        "stays": ["icu_icustays"],
+        "events": ["icu_chartevents"],
+    }
+    trn_deps = {
+        "stays": ["patients"],
+        "events": ["stays"],
+    }
+    parameters = get_relative_fn("parameters_icu.yml")
+
+    def ingest(self, name, **tables: LazyFrame):
+        match name:
+            case "patients":
+                return tables["patients"]
+            case "stays":
+                return tables["icu_icustays"]
+            case "events":
+                return tables["icu_chartevents"]
+
+        assert False, f"Table {name} not part of view {self.name}"
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         n = keys.shape[0]

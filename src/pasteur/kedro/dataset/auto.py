@@ -82,7 +82,7 @@ def _save_worker(
             while p0 is None or len(p0) == 0:
                 p0 = next(chunk)
         except:
-            logger.error(f"Generator {chunk} returned no data.")
+            logger.error(f"Generator {chunk} returned no data.\n'{path}':{pid}")
             return
 
         old_schema = pa.Schema.from_pandas(p0, preserve_index=True)
@@ -144,7 +144,7 @@ def _save_worker(
                 try:
                     w.write(pa.Table.from_pandas(p, schema=schema, preserve_index=True))
                 except Exception as e:
-                    logger.error(f"Error writing chunk:\n{e}")
+                    logger.error(f"Error writing chunk:\n'{path}':{pid}\n{e}")
     else:
         if protocol == "file":
             if fs.isdir(path):

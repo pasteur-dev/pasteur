@@ -340,7 +340,7 @@ services:
 
 icu_chartevents:
   <<: *mimic_csv
-  filepath: ${location}/icu/chartevents.csv
+  filepath: ${location}/icu/chartevents.csv.gz
   load_args:
     <<: *mimic_csv_load
     parse_dates: [charttime, storetime]
@@ -352,7 +352,7 @@ icu_chartevents:
       value: category
       valuenum: float32
       valueuom: category
-      warning: bool
+      warning: category
 
 icu_datetimeevents:
   <<: *mimic_csv
@@ -441,7 +441,7 @@ icu_procedureevents:
   filepath: ${location}/icu/procedureevents.csv.gz
   load_args:
     <<: *mimic_csv_load
-    parse_dates: [starttime, endtime, storetime, comments_date]
+    parse_dates: [starttime, endtime, storetime] #, comments_date]
     dtype:
       subject_id: int32
       hadm_id: int32
