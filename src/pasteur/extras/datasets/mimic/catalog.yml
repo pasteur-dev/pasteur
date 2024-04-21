@@ -14,9 +14,9 @@ _mimic_in_csv: &mimic_csv
 _mimic_in_chunked: &mimic_chunked # Currently a placeholder
   <<: *mimic_csv
 
-mimic.raw@core_patients:
+patients:
   <<: *mimic_csv
-  filepath: ${location}/core/patients.csv.gz
+  filepath: ${location}/hosp/patients.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: subject_id
@@ -29,9 +29,9 @@ mimic.raw@core_patients:
       anchor_year: int16
       anchor_year_group: category
 
-mimic.raw@core_transfers:
+transfers:
   <<: *mimic_csv
-  filepath: ${location}/core/transfers.csv.gz
+  filepath: ${location}/hosp/transfers.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: transfer_id
@@ -43,9 +43,9 @@ mimic.raw@core_transfers:
       eventtype: category
       careunit: category
 
-mimic.raw@core_admissions:
+admissions:
   <<: *mimic_csv
-  filepath: ${location}/core/admissions.csv.gz
+  filepath: ${location}/hosp/admissions.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: hadm_id
@@ -61,35 +61,35 @@ mimic.raw@core_admissions:
       marital_status: category
       ethnicity: category
 
-mimic.raw@hosp_d_hcpcs:
+d_hcpcs:
   <<: *mimic_csv
   filepath: ${location}/hosp/d_hcpcs.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: code
 
-mimic.raw@hosp_d_icd_diagnoses:
+d_icd_diagnoses:
   <<: *mimic_csv
   filepath: ${location}/hosp/d_icd_diagnoses.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: icd_code
 
-mimic.raw@hosp_d_icd_procedures:
+d_icd_procedures:
   <<: *mimic_csv
   filepath: ${location}/hosp/d_icd_procedures.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: icd_code
 
-mimic.raw@hosp_d_labitems:
+d_labitems:
   <<: *mimic_csv
   filepath: ${location}/hosp/d_labitems.csv.gz
   load_args:
     <<: *mimic_csv_load
     index_col: itemid
 
-mimic.raw@hosp_diagnoses_icd:
+diagnoses_icd:
   <<: *mimic_csv
   filepath: ${location}/hosp/diagnoses_icd.csv.gz
   load_args:
@@ -100,7 +100,7 @@ mimic.raw@hosp_diagnoses_icd:
       icd_code: category
       icd_version: category
 
-mimic.raw@hosp_drgcodes:
+drgcodes:
   <<: *mimic_csv
   filepath: ${location}/hosp/drgcodes.csv.gz
   load_args:
@@ -112,7 +112,7 @@ mimic.raw@hosp_drgcodes:
       drg_severity: category
       drg_mortality: category
 
-mimic.raw@hosp_emar:
+emar:
   <<: *mimic_chunked
   filepath: ${location}/hosp/emar.csv.gz
 
@@ -124,7 +124,7 @@ mimic.raw@hosp_emar:
       hadm_id: Int32
       pharmacy_id: Int32
 
-mimic.raw@hosp_emar_detail:
+emar_detail:
   <<: *mimic_chunked
   filepath: ${location}/hosp/emar_detail.csv.gz
 
@@ -166,7 +166,7 @@ mimic.raw@hosp_emar_detail:
       site: category
       non_formulary_visual_verification: category
 
-mimic.raw@hosp_hcpcsevents:
+hcpcsevents:
   <<: *mimic_csv
   filepath: ${location}/hosp/hcpcsevents.csv.gz
   load_args:
@@ -178,7 +178,7 @@ mimic.raw@hosp_hcpcsevents:
       hcpcs_cd: category
       seq_num: int32
 
-mimic.raw@hosp_labevents:
+labevents:
   <<: *mimic_chunked
   filepath: ${location}/hosp/labevents.csv.gz
 
@@ -200,7 +200,7 @@ mimic.raw@hosp_labevents:
       priority: category
       comments: category
 
-mimic.raw@hosp_microbiologyevents:
+microbiologyevents:
   <<: *mimic_csv
   filepath: ${location}/hosp/microbiologyevents.csv.gz
   load_args:
@@ -219,7 +219,7 @@ mimic.raw@hosp_microbiologyevents:
       quantity: object
       comments: object
 
-mimic.raw@hosp_pharmacy:
+pharmacy:
   <<: *mimic_csv
   filepath: ${location}/hosp/pharmacy.csv.gz
   load_args:
@@ -253,7 +253,7 @@ mimic.raw@hosp_pharmacy:
       dispensation: category
       fill_quantity: category
 
-mimic.raw@hosp_poe:
+poe:
   <<: *mimic_csv
   filepath: ${location}/hosp/poe.csv.gz
   load_args:
@@ -284,7 +284,7 @@ mimic.raw@hosp_poe:
       discontinue_of_poe_id: object
       discontinued_by_poe_id: object
 
-mimic.raw@hosp_poe_detail:
+poe_detail:
   <<: *mimic_csv
   filepath: ${location}/hosp/poe_detail.csv.gz
   load_args:
@@ -295,7 +295,7 @@ mimic.raw@hosp_poe_detail:
       subject_id: int32
       field_name: category
 
-mimic.raw@hosp_prescriptions:
+prescriptions:
   <<: *mimic_csv
   filepath: ${location}/hosp/prescriptions.csv.gz
   load_args:
@@ -313,7 +313,7 @@ mimic.raw@hosp_prescriptions:
       doses_per_24_hrs: category
       route: category
 
-mimic.raw@hosp_procedures_icd:
+procedures_icd:
   <<: *mimic_csv
   filepath: ${location}/hosp/procedures_icd.csv.gz
   load_args:
@@ -326,7 +326,7 @@ mimic.raw@hosp_procedures_icd:
       icd_code: category
       icd_version: category
 
-mimic.raw@hosp_services:
+services:
   <<: *mimic_csv
   filepath: ${location}/hosp/services.csv.gz
   load_args:
@@ -338,7 +338,7 @@ mimic.raw@hosp_services:
       prev_service: category
       curr_service: category
 
-mimic.raw@icu_chartevents:
+icu_chartevents:
   <<: *mimic_csv
   filepath: ${location}/icu/chartevents.csv
   load_args:
@@ -354,7 +354,7 @@ mimic.raw@icu_chartevents:
       valueuom: category
       warning: bool
 
-mimic.raw@icu_datetimeevents:
+icu_datetimeevents:
   <<: *mimic_csv
   filepath: ${location}/icu/datetimeevents.csv.gz
   load_args:
@@ -368,7 +368,7 @@ mimic.raw@icu_datetimeevents:
       valueuom: category
       warning: bool
 
-mimic.raw@icu_d_items:
+icu_d_items:
   <<: *mimic_csv
   filepath: ${location}/icu/d_items.csv.gz
   load_args:
@@ -377,7 +377,7 @@ mimic.raw@icu_d_items:
     dtype:
       itemid: int32
 
-mimic.raw@icu_icustays:
+icu_icustays:
   <<: *mimic_csv
   filepath: ${location}/icu/icustays.csv.gz
   load_args:
@@ -391,7 +391,7 @@ mimic.raw@icu_icustays:
       first_careunit: category
       last_careunit: category
 
-mimic.raw@icu_inputevents:
+icu_inputevents:
   <<: *mimic_csv
   filepath: ${location}/icu/inputevents.csv.gz
   load_args:
@@ -423,7 +423,7 @@ mimic.raw@icu_inputevents:
       linkorderid: int32
       orderid: int32
 
-mimic.raw@icu_outputevents:
+icu_outputevents:
   <<: *mimic_csv
   filepath: ${location}/icu/outputevents.csv.gz
   load_args:
@@ -436,7 +436,7 @@ mimic.raw@icu_outputevents:
       itemid: category
       valueom: category
 
-mimic.raw@icu_procedureevents:
+icu_procedureevents:
   <<: *mimic_csv
   filepath: ${location}/icu/procedureevents.csv.gz
   load_args:

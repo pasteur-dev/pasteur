@@ -54,20 +54,20 @@ class MimicDataset(Dataset):
         self._n_partitions = n_partitions
 
     _mimic_tables_single = [
-        "core_patients",
-        "core_transfers",
-        "core_admissions",
-        "hosp_d_hcpcs",
-        "hosp_diagnoses_icd",
-        "hosp_d_icd_diagnoses",
-        "hosp_d_icd_procedures",
-        "hosp_d_labitems",
-        "hosp_drgcodes",
-        "hosp_hcpcsevents",
-        "hosp_microbiologyevents",
-        "hosp_poe_detail",
-        "hosp_procedures_icd",
-        "hosp_services",
+        "patients",
+        "transfers",
+        "admissions",
+        "d_hcpcs",
+        "diagnoses_icd",
+        "d_icd_diagnoses",
+        "d_icd_procedures",
+        "d_labitems",
+        "drgcodes",
+        "hcpcsevents",
+        "microbiologyevents",
+        "poe_detail",
+        "procedures_icd",
+        "services",
         "icu_datetimeevents",
         "icu_d_items",
         "icu_icustays",
@@ -76,12 +76,12 @@ class MimicDataset(Dataset):
     ]
 
     _mimic_tables_partitioned = {
-        "hosp_emar": 4_000_000,
-        "hosp_emar_detail": 4_000_000,
-        "hosp_labevents": 4_000_000,
-        "hosp_pharmacy": 4_000_000,
-        "hosp_poe":  4_000_000,
-        "hosp_prescriptions": 4_000_000,
+        "emar": 4_000_000,
+        "emar_detail": 4_000_000,
+        "labevents": 4_000_000,
+        "pharmacy": 4_000_000,
+        "poe":  4_000_000,
+        "prescriptions": 4_000_000,
         "icu_chartevents": 4_000_000,
         "icu_inputevents": 4_000_000,
     }
@@ -90,11 +90,11 @@ class MimicDataset(Dataset):
     name = "mimic"
     deps = {
         **{t: [t] for t in _mimic_tables_single},
-        **{t: [t, "core_patients"] for t in _mimic_tables_partitioned},
+        **{t: [t, "patients"] for t in _mimic_tables_partitioned},
     }
-    key_deps = ["core_patients"]
+    key_deps = ["patients"]
 
-    folder_name = "mimiciv_1_0"
+    folder_name = "mimiciv_2_2"
     catalog = get_relative_fn("catalog.yml")
 
     def ingest(self, name, **tables: LazyFrame | Callable[[], TextFileReader]):
@@ -105,11 +105,11 @@ class MimicDataset(Dataset):
             return _partition_table(
                 name,
                 cast("Callable[[], TextFileReader]", tables[name]),
-                cast("LazyFrame", tables["core_patients"]),
+                cast("LazyFrame", tables["patients"]),
                 self._n_partitions,
                 chunksize,
             )
 
     @to_chunked
     def keys(self, **tables: LazyChunk):
-        return tables["core_patients"]()[[]]
+        return tables["patients"]()[[]]
