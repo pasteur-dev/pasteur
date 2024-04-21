@@ -36,9 +36,9 @@ class MimicCore(View):
     name = "mimic_core"
     dataset = "mimic"
     deps: dict[str, list[str]] = {
-        "patients": ["core_patients"],
-        "admissions": ["core_admissions"],
-        "transfers": ["core_transfers"],
+        "patients": ["patients"],
+        "admissions": ["admissions"],
+        "transfers": ["transfers"],
     }
     trn_deps = {
         "admissions": ["patients"],
@@ -50,11 +50,11 @@ class MimicCore(View):
     def ingest(self, name, **tables: LazyChunk):
         match name:
             case "patients":
-                return mm_core_transform_patients(tables["core_patients"]())
+                return mm_core_transform_patients(tables["patients"]())
             case "admissions":
-                return tables["core_admissions"]()
+                return tables["admissions"]()
             case "transfers":
-                return tables["core_transfers"]().dropna(subset=['hadm_id'])
+                return tables["transfers"]().dropna(subset=['hadm_id'])
             case other:
                 assert False, f"Table {other} not part of view {self.name}"
 
@@ -65,14 +65,14 @@ class MimicTabAdmissions(TabularView):
     name = "mimic_tab_admissions"
     dataset = "mimic"
     deps = {
-        "table": ["core_patients", "core_admissions"],
+        "table": ["patients", "admissions"],
     }
     parameters = get_relative_fn("parameters_tab.yml")
 
     @to_chunked
     def ingest(self, name, **tables: LazyChunk):
         assert name == "table"
-        return tab_join_tables(tables["core_patients"](), tables["core_admissions"]())
+        return tab_join_tables(tables["patients"](), tables["admissions"]())
 
 
 def _ingest_chunk(
@@ -141,7 +141,7 @@ class MimicBillion(TabularView):
     name = "mimic_billion"
     dataset = "mimic"
     deps = {
-        "table": ["core_patients", "icu_icustays", "icu_chartevents"],
+        "table": ["patients", "icu_icustays", "icu_chartevents"],
     }
     parameters = get_relative_fn("parameters_billion.yml")
 
