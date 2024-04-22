@@ -80,7 +80,7 @@ def pipe(
             case "i" | "ingest":
                 pipeline = f"{pipeline}.ingest"
 
-    with KedroSession.create(extra_params=param_dict) as session:
+    with KedroSession.create(extra_params=param_dict, env="base") as session:
         if "ingest" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
             tags = []
@@ -224,7 +224,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
     }
 
     if clear_cache:
-        with KedroSession.create() as session:
+        with KedroSession.create(env="base") as session:
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
@@ -237,7 +237,7 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         extra_params = merge_params(vals | mlflow_dict)
 
         for pipeline, tags in pipelines_tags:
-            with KedroSession.create(extra_params=extra_params) as session:
+            with KedroSession.create(extra_params=extra_params, env="base") as session:
                 session.load_context()
 
                 run_name = get_run_name(pipeline, vals)
@@ -313,7 +313,7 @@ def download(
     from ..utils.download import get_description, main
 
     # Setup logging and params with kedro
-    with KedroSession.create() as session:
+    with KedroSession.create(env="base") as session:
         ctx = session.load_context()
 
         dataset_modules = get_module_dict(Dataset, getattr(ctx, "pasteur").modules)
@@ -364,7 +364,7 @@ def bootstrap(
     from ..utils.progress import logging_redirect_pbar
 
     # Setup logging and params with kedro
-    with KedroSession.create() as session:
+    with KedroSession.create(env="base") as session:
         ctx = session.load_context()
 
         dataset_modules = get_module_dict(Dataset, ctx.pasteur.modules)  # type: ignore
@@ -420,7 +420,7 @@ def export(
     import pyarrow.csv as csv
 
     # Setup logging and params with kedro
-    with KedroSession.create() as session:
+    with KedroSession.create(env="base") as session:
         ctx = session.load_context()
 
         ds = ctx.catalog.load(dataset)

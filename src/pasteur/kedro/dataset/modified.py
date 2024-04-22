@@ -16,7 +16,7 @@ from kedro.io.core import (
     get_filepath_str,
     get_protocol_and_path,
 )
-from kedro.io.partitioned_dataset import PartitionedDataset
+from kedro_datasets.partitions import PartitionedDataset
 
 from ...utils import LazyDataset, LazyPartition
 from .auto import _wrap_retry

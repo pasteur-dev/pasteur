@@ -192,7 +192,7 @@ def _load_merged_worker(
         load_args = load_args.copy()
         load_args["columns"] = columns
 
-    data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
+    data = pq.ParquetDataset(load_path, filesystem=filesystem)
     table = data.read_pandas(**load_args)
 
     # Grab categorical columns from metadata

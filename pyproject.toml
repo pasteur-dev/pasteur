@@ -15,7 +15,8 @@ classifiers = [
 
 dependencies = [
   # Core
-  "kedro>=0.18.13",
+  "kedro",
+  "kedro-datasets",
   "mlflow",
   "pyarrow",
   "tqdm",
@@ -28,31 +29,22 @@ dependencies = [
 
 [project.optional-dependencies]
 opt = [
-  "ipython>=7.31.1",
-  "jupyter~=1.0",
-  "jupyterlab~=3.0",
+  "jupyterlab",
   "kedro-viz",
-  "black~=22.0",
-  "flake8>=3.7.9, <4.0",
-  "isort~=5.0",
+  "black",
   "parquet-tools",
   "pip-tools",
-]
-test = [
-  "pytest-cov~=3.0",
-  "pytest-mock>=1.7.1, <2.0",
-  "pytest~=6.2",
 ]
 cls = [
   "xgboost"
 ]
 docs = [
   "docutils",
-  "sphinx~=6.0",
-  "sphinx-book-theme~=1.0.1",
+  "sphinx",
+  "sphinx-book-theme",
   "nbsphinx",
   "recommonmark",
-  "sphinx-autodoc-typehints~=1.23.2",
+  "sphinx-autodoc-typehints",
   "sphinx_copybutton",
   "Jinja2",
   "sphinx-autobuild",
@@ -86,7 +78,7 @@ include = ["pasteur*"]  # package names should match these glob patterns (["*"] 
 [tool.kedro]
 package_name = "project"
 project_name = "Pasteur Testing Project"
-kedro_init_version = "0.18.5"
+kedro_init_version = "0.19.4"
 
 [tool.isort]
 multi_line_output = 3

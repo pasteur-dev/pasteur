@@ -19,12 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def _load_config(fn: str):
-    # for performance reasons
-    import anyconfig  # noqa: import-outside-toplevel
+    import yaml
 
-    # Default to UTF-8, which is Python 3 default encoding, to decode the file
     with open(fn, encoding="utf8") as yml:
-        d = anyconfig.load(yml)
+        d = yaml.safe_load(yml)
 
     assert isinstance(d, dict), f"Could not load config file: '{fn}'"
     return {k: v for k, v in d.items() if not k.startswith("_")}
@@ -86,7 +84,6 @@ class PasteurHook:
         except MissingConfigException:
             locations = {}
             logger.warn(f"Consider using a 'locations.yml' file in the future. Using paths from params.")
-            
 
         def location_resolver(loc: str, default=None):
             if "_location" in loc:
@@ -162,9 +159,9 @@ class PasteurHook:
                 {
                     "type": AutoDataset,
                     "save_args": self.pq_save_args,
-                    "version": self.get_version(name, versioned),
                     "metadata": {"kedro-viz": {"layer": layer}} if layer else None,
                 },
+                version=self.get_version(name, versioned),
             )
         else:
             ds = AutoDataset(
@@ -178,8 +175,8 @@ class PasteurHook:
             name,
             ds,
         )
-        if layer:
-            self.catalog.layers[layer].add(name)
+        # if layer:
+        #     self.catalog.layers[layer].add(name)
 
     def add_pkl(self, layer, name, path_seg, versioned=False):
         self.catalog.add(
@@ -200,8 +197,8 @@ class PasteurHook:
             name,
             MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),  # type: ignore
         )
-        if layer:
-            self.catalog.layers[layer].add(name)
+        # if layer:
+        #     self.catalog.layers[layer].add(name)
 
     @hook_impl
     def after_catalog_created(
@@ -222,10 +219,10 @@ class PasteurHook:
         self.save_version = save_version
         self.load_versions = load_versions
 
-        if catalog.layers is None:
-            from collections import defaultdict
+        # if catalog.layers is None:
+        #     from collections import defaultdict
 
-            catalog.layers = defaultdict(set)
+        #     catalog.layers = defaultdict(set)
 
         # Add raw datasets from packaged datasets
         # Just replace `${<folder_name>_location}` with raw/<folder_name> or that parameter
@@ -269,17 +266,18 @@ class PasteurHook:
                 )
 
                 # Add all traditional layers that exist
-                catalog.add_all(tmp_catalog._data_sets)
+                catalog.add_all(tmp_catalog._datasets)
                 depr_tag = set()
-                if tmp_catalog.layers:
-                    # Passthrough layers if they are not provided through metadata
-                    for layer, children in tmp_catalog.layers.items():
-                        catalog.layers[layer].update(children)
-                        depr_tag.update(children)
+                # if hasattr(tmp_catalog, "layers"):
+                #     # Passthrough layers if they are not provided through metadata
+                #     cl = getattr(tmp_catalog, "layers")
+                #     for layer, children in cl.items():
+                #         cl[layer].update(children)
+                #         depr_tag.update(children)
 
                 # Skip constructor and set metadata attribute on datasets with
                 # a raw layer. Datasets without a metadata key word argument crash otherwise.
-                for n, d in tmp_catalog._data_sets.items():
+                for n, d in tmp_catalog._datasets.items():
                     # Datasets with layer attribute are skipped
                     if n in depr_tag:
                         continue

@@ -9,10 +9,11 @@ from kedro.io.core import (
     DatasetError,
     parse_dataset_definition,
 )
-from kedro.io.partitioned_dataset import S3_PROTOCOLS
 
 
 from urllib.parse import urlparse
+
+S3_PROTOCOLS = ("s3", "s3a", "s3n")
 
 
 class Multiset(AbstractDataset):
@@ -28,6 +29,7 @@ class Multiset(AbstractDataset):
         credentials: dict[str, Any] | None = None,
         load_args: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
+        version=None,
     ):
         # noqa: import-outside-toplevel
         from fsspec.utils import infer_storage_options  # for performance reasons
@@ -40,13 +42,12 @@ class Multiset(AbstractDataset):
         self.metadata = metadata
 
         dataset = dataset if isinstance(dataset, dict) else {"type": dataset}
-        self._dataset_type, self._dataset_config = parse_dataset_definition(dataset)
-        if VERSION_KEY in self._dataset_config:
-            raise DatasetError(
-                f"'{self.__class__.__name__}' does not support versioning of the "
-                f"underlying dataset. Please remove '{VERSIONED_FLAG_KEY}' flag from "
-                f"the dataset definition."
-            )
+
+        self._dataset_type, self._dataset_config = parse_dataset_definition(
+            dataset,
+            load_version=version.load if version else None,
+            save_version=version.save if version else None,
+        )
 
         self._credentials = deepcopy(credentials) or {}
         self._filepath_arg = filepath_arg

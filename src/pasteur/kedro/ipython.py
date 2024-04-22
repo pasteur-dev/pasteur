@@ -1,15 +1,5 @@
 """ This module extends Kedro's ipython functionality. """
 
-# Disable default kedro logging config
-import os
-import logging
-
-
-from ..utils import get_relative_fn
-
-os.environ["KEDRO_LOGGING_CONFIG"] = get_relative_fn("./logstub.yml")
-logging.captureWarnings(True)
-
 from pathlib import Path
 
 from IPython.core.getipython import get_ipython
@@ -32,7 +22,7 @@ pipelines: dict[str, Pipeline] = None  # type: ignore
 
 def _reconfigure_rich(tracebacks: bool = True):
     import rich
-    from rich import reconfigure, get_console
+    from rich import get_console, reconfigure
     from rich.pretty import _ipy_display_hook
 
     _rich_console_args = {
@@ -116,7 +106,8 @@ def _pipe_magic(line):
 
 
 def register_kedro(path: str | None = None, tracebacks: bool = True):
-    from kedro.ipython import _find_kedro_project, reload_kedro
+    from kedro.ipython import reload_kedro
+    from kedro.utils import _find_kedro_project
 
     top_level = Path(path) if path else Path.cwd()
     proj_path = _find_kedro_project(top_level)
