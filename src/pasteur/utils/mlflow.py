@@ -2,13 +2,16 @@
 
 @TODO: refactor and clean the functions provided by this module."""
 
+from typing import TYPE_CHECKING
 from io import BytesIO
 
 import pandas as pd
-from matplotlib.figure import Figure
 from pandas.io.formats.style import Styler
 
 from .styles import use_style
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 # Taken from jupyter, with sans serif added
 BASE_TABLE_STYLE = """<style type="text/css">
@@ -64,7 +67,7 @@ ARTIFACT_DIR = "_raw"
 _SAVE_HTML = True
 
 
-def gen_html_figure_container(viz: dict[str, Figure]):
+def gen_html_figure_container(viz: dict[str, "Figure"]):
     import base64
 
     style = """
@@ -274,7 +277,7 @@ def mlflow_log_artifacts(*prefix: str, **args):
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
 
 
-def mlflow_log_hists(table: str, name: str, viz: Figure | dict[str, Figure]):
+def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
     import matplotlib.pyplot as plt
     import mlflow
 

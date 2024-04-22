@@ -1,18 +1,15 @@
-from typing import Any, NamedTuple, TypeVar, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, Sequence, TypeVar, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.figure import Figure
 from numpy import ndarray
 from pandas.core.frame import DataFrame
 from pandas.core.series import Series
 
-
-from typing import Sequence
-
 from pasteur.attribute import SeqValue
 from pasteur.metric import AbstractColumnMetric, SeqColumnData, Summaries
+
 from ...metric import (
     AbstractColumnMetric,
     ColumnMetric,
@@ -26,8 +23,10 @@ from ...metric import (
 from ...utils import list_unique
 from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
 
-A = TypeVar("A")
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
+A = TypeVar("A")
 
 def _percent_formatter(x, pos):
     return f"{100*x:.1f}%"
@@ -260,8 +259,7 @@ class FixedHist(ColumnMetric[Any, Any]):
 
     name = "fixed"
 
-    def fit(self, table: str, col: str, data: pd.Series):
-        ...
+    def fit(self, table: str, col: str, data: pd.Series): ...
 
     def reduce(self, other: AbstractColumnMetric):
         pass
@@ -501,7 +499,7 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
             {n: d.na for n, d in data.items() if d.na is not None},
         )
 
-    def _visualise(self, data: dict[str, Summaries[DateData]]) -> dict[str, Figure]:
+    def _visualise(self, data: dict[str, Summaries[DateData]]) -> dict[str, "Figure"]:
         keys = list(data.keys())
         splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
         for name, split in data.items():
@@ -577,7 +575,7 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             syn=np.sum([s.syn for s in summaries if s.syn is not None], axis=0),
         )
 
-    def _visualise(self, data: dict[str, Summaries[np.ndarray]]) -> Figure:
+    def _visualise(self, data: dict[str, Summaries[np.ndarray]]) -> "Figure":
         keys = list(data.keys())
         splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
         for name, split in data.items():
