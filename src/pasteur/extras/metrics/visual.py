@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Any, NamedTuple, Sequence, TypeVar, cast
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from numpy import ndarray
@@ -40,6 +39,8 @@ def _gen_hist(
     xticks_x=None,
     xticks_label=None,
 ):
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots()
     x = np.array(bins)[:-1]
     w = (x[1] - x[0]) / len(heights)
@@ -59,6 +60,8 @@ def _gen_hist(
 
 
 def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndarray]):
+    import matplotlib.pyplot as plt
+    
     fig, ax = plt.subplots()
 
     x = np.array(range(len(cols)))

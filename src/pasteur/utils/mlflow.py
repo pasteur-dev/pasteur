@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 from io import BytesIO
 
 import pandas as pd
-from pandas.io.formats.style import Styler
 
 from .styles import use_style
 
@@ -120,7 +119,7 @@ def gen_html_figure_container(viz: dict[str, "Figure"]):
     )
 
 
-def gen_html_table(table: Styler | pd.DataFrame | str, font_size: str = "18px") -> str:
+def gen_html_table(table: pd.DataFrame | str, font_size: str = "18px") -> str:
     return (BASE_TABLE_STYLE % font_size) + (
         table if isinstance(table, str) else table.to_html()
     )
