@@ -1,5 +1,6 @@
 """ This module extends Kedro's ipython functionality. """
 
+import logging
 from pathlib import Path
 
 from IPython.core.getipython import get_ipython
