@@ -417,7 +417,12 @@ def generate_fit_tables(
             name = name[0]
         fids = fids.join(table[[]], on=name, how="inner")
 
-    table = tables[ver.name]().loc[fids.index]
+    _tmp = tables[ver.name]()
+    try:
+        table = _tmp.loc[fids.index]
+    except Exception:
+        # FIXME: Resolve id situation
+        table = _tmp.join(fids, how="inner")
 
     # If no parents, assume normal table and return it
     if not ver.parents:
