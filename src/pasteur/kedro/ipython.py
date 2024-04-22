@@ -72,7 +72,7 @@ def _pipe(pipe: str, params_str: str, params: dict):
 
     metadata = bootstrap_project(project_path)
     session = KedroSession.create(
-        metadata.package_name, project_path, extra_params=params
+        metadata.package_name, project_path, extra_params=params, env="base"
     )
     _reconfigure_rich()
     session.run(
@@ -117,15 +117,10 @@ def register_kedro(path: str | None = None, tracebacks: bool = True):
     ipy.register_magic_function(_pipe_magic, "line", "pipe")  # type: ignore
     ipy.register_magic_function(_pipe_magic, "line", "p")  # type: ignore
 
-    # Disable path message
-    logging.getLogger().handlers = []
-    _reconfigure_rich(tracebacks)
     if not proj_path:
         raise Exception(f"Kedro project not found along path: '{top_level}'")
-    else:
-        reload_kedro(proj_path)  # type: ignore
 
-    _reconfigure_rich(tracebacks)
+    reload_kedro(proj_path, env="base")
     ipy.register_magic_function(lambda _: reload_kedro(proj_path), "line", "reload_kedro")  # type: ignore
 
 
