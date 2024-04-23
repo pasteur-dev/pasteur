@@ -52,12 +52,14 @@ from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import MareEncoder
-from pasteur.synth import IdentSynth
+# from pasteur.synth import IdentSynth
+from pasteur.mare.synth import MareSynth
+from pasteur.extras.synth.privbayes import PrivBayesMare
 
 
-class MareSynth(IdentSynth):
-    name = "ident_mare"
-    type = "mare"
+# class MareSynth(IdentSynth):
+#     name = "ident_mare"
+#     type = "mare"
 
 
 PASTEUR_MODULES = get_recommended_modules() + [
@@ -67,5 +69,5 @@ PASTEUR_MODULES = get_recommended_modules() + [
     MimicCore(),
     MimicIcu(),
     MareEncoder.get_factory(),
-    MareSynth.get_factory(),
+    MareSynth.get_factory(PrivBayesMare),
 ]
