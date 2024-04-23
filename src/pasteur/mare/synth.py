@@ -346,12 +346,13 @@ def sample_model(
 
             # Find values and their domains for placeholder history
             vals = {}
-            for attr in seq_attrs.hist[0].values():
-                # if attr.common:
-                #     vals[attr.common.name] = attr.common.get_domain(0)
-                for val_name, val in attr.vals.items():
-                    if isinstance(val, CatValue):
-                        vals[val_name] = val.get_domain(0)
+            if seq_attrs.hist:
+                for attr in next(iter(seq_attrs.hist.values())).values():
+                    # if attr.common:
+                    #     vals[attr.common.name] = attr.common.get_domain(0)
+                    for val_name, val in attr.vals.items():
+                        if isinstance(val, CatValue):
+                            vals[val_name] = val.get_domain(0)
 
             # Create sample history
             sampled = []
