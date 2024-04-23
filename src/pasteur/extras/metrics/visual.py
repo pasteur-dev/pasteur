@@ -597,9 +597,13 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
         tick_x = mult * np.array(hours)
         tick_label = [f"{hour:02d}:00" for hour in hours]
 
+        col = self.col
+        if not isinstance(col, str):
+            col = " ".join(col)
+
         return _gen_hist(
             y_log=self.y_log,
-            title=f"{self.col.capitalize()} Time",
+            title=f"{col.capitalize()} Time",
             bins=bins,
             heights=splits,
             xticks_x=tick_x,

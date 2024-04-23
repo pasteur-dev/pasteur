@@ -287,6 +287,8 @@ def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
     if table != "table":
         path_prefix += f"{table}/"
 
+    if not isinstance(name, str):
+        name = "_".join(name)
     name = name.lower()
     if isinstance(viz, dict):
         if _SAVE_HTML:
