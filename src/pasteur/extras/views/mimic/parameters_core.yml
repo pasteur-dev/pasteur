@@ -24,6 +24,9 @@ tables:
       admittime:
         type: seq
         ref: patients.birth_year
+        first_seq_ref_itself: True
+        order: 2
+
         ctx:
           type: datetime
           span: year.hour
@@ -42,7 +45,7 @@ tables:
       insurance: categorical
       language: categorical
       marital_status: categorical?
-      ethnicity: categorical
+      race: categorical
       # edregtime: datetime?|day.halfhour:admittime
       # edouttime: datetime?|day.halfhour:admittime
       hospital_expire_flag: categorical
@@ -58,6 +61,7 @@ tables:
       intime:
         type: seq
         ref: admissions.admittime
+        order: 2
         seq:
           type: datetime
           span: day.hour

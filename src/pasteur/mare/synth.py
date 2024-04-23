@@ -1,18 +1,8 @@
-from collections import defaultdict
 import logging
+from collections import defaultdict
 from typing import Any, Type, cast
 
 import pandas as pd
-
-from ..utils.data import LazyFrame, tables_to_data
-
-from .chains import (
-    TableMeta,
-    TablePartition,
-    TableVersion,
-    _calculate_stripped_meta,
-    calculate_stripped_meta,
-)
 
 from ..attribute import (
     Attributes,
@@ -21,10 +11,19 @@ from ..attribute import (
     SeqAttributes,
     get_dtype,
 )
-from ..marginal import MarginalOracle
+from ..hierarchy import rebalance_attributes
+from ..marginal import MarginalOracle, counts_preprocess
 from ..marginal.numpy import TableSelector
 from ..synth import Synth, make_deterministic
 from ..utils import LazyDataset
+from ..utils.data import LazyFrame, tables_to_data
+from .chains import (
+    TableMeta,
+    TablePartition,
+    TableVersion,
+    _calculate_stripped_meta,
+    calculate_stripped_meta,
+)
 from .unroll import (
     ModelVersion,
     calculate_model_versions,
@@ -36,13 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 class MareModel:
-    def fit(self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle):
-        ...
+    def fit(
+        self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle
+    ): ...
 
     def sample(
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
-    ) -> pd.DataFrame:
-        ...
+    ) -> pd.DataFrame: ...
 
 
 class MareSynth(Synth):
@@ -56,6 +55,7 @@ class MareSynth(Synth):
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
         max_vers: int = 20,
+        rebalance: bool = False,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -63,6 +63,7 @@ class MareSynth(Synth):
         self.marginal_worker_mult = marginal_worker_mult
         self.marginal_min_chunk = marginal_min_chunk
         self.max_vers = max_vers
+        self.rebalance = rebalance
 
         self.model_cls = model_cls
 
@@ -70,7 +71,32 @@ class MareSynth(Synth):
         logger.info(
             f"Calculating required model versions for dataset (max versions per model: {self.max_vers})..."
         )
-        self.versions = calculate_model_versions(meta, data, self.max_vers)
+
+        if self.rebalance:
+            with MarginalOracle(
+                data,  # type: ignore
+                meta,  # type: ignore
+                mode=self.marginal_mode,
+                min_chunk_size=self.marginal_min_chunk,
+                max_worker_mult=self.marginal_worker_mult,
+                preprocess=counts_preprocess,
+            ) as o:
+                counts = o.get_counts(desc="Calculating counts for column rebalancing")
+
+            self.counts = counts
+            new_meta = {
+                k: rebalance_attributes(
+                    counts[k],
+                    v,
+                    unbounded_dp=self.kwargs.get("unbounded_dp", True),
+                    **self.kwargs,
+                )
+                for k, v in meta.items()
+            }
+        else:
+            new_meta = meta
+
+        self.versions = calculate_model_versions(new_meta, data, self.max_vers)
         # TODO: Find better sampling strategy. Pick a top level table and
         # use its stats for now.
         for ver in self.versions:

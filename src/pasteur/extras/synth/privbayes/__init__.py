@@ -37,7 +37,6 @@ class PrivBayesMare(MareModel):
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
-        rebalance: bool = False,
         unbounded_dp: bool = False,
         random_init: bool = False,
         skip_zero_counts: bool = True,
@@ -51,7 +50,6 @@ class PrivBayesMare(MareModel):
         self.seed = seed
         self.random_init = random_init
         self.unbounded_dp = unbounded_dp
-        self.rebalance = rebalance
         self.skip_zero_counts = skip_zero_counts
         self.kwargs = kwargs
 
@@ -487,15 +485,17 @@ def derive_obs_from_model(
         source = tuple(sorted(out, key=lambda x: x[:-1]))
         vals = list(
             chain.from_iterable(
-                [(a.table, a.order, a.attr, None)]
-                if isinstance(a.sel, int)
-                else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
+                (
+                    [(a.table, a.order, a.attr, None)]
+                    if isinstance(a.sel, int)
+                    else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
+                )
                 for a in source
             )
         )
 
         # Find new domain and transpose dimensions to be alphabetical
-        new_obs = obs.astype('float32').transpose([orig.index(v) for v in vals])
+        new_obs = obs.astype("float32").transpose([orig.index(v) for v in vals])
         new_dom = []
         i = 0
         for a in source:
@@ -531,7 +531,7 @@ def derive_obs_from_model(
                     for j, d in enumerate(new_obs.shape)
                 ]
             )
-            np.add.at(tmp, o_map, new_obs[i_map]) # type: ignore
+            np.add.at(tmp, o_map, new_obs[i_map])  # type: ignore
             new_obs = tmp
 
         lo = LinearObservation(

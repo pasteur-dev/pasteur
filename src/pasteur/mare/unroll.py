@@ -1,7 +1,9 @@
 from collections import defaultdict
+from copy import copy
 from functools import partial
 from typing import Mapping, NamedTuple, cast
 
+import numpy as np
 import pandas as pd
 
 from ..attribute import (
@@ -17,6 +19,7 @@ from ..attribute import (
     StratifiedValue,
     get_dtype,
 )
+from ..hierarchy import RebalancedValue
 from ..marginal.numpy import TableSelector
 from ..marginal.oracle import PreprocessFun
 from ..utils import LazyChunk
@@ -250,6 +253,25 @@ def convert_to_seq_val(s: StratifiedValue, order: int):
     return StratifiedValue(s.name, g)
 
 
+def convert_rebalanced_to_seq_val(s: RebalancedValue, order: int):
+    if not order:
+        return s
+    reb = copy(s)
+    reb.counts = [0] * order + s.counts
+    reb.grouping = np.concatenate(
+        [
+            [[0 for i in range(order)] for _ in range(s.grouping.shape[0])],
+            s.grouping.astype(np.uint16) + order,
+        ],
+        axis=1,
+    )
+    # TODO: verify this works
+    reb.common_sizes = [[1 for _ in range(order)] + v for v in s.common_sizes]
+    reb.common_groups = [list(v) for v in reb.grouping]
+    reb.domains = [d + order for d in s.domains]
+    return reb
+
+
 def convert_to_seq_attr(attrs: Attributes, order: int):
     out = {}
     for name, attr in attrs.items():
@@ -258,14 +280,25 @@ def convert_to_seq_attr(attrs: Attributes, order: int):
             if isinstance(v, SeqValue):
                 continue
 
-            assert isinstance(
-                v, StratifiedValue
-            ), f"Attr. '{v.name}' is of type '{type(v)}'. Not Stratified."
-            vals.append(convert_to_seq_val(v, order))
+            if isinstance(v, RebalancedValue):
+                vals.append(convert_rebalanced_to_seq_val(v, order))
+            elif isinstance(v, StratifiedValue):
+                vals.append(convert_to_seq_val(v, order))
+            else:
+                assert (
+                    False
+                ), f"Attr. '{v.name}' is of type '{type(v)}', which is not supported."
 
         if attr.common:
-            assert isinstance(attr.common, StratifiedValue)
-            cmn = convert_to_seq_val(attr.common, order)
+            v = attr.common
+            if isinstance(v, RebalancedValue):
+                cmn = convert_rebalanced_to_seq_val(v, order)
+            elif isinstance(v, StratifiedValue):
+                cmn = convert_to_seq_val(v, order)
+            else:
+                assert (
+                    False
+                ), f"Attr. '{v.name}' is of type '{type(v)}', which is not supported."
         else:
             cmn = None
         if len(vals):
@@ -422,6 +455,8 @@ def generate_fit_tables(
         table = _tmp.loc[fids.index]
     except Exception:
         # FIXME: Resolve id situation
+        # If a context table is joined to a parent without child rows
+        # that parent is pruned.
         table = _tmp.join(fids, how="inner")
 
     # If no parents, assume normal table and return it
