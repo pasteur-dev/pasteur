@@ -31,7 +31,7 @@ def torch_create_cliques(
     ):
         v = torch.scalar_tensor(1).to(device)
         for s, w in zip(shape, weight):
-            v = torch.from_numpy(w).to(device) * v.unsqueeze(-1)
+            v = torch.from_numpy(w).type(torch.float32).to(device) * v.unsqueeze(-1)
             assert v.shape[-1] == s
         out.append(v.log())
     return out
@@ -51,89 +51,6 @@ def torch_to_mapping_repr(
     if device:
         out = out.to(device)
     return out
-
-
-class BeliefPropagation(torch.nn.Module):
-    def __init__(
-        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
-    ) -> None:
-        super().__init__()
-        self.cliques = cliques
-        self.messages = messages
-
-        # Create tensors for index args
-        self.doms = [[i.b_dom if i else None for i in m.index_args] for m in messages]
-        self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
-        index_args = []
-        for m in messages:
-            index_args.append(
-                torch.nn.ParameterList(
-                    [
-                        torch.nn.Parameter(
-                            torch_to_mapping_repr(*i), requires_grad=False
-                        )
-                        for i in m.index_args
-                        if i is not None
-                    ]
-                )
-            )
-        self.index_args = torch.nn.ModuleList(index_args)
-
-    def forward(self, theta: Sequence[torch.Tensor]):
-        theta = list(theta)
-
-        with torch.no_grad():
-            done = {}
-            for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
-                # Start with clique
-                proc = theta[a_idx]
-
-                if m.sum_dims:
-                    proc = torch.sum(proc, dim=m.sum_dims)
-
-                # If backward pass, remove duplicate beliefs
-                if not m.forward:
-                    proc = proc - done[(m.b, m.a)]
-
-                # Apply indexing ops
-                # assert len(m.index_args) == len(proc.shape)
-                l = 0
-                for j, dom in enumerate(self.doms[i]):
-                    if not dom:
-                        continue
-
-                    op = cast(torch.nn.ParameterList, self.index_args[i])[l]
-                    l += 1
-
-                    a_slice = [
-                        op[0, :] if k == j else slice(None)
-                        for k in range(len(proc.shape))
-                    ]
-                    proc = torch.zeros(
-                        size=[dom if j == k else s for k, s in enumerate(proc.shape)],
-                        device=proc.device,
-                    ).index_add_(j, op[1, :], proc[a_slice])
-
-                # Keep version for backprop
-                if m.forward:
-                    done[(m.a, m.b)] = proc
-
-                # Expand dims
-                shape = proc.shape
-                new_shape = []
-                ofs = 0
-                for is_common in m.reshape_dims:
-                    if is_common:
-                        new_shape.append(shape[ofs])
-                        ofs += 1
-                    else:
-                        new_shape.append(1)
-                proc = proc.reshape(new_shape)
-
-                # Apply to clique
-                theta[b_idx] = theta[b_idx] + proc
-
-        return theta
 
 
 def torch_to_matrix_mul(
@@ -158,89 +75,6 @@ def torch_to_matrix_mul(
 
         # Einsum does not support sparse vectors
         # return torch.sparse_coo_tensor(idx, torch.ones(idx.shape[1]), (a_dom, b_dom))
-
-
-class BeliefPropagationMul(torch.nn.Module):
-    """Worse in every way than default."""
-
-    def __init__(
-        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
-    ) -> None:
-        super().__init__()
-        self.cliques = cliques
-        self.messages = messages
-
-        self.doms = [[i.b_dom if i else None for i in m.index_args] for m in messages]
-        self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
-
-        # Create tensors for mul args
-        mmul_args = []
-        for m in messages:
-            mmul_args.append(
-                torch.nn.ParameterList(
-                    [
-                        torch.nn.Parameter(torch_to_matrix_mul(*i), requires_grad=False)
-                        for i in m.index_args
-                        if i is not None
-                    ]
-                )
-            )
-        self.mmul_args = torch.nn.ModuleList(mmul_args)
-
-    def forward(self, theta: Sequence[torch.Tensor], use_indexing: bool = False):
-        theta = list(theta)
-
-        with torch.no_grad():
-            done = {}
-            for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
-                # Start with clique
-                proc = theta[a_idx]
-
-                if m.sum_dims:
-                    proc = torch.sum(proc, dim=m.sum_dims)
-
-                # If backward pass, remove duplicate beliefs
-                if not m.forward:
-                    proc = proc - done[(m.b, m.a)]
-
-                # Apply mat mul with einsum
-                l = 0
-                ofs = len(self.doms[i])
-                args = [proc, list(range(ofs))]
-                out_dims = []
-                for j, dom in enumerate(self.doms[i]):
-                    if dom:
-                        op = cast(torch.nn.ParameterList, self.mmul_args[i])[l]
-                        args.append(op)
-                        args.append([j, ofs + l])
-                        out_dims.append(ofs + l)
-                        l += 1
-                    else:
-                        out_dims.append(j)
-
-                if l > 0:
-                    proc = torch.einsum(*args, out_dims)
-
-                # Keep version for backprop
-                if m.forward:
-                    done[(m.a, m.b)] = proc
-
-                # Expand dims
-                shape = proc.shape
-                new_shape = []
-                ofs = 0
-                for is_common in m.reshape_dims:
-                    if is_common:
-                        new_shape.append(shape[ofs])
-                        ofs += 1
-                    else:
-                        new_shape.append(1)
-                proc = proc.reshape(new_shape)
-
-                # Apply to clique
-                theta[b_idx] = theta[b_idx] + proc
-
-        return theta
 
 
 class TorchIndexArgs(NamedTuple):
@@ -297,9 +131,10 @@ class BeliefPropagationSingle(torch.nn.Module):
         self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
         self.args, self.idx_a, self.idx_b = torch_gen_args(messages)
 
-    def forward(self, theta: Sequence[torch.Tensor]):
+    def forward(self, theta: Sequence[torch.Tensor], debug: bool = False):
         theta = list(theta)
-        print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
+        if debug:
+            print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
 
         with torch.no_grad():
             done = {}
@@ -364,16 +199,21 @@ class BeliefPropagationSingle(torch.nn.Module):
                 proc = proc.reshape(new_shape)
 
                 # Apply to clique
-                print(
-                    a_idx,
-                    b_idx,
-                    proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
-                    m.forward,
-                )
+                if debug:
+                    print(
+                        a_idx,
+                        b_idx,
+                        proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
+                        m.forward,
+                    )
                 theta[b_idx] = theta[b_idx] + proc
 
             # # Normalize resulting cliques
-            print("Z: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
+            if debug:
+                print(
+                    "Z: ",
+                    [float(t.logsumexp(list(range(len(t.shape))))) for t in theta],
+                )
             Z = theta[0].logsumexp(list(range(len(theta[0].shape))))
             for i in range(len(theta)):
                 theta[i] = theta[i] - Z

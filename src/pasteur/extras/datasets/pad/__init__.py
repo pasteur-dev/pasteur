@@ -50,4 +50,4 @@ class PadDataset(Dataset):
 
     @to_chunked
     def keys(self, **tables: LazyChunk):
-        return tables["core_patients"]()[[]]
+        return tables["pad1"]()[[]]
