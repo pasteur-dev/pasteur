@@ -40,6 +40,7 @@ class PrivBayesMare(MareModel):
         unbounded_dp: bool = False,
         random_init: bool = False,
         skip_zero_counts: bool = True,
+        rake: bool = True,
         **kwargs,
     ) -> None:
         self.ep = ep
@@ -51,6 +52,7 @@ class PrivBayesMare(MareModel):
         self.random_init = random_init
         self.unbounded_dp = unbounded_dp
         self.skip_zero_counts = skip_zero_counts
+        self.rake = rake
         self.kwargs = kwargs
 
     @make_deterministic
@@ -69,6 +71,7 @@ class PrivBayesMare(MareModel):
             self.unbounded_dp,
             self.random_init,
             prefer_table=table,
+            rake=self.rake,
         )
 
         # Nodes are a tuple of a x attribute

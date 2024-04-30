@@ -253,6 +253,7 @@ def greedy_bayes(
     unbounded_dp: bool,
     random_init: bool,
     prefer_table: str | None = None,
+    rake: bool = True
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -452,7 +453,7 @@ def greedy_bayes(
             if first:
                 logger.error("Too many columns, disabling parent correlations.")
                 first = False
-                     
+
             info = [(x, []) for x in todo]
             node_psets = [[] for _ in range(len(todo))]
         else:
@@ -469,6 +470,14 @@ def greedy_bayes(
                 # Create customized domain, with relevant selectors, by
                 # Removing combinations with unmet dependencies
                 for name, attr_combos in combos.items():
+                    if (
+                        rake
+                        and name[0]
+                        and len(name[0]) == 2
+                        and name[1] != val_to_attr[x]
+                    ):
+                        # Skip seq attrs that are not the same column
+                        continue
                     doms = []
                     sels = []
                     for sel, dom, deps in attr_combos:
