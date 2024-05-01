@@ -36,6 +36,7 @@ class TableMeta(NamedTuple):
     unroll: str | None
     along: tuple[str, ...] | None
     parent: str | None
+    max_len: int | None
 
 
 def get_parents(
@@ -172,6 +173,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
     for name in attrs:
         sequence = None
         order = None
+        max_len = None
         partition = None
         unroll = None
         parent = None
@@ -184,6 +186,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
                     sequence = v.name
                     parent = v.table
                     order = v.order
+                    max_len = v.max
 
             if attr.partition:
                 if len(attr.vals) > 1:
@@ -209,7 +212,9 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
 
         if along is not None:
             along = tuple(along)
-        out[name] = TableMeta(sequence, order, partition, unroll, along, parent)
+        out[name] = TableMeta(
+            sequence, order, partition, unroll, along, parent, max_len
+        )
     return out
 
 
@@ -249,7 +254,8 @@ def _calculate_chains_of_table(
         )
     ) or [()]
 
-    _, _, partition, unroll, _, _ = meta[name]
+    partition = meta[name].partition
+    unroll = meta[name].unroll
 
     # Unrolling and Partitioning have values that are extracted from data so have
     # to run per partution

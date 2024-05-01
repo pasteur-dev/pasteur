@@ -990,6 +990,7 @@ class SeqTransformerWrapper(SeqTransformer):
         seq_col: str | None = None,
         ctx_to_ref: dict[str, str] | None = None,
         order: int | None = None,
+        max_len: int | None = None,
         first_seq_ref_itself: bool = False,
         **kwargs,
     ) -> None:
@@ -998,6 +999,7 @@ class SeqTransformerWrapper(SeqTransformer):
         self.seq_col_ref = seq_col
         self.ctx_to_ref = ctx_to_ref
         self.order = order
+        self.max_len_set = max_len
         self.first_seq_ref_itself = first_seq_ref_itself
 
         if ctx is None:
@@ -1090,7 +1092,10 @@ class SeqTransformerWrapper(SeqTransformer):
             else:
                 seq_col = data
             seq = _calculate_seq(seq_col, ids, self.parent, self.col_seq)
-        self.max_len = cast(int, seq.max()) + 1
+        if self.max_len_set is not None:
+            self.max_len = self.max_len_set
+        else:
+            self.max_len = cast(int, seq.max()) + 1
 
         match self.mode:
             case "dual":
@@ -1346,7 +1351,8 @@ class SeqTransformerWrapper(SeqTransformer):
 
         # Data series is all rows where seq > 0 (skip initial)
         out = []
-        for i in range(self.max_len):
+        i = 0
+        while True:
             data_df = data[seq == i]
             if not len(data_df):
                 break
@@ -1370,6 +1376,7 @@ class SeqTransformerWrapper(SeqTransformer):
             else:
                 ref_df = ctx_ref
             out.append(pd.DataFrame(self.seq.reverse(data_df, ref_df)))
+            i += 1
 
         return pd.concat(out, axis=0)
 
@@ -1411,9 +1418,11 @@ class SeqTransformerWrapper(SeqTransformer):
         ]
 
         # Data series is all rows where seq > 0 (skip initial)
-        for i in range(1, self.max_len):
+        i = 1
+        while True:
             seq_mask = seq == i
             data_df = data[seq_mask]
+            i += 1
             if not len(data_df):
                 break
             ref_df = (

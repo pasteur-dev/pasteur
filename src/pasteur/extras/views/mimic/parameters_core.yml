@@ -26,6 +26,7 @@ tables:
         ref: patients.birth_year
         first_seq_ref_itself: True
         order: 2
+        max_len: 20
 
         ctx:
           type: datetime
@@ -62,6 +63,7 @@ tables:
         type: seq
         ref: admissions.admittime
         order: 2
+        max_len: 20
         seq:
           type: datetime
           span: day.hour

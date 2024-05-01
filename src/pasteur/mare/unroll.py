@@ -408,7 +408,11 @@ def generate_fit_attrs(
     elif ctx:
         # Context tables for normal tables and sequence tables same
         assert ver.children is not None
-        hist[None] = {f"{ver.name}_n": GenAttribute(f"{ver.name}_n", ver.children)}
+        hist[None] = {
+            f"{ver.name}_n": GenAttribute(
+                f"{ver.name}_n", seq.max if seq and seq.max else ver.children
+            )
+        }
     elif seq:
         order = seq.order
         ahist = {}
@@ -477,7 +481,10 @@ def generate_fit_tables(
 
     new_hist = {}
     unroll = meta[ver.name].unroll
-    sequence, order = meta[ver.name].sequence, meta[ver.name].order
+    sequence = meta[ver.name].sequence
+    order = meta[ver.name].order
+    max_len = meta[ver.name].max_len
+
     if unroll:
         if ctx:
             assert ver.unrolls
@@ -513,7 +520,10 @@ def generate_fit_tables(
     elif sequence:
         if ctx:
             fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
-            synth = pd.DataFrame(sid.groupby(SID_NAME).size().rename(f"{ver.name}_n"))
+            lens = sid.groupby(SID_NAME).size().rename(f"{ver.name}_n")
+            if max_len is not None:
+                lens = lens.clip(upper=max_len)
+            synth = pd.DataFrame(lens)
         else:
             assert order is not None
 
