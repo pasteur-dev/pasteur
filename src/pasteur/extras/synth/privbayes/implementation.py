@@ -639,7 +639,7 @@ def print_tree(
                 table_name, order = table
                 hist = cast(SeqAttributes, attrs[table[0]]).hist
                 tattrs = hist[order]
-                p_str += f"{table_name}[-{len(hist) - order}]."
+                p_str += f"{table_name}[-{1 + order}]."
             elif isinstance(table, str):
                 p_str += f"{table}."
                 tattrs = attrs[table]

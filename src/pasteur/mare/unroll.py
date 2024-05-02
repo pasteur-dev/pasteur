@@ -61,7 +61,7 @@ def _unroll_sequence(seq_name: str, order: int, ids: pd.DataFrame, data: pd.Data
 
         # Fill value should be set depending on the history of each column
         for j in range(i):
-            idx_df.loc[seq == j + 1] = j + 1
+            idx_df.loc[seq == j + 1] = i - j
 
         # Re-index continuous cols with NaN
         cnt_cols = [c for c in ref_df.columns if c not in idx_cols]
