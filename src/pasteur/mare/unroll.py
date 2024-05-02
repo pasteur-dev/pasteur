@@ -254,13 +254,12 @@ def convert_to_seq_val(s: StratifiedValue, order: int):
 
 
 def convert_rebalanced_to_seq_val(s: RebalancedValue, order: int):
-    if not order:
-        return s
+    order += 1
     reb = copy(s)
-    reb.counts = [0] * order + s.counts
+    reb.counts = np.concatenate([[0] * order, s.counts])
     reb.grouping = np.concatenate(
         [
-            [[0 for i in range(order)] for _ in range(s.grouping.shape[0])],
+            [[0 for _ in range(order)] for _ in range(s.grouping.shape[0])],
             s.grouping.astype(np.uint16) + order,
         ],
         axis=1,

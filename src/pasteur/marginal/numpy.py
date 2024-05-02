@@ -177,7 +177,6 @@ def expand_table(
             attr_sets = [(table_name, None, table_attrs)]
 
         for table_sel, seq, attr_set in attr_sets:
-
             table_common = 1024
             for attr in attr_set.values():
                 vals = list(attr.vals.items())
