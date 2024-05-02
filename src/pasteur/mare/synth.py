@@ -346,7 +346,7 @@ def sample_model(
 
             return pids, table
         elif tmeta.sequence:
-            children = ver.ver.children
+            children = ver.ver.max_len or ver.ver.children
             assert children is not None
 
             seq_attrs = attrs[ver.ver.name]
@@ -396,9 +396,9 @@ def sample_model(
                 for j in range(min(len(sampled), order)):
                     new_hist[(name, j)] = (
                         sampled[-j - 1].astype(
-                            {k: get_dtype(v + j) for k, v in vals.items()}
+                            {k: get_dtype(v + j + 1) for k, v in vals.items()}
                         )
-                        + j
+                        + j + 1
                     ).loc[idx]
 
                 table = model.sample(idx, new_hist)
