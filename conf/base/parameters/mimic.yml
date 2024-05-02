@@ -18,3 +18,12 @@ mimic_tab_admissions:
     privbayes:
       theta: 7
       marginal_min_chunk: 1000
+      
+mimic_core:
+  algs:
+    mare:
+      etotal: 2
+      theta: 5
+      rebalance: True
+      fixed: [4, 9, 18, 32]
+      u: 7

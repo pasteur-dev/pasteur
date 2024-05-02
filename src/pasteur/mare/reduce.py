@@ -23,18 +23,15 @@ C = TypeVar("C", contravariant=True)
 
 
 class PreprocFn(Protocol, Generic[A]):
-    def __call__(self, v: TableVersion) -> A:
-        ...
+    def __call__(self, v: TableVersion) -> A: ...
 
 
 class MergeFn(Protocol, Generic[B]):
-    def __call__(self, a: B, b: B) -> B:
-        ...
+    def __call__(self, a: B, b: B) -> B: ...
 
 
 class ScoreFn(Protocol, Generic[C]):
-    def __call__(self, a: C, b: C) -> int:
-        ...
+    def __call__(self, a: C, b: C) -> int: ...
 
 
 class Pair:
@@ -252,7 +249,7 @@ def merge_versions(vers: Sequence[TableVersion]):
             new_parents.append(
                 merge_versions([cast(TableVersion, ver.parents[i]) for ver in vers])
             )
-    
+
     if ref.children is not None:
         children = max(cast(int, v.children) for v in vers)
     else:
@@ -278,7 +275,18 @@ def merge_versions(vers: Sequence[TableVersion]):
     for ver in vers:
         rows += ver.rows
 
-    return TableVersion(ref.name, rows, children, partitions, unrolls, tuple(new_parents))
+    lens = [v.max_len for v in vers if v.max_len is not None]
+    max_len = max(lens) if lens else None
+
+    return TableVersion(
+        name=ref.name,
+        rows=rows,
+        children=children,
+        max_len=max_len,
+        partitions=partitions,
+        unrolls=unrolls,
+        parents=tuple(new_parents),
+    )
 
 
 def calc_rows_cols(

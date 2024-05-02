@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 class PrivBayesMare(MareModel):
     def __init__(
         self,
+        *,
+        etotal: float | None = None,
         ep: float | None = None,
         e1: float = 0.3,
         e2: float = 0.7,
@@ -43,9 +45,11 @@ class PrivBayesMare(MareModel):
         rake: bool = True,
         **kwargs,
     ) -> None:
-        self.ep = ep
-        self.e1 = e1
-        self.e2 = e2
+        if etotal is None:
+            etotal = 1
+        self.ep = ep * etotal if ep is not None else None
+        self.e1 = e1 * etotal
+        self.e2 = e2 * etotal
         self.theta = theta
         self.use_r = use_r
         self.seed = seed

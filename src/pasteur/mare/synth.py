@@ -21,7 +21,6 @@ from .chains import (
     TableMeta,
     TablePartition,
     TableVersion,
-    _calculate_stripped_meta,
     calculate_stripped_meta,
 )
 from .unroll import (
@@ -30,6 +29,7 @@ from .unroll import (
     gen_history,
     recurse_unroll_attr,
 )
+from .privacy import calc_privacy_budgets
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ class MareSynth(Synth):
         marginal_min_chunk: int = 100,
         max_vers: int = 20,
         rebalance: bool = False,
+        etotal: float | None = None,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -64,6 +65,7 @@ class MareSynth(Synth):
         self.marginal_min_chunk = marginal_min_chunk
         self.max_vers = max_vers
         self.rebalance = rebalance
+        self.etotal = etotal
 
         self.model_cls = model_cls
 
@@ -106,8 +108,7 @@ class MareSynth(Synth):
         self.attrs = meta
         logger.info(f"Calculated {len(self.versions)} model versions.")
 
-    def bake(self, data: dict[str, LazyDataset]):
-        ...
+    def bake(self, data: dict[str, LazyDataset]): ...
 
     def __str__(self) -> str:
         out = ""
@@ -137,6 +138,12 @@ class MareSynth(Synth):
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
+        if self.etotal:
+            budgets, sensitivities = calc_privacy_budgets(self.etotal, self.versions)
+        else:
+            budgets = None
+            sensitivities = None
+
         for i, (ver, (attrs, load)) in enumerate(self.versions.items()):
             logger.info(
                 f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' model for table '{ver.ver.name}'"
@@ -149,7 +156,12 @@ class MareSynth(Synth):
                 max_worker_mult=self.marginal_worker_mult,
                 min_chunk_size=self.marginal_min_chunk,
             ) as o:
-                model = self.model_cls(**self.kwargs)
+                kwargs = dict(self.kwargs)
+                if budgets and sensitivities:
+                    adj_budget = budgets[ver] / sensitivities[ver]
+                    logger.info(f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sensitivities[ver]}, adjusted to e_adj = {adj_budget:.5f}")
+                    kwargs["etotal"] = adj_budget
+                model = self.model_cls(**kwargs)
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model
 

@@ -19,6 +19,7 @@ class TableVersion(NamedTuple):
     name: str
     rows: int
     children: int | None
+    max_len: int | None
     partitions: tuple[int, ...] | None
     unrolls: tuple[int, ...] | None
     parents: tuple["TableVersion | TablePartition", ...]
@@ -256,6 +257,7 @@ def _calculate_chains_of_table(
 
     partition = meta[name].partition
     unroll = meta[name].unroll
+    max_len = meta[name].max_len
 
     # Unrolling and Partitioning have values that are extracted from data so have
     # to run per partution
@@ -317,12 +319,13 @@ def _calculate_chains_of_table(
             unrolls = None
 
         ver = TableVersion(
-            name,
-            rows_per_combo[combo],
-            children_per_combo[combo],
-            partitions,
-            unrolls,
-            combo,
+            name=name,
+            rows=rows_per_combo[combo],
+            children=children_per_combo[combo],
+            max_len=max_len,
+            partitions=partitions,
+            unrolls=unrolls,
+            parents=combo,
         )
         versions.append(ver)
 
