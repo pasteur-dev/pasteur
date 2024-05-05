@@ -295,18 +295,3 @@ class NumEncoder(AttributeEncoder[Attribute]):
 
 class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
     name = "mare"
-
-    def finalize(
-        self,
-        meta: dict[str, dict[tuple[str, ...] | str, Attribute]],
-        tables: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
-    ) -> dict[str, Any]:
-        return super().finalize(meta, tables, ids)
-
-    def undo(
-        self,
-        meta: dict[str, dict[tuple[str, ...] | str, Attribute]],
-        data: dict[str, LazyPartition],
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
-        return super().undo(meta, data)

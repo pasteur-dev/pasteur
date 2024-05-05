@@ -1,6 +1,6 @@
 """ Provides the base definition for Encoder modules"""
 
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, Mapping
 
 import pandas as pd
 
@@ -12,7 +12,7 @@ from .utils import (
     LazyDataset,
     LazyPartition,
     tables_to_data,
-    data_to_tables,
+    data_to_tables_ctx,
     LazyChunk,
 )
 
@@ -83,28 +83,42 @@ class PostprocessEncoder(AttributeEncoder[META], Generic[META]):
     Unlike `AttributeEncoder`, this one does not parallelize per-table, so it should
     be avoided unless customization is required.
 
-    The context tables and their metadata are merged to the parent tables automatically,
-    so they are not provided as an argument to `finalize()`.
-
     Default implementations are provided which behave as the normal AttributeEncoder.
     """
 
     def finalize(
         self,
-        meta: dict[str, dict[tuple[str, ...] | str, META]],
-        tables: dict[str, pd.DataFrame],
-        ids: dict[str, pd.DataFrame],
-    ) -> dict[str, Any]:
-        return tables_to_data(ids, tables)
+        meta: Mapping[str, Mapping[tuple[str, ...] | str, META]],
+        ids: Mapping[str, pd.DataFrame],
+        tables: Mapping[str, pd.DataFrame],
+        ctx: Mapping[str, Mapping[str, pd.DataFrame]],
+    ) -> Mapping[str, Any]:
+        return tables_to_data(ids, tables, ctx)
 
     def undo(
         self,
-        meta: dict[str, dict[tuple[str, ...] | str, META]],
-        data: dict[str, LazyPartition],
-    ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+        meta: Mapping[str, Mapping[tuple[str, ...] | str, META]],
+        data: Mapping[str, LazyPartition],
+    ) -> tuple[
+        Mapping[str, pd.DataFrame],
+        Mapping[str, pd.DataFrame],
+        Mapping[str, Mapping[str, pd.DataFrame]],
+    ]:
         """Undoes the process of `finalize()`, returns a tuple of `(ids, tables)`."""
-        ids, tables = data_to_tables(data)
-        return {k: v() for k, v in ids.items()}, {k: v() for k, v in tables.items()}
+        ids, tables, ctx = data_to_tables_ctx(data)
+
+        ctx_out = {}
+        for creator, ctx_tables in ctx.items():
+            for parent, table in ctx_tables.items():
+                if creator not in ctx_out:
+                    ctx_out[creator] = {}
+                ctx_out[creator][parent] = table()
+
+        return (
+            {k: v() for k, v in ids.items()},
+            {k: v() for k, v in tables.items()},
+            ctx_out,
+        )
 
 
 class Encoder(ModuleClass, Generic[META]):

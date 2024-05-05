@@ -4,6 +4,7 @@ is `LazyPartition` and `LazyDataset`, with their specializations for `pandas`:
 
 These data types allow for loading dataset partitions on command, and when the
 data is no longer useful, evacuating it from RAM using the `del` keyword."""
+
 from __future__ import annotations
 
 import logging
@@ -167,7 +168,11 @@ def _cache_partitions(d, cls, _cache=None, _ofs=0):
         merged = (
             LazyPartition(
                 partial(
-                    _load_partition, _partition=d.merged_load, _cache=_cache, _id=_ofs, _pid=None
+                    _load_partition,
+                    _partition=d.merged_load,
+                    _cache=_cache,
+                    _id=_ofs,
+                    _pid=None,
                 ),
                 d.merged_load.shape_fun,
             )
@@ -177,7 +182,9 @@ def _cache_partitions(d, cls, _cache=None, _ofs=0):
         partitions = (
             {
                 k: LazyPartition(
-                    partial(_load_partition, _partition=v, _cache=_cache, _id=_ofs, _pid=i),
+                    partial(
+                        _load_partition, _partition=v, _cache=_cache, _id=_ofs, _pid=i
+                    ),
                     v.shape_fun,
                 )
                 for i, (k, v) in enumerate(d._partitions.items())
@@ -286,25 +293,21 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
     @staticmethod
     @overload
-    def zip(datasets: G, /) -> dict[str, G]:
-        ...
+    def zip(datasets: G, /) -> dict[str, G]: ...
 
     @staticmethod
     @overload
-    def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyPartition[B]]]:
-        ...
+    def zip(*positional: LazyDataset[B]) -> dict[str, list[LazyPartition[B]]]: ...
 
     @staticmethod
     @overload
-    def zip(**keyword: LazyDataset[B]) -> dict[str, dict[str, LazyPartition[B]]]:
-        ...
+    def zip(**keyword: LazyDataset[B]) -> dict[str, dict[str, LazyPartition[B]]]: ...
 
     @staticmethod
     @overload
     def zip(
         *positional: LazyDataset[B], **keyword: LazyDataset[B]
-    ) -> dict[str, tuple[list[LazyPartition[B]], dict[str, LazyPartition[B]]]]:
-        ...
+    ) -> dict[str, tuple[list[LazyPartition[B]], dict[str, LazyPartition[B]]]]: ...
 
     @staticmethod
     def zip(*positional, **keyword):
@@ -565,20 +568,17 @@ def apply_fun(obj: Any, *args, _fun: str, **kwargs):
 @overload
 def data_to_tables(
     data: Mapping[str, LazyDataset]
-) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]:
-    ...
+) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]: ...
 
 
 @overload
 def data_to_tables(
     data: Mapping[str, LazyPartition]
-) -> tuple[dict[str, LazyChunk], dict[str, LazyChunk]]:
-    ...
+) -> tuple[dict[str, LazyChunk], dict[str, LazyChunk]]: ...
 
 
 @overload
-def data_to_tables(data: Mapping[str, A]) -> tuple[dict[str, A], dict[str, A]]:
-    ...
+def data_to_tables(data: Mapping[str, A]) -> tuple[dict[str, A], dict[str, A]]: ...
 
 
 def data_to_tables(data):
@@ -594,8 +594,36 @@ def data_to_tables(data):
     return ids, tables
 
 
-def tables_to_data(ids: dict[str, Any], tables: dict[str, Any]):
-    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables}
+def data_to_tables_ctx(data):
+    # Use old format
+    ids = {}
+    tables = {}
+    ctx = {}
+
+    for name, datum in data.items():
+        if name.endswith("_ids"):
+            ids[name[:-4]] = datum
+        elif name.endswith("_ctx"):
+            creator, parent = name[:-4].split("#")
+            if creator not in ctx:
+                ctx[creator] = {}
+            ctx[creator][parent] = datum
+        else:
+            tables[name] = datum
+
+    return ids, tables, ctx
+
+
+def tables_to_data(
+    ids: Mapping[str, Any],
+    tables: Mapping[str, Any],
+    ctx: Mapping[str, Mapping[str, Any]] = {},
+):
+    ctx_out = {}
+    for creator, ctxc in ctx.items():
+        for parent, ctxv in ctxc.items():
+            ctx_out[f"{creator}#{parent}_ctx"] = ctxv
+    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables, **ctx_out}
 
 
 def lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):

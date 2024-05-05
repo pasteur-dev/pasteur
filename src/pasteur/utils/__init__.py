@@ -10,6 +10,7 @@ from .data import (
     RawSource,
     apply_fun,
     data_to_tables,
+    data_to_tables_ctx,
     gen_closure,
     get_relative_fn,
     lazy_load_tables,

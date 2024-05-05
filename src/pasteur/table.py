@@ -249,12 +249,12 @@ class TableTransformer:
         for cids, ctables in LazyFrame.zip_values([ids, tables]):
             per_call.append({"ids": cids, "tables": ctables})
 
-        transformer_chunks: list[
-            dict[str | tuple[str, ...], Transformer]
-        ] = process_in_parallel(
-            self.fit_chunk,
-            per_call,
-            desc=f"Fitting transformers for '{self.name}'",
+        transformer_chunks: list[dict[str | tuple[str, ...], Transformer]] = (
+            process_in_parallel(
+                self.fit_chunk,
+                per_call,
+                desc=f"Fitting transformers for '{self.name}'",
+            )
         )
 
         self.transformers = reduce(_reduce_inner, transformer_chunks)
@@ -762,34 +762,16 @@ class AttributeEncoderHolder(
     @to_chunked
     def _encode_postprocess(
         self,
+        ids: Mapping[str, LazyChunk],
         tables: Mapping[str, LazyChunk],
         ctx: Mapping[str, Mapping[str, LazyChunk]],
-        ids: Mapping[str, LazyChunk],
     ):
-        new_tables = {}
-        for name in tables:
-            tts = []
-            cached_table = tables[name]()
-            cached_ctx = {n: c[name]() for n, c in ctx.items() if name in c}
-
-            for enc in self.table_encoders[name].values():
-                tts.append(enc.encode(cached_table))
-
-            for creator, ctx_encs in self.ctx_encoders.items():
-                if name not in ctx_encs:
-                    continue
-
-                for enc in ctx_encs[name].values():
-                    tts.append(enc.encode(cached_ctx[creator]))
-
-            if tts:
-                new_tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
-            else:
-                new_tables[name] = pd.DataFrame(index=cached_table.index)
-
         assert self.postprocess_enc is not None
         return self.postprocess_enc.finalize(
-            self.get_metadata(), new_tables, {k: v() for k, v in ids.items()}
+            self.get_metadata(),
+            {k: v() for k, v in ids.items()},
+            {k: v() for k, v in tables.items()},
+            {c: {k: v() for k, v in t.items()} for c, t in ctx.items()},
         )
 
     @to_chunked
@@ -821,7 +803,7 @@ class AttributeEncoderHolder(
         ids: dict[str, LazyFrame],
     ):
         if self.postprocess_enc is not None:
-            return self._encode_postprocess(tables, ctx, ids)
+            return self._encode_postprocess(ids, tables, ctx)
 
         lazies = set()
         for name in tables:
@@ -840,9 +822,7 @@ class AttributeEncoderHolder(
         return lazies
 
     @to_chunked
-    def _decode_chunk(
-        self, name: str, data: LazyChunk
-    ) -> tuple[
+    def _decode_chunk(self, name: str, data: LazyChunk) -> tuple[
         dict[str, pd.DataFrame],
         dict[str, dict[str, pd.DataFrame]],
         dict[str, pd.DataFrame],
@@ -877,31 +857,7 @@ class AttributeEncoderHolder(
     @to_chunked
     def _decode_postprocess(self, data: Mapping[str, LazyChunk]):
         assert self.postprocess_enc is not None
-        ids, full_tables = self.postprocess_enc.undo(self.get_metadata(), dict(data))
-        tables = {}
-        ctx = defaultdict(dict)
-
-        for name, table in full_tables.items():
-            tts = []
-            for enc in self.table_encoders[name].values():
-                tts.append(enc.decode(table))
-            if tts:
-                tables[name] = pd.concat(tts, axis=1, copy=False, join="inner")
-            else:
-                tables[name] = pd.DataFrame(index=table.index)
-
-            # Decode context tables
-            ctx_tts: dict[str, list] = defaultdict(list)
-            for creator, ctx_encs in self.ctx_encoders.items():
-                if name not in ctx_encs:
-                    continue
-
-                for ctx_enc in ctx_encs[name].values():
-                    ctx_tts[creator].append(ctx_enc.decode(table))
-
-            for creator, tts in ctx_tts.items():
-                ctx[creator][name] = pd.concat(tts, axis=1, copy=False, join="inner")
-
+        ids, tables, ctx = self.postprocess_enc.undo(self.get_metadata(), dict(data))
         return tables, ctx, ids
 
     def decode(
@@ -1200,9 +1156,10 @@ class SeqTransformerWrapper(SeqTransformer):
         ref: dict[str, pd.DataFrame],
         ids: pd.DataFrame,
         seq: pd.Series | None = None,
-    ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]] | tuple[
-        pd.DataFrame, dict[str, pd.DataFrame], pd.Series
-    ]:
+    ) -> (
+        tuple[pd.DataFrame, dict[str, pd.DataFrame]]
+        | tuple[pd.DataFrame, dict[str, pd.DataFrame], pd.Series]
+    ):
         parent = cast(str, self.parent)
         if self.generate_seq:
             if isinstance(data, pd.DataFrame):
