@@ -46,7 +46,7 @@ class MareModel:
 
 class MareSynth(Synth):
     name = "mare"
-    type = "mare"
+    type = "idx"
 
     def __init__(
         self,
