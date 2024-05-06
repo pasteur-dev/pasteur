@@ -18,7 +18,7 @@ def calc_table_complexity(ver, attrs):
             h += len(tattrs)
     n = ver.rows
 
-    return c * ((c + h) ** (1/3)) * (n ** (1/1.5))
+    return c * ((c + h) ** (1/3)) * (n ** (1/3))
 
 
 def calc_sens(ver):
