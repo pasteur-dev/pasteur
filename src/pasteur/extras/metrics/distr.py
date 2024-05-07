@@ -172,7 +172,7 @@ def _visualise_kl(
                 "mlen",
             ],
         )
-        sname = name.replace(' ', '_').replace('=','_')
+        sname = name.replace(" ", "_").replace("=", "_")
         mlflow.log_metric(f"{sname}.kl_norm.{table}", results[name]["kl_norm"].mean())
 
         if pres:
@@ -197,10 +197,13 @@ def _visualise_kl(
                 )
 
     kl_formatters = {"kl_norm": {"precision": 3}}
+    kl_formatters_overall = {"mean_kl_norm": {"precision": 3}}
 
-    res = []
+    res = {}
     for split in results:
-        res.append(
+        if split not in res:
+            res[split] = []
+        res[split].append(
             {
                 "table": "!",
                 "split": split,
@@ -209,7 +212,7 @@ def _visualise_kl(
         )
         if presults:
             for p in presults[split]:
-                res.append(
+                res[split].append(
                     {
                         "table": p,
                         "split": split,
@@ -219,13 +222,16 @@ def _visualise_kl(
 
     # Print results as a table
     outs = f"Table '{table:15s}' results:\n"
-    overall = (
-        pd.DataFrame(res)
+    ores = []
+    for v in res.values():
+        ores.extend(v)
+    outs += (
+        pd.DataFrame(ores)
         .pivot(index=["table"], columns=["split"], values=["mean_kl_norm"])
         .xs("mean_kl_norm", axis=1)
         .sort_index()
+        .to_markdown()
     )
-    outs += overall.to_markdown()
     outs += "\n"
     logger.info(outs)
 
@@ -235,6 +241,14 @@ def _visualise_kl(
         cols=["col_i"],
         vals=["kl_norm"],
         formatters=kl_formatters,
+        split_ref="ref",
+    )
+    overall = color_dataframe(
+        {k: pd.DataFrame(v) for k, v in res.items()},
+        idx=["table"],
+        cols=[],
+        vals=["mean_kl_norm"],
+        formatters=kl_formatters_overall,
         split_ref="ref",
     )
     dfs = {"overall": overall, "same table": base}
