@@ -174,6 +174,8 @@ def _visualise_kl(
                 "mlen",
             ],
         )
+        mlflow.log_metric(f"{name}.kl_norm.{table}", results[name]["kl_norm"].mean())
+
         if pres:
             presults[name] = {
                 k: pd.DataFrame(
@@ -188,11 +190,8 @@ def _visualise_kl(
                 )
                 for k, v in pres.items()
             }
-
-        logger.info(
-            f"Table '{table:15s}': split '{name}' mean norm KL={results[name]['kl_norm'].mean():.5f}."
-        )
-        mlflow.log_metric(f"kl_norm.{name}", results[name]["kl_norm"].mean())
+            for k, v in presults[name].items():
+                mlflow.log_metric(f"{name}.kl_norm.{table}.{k}", v["kl_norm"].mean())
 
     kl_formatters = {"kl_norm": {"precision": 3}}
     style = color_dataframe(
@@ -216,6 +215,37 @@ def _visualise_kl(
                 split_ref="ref",
             )
         style = out
+
+    # Print results as a table
+    res = []
+    for split in results:
+        res.append(
+            {
+                "table": '_',
+                "split": split,
+                "mean_kl_norm": results[split]["kl_norm"].mean(),
+            }
+        )
+        if presults:
+            for p in presults[split]:
+                res.append(
+                    {
+                        "table": p,
+                        "split": split,
+                        "mean_kl_norm": presults[split][p]["kl_norm"].mean(),
+                    }
+                )
+
+    outs = f"Table '{table:15s}' results:\n"
+    outs += (
+        pd.DataFrame(res)
+        .pivot(index=["table"], columns=["split"], values=["mean_kl_norm"])
+        .xs("mean_kl_norm", axis=1)
+        .sort_index()
+        .to_markdown()
+    )
+    outs += "\n"
+    logger.info(outs)
 
     fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
