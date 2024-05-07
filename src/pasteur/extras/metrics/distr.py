@@ -28,7 +28,7 @@ FONT_SIZE = "13px"
 logger = logging.getLogger(__name__)
 
 OneWaySummary = dict[str, ndarray]
-TwoWaySummary = dict[tuple[str, str] | tuple[str, str, str], ndarray]
+TwoWaySummary = dict[tuple[str, str] | tuple[str, str | int, str], ndarray]
 DistrSummary = Summaries[dict[str, tuple[OneWaySummary, TwoWaySummary]]]
 
 
@@ -120,9 +120,7 @@ def _visualise_cs(
 
 def _visualise_kl(
     table: str,
-    data: dict[
-        str, Summaries[dict[tuple[str, str] | tuple[str, str, str], np.ndarray]]
-    ],
+    data: dict[str, Summaries[TwoWaySummary]],
 ):
     import mlflow
 
@@ -191,7 +189,8 @@ def _visualise_kl(
                 for k, v in pres.items()
             }
             for k, v in presults[name].items():
-                mlflow.log_metric(f"{name}.kl_norm.{table}.{k}", v["kl_norm"].mean())
+                corrected = k.replace("-", "o") if k.startswith("-") else k
+                mlflow.log_metric(f"{name}.kl_norm.{table}.{corrected}", v["kl_norm"].mean())
 
     kl_formatters = {"kl_norm": {"precision": 3}}
     style = color_dataframe(
@@ -221,7 +220,7 @@ def _visualise_kl(
     for split in results:
         res.append(
             {
-                "table": '_',
+                "table": '!',
                 "split": split,
                 "mean_kl_norm": results[split]["kl_norm"].mean(),
             }
@@ -260,7 +259,8 @@ def _process_marginals_chunk(
     tables: dict[str, LazyChunk],
 ):
     tids = ids[name]()
-    table = tables[name]()[list(domain[name])].to_numpy(dtype="uint16")
+    raw_table = tables[name]()
+    table = raw_table[list(domain[name])].to_numpy(dtype="uint16")
     table_domain = domain[name]
     domain_arr = np.array(list(table_domain.values()))
 
@@ -270,7 +270,7 @@ def _process_marginals_chunk(
         one_way[cname] = calc_marginal_1way(table, domain_arr, [i], 0)
 
     # Two way for KL
-    two_way: dict[tuple[str, str] | tuple[str, str, str], ndarray] = {}
+    two_way: dict[tuple[str, str] | tuple[str, str | int, str], ndarray] = {}
     for i, col_i in enumerate(table_domain):
         for j, col_j in enumerate(table_domain):
             two_way[(col_i, col_j)] = calc_marginal_1way(table, domain_arr, [i, j], 0)
@@ -293,6 +293,33 @@ def _process_marginals_chunk(
                 two_way[(col_i, p, col_j)] = calc_marginal_1way(
                     combined, combined_dom, [i, ofs + j], 0
                 )
+
+    _JOIN_NAME = "_id_zdjwk"
+    _IDX_NAME = "_id_lkjijk"
+
+    if name in seq:
+        sval = seq[name]
+        if sval.order:
+            tseq = raw_table[sval.name]
+            ids_seq = tids.join(tseq, how="right").reset_index(names=_IDX_NAME)
+            for o in range(sval.order):
+                ids_seq_prev = tids.join(tseq + o + 1, how="right").reset_index(names=_JOIN_NAME)
+                join_ids = ids_seq.merge(
+                    ids_seq_prev, on=[*tids.columns, sval.name], how="inner"
+                ).set_index(_IDX_NAME)[[_JOIN_NAME]]
+                ref_df = join_ids.join(raw_table, on=_JOIN_NAME)[
+                    list(domain[name])
+                ].to_numpy(dtype="uint16")
+                fkey = (~pd.isna(ids_seq.set_index(_IDX_NAME)[[]].join(join_ids, how='left')).to_numpy()).reshape(-1)
+                combined = np.concatenate((table[fkey], ref_df), axis=1)
+                combined_dom = np.concatenate([domain_arr, domain_arr])
+
+                for i, col_i in enumerate(table_domain):
+                    for j, col_j in enumerate(table_domain):
+                        two_way[(col_i, f"{-o-1}", col_j)] = calc_marginal_1way(
+                            combined, combined_dom, [i, ofs + j], 0
+                        )
+        pass
 
     return one_way, two_way
 
@@ -319,7 +346,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             for attr in attrs.values():
                 for name, val in attr.vals.items():
                     if isinstance(val, SeqValue):
-                        self.seq[table] = name
+                        self.seq[table] = val
                     else:
                         assert isinstance(val, CatValue)
                         self.domain[table][name] = val.domain
