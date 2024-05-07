@@ -160,7 +160,26 @@ def _process_iterables(iterables: dict[str, Iterable]):
     nargs=-1,
     type=str,
 )
-def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
+@click.option(
+    "-r",
+    "--refresh-processes",
+    type=int,
+    default=1,
+    help="Restarts processes after `n` tasks. Lower numbers help with memory leaks but slower. Set to 0 to disable. Check `pasteur.utils.leaks` to fix.",
+)
+@click.option("-w", "--max-workers", type=int, default=None)
+@click.pass_context
+def sweep(
+    ctx,
+    pipeline,
+    alg,
+    iterator,
+    hyperparameter,
+    params,
+    clear_cache,
+    max_workers,
+    refresh_processes,
+):
     """Similar to pipe, sweep allows in addition a hyperparameter sweep.
 
     By using `-i` an iterator can be defined (ex. `-i i="range(5)"`), which will
@@ -194,7 +213,11 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         log_parent_run,
         remove_runs,
     )
-    from .pipelines.meta import TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM
+    from .pipelines.meta import (
+        TAG_ALWAYS,
+        TAG_CHANGES_HYPERPARAMETER,
+        TAG_CHANGES_PER_ALGORITHM,
+    )
 
     # Create pipelines
     if alg:
@@ -202,15 +225,19 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
         pipelines_tags = [
             (
                 f"{view}.{alg[0]}",
-                [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
+                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER],
             ),
-            *[(f"{view}.{a}", [TAG_CHANGES_PER_ALGORITHM]) for a in alg[1:]],
+            *[
+                (f"{view}.{a}", [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM])
+                for a in alg[1:]
+            ],
         ]
-    elif "ingest" in pipeline:
-        pipelines_tags = [(pipeline, [])]
     else:
         pipelines_tags = [
-            (pipeline, [TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM])
+            (
+                pipeline,
+                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
+            )
         ]
 
     # Configure iterators
@@ -228,6 +255,10 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name)
+
+    # TODO: Allow for using a config value
+    if refresh_processes == 0:
+        refresh_processes = None
 
     runs = {}
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
@@ -255,7 +286,10 @@ def sweep(pipeline, alg, iterator, hyperparameter, params, clear_cache):
                 session.run(
                     tags=tags,
                     runner=SimpleRunner(
-                        pipeline, " ".join(f"{n}={v}" for n, v in vals.items())
+                        pipeline,
+                        " ".join(f"{n}={v}" for n, v in vals.items()),
+                        max_workers=max_workers,
+                        refresh_processes=refresh_processes,
                     ),
                     node_names="",
                     from_nodes="",
@@ -306,7 +340,8 @@ def download(
 
     Uses `wget` and `boto3` to download files.
 
-    Only downloads missing files, can be ran to verify dataset is downloaded correctly."""
+    Only downloads missing files, can be ran to verify dataset is downloaded correctly.
+    """
     from ..dataset import Dataset
     from ..extras.download import datasets as EXTRA_DATASETS
     from ..module import get_module_dict
@@ -398,7 +433,9 @@ def bootstrap(
                     path.join(raw_location, ds.folder_name),
                 )
                 bootstrap_location_ds = path.join(bootstrap_location, ds.folder_name)
-                logger.info(f'Initializing dataset "{name}" in:\n{bootstrap_location_ds}')
+                logger.info(
+                    f'Initializing dataset "{name}" in:\n{bootstrap_location_ds}'
+                )
                 ds.bootstrap(ds_raw_location, bootstrap_location_ds)
 
 
