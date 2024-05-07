@@ -182,11 +182,11 @@ def sweep(
 ):
     """Similar to pipe, sweep allows in addition a hyperparameter sweep.
 
-    By using `-i` an iterator can be defined (ex. `-i i="range(5)"`), which will
+    By using `-i` an iterator can be defined (e.g., `-i i="range(5)"`), which will
     make the pipeline run for each value of i. Then i can be used in expressions
     with other variables that are passed as arguments (ex. `j="0.2*i"`).
 
-    If an iterator is also a hyperparameter (ex. `-h e1="[0.1,0.2,0.3]"`)
+    If an iterator is also a hyperparameter (e.g., `-h e1="[0.1,0.2,0.3]"`)
     then `-h` can be used, which will both sweep and pass the variable as an
     override at the same time (it is equal to `-i val=<iterable> val=val`).
 
@@ -254,7 +254,7 @@ def sweep(
         with KedroSession.create(env="base") as session:
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
-            remove_runs(parent_name)
+            remove_runs(parent_name, delete_parent=False)
 
     # TODO: Allow for using a config value
     if refresh_processes == 0:
@@ -267,7 +267,14 @@ def sweep(
         vals = param_dict | hyper_dict
         extra_params = merge_params(vals | mlflow_dict)
 
-        for pipeline, tags in pipelines_tags:
+        alg_only_hyper = all([n.startswith("alg") for n in vals])
+
+        for i, (pipeline, tags) in enumerate(pipelines_tags):
+            tags = list(tags)
+            if i and alg_only_hyper:
+                logger.info("Skipping ingestion since hyperparameters are the same")
+                tags.remove(TAG_CHANGES_HYPERPARAMETER)
+
             with KedroSession.create(extra_params=extra_params, env="base") as session:
                 session.load_context()
 
@@ -304,9 +311,9 @@ def sweep(
         logger.info("Only 1 run executed, skipping summary.")
         return
 
-    # with KedroSession.create() as session:
-    #     session.load_context()
-    #     log_parent_run(parent_name, runs)
+    with KedroSession.create(extra_params=extra_params, env="base") as session:
+        session.load_context()
+        log_parent_run(parent_name, runs)
 
 
 @click.command()

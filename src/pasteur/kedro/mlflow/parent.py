@@ -6,7 +6,6 @@ from typing import Any
 
 import mlflow
 from mlflow.entities import Run
-
 from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf
 from .base import get_run, sanitize_name
 
@@ -145,11 +144,10 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
 
     for name, folder in ref_artifacts["metrics"].items():
         metric = folder["metric"]
-        # FIXME: remove wrk, ref hardcoding
-        splits = {"wrk": folder["wrk"], "ref": folder["ref"]}
 
+        splits = {}
         for alg_name, artifact in artifacts.items():
-            splits[pretty[alg_name]] = artifact["metrics"][name]["syn"]
+            splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
 
-        metric.visualise(data=splits, comparison=True, wrk_set="wrk", ref_set="ref")
-        metric.summarize(data=splits, comparison=True, wrk_set="wrk", ref_set="ref")
+        metric.visualise(data=splits)
+        metric.summarize(data=splits)

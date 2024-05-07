@@ -336,9 +336,9 @@ def mlflow_log_perf(**runs: dict[str, float]):
         axis=1,
     )
 
-    time_df = df.drop(columns=["node"]).applymap(
+    time_df = df.drop(columns=["node"]).map(
         lambda x: f"{int(x // 3600):02d}:{int((x // 60) % 60):02d}:{int(x % 60):02d}.{int((x % 1) * 1000):03d}"
-    ) # type: ignore
+    )
     perf_df = pd.concat([node_df, time_df], axis=1).set_index(
         ["node", "view", "package", "fun"]
     )

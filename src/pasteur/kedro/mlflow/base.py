@@ -91,7 +91,7 @@ def get_run(name: str, parent: str) -> Run:
     return mlflow.get_run(get_run_id(name, parent))
 
 
-def remove_runs(parent: str):
+def remove_runs(parent: str, delete_parent: bool = False):
     """Removes runs with provided parent"""
 
     # Delete children
@@ -103,6 +103,9 @@ def remove_runs(parent: str):
         mlflow.delete_run(id)
 
     # Delete parent
+    if not delete_parent:
+        return
+
     runs = mlflow.search_runs(
         search_all_experiments=True,
         filter_string=f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'",
