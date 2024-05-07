@@ -594,7 +594,7 @@ def calculate_model_versions(
             # Apart from unroll, create one ctx model and one series model
             # for each table
             ver = merge_versions(vers)
-            for ctx in (False, True):
+            for ctx in (True, False):
                 new_attrs = generate_fit_attrs(ver, attrs, ctx)
                 if new_attrs is not None:
                     load_fn = partial(
