@@ -263,6 +263,7 @@ def _process_marginals_chunk(
     table = raw_table[list(domain[name])].to_numpy(dtype="uint16")
     table_domain = domain[name]
     domain_arr = np.array(list(table_domain.values()))
+    ofs = table.shape[1]
 
     # One way for CS
     one_way: dict[str, ndarray] = {}
@@ -286,7 +287,6 @@ def _process_marginals_chunk(
         p_domain = np.array(list(domain[p].values()))
         combined = np.concatenate((table, p_table), axis=1)
         combined_dom = np.concatenate((domain_arr, p_domain))
-        ofs = table.shape[1]
 
         for i, col_i in enumerate(table_domain):
             for j, col_j in enumerate(domain[p]):

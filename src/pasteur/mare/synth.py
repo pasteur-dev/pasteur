@@ -57,6 +57,7 @@ class MareSynth(Synth):
         max_vers: int = 20,
         rebalance: bool = False,
         etotal: float | None = None,
+        disable_order: bool = False,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -66,6 +67,7 @@ class MareSynth(Synth):
         self.max_vers = max_vers
         self.rebalance = rebalance
         self.etotal = etotal
+        self.disable_order = disable_order
 
         self.model_cls = model_cls
 
@@ -97,6 +99,14 @@ class MareSynth(Synth):
             }
         else:
             new_meta = meta
+
+        if self.disable_order:
+            logger.warning("Disabling order by dirty overwriting meta")
+            for table in new_meta.values():
+                for attr in table.values():
+                    for val in attr.vals.values():
+                        if hasattr(val, "order"):
+                            setattr(val, "order", 0)
 
         self.versions = calculate_model_versions(new_meta, data, self.max_vers)
         # TODO: Find better sampling strategy. Pick a top level table and
