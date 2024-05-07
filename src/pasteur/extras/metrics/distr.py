@@ -27,6 +27,10 @@ FONT_SIZE = "13px"
 
 logger = logging.getLogger(__name__)
 
+OneWaySummary = dict[str, ndarray]
+TwoWaySummary = dict[tuple[str, str] | tuple[str, str, str], ndarray]
+DistrSummary = Summaries[dict[str, tuple[OneWaySummary, TwoWaySummary]]]
+
 
 def calc_marginal_1way(
     data: np.ndarray,
@@ -115,7 +119,10 @@ def _visualise_cs(
 
 
 def _visualise_kl(
-    table: str, data: dict[str, Summaries[dict[tuple[str, str], np.ndarray]]]
+    table: str,
+    data: dict[
+        str, Summaries[dict[tuple[str, str] | tuple[str, str, str], np.ndarray]]
+    ],
 ):
     import mlflow
 
@@ -132,6 +139,8 @@ def _visualise_kl(
         assert syn
         res = []
         for key in syn:
+            if len(key) != 2:
+                continue
             col_i, col_j = key
 
             zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
@@ -152,7 +161,9 @@ def _visualise_kl(
                 "mlen",
             ],
         )
-        logger.info(f"Table '{table:15s}': split '{name}' mean norm KL={results[name]['kl_norm'].mean():.5f}.")
+        logger.info(
+            f"Table '{table:15s}': split '{name}' mean norm KL={results[name]['kl_norm'].mean():.5f}."
+        )
         mlflow.log_metric(f"kl_norm.{name}", results[name]["kl_norm"].mean())
 
     kl_formatters = {"kl_norm": {"precision": 3}}
@@ -171,37 +182,51 @@ def _visualise_kl(
 
 def _process_marginals_chunk(
     name: str,
-    expand_parents: bool,
     domain: dict[str, dict[str, int]],
+    parents: dict[str, list[str]],
+    seq: dict[str, SeqValue],
     ids: dict[str, LazyChunk],
     tables: dict[str, LazyChunk],
 ):
-    assert not expand_parents, "Expanding parents not supported yet"
-
+    tids = ids[name]()
     table = tables[name]()[list(domain[name])].to_numpy(dtype="uint16")
     table_domain = domain[name]
     domain_arr = np.array(list(table_domain.values()))
 
     # One way for CS
     one_way: dict[str, ndarray] = {}
-    for i, name in enumerate(table_domain):
-        one_way[name] = calc_marginal_1way(table, domain_arr, [i], 0)
+    for i, cname in enumerate(table_domain):
+        one_way[cname] = calc_marginal_1way(table, domain_arr, [i], 0)
 
     # Two way for KL
-    two_way: dict[tuple[str, str], ndarray] = {}
+    two_way: dict[tuple[str, str] | tuple[str, str, str], ndarray] = {}
     for i, col_i in enumerate(table_domain):
         for j, col_j in enumerate(table_domain):
             two_way[(col_i, col_j)] = calc_marginal_1way(table, domain_arr, [i, j], 0)
 
+    # Two way accross parents
+    for p in parents[name]:
+        p_table = (
+            tids[[p]]
+            .join(tables[p](), on=p)
+            .drop(columns=[p])[list(domain[p])]
+            .to_numpy(dtype="uint16")
+        )
+        p_domain = np.array(list(domain[p].values()))
+        combined = np.concatenate((table, p_table), axis=1)
+        combined_dom = np.concatenate((domain_arr, p_domain))
+        ofs = table.shape[1]
+
+        for i, col_i in enumerate(table_domain):
+            for j, col_j in enumerate(domain[p]):
+                two_way[(col_i, p, col_j)] = calc_marginal_1way(
+                    combined, combined_dom, [i, ofs + j], 0
+                )
+
     return one_way, two_way
 
 
-class DistributionMetric(
-    Metric[
-        Summaries[dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]],
-        Summaries[dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]],
-    ]
-):
+class DistributionMetric(Metric[DistrSummary, DistrSummary]):
     name = "dstr"
     encodings = "idx"
 
@@ -212,13 +237,21 @@ class DistributionMetric(
     ):
         self.domain = defaultdict(dict)
 
+        self.parents = {
+            k[:-4]: list(v.sample().columns)
+            for k, v in data.items()
+            if k.endswith("_ids")
+        }
+        self.seq = {}
+
         for table, attrs in meta.items():
             for attr in attrs.values():
                 for name, val in attr.vals.items():
                     if isinstance(val, SeqValue):
-                        continue
-                    assert isinstance(val, CatValue)
-                    self.domain[table][name] = val.domain
+                        self.seq[table] = name
+                    else:
+                        assert isinstance(val, CatValue)
+                        self.domain[table][name] = val.domain
 
     def preprocess(
         self,
@@ -229,7 +262,7 @@ class DistributionMetric(
     ]:
         per_call = []
         per_call_meta = []
-        base_args = {"domain": self.domain}
+        base_args = {"domain": self.domain, "parents": self.parents, "seq": self.seq}
 
         for cwrk, cref in LazyDataset.zip_values([wrk, ref]):
             for split, split_data in [("wrk", cwrk), ("ref", cref)]:
@@ -239,7 +272,6 @@ class DistributionMetric(
                     per_call.append(
                         {
                             "name": table,
-                            "expand_parents": False,
                             "ids": ids,
                             "tables": tables,
                         }
@@ -285,15 +317,11 @@ class DistributionMetric(
         wrk: dict[str, LazyDataset],
         ref: dict[str, LazyDataset],
         syn: dict[str, LazyDataset],
-        pre: Summaries[
-            dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
-        ],
-    ) -> Summaries[
-        dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
-    ]:
+        pre: DistrSummary,
+    ) -> DistrSummary:
         per_call = []
         per_call_meta = []
-        base_args = {"domain": self.domain}
+        base_args = {"domain": self.domain, "parents": self.parents, "seq": self.seq}
 
         for csyn in LazyDataset.zip_values(syn):
             ids, tables = data_to_tables(csyn)
@@ -302,7 +330,6 @@ class DistributionMetric(
                 per_call.append(
                     {
                         "name": table,
-                        "expand_parents": False,
                         "ids": ids,
                         "tables": tables,
                     }
@@ -345,9 +372,7 @@ class DistributionMetric(
         self,
         data: dict[
             str,
-            Summaries[
-                dict[str, tuple[dict[str, ndarray], dict[tuple[str, str], ndarray]]]
-            ],
+            DistrSummary,
         ],
     ):
         for name in self.domain:

@@ -119,7 +119,7 @@ def gen_html_figure_container(viz: dict[str, "Figure"]):
     )
 
 
-def gen_html_table(table: pd.DataFrame | str, font_size: str = "18px") -> str:
+def gen_html_table(table, font_size: str = "18px") -> str:
     return (BASE_TABLE_STYLE % font_size) + (
         table if isinstance(table, str) else table.to_html()
     )
@@ -324,7 +324,7 @@ def mlflow_log_perf(**runs: dict[str, float]):
 
     time_df = df.drop(columns=["node"]).applymap(
         lambda x: f"{int(x // 3600):02d}:{int((x // 60) % 60):02d}:{int(x % 60):02d}.{int((x % 1) * 1000):03d}"
-    )
+    ) # type: ignore
     perf_df = pd.concat([node_df, time_df], axis=1).set_index(
         ["node", "view", "package", "fun"]
     )
