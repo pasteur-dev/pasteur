@@ -261,6 +261,7 @@ def sweep(
         refresh_processes = None
 
     runs = {}
+    first = True
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
@@ -271,9 +272,11 @@ def sweep(
 
         for i, (pipeline, tags) in enumerate(pipelines_tags):
             tags = list(tags)
-            if i and alg_only_hyper:
-                logger.info("Skipping ingestion since hyperparameters are the same")
-                tags.remove(TAG_CHANGES_HYPERPARAMETER)
+            if (alg_only_hyper and not first) or i:
+                logger.warning("Skipping ingestion since hyperparameters are the same")
+                if TAG_CHANGES_HYPERPARAMETER in tags:
+                    tags.remove(TAG_CHANGES_HYPERPARAMETER)
+            first = False
 
             with KedroSession.create(extra_params=extra_params, env="base") as session:
                 session.load_context()
