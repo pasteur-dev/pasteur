@@ -102,52 +102,52 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
                     s = f"{param_str}={val_str}{buffer}"
 
             str_params[name].append(s)
-    return {name: " ".join(params).rstrip() if params else "base" for name, params in str_params.items()}
+    return {
+        name: " ".join(params).rstrip() if params else "base"
+        for name, params in str_params.items()
+    }
 
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
-    if len(parent_runs):
-        parent_run_id = parent_runs["run_id"][0]  # type: ignore
-        logger.info(f"Relaunching parent run for logging:\n{parent}")
-        mlflow.start_run(
-            parent_run_id,
-        )
-    else:
-        # TODO: Perhaps this should not be true
-        assert False, f"Parent run {parent} should exist to create combined report."
+    assert len(
+        parent_runs
+    ), f"Parent run {parent} should exist to create combined report."
+    parent_run_id = parent_runs["run_id"][0]  # type: ignore
+    logger.info(f"Relaunching parent run for logging:\n{parent}")
 
-    runs = {name: get_run(name, parent) for name in run_params}
-    artifacts = get_artifacts(runs)
-    pretty = prettify_run_names(run_params)
-    assert len(runs)
+    with mlflow.start_run(parent_run_id):
+        runs = {name: get_run(name, parent) for name in run_params}
+        artifacts = get_artifacts(runs)
+        pretty = prettify_run_names(run_params)
+        assert len(runs)
 
-    ref_params = next(iter(runs.values())).data.params
+        ref_params = next(iter(runs.values())).data.params
 
-    for name, val in ref_params.items():
-        for run in runs.values():
-            params = run.data.params
-            if not name in params or params[name] != val:
-                break
-        else:
-            # if we iterate over the whole loop else runs
-            # log param if it exists and its the same in all runs
-            mlflow.log_param(name, val)
+        for name, val in ref_params.items():
+            for run in runs.values():
+                params = run.data.params
+                if not name in params or params[name] != val:
+                    break
+            else:
+                # if we iterate over the whole loop else runs
+                # log param if it exists and its the same in all runs
+                mlflow.log_param(name, val)
 
-    ref_artifacts = next(iter(artifacts.values()))
-    # meta = ref_artifacts["meta"]
+        ref_artifacts = next(iter(artifacts.values()))
+        # meta = ref_artifacts["meta"]
 
-    perfs = {pretty[n]: a["perf"] for n, a in artifacts.items()}
-    mlflow_log_perf(**perfs)
+        perfs = {pretty[n]: a["perf"] for n, a in artifacts.items()}
+        mlflow_log_perf(**perfs)
 
-    for name, folder in ref_artifacts["metrics"].items():
-        metric = folder["metric"]
+        for name, folder in ref_artifacts["metrics"].items():
+            metric = folder["metric"]
 
-        splits = {}
-        for alg_name, artifact in artifacts.items():
-            splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
+            splits = {}
+            for alg_name, artifact in artifacts.items():
+                splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
 
-        metric.visualise(data=splits)
-        metric.summarize(data=splits)
+            metric.visualise(data=splits)
+            metric.summarize(data=splits)
