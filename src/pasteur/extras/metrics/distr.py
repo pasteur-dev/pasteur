@@ -172,7 +172,8 @@ def _visualise_kl(
                 "mlen",
             ],
         )
-        mlflow.log_metric(f"{name}.kl_norm.{table}", results[name]["kl_norm"].mean())
+        sname = name.replace(' ', '_').replace('=','_')
+        mlflow.log_metric(f"{sname}.kl_norm.{table}", results[name]["kl_norm"].mean())
 
         if pres:
             presults[name] = {
@@ -190,37 +191,18 @@ def _visualise_kl(
             }
             for k, v in presults[name].items():
                 corrected = k.replace("-", "o") if k.startswith("-") else k
-                mlflow.log_metric(f"{name}.kl_norm.{table}.{corrected}", v["kl_norm"].mean())
+                mlflow.log_metric(
+                    f"{sname}.kl_norm.{table}.{corrected}",
+                    v["kl_norm"].mean(),
+                )
 
     kl_formatters = {"kl_norm": {"precision": 3}}
-    style = color_dataframe(
-        results,
-        idx=["col_j"],
-        cols=["col_i"],
-        vals=["kl_norm"],
-        formatters=kl_formatters,
-        split_ref="ref",
-    )
 
-    if presults:
-        out = {None: style}
-        for p in next(iter(presults.values())):
-            out[p] = color_dataframe(
-                {k: v[p] for k, v in presults.items()},
-                idx=["col_i"],
-                cols=["col_j"],
-                vals=["kl_norm"],
-                formatters=kl_formatters,
-                split_ref="ref",
-            )
-        style = out
-
-    # Print results as a table
     res = []
     for split in results:
         res.append(
             {
-                "table": '!',
+                "table": "!",
                 "split": split,
                 "mean_kl_norm": results[split]["kl_norm"].mean(),
             }
@@ -235,19 +217,41 @@ def _visualise_kl(
                     }
                 )
 
+    # Print results as a table
     outs = f"Table '{table:15s}' results:\n"
-    outs += (
+    overall = (
         pd.DataFrame(res)
         .pivot(index=["table"], columns=["split"], values=["mean_kl_norm"])
         .xs("mean_kl_norm", axis=1)
         .sort_index()
-        .to_markdown()
     )
+    outs += overall.to_markdown()
     outs += "\n"
     logger.info(outs)
 
+    base = color_dataframe(
+        results,
+        idx=["col_j"],
+        cols=["col_i"],
+        vals=["kl_norm"],
+        formatters=kl_formatters,
+        split_ref="ref",
+    )
+    dfs = {"overall": overall, "same table": base}
+
+    if presults:
+        for p in next(iter(presults.values())):
+            dfs[p] = color_dataframe(
+                {k: v[p] for k, v in presults.items()},
+                idx=["col_i"],
+                cols=["col_j"],
+                vals=["kl_norm"],
+                formatters=kl_formatters,
+                split_ref="ref",
+            )
+
     fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
-    mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
+    mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
 
 
 def _process_marginals_chunk(
@@ -303,14 +307,20 @@ def _process_marginals_chunk(
             tseq = raw_table[sval.name]
             ids_seq = tids.join(tseq, how="right").reset_index(names=_IDX_NAME)
             for o in range(sval.order):
-                ids_seq_prev = tids.join(tseq + o + 1, how="right").reset_index(names=_JOIN_NAME)
+                ids_seq_prev = tids.join(tseq + o + 1, how="right").reset_index(
+                    names=_JOIN_NAME
+                )
                 join_ids = ids_seq.merge(
                     ids_seq_prev, on=[*tids.columns, sval.name], how="inner"
                 ).set_index(_IDX_NAME)[[_JOIN_NAME]]
                 ref_df = join_ids.join(raw_table, on=_JOIN_NAME)[
                     list(domain[name])
                 ].to_numpy(dtype="uint16")
-                fkey = (~pd.isna(ids_seq.set_index(_IDX_NAME)[[]].join(join_ids, how='left')).to_numpy()).reshape(-1)
+                fkey = (
+                    ~pd.isna(
+                        ids_seq.set_index(_IDX_NAME)[[]].join(join_ids, how="left")
+                    ).to_numpy()
+                ).reshape(-1)
                 combined = np.concatenate((table[fkey], ref_df), axis=1)
                 combined_dom = np.concatenate([domain_arr, domain_arr])
 
