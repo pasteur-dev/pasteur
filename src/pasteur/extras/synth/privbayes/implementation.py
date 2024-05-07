@@ -253,7 +253,7 @@ def greedy_bayes(
     unbounded_dp: bool,
     random_init: bool,
     prefer_table: str | None = None,
-    rake: bool = True
+    rake: bool = True,
 ) -> tuple[Nodes, float]:
     """Performs the greedy bayes algorithm for variable domain data.
 
@@ -385,7 +385,22 @@ def greedy_bayes(
     d = len(todo)
     EMPTY_HASH = tuple(-1 for _ in range(len(val_idx)))
 
-    if len(ds_attrs) > 1:
+    has_deps = True
+    if len(ds_attrs) == 1:
+        has_deps = False
+    elif len(ds_attrs) == 2:
+        # FIXME: Avoids missing dependencies with a single seq attribute causing
+        # an infinite loop.
+        for k, v in ds_attrs.items():
+            if (
+                k
+                and isinstance(v, SeqAttributes)
+                and (not v.attrs or len(v.attrs) == 1)
+            ):
+                has_deps = False
+                break
+    
+    if has_deps:
         x1 = -1
     elif random_init:
         x1 = random.choice(range(d))
@@ -487,7 +502,10 @@ def greedy_bayes(
                         deps_met = True
                         if sel[0] == None:
                             for dep in deps:
-                                if dep in todo or not val_to_attr[dep] in generated_attrs:
+                                if (
+                                    dep in todo
+                                    or not val_to_attr[dep] in generated_attrs
+                                ):
                                     deps_met = False
                                     break
 
@@ -512,7 +530,10 @@ def greedy_bayes(
                                         full_dom = cmn.get_domain_multiple(
                                             [*val_sel.values(), 0],
                                             [
-                                                *[cast(CatValue, attr[v]) for v in val_sel],
+                                                *[
+                                                    cast(CatValue, attr[v])
+                                                    for v in val_sel
+                                                ],
                                                 cast(CatValue, attr[x]),
                                             ],
                                         )
@@ -834,7 +855,7 @@ def sample_rows(
                         meta = attr[nc]
                         assert isinstance(meta, CatValue)
                         cmn_col = meta.get_mapping(meta.height - 1)[hist[table][nc]]
-                        
+
                     assert cmn_col is not None
 
                     # Apply common col

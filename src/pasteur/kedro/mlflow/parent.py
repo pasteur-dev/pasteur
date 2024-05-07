@@ -102,7 +102,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
                     s = f"{param_str}={val_str}{buffer}"
 
             str_params[name].append(s)
-    return {name: " ".join(params).rstrip() for name, params in str_params.items()}
+    return {name: " ".join(params).rstrip() if params else "base" for name, params in str_params.items()}
 
 
 def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):

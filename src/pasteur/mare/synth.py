@@ -57,7 +57,8 @@ class MareSynth(Synth):
         max_vers: int = 20,
         rebalance: bool = False,
         etotal: float | None = None,
-        disable_order: bool = False,
+        no_seq: bool = False,
+        no_hist: bool = False,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -67,7 +68,8 @@ class MareSynth(Synth):
         self.max_vers = max_vers
         self.rebalance = rebalance
         self.etotal = etotal
-        self.disable_order = disable_order
+        self.no_seq = no_seq
+        self.no_hist = no_hist
 
         self.model_cls = model_cls
 
@@ -100,7 +102,7 @@ class MareSynth(Synth):
         else:
             new_meta = meta
 
-        if self.disable_order:
+        if self.no_seq:
             logger.warning("Disabling order by dirty overwriting meta")
             for table in new_meta.values():
                 for attr in table.values():
@@ -108,7 +110,9 @@ class MareSynth(Synth):
                         if hasattr(val, "order"):
                             setattr(val, "order", 0)
 
-        self.versions = calculate_model_versions(new_meta, data, self.max_vers)
+        self.versions = calculate_model_versions(
+            new_meta, data, self.max_vers, no_hist=self.no_hist
+        )
         # TODO: Find better sampling strategy. Pick a top level table and
         # use its stats for now.
         for ver in self.versions:
@@ -169,7 +173,9 @@ class MareSynth(Synth):
                 kwargs = dict(self.kwargs)
                 if budgets and sensitivities:
                     adj_budget = budgets[ver] / sensitivities[ver]
-                    logger.info(f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sensitivities[ver]}, adjusted to e_adj = {adj_budget:.5f}")
+                    logger.info(
+                        f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sensitivities[ver]}, adjusted to e_adj = {adj_budget:.5f}"
+                    )
                     kwargs["etotal"] = adj_budget
                 model = self.model_cls(**kwargs)
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
@@ -408,7 +414,8 @@ def sample_model(
                         sampled[-j - 1].astype(
                             {k: get_dtype(v + j + 1) for k, v in vals.items()}
                         )
-                        + j + 1
+                        + j
+                        + 1
                     ).loc[idx]
 
                 table = model.sample(idx, new_hist)

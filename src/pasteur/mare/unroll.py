@@ -368,7 +368,7 @@ def gen_history_attributes(
 
 
 def generate_fit_attrs(
-    ver: TableVersion, attrs: dict[str, Attributes], ctx: bool
+    ver: TableVersion, attrs: dict[str, Attributes], ctx: bool, no_hist: bool = False
 ) -> DatasetAttributes | None:
     # Don't generate context tables for top level tables
     if not ver.parents and ctx:
@@ -384,7 +384,10 @@ def generate_fit_attrs(
                 seq = v
     assert not (unroll and seq), f"Both unrolling and sequence found on the same table."
 
-    hist = gen_history_attributes(ver.parents, attrs)
+    if no_hist:
+        hist = {}
+    else:
+        hist = gen_history_attributes(ver.parents, attrs)
 
     if unroll:
         if ctx:
@@ -556,7 +559,7 @@ class ModelVersion(NamedTuple):
 
 
 def calculate_model_versions(
-    attrs: dict[str, Attributes], data: Mapping[str, LazyDataset], max_vers: int
+    attrs: dict[str, Attributes], data: Mapping[str, LazyDataset], max_vers: int, no_hist: bool = False
 ) -> dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]]:
     ids, tables = data_to_tables(data)
     chains = calculate_table_chains(attrs, ids, tables)
@@ -577,7 +580,7 @@ def calculate_model_versions(
                 vers, max_vers, preproc_fn, merge_fn, score_fn
             )
             for ver in new_vers:
-                new_attrs = generate_fit_attrs(ver, attrs, True)
+                new_attrs = generate_fit_attrs(ver, attrs, True, no_hist=no_hist)
                 assert new_attrs is not None
 
                 load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=True)
@@ -585,7 +588,7 @@ def calculate_model_versions(
 
             # Unroll series model
             ver = merge_versions(vers)
-            new_attrs = generate_fit_attrs(ver, attrs, False)
+            new_attrs = generate_fit_attrs(ver, attrs, False, no_hist=no_hist)
             assert new_attrs is not None
 
             load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=False)
@@ -595,7 +598,7 @@ def calculate_model_versions(
             # for each table
             ver = merge_versions(vers)
             for ctx in (True, False):
-                new_attrs = generate_fit_attrs(ver, attrs, ctx)
+                new_attrs = generate_fit_attrs(ver, attrs, ctx, no_hist=no_hist)
                 if new_attrs is not None:
                     load_fn = partial(
                         generate_fit_tables, attrs=attrs, ver=ver, ctx=ctx
