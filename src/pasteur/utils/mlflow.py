@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
 # Taken from jupyter, with sans serif added
 BASE_TABLE_STYLE = """<style type="text/css">
+  body {
+    font-family: sans-serif;
+  }
   table {
     font-family: sans-serif;
     border: none;
@@ -120,8 +123,19 @@ def gen_html_figure_container(viz: dict[str, "Figure"]):
 
 
 def gen_html_table(table, font_size: str = "18px") -> str:
+    table_html = ""
+    if isinstance(table, str):
+        table_html = table
+    elif isinstance(table, dict):
+        for name, t in table.items():
+            if name:
+                table_html += f"<h2>{name.capitalize()}</h2>"
+            table_html += t.to_html()
+    else:
+        table_html = table.to_html()
+
     return (BASE_TABLE_STYLE % font_size) + (
-        table if isinstance(table, str) else table.to_html()
+        table if isinstance(table, str) else table_html
     )
 
 

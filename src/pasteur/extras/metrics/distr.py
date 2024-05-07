@@ -129,6 +129,8 @@ def _visualise_kl(
     from ...utils.mlflow import color_dataframe, gen_html_table
 
     results = {}
+    presults = {}
+
     ref_split = next(iter(data.values()))
     ref_split = Summaries(ref_split.wrk, ref_split.ref, ref_split.ref)
     for name, split in {
@@ -138,10 +140,14 @@ def _visualise_kl(
         wrk, syn = split.wrk, split.syn
         assert syn
         res = []
+        pres = {}
+
         for key in syn:
-            if len(key) != 2:
-                continue
-            col_i, col_j = key
+            if len(key) == 3:
+                col_i, p, col_j = key
+            else:
+                col_i, col_j = key
+                p = None
 
             zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
             k = zfill(wrk[key])
@@ -149,7 +155,14 @@ def _visualise_kl(
 
             kl = rel_entr(k, j).sum()
             kl_norm = 1 / (1 + kl)
-            res.append([col_i, col_j, kl, kl_norm, len(k)])
+            out = [col_i, col_j, kl, kl_norm, len(k)]
+
+            if p:
+                if p not in pres:
+                    pres[p] = []
+                pres[p].append(out)
+            else:
+                res.append(out)
 
         results[name] = pd.DataFrame(
             res,
@@ -161,6 +174,21 @@ def _visualise_kl(
                 "mlen",
             ],
         )
+        if pres:
+            presults[name] = {
+                k: pd.DataFrame(
+                    v,
+                    columns=[
+                        "col_i",
+                        "col_j",
+                        "kl",
+                        "kl_norm",
+                        "mlen",
+                    ],
+                )
+                for k, v in pres.items()
+            }
+
         logger.info(
             f"Table '{table:15s}': split '{name}' mean norm KL={results[name]['kl_norm'].mean():.5f}."
         )
@@ -175,6 +203,19 @@ def _visualise_kl(
         formatters=kl_formatters,
         split_ref="ref",
     )
+
+    if presults:
+        out = {None: style}
+        for p in next(iter(presults.values())):
+            out[p] = color_dataframe(
+                {k: v[p] for k, v in presults.items()},
+                idx=["col_i"],
+                cols=["col_j"],
+                vals=["kl_norm"],
+                formatters=kl_formatters,
+                split_ref="ref",
+            )
+        style = out
 
     fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
