@@ -153,7 +153,15 @@ class MareSynth(Synth):
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
         if self.etotal:
-            budgets, sensitivities = calc_privacy_budgets(self.etotal, self.versions)
+            budgets, sensitivities = calc_privacy_budgets(
+                self.etotal,
+                self.versions,
+                params={
+                    "rake": self.kwargs.get("rake", True),
+                    "no_hist": self.no_hist,
+                    "no_seq": self.no_seq,
+                },
+            )
         else:
             budgets = None
             sensitivities = None
