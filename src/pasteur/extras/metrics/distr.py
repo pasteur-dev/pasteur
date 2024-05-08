@@ -266,6 +266,7 @@ def _visualise_kl(
 
     fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
     mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
+    return res
 
 
 def _process_marginals_chunk(
@@ -497,6 +498,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             DistrSummary,
         ],
     ):
+        overall_kl = {}
         for name in self.domain:
             _visualise_cs(
                 name,
@@ -510,7 +512,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
-            _visualise_kl(
+            overall_kl[name] = _visualise_kl(
                 name,
                 {
                     k: Summaries(
@@ -521,3 +523,58 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
+
+        from pasteur.utils.styles import use_style
+        import matplotlib.pyplot as plt
+        import mlflow
+
+        use_style("mlflow")
+        scores = {}
+
+        for table_res in overall_kl.values():
+            for split, split_res in table_res.items():
+                if split not in scores:
+                    scores[split] = {
+                        "intra": [],
+                        "seq": [],
+                        "hist": [],
+                    }
+                for res in split_res:
+                    if res["table"] == "!":
+                        scores[split]["intra"].append(res["mean_kl_norm"])
+                    elif res["table"].startswith("-"):
+                        scores[split]["seq"].append(res["mean_kl_norm"])
+                    else:
+                        scores[split]["hist"].append(res["mean_kl_norm"])
+
+        fig, ax = plt.subplots()
+        bar_width = 0.3
+
+        fancy_names = {
+            "intra": "Intra-table",
+            "seq": "Sequential",
+            "hist": "Inter-table",
+        }
+
+        lines = {}
+        for split, split_scores in scores.items():
+            for stype, type_scores in split_scores.items():
+                if stype not in lines:
+                    lines[stype] = {}
+                lines[stype][split] = np.mean(type_scores)
+
+        for i, (stype, split_scores) in enumerate(lines.items()):
+            x = np.arange(len(split_scores))
+            kwargs = {}
+            if i == 1:
+                kwargs["tick_label"] = list(split_scores.keys())
+            ax.bar(x + i * bar_width, split_scores.values(), bar_width, label=fancy_names[stype], **kwargs)
+
+        ax.set_xlabel('Experiment')
+        ax.set_ylabel('Mean Norm KL')
+        ax.set_title('Overall Mean Norm KL')
+
+        ax.set_ylim([0.35, 1.03])
+        ax.legend(loc="lower right")
+        plt.tight_layout()
+        mlflow.log_figure(fig, "distr/kl_overall.png")

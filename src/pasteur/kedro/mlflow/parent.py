@@ -80,9 +80,9 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     str_params = {name: [] for name in run_params}
     for param in ref_run:
         # Calculate str length for str_params
-        length = max(
-            map(lambda x: len(str(x)), [run[param] for run in run_params.values()])
-        )
+        # length = max(
+        #     map(lambda x: len(str(x)), [run[param] for run in run_params.values()])
+        # )
 
         for name in run_params:
             try:
@@ -91,10 +91,12 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
                 param_str = param
 
             if param in bool_params:
-                s = param_str if run_params[name][param] else (" " * len(param_str))
+                # s = param_str if run_params[name][param] else (" " * len(param_str))
+                s = param_str if run_params[name][param] else ""
             else:
                 val_str = str(run_params[name][param])
-                buffer = " " * (length - len(val_str))
+                # buffer = " " * (length - len(val_str))
+                buffer = ""
 
                 if param in value_params:
                     s = f"{val_str}{buffer}"
@@ -103,7 +105,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
 
             str_params[name].append(s)
     return {
-        name: " ".join(params).rstrip() if params else "base"
+        name: " ".join(params).strip() if params and any(params) else "base"
         for name, params in str_params.items()
     }
 
