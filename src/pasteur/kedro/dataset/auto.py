@@ -224,7 +224,7 @@ def _load_merged_worker(
 @_wrap_retry
 def _load_shape_worker(load_path: str, filesystem, *_, **__):
     # TODO: verify this returns correct numbers (esp. columns)
-    data = pq.ParquetDataset(load_path, filesystem=filesystem, use_legacy_dataset=False)
+    data = pq.ParquetDataset(load_path, filesystem=filesystem)
     rows = 0
     for frag in data.fragments:
         rows += frag.count_rows()

@@ -31,6 +31,6 @@ tables:
       insurance: categorical
       language: categorical
       marital_status: categorical?
-      ethnicity: categorical
+      race: categorical
       hospital_expire_flag: categorical
       gender: categorical

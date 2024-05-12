@@ -561,7 +561,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             for stype, type_scores in split_scores.items():
                 if stype not in lines:
                     lines[stype] = {}
-                lines[stype][split] = np.mean(type_scores)
+                lines[stype][split] = np.mean(type_scores) if type_scores else 0
 
         for i, (stype, split_scores) in enumerate(lines.items()):
             x = np.arange(len(split_scores))
