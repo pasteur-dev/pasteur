@@ -1,17 +1,20 @@
 """ Parsing related utility functions. """
 
+import logging
 from typing import Any, TypeVar
 
 from ..module import Module
+
+logger = logging.getLogger(__name__)
 
 
 def _try_convert_to_numeric(value: str):
     """Taken from kedro.framework.cli.utils"""
     try:
-        value = float(value) # type: ignore
+        value = float(value)  # type: ignore
     except ValueError:
         return value
-    return int(value) if value.is_integer() else value # type: ignore
+    return int(value) if value.is_integer() else value  # type: ignore
 
 
 def _try_convert_primitive(value: Any):
@@ -26,7 +29,11 @@ def _try_convert_primitive(value: Any):
 
 
 def _try_convert_eval(value: str, locals: dict[str, object]):
-    return eval(value, {}, locals)
+    try:
+        return eval(value, {}, locals)
+    except Exception as e:
+        logger.error(f"Failed to evaluate '{value}' with locals {locals}")
+        raise e
 
 
 def _update_value_nested_dict(
