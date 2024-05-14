@@ -47,6 +47,8 @@ def calc_privacy_budgets(total: float, mvers, params = {}):
     sensitivities = {}
     for mver, (attrs, _) in mvers.items():
         sens = calc_sens(mver.ver)
+        if smax := params.get("max_sens", None):
+            sens = min(sens, smax)
         complexity = calc_table_complexity(mver.ver, attrs, params)
         budget = total * (complexity / total_complexity)
         budgets[mver] = budget

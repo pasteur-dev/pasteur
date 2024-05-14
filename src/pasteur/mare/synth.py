@@ -59,6 +59,7 @@ class MareSynth(Synth):
         etotal: float | None = None,
         no_seq: bool = False,
         no_hist: bool = False,
+        max_sens: int | None = None,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -70,6 +71,7 @@ class MareSynth(Synth):
         self.etotal = etotal
         self.no_seq = no_seq
         self.no_hist = no_hist
+        self.max_sens = max_sens
 
         self.model_cls = model_cls
 
@@ -160,6 +162,7 @@ class MareSynth(Synth):
                     "rake": self.kwargs.get("rake", True),
                     "no_hist": self.no_hist,
                     "no_seq": self.no_seq,
+                    "max_sens": self.max_sens,
                 },
             )
         else:
