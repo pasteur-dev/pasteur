@@ -563,16 +563,27 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     lines[stype] = {}
                 lines[stype][split] = np.mean(type_scores) if type_scores else 0
 
+        l_res = 0
+        max_len = 0
         for i, (stype, split_scores) in enumerate(lines.items()):
-            x = np.arange(len(split_scores))
+            l_res = len(split_scores)
+            x = np.arange(l_res)
             kwargs = {}
-            if i == 1:
-                kwargs["tick_label"] = list(split_scores.keys())
+            if i == len(lines) // 2:
+                labels = [k.split(' ') for k in split_scores.keys()]
+                for params in labels:
+                    for param in params:
+                        max_len = max(max_len, len(param))
+                kwargs["tick_label"] = ['\n'.join(l) for l in labels]
             ax.bar(x + i * bar_width, split_scores.values(), bar_width, label=fancy_names[stype], **kwargs)
 
         ax.set_xlabel('Experiment')
         ax.set_ylabel('Mean Norm KL')
-        ax.set_title('Overall Mean Norm KL')
+        ax.set_title("Overall Mean Norm KL")
+        
+        rot = min(3 * l_res, 90)
+        if max_len >= 15 and rot > 10:
+            plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
 
         ax.set_ylim([0.35, 1.03])
         ax.legend(loc="lower right")
