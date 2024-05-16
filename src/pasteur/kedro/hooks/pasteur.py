@@ -31,9 +31,9 @@ def _load_config(fn: str):
 class PasteurHook:
     def __init__(
         self,
-        modules: list[Module]
-        | Callable[[Any], list[Module]]
-        | Callable[[], list[Module]],
+        modules: (
+            list[Module] | Callable[[Any], list[Module]] | Callable[[], list[Module]]
+        ),
     ) -> None:
         self.lazy_modules = modules
         self.modules = None
@@ -83,17 +83,23 @@ class PasteurHook:
             locations = context.config_loader.get("locations")
         except MissingConfigException:
             locations = {}
-            logger.warn(f"Consider using a 'locations.yml' file in the future. Using paths from params.")
+            logger.warn(
+                f"Consider using a 'locations.yml' file in the future. Using paths from params."
+            )
 
         def location_resolver(loc: str, default=None):
             if "_location" in loc:
-                logger.warn("Found '_location' in location name. Not required in locations.yml file.")
+                logger.warn(
+                    "Found '_location' in location name. Not required in locations.yml file."
+                )
             dir = locations.get(loc, default)
             if not dir:
                 logger.warn(
                     f"Location '{loc}' not found in 'locations.yml'. Falling back to `parameters.yml`."
                 )
-                dir = context.params.get(loc + "_location", context.params.get(loc, None))
+                dir = context.params.get(
+                    loc + "_location", context.params.get(loc, None)
+                )
 
             assert dir, f"Dir '{loc}' not found."
             return context.project_path / dir
@@ -106,7 +112,7 @@ class PasteurHook:
 
         self.raw_location = location_resolver("raw")
         self.base_location = location_resolver("base")
-        self.locations = {k: location_resolver(k) for k in [*locations, 'raw', 'base']}
+        self.locations = {k: location_resolver(k) for k in [*locations, "raw", "base"]}
         self.context = context
 
         self.update_data()
@@ -140,9 +146,9 @@ class PasteurHook:
         setattr(context, "pasteur", self)
 
     def get_version(self, name: str, versioned: bool):
-        load_version = (
-            self.load_versions.get(name, None) if self.load_versions else None
-        )
+        load_version = self.save_version
+        if self.load_versions:
+            load_version = self.load_versions.get(name, load_version)
         if versioned:
             return Version(load_version, self.save_version)
         return None
