@@ -530,8 +530,10 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
         use_style("mlflow")
         scores = {}
+        scores_per_table = {}
 
-        for table_res in overall_kl.values():
+        for table, table_res in overall_kl.items():
+            scores_per_table[table] = {}
             for split, split_res in table_res.items():
                 if split not in scores:
                     scores[split] = {
@@ -539,16 +541,28 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                         "seq": [],
                         "hist": [],
                     }
+                if split not in scores_per_table[table]:
+                    scores_per_table[table][split] = {
+                        "intra": [],
+                        "seq": [],
+                        "hist": [],
+                    }
                 for res in split_res:
                     if res["table"] == "!":
                         scores[split]["intra"].append(res["mean_kl_norm"])
+                        scores_per_table[table][split]["intra"].append(
+                            res["mean_kl_norm"]
+                        )
                     elif res["table"].startswith("-"):
                         scores[split]["seq"].append(res["mean_kl_norm"])
+                        scores_per_table[table][split]["seq"].append(
+                            res["mean_kl_norm"]
+                        )
                     else:
                         scores[split]["hist"].append(res["mean_kl_norm"])
-
-        fig, ax = plt.subplots()
-        bar_width = 0.3
+                        scores_per_table[table][split]["hist"].append(
+                            res["mean_kl_norm"]
+                        )
 
         fancy_names = {
             "intra": "Intra-table",
@@ -557,35 +571,55 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
         }
 
         lines = {}
-        for split, split_scores in scores.items():
-            for stype, type_scores in split_scores.items():
-                if stype not in lines:
-                    lines[stype] = {}
-                lines[stype][split] = np.mean(type_scores) if type_scores else 0
+        for table, split_scores_per_table in [
+            ("overall", scores),
+            *scores_per_table.items(),
+        ]:
+            fig, ax = plt.subplots()
+            bar_width = 0.3
 
-        l_res = 0
-        max_len = 0
-        for i, (stype, split_scores) in enumerate(lines.items()):
-            l_res = len(split_scores)
-            x = np.arange(l_res)
-            kwargs = {}
-            if i == len(lines) // 2:
-                labels = [k.split(' ') for k in split_scores.keys()]
-                for params in labels:
-                    for param in params:
-                        max_len = max(max_len, len(param))
-                kwargs["tick_label"] = ['\n'.join(l) for l in labels]
-            ax.bar(x + i * bar_width, split_scores.values(), bar_width, label=fancy_names[stype], **kwargs)
+            for split, split_scores in split_scores_per_table.items():
+                for stype, type_scores in split_scores.items():
+                    if stype not in lines:
+                        lines[stype] = {}
+                    lines[stype][split] = np.mean(type_scores) if type_scores else 0
 
-        ax.set_xlabel('Experiment')
-        ax.set_ylabel('Mean Norm KL')
-        ax.set_title("Overall Mean Norm KL")
-        
-        rot = min(3 * l_res, 90)
-        if max_len >= 15 and rot > 10:
-            plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
+            l_res = 0
+            split_scores = {}
+            for i, (stype, split_scores) in enumerate(lines.items()):
+                l_res = len(split_scores)
+                x = np.arange(l_res)
+                ax.bar(
+                    x + i * bar_width,
+                    split_scores.values(),
+                    bar_width,
+                    label=fancy_names[stype],
+                )
 
-        ax.set_ylim([0.35, 1.03])
-        ax.legend(loc="lower right")
-        plt.tight_layout()
-        mlflow.log_figure(fig, "distr/kl_overall.png")
+            ax.set_xlabel("Experiment")
+            ax.set_ylabel("Mean Norm KL")
+            ax.set_title("Overall Mean Norm KL")
+
+            max_len = 0
+            labels = [k.split(" ") for k in split_scores.keys()]
+            for params in labels:
+                for param in params:
+                    max_len = max(max_len, len(param))
+
+            ax.set_xticks(np.arange(l_res) + 0.3)
+            if max_len > 15 or l_res > 7:
+                tick_labels = [" ".join(l) for l in labels]
+                rot = min(3 * l_res, 90)
+                ax.set_xticklabels(tick_labels)
+                plt.setp(
+                    ax.get_xticklabels(), rotation=rot, horizontalalignment="right"
+                )
+            else:
+                tick_labels = ["\n".join(l) for l in labels]
+                ax.set_xticklabels(tick_labels)
+
+            ax.set_ylim([0.55, 1.03])
+            ax.legend(loc="lower right")
+            plt.tight_layout()
+            mlflow.log_figure(fig, f"distr/kl_overall/{table}.png")
+            plt.close()
