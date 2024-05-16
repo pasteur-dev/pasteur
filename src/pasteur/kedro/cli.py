@@ -155,6 +155,7 @@ def _process_iterables(iterables: dict[str, Iterable]):
 @click.option("--iterator", "-i", multiple=True)
 @click.option("--hyperparameter", "-h", multiple=True)
 @click.option("--clear-cache", "-c", is_flag=True)
+@click.option("--skip-parent", "-p", is_flag=True)
 @click.argument(
     "params",
     nargs=-1,
@@ -175,6 +176,7 @@ def sweep(
     alg,
     iterator,
     hyperparameter,
+    skip_parent,
     params,
     clear_cache,
     max_workers,
@@ -261,7 +263,7 @@ def sweep(
         refresh_processes = None
 
     runs = {}
-    first = True
+    ingested = False
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
@@ -272,11 +274,11 @@ def sweep(
 
         for i, (pipeline, tags) in enumerate(pipelines_tags):
             tags = list(tags)
-            if (alg_only_hyper and not first) or i:
-                logger.warning("Skipping ingestion since hyperparameters are the same")
+            params_skipped = False
+            if (alg_only_hyper and ingested) or i:
+                params_skipped = True
                 if TAG_CHANGES_HYPERPARAMETER in tags:
                     tags.remove(TAG_CHANGES_HYPERPARAMETER)
-            first = False
 
             with KedroSession.create(extra_params=extra_params, env="base") as session:
                 session.load_context()
@@ -289,9 +291,14 @@ def sweep(
                     # ingest pipeline has None and should be skipped from cross-eval
                     runs[run_name] = vals
 
-                if check_run_done(run_name, parent_name):
+                if check_run_done(run_name, None if skip_parent else parent_name):
                     logger.warning(f"Run '{run_name}' is complete, skipping...")
                     continue
+
+                if params_skipped:
+                    logger.warning(
+                        "Skipping ingestion since hyperparameters are the same"
+                    )
 
                 session.run(
                     tags=tags,
@@ -309,6 +316,7 @@ def sweep(
                     load_versions={},
                     pipeline_name=pipeline,
                 )
+                ingested = True
 
     if len(runs) <= 1:
         logger.info("Only 1 run executed, skipping summary.")

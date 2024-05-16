@@ -110,7 +110,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     }
 
 
-def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
+def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]], skip_parent: bool = False):
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
@@ -121,7 +121,7 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
     logger.info(f"Relaunching parent run for logging:\n{parent}")
 
     with mlflow.start_run(parent_run_id):
-        runs = {name: get_run(name, parent) for name in run_params}
+        runs = {name: get_run(name, parent if not skip_parent else None) for name in run_params}
         artifacts = get_artifacts(runs)
         pretty = prettify_run_names(run_params)
         assert len(runs)
@@ -141,8 +141,11 @@ def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]]):
         ref_artifacts = next(iter(artifacts.values()))
         # meta = ref_artifacts["meta"]
 
-        perfs = {pretty[n]: a["perf"] for n, a in artifacts.items()}
-        mlflow_log_perf(**perfs)
+        perfs = {pretty[n]: a["perf"] for n, a in artifacts.items() if "perf" in a}
+        try:
+            mlflow_log_perf(**perfs)
+        except Exception as e:
+            logger.error(f"Error logging performance:\n{e}")
 
         for name, folder in ref_artifacts["metrics"].items():
             metric = folder["metric"]

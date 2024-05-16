@@ -65,11 +65,10 @@ def sanitize_name(name: str):
     return name.replace('"', '\\"').replace("'", "\\'")
 
 
-def get_run_id(name: str, parent: str, finished: bool = True):
-    filter_string = (
-        f"tags.pasteur_id = '{sanitize_name(name)}' and "
-        + f"tags.pasteur_pid = '{sanitize_name(parent)}'"
-    )
+def get_run_id(name: str, parent: str | None, finished: bool = True):
+    filter_string = f"tags.pasteur_id = '{sanitize_name(name)}'"
+    if parent:
+        filter_string += f" and tags.pasteur_pid = '{sanitize_name(parent)}'"
     if finished:
         filter_string += (
             f" and attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'"
@@ -83,11 +82,11 @@ def get_run_id(name: str, parent: str, finished: bool = True):
     return None
 
 
-def check_run_done(name: str, parent: str):
+def check_run_done(name: str, parent: str | None):
     return bool(get_run_id(name, parent))
 
 
-def get_run(name: str, parent: str) -> Run:
+def get_run(name: str, parent: str | None) -> Run:
     return mlflow.get_run(get_run_id(name, parent))
 
 
