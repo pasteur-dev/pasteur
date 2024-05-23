@@ -124,10 +124,12 @@ def _visualise_kl(
 ):
     return _visualise_2way(table, data, "kl")
 
+
 METRICS = ["kl", "chi2"]
 
+
 def _visualise_2way(
-    table: str, data: dict[str, Summaries[TwoWaySummary]], metr: str = "kl", domain = None
+    table: str, data: dict[str, Summaries[TwoWaySummary]], metr: str = "kl", domain=None
 ):
     import mlflow
 
@@ -639,7 +641,8 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     tick_labels = ["\n".join(l) for l in labels]
                     ax.set_xticklabels(tick_labels)
 
-                ax.set_ylim([0.55, 1.03])
+                if metr == "kl":
+                    ax.set_ylim([0.55, 1.03])
                 ax.legend(loc="lower right")
                 plt.tight_layout()
                 mlflow.log_figure(fig, f"distr/{metr}_overall/{table}.png")
