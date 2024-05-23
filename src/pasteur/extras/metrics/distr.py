@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from numpy import ndarray
 from scipy.special import rel_entr
-from scipy.stats import chisquare
+from scipy.stats import chisquare, chi2_contingency
 
 from pasteur.metric import Summaries
 from pasteur.utils import LazyDataset
@@ -122,6 +122,13 @@ def _visualise_kl(
     table: str,
     data: dict[str, Summaries[TwoWaySummary]],
 ):
+    return _visualise_2way(table, data, "kl")
+
+METRICS = ["kl", "chi2"]
+
+def _visualise_2way(
+    table: str, data: dict[str, Summaries[TwoWaySummary]], metr: str = "kl", domain = None
+):
     import mlflow
 
     from ...utils.mlflow import color_dataframe, gen_html_table
@@ -151,9 +158,16 @@ def _visualise_kl(
             k = zfill(wrk[key])
             j = zfill(syn[key])
 
-            kl = rel_entr(k, j).sum()
-            kl_norm = 1 / (1 + kl)
-            out = [col_i, col_j, kl, kl_norm, len(k)]
+            if metr == "kl":
+                kl = rel_entr(k, j).sum()
+                kl_norm = 1 / (1 + kl)
+                out = [col_i, col_j, kl, kl_norm, len(k)]
+            else:
+                assert domain
+                dom_i = domain[table][col_i]
+                chi2 = chi2_contingency(j.reshape((dom_i, -1))).statistic # type: ignore
+                chi2_norm = 1 / (1 + chi2)
+                out = [col_i, col_j, chi2, chi2_norm, len(k)]
 
             if p:
                 if p not in pres:
@@ -167,13 +181,13 @@ def _visualise_kl(
             columns=[
                 "col_i",
                 "col_j",
-                "kl",
-                "kl_norm",
+                "metr",
+                "metr_norm",
                 "mlen",
             ],
         )
         sname = name.replace(" ", "_").replace("=", "_")
-        mlflow.log_metric(f"{sname}.kl_norm.{table}", results[name]["kl_norm"].mean())
+        # mlflow.log_metric(f"{sname}.kl_norm.{table}", results[name]["kl_norm"].mean())
 
         if pres:
             presults[name] = {
@@ -182,8 +196,8 @@ def _visualise_kl(
                     columns=[
                         "col_i",
                         "col_j",
-                        "kl",
-                        "kl_norm",
+                        "metr",
+                        "metr_norm",
                         "mlen",
                     ],
                 )
@@ -192,12 +206,12 @@ def _visualise_kl(
             for k, v in presults[name].items():
                 corrected = k.replace("-", "o") if k.startswith("-") else k
                 mlflow.log_metric(
-                    f"{sname}.kl_norm.{table}.{corrected}",
-                    v["kl_norm"].mean(),
+                    f"{sname}.metr_norm.{table}.{corrected}",
+                    v["metr_norm"].mean(),
                 )
 
-    kl_formatters = {"kl_norm": {"precision": 3}}
-    kl_formatters_overall = {"mean_kl_norm": {"precision": 3}}
+    kl_formatters = {"metr_norm": {"precision": 3}}
+    kl_formatters_overall = {"mean_metr_norm": {"precision": 3}}
 
     res = {}
     for split in results:
@@ -207,7 +221,7 @@ def _visualise_kl(
             {
                 "table": "!",
                 "split": split,
-                "mean_kl_norm": results[split]["kl_norm"].mean(),
+                "mean_metr_norm": results[split]["metr_norm"].mean(),
             }
         )
         if presults:
@@ -216,19 +230,19 @@ def _visualise_kl(
                     {
                         "table": p,
                         "split": split,
-                        "mean_kl_norm": presults[split][p]["kl_norm"].mean(),
+                        "mean_metr_norm": presults[split][p]["metr_norm"].mean(),
                     }
                 )
 
     # Print results as a table
-    outs = f"Table '{table:15s}' results:\n"
+    outs = f"{metr.upper()} Table '{table:15s}' results:\n"
     ores = []
     for v in res.values():
         ores.extend(v)
     outs += (
         pd.DataFrame(ores)
-        .pivot(index=["table"], columns=["split"], values=["mean_kl_norm"])
-        .xs("mean_kl_norm", axis=1)
+        .pivot(index=["table"], columns=["split"], values=["mean_metr_norm"])
+        .xs("mean_metr_norm", axis=1)
         .sort_index()
         .to_markdown()
     )
@@ -239,7 +253,7 @@ def _visualise_kl(
         results,
         idx=["col_j"],
         cols=["col_i"],
-        vals=["kl_norm"],
+        vals=["metr_norm"],
         formatters=kl_formatters,
         split_ref="ref",
     )
@@ -247,7 +261,7 @@ def _visualise_kl(
         {k: pd.DataFrame(v) for k, v in res.items()},
         idx=["table"],
         cols=[],
-        vals=["mean_kl_norm"],
+        vals=["mean_metr_norm"],
         formatters=kl_formatters_overall,
         split_ref="ref",
     )
@@ -259,12 +273,12 @@ def _visualise_kl(
                 {k: v[p] for k, v in presults.items()},
                 idx=["col_i"],
                 cols=["col_j"],
-                vals=["kl_norm"],
+                vals=["metr_norm"],
                 formatters=kl_formatters,
                 split_ref="ref",
             )
 
-    fn = f"distr/kl.html" if table == "table" else f"distr/kl/{table}.html"
+    fn = f"distr/{metr}.html" if table == "table" else f"distr/{metr}/{table}.html"
     mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
     return res
 
@@ -498,7 +512,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             DistrSummary,
         ],
     ):
-        overall_kl = {}
+        overall_metr = {}
         for name in self.domain:
             _visualise_cs(
                 name,
@@ -512,114 +526,121 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
-            overall_kl[name] = _visualise_kl(
-                name,
-                {
-                    k: Summaries(
-                        wrk=v.wrk[name][1],
-                        ref=v.ref[name][1],
-                        syn=v.syn[name][1] if v.syn else None,
-                    )
-                    for k, v in data.items()
-                },
-            )
+            for metric in METRICS:
+                if metric not in overall_metr:
+                    overall_metr[metric] = {}
+                overall_metr[metric][name] = _visualise_2way(
+                    name,
+                    {
+                        k: Summaries(
+                            wrk=v.wrk[name][1],
+                            ref=v.ref[name][1],
+                            syn=v.syn[name][1] if v.syn else None,
+                        )
+                        for k, v in data.items()
+                    },
+                    metric,
+                    domain=self.domain,
+                )
 
         from pasteur.utils.styles import use_style
         import matplotlib.pyplot as plt
         import mlflow
 
         use_style("mlflow")
-        scores = {}
-        scores_per_table = {}
 
-        for table, table_res in overall_kl.items():
-            scores_per_table[table] = {}
-            for split, split_res in table_res.items():
-                if split not in scores:
-                    scores[split] = {
-                        "intra": [],
-                        "seq": [],
-                        "hist": [],
-                    }
-                if split not in scores_per_table[table]:
-                    scores_per_table[table][split] = {
-                        "intra": [],
-                        "seq": [],
-                        "hist": [],
-                    }
-                for res in split_res:
-                    if res["table"] == "!":
-                        scores[split]["intra"].append(res["mean_kl_norm"])
-                        scores_per_table[table][split]["intra"].append(
-                            res["mean_kl_norm"]
-                        )
-                    elif res["table"].startswith("-"):
-                        scores[split]["seq"].append(res["mean_kl_norm"])
-                        scores_per_table[table][split]["seq"].append(
-                            res["mean_kl_norm"]
-                        )
-                    else:
-                        scores[split]["hist"].append(res["mean_kl_norm"])
-                        scores_per_table[table][split]["hist"].append(
-                            res["mean_kl_norm"]
-                        )
+        for metr in METRICS:
+            scores = {}
+            scores_per_table = {}
 
-        fancy_names = {
-            "intra": "Intra-table",
-            "seq": "Sequential",
-            "hist": "Inter-table",
-        }
+            for table, table_res in overall_metr[metr].items():
+                scores_per_table[table] = {}
+                for split, split_res in table_res.items():
+                    if split not in scores:
+                        scores[split] = {
+                            "intra": [],
+                            "seq": [],
+                            "hist": [],
+                        }
+                    if split not in scores_per_table[table]:
+                        scores_per_table[table][split] = {
+                            "intra": [],
+                            "seq": [],
+                            "hist": [],
+                        }
+                    for res in split_res:
+                        if res["table"] == "!":
+                            scores[split]["intra"].append(res["mean_metr_norm"])
+                            scores_per_table[table][split]["intra"].append(
+                                res["mean_metr_norm"]
+                            )
+                        elif res["table"].startswith("-"):
+                            scores[split]["seq"].append(res["mean_metr_norm"])
+                            scores_per_table[table][split]["seq"].append(
+                                res["mean_metr_norm"]
+                            )
+                        else:
+                            scores[split]["hist"].append(res["mean_metr_norm"])
+                            scores_per_table[table][split]["hist"].append(
+                                res["mean_metr_norm"]
+                            )
 
-        lines = {}
-        for table, split_scores_per_table in [
-            ("overall", scores),
-            *scores_per_table.items(),
-        ]:
-            fig, ax = plt.subplots()
-            bar_width = 0.3
+            fancy_names = {
+                "intra": "Intra-table",
+                "seq": "Sequential",
+                "hist": "Inter-table",
+            }
 
-            for split, split_scores in split_scores_per_table.items():
-                for stype, type_scores in split_scores.items():
-                    if stype not in lines:
-                        lines[stype] = {}
-                    lines[stype][split] = np.mean(type_scores) if type_scores else 0
+            lines = {}
+            for table, split_scores_per_table in [
+                ("_overall", scores),
+                *scores_per_table.items(),
+            ]:
+                fig, ax = plt.subplots()
+                bar_width = 0.3
 
-            l_res = 0
-            split_scores = {}
-            for i, (stype, split_scores) in enumerate(lines.items()):
-                l_res = len(split_scores)
-                x = np.arange(l_res)
-                ax.bar(
-                    x + i * bar_width,
-                    split_scores.values(),
-                    bar_width,
-                    label=fancy_names[stype],
-                )
+                for split, split_scores in split_scores_per_table.items():
+                    for stype, type_scores in split_scores.items():
+                        if stype not in lines:
+                            lines[stype] = {}
+                        lines[stype][split] = np.mean(type_scores) if type_scores else 0
 
-            ax.set_xlabel("Experiment")
-            ax.set_ylabel("Mean Norm KL")
-            ax.set_title("Overall Mean Norm KL")
+                l_res = 0
+                split_scores = {}
+                for i, (stype, split_scores) in enumerate(lines.items()):
+                    l_res = len(split_scores)
+                    x = np.arange(l_res)
+                    ax.bar(
+                        x + i * bar_width,
+                        split_scores.values(),
+                        bar_width,
+                        label=fancy_names[stype],
+                    )
 
-            max_len = 0
-            labels = [k.split(" ") for k in split_scores.keys()]
-            for params in labels:
-                for param in params:
-                    max_len = max(max_len, len(param))
+                ax.set_xlabel("Experiment")
+                ax.set_ylabel(f"Mean Norm {metr.upper()}")
+                ax.set_title(f"Overall Mean Norm {metr.upper()}")
 
-            ax.set_xticks(np.arange(l_res) + 0.3)
-            if max_len > 15 or l_res > 7:
-                tick_labels = [" ".join(l) for l in labels]
-                rot = min(3 * l_res, 90)
-                ax.set_xticklabels(tick_labels)
-                plt.setp(
-                    ax.get_xticklabels(), rotation=rot, horizontalalignment="right"
-                )
-            else:
-                tick_labels = ["\n".join(l) for l in labels]
-                ax.set_xticklabels(tick_labels)
+                max_len = 0
+                labels = [k.split(" ") for k in split_scores.keys()]
+                for params in labels:
+                    for param in params:
+                        max_len = max(max_len, len(param))
 
-            ax.set_ylim([0.55, 1.03])
-            ax.legend(loc="lower right")
-            plt.tight_layout()
-            mlflow.log_figure(fig, f"distr/kl_overall/{table}.png")
-            plt.close()
+                ax.set_xticks(np.arange(l_res) + 0.3)
+                if max_len > 15 or l_res > 7:
+                    tick_labels = [" ".join(l) for l in labels]
+                    rot = min(3 * l_res, 90)
+                    ax.set_xticklabels(tick_labels)
+                    plt.setp(
+                        ax.get_xticklabels(), rotation=rot, horizontalalignment="right"
+                    )
+                else:
+                    tick_labels = ["\n".join(l) for l in labels]
+                    ax.set_xticklabels(tick_labels)
+
+                ax.set_ylim([0.55, 1.03])
+                ax.legend(loc="lower right")
+                plt.tight_layout()
+                mlflow.log_figure(fig, f"distr/{metr}_overall/{table}.png")
+                plt.close()
