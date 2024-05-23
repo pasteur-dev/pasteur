@@ -264,6 +264,7 @@ def sweep(
 
     runs = {}
     ingested = False
+    extra_params = {}
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
@@ -323,8 +324,11 @@ def sweep(
         return
 
     with KedroSession.create(extra_params=extra_params, env="base") as session:
-        session.load_context()
-        log_parent_run(parent_name, runs)
+        ctx = session.load_context()
+        experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split('.')[0])
+        log_parent_run(
+            parent_name, runs, skip_parent=skip_parent, experiment_id=experiment_id
+        )
 
 
 @click.command()

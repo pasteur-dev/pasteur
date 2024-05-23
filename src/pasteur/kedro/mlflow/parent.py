@@ -110,18 +110,30 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     }
 
 
-def log_parent_run(parent: str, run_params: dict[str, dict[str, Any]], skip_parent: bool = False):
+def log_parent_run(
+    parent: str,
+    run_params: dict[str, dict[str, Any]],
+    skip_parent: bool = False,
+    experiment_id: str | None = None,
+):
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
-    assert len(
-        parent_runs
-    ), f"Parent run {parent} should exist to create combined report."
-    parent_run_id = parent_runs["run_id"][0]  # type: ignore
-    logger.info(f"Relaunching parent run for logging:\n{parent}")
+    if not len(parent_runs):
+        logger.info(f"Creating empty mlflow parent run:\n{parent}")
+        ctx_mgr = mlflow.start_run(run_name=parent, experiment_id=experiment_id)
+        mlflow.set_tag("pasteur_id", parent)
+        mlflow.set_tag("pasteur_parent", "1")
+    else:
+        parent_run_id = parent_runs["run_id"][0]  # type: ignore
+        logger.info(f"Relaunching parent run for logging:\n{parent}")
+        ctx_mgr = mlflow.start_run(parent_run_id)
 
-    with mlflow.start_run(parent_run_id):
-        runs = {name: get_run(name, parent if not skip_parent else None) for name in run_params}
+    with ctx_mgr:
+        runs = {
+            name: get_run(name, parent if not skip_parent else None)
+            for name in run_params
+        }
         artifacts = get_artifacts(runs)
         pretty = prettify_run_names(run_params)
         assert len(runs)

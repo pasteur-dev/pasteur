@@ -61,8 +61,8 @@ class MlflowTrackingHook:
     ) -> None:
         try:
             patterns = getattr(context.config_loader, "config_patterns", {})
-            if 'mlflow' not in patterns:
-                patterns['mlflow'] = ["mlflow*", "mlflow*/**"]
+            if "mlflow" not in patterns:
+                patterns["mlflow"] = ["mlflow*", "mlflow*/**"]
             conf_mlflow_yml = context.config_loader.get("mlflow")
         except MissingConfigException:
             logger.warning(
@@ -77,6 +77,13 @@ class MlflowTrackingHook:
         self.mlflow_config = mlflow_config  # store for further reuse
         self.mlflow_config.setup(context)
         self.context = context
+        setattr(context, "mlflow", self)
+
+    def get_experiment_id(self, view: str | None = None):
+        if view and self.mlflow_config.tracking.experiment.name == "Default":
+            self.mlflow_config.tracking.experiment.name = view
+        self.mlflow_config.set_experiment()
+        return self.mlflow_config.tracking.experiment._experiment.experiment_id
 
     @hook_impl
     def before_pipeline_run(self, run_params: dict[str, Any]) -> None:

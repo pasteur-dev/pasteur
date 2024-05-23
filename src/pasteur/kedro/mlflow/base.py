@@ -23,13 +23,22 @@ def flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:
     return dict(items)
 
 
+_git_id = None
+
+
 def _get_git_suffix():
+    # FIXME: Dirty global var
+
+    global _git_id
+    if _git_id is not None:
+        return _git_id
     try:
         import git
 
         repo = git.Repo(search_parent_directories=True)
         sha = repo.head.object.hexsha
-        return f" (git:{sha[:8]})"
+        _git_id = f" (git:{sha[:8]})"
+        return _git_id
     except Exception:
         return ""
 
