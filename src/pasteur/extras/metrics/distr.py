@@ -9,7 +9,8 @@ import numpy as np
 import pandas as pd
 from numpy import ndarray
 from scipy.special import rel_entr
-from scipy.stats import chisquare, chi2_contingency
+from scipy.stats import chisquare
+from scipy.stats.contingency import association
 
 from pasteur.metric import Summaries
 from pasteur.utils import LazyDataset
@@ -56,14 +57,7 @@ def calc_marginal_1way(
         len(counts) == x_dom
     ), f"Overflow error, domain for columns `{x}` is wrong or there is a mistake in encoding."
 
-    margin = counts.astype("float")
-    margin /= margin.sum()
-    if zero_fill is not None:
-        # Mutual info turns into NaN without this
-        margin += zero_fill
-        margin /= margin.sum()
-
-    return margin.reshape(-1)
+    return counts
 
 
 def _visualise_cs(
@@ -125,7 +119,8 @@ def _visualise_kl(
     return _visualise_2way(table, data, "kl")
 
 
-METRICS = ["kl", "chi2"]
+ASSOC_METRICS = ["cramer", "tschuprow", "pearson"]
+METRICS = ["kl", *ASSOC_METRICS]
 
 
 def _visualise_2way(
@@ -156,20 +151,28 @@ def _visualise_2way(
                 col_i, col_j = key
                 p = None
 
-            zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
-            k = zfill(wrk[key])
-            j = zfill(syn[key])
-
             if metr == "kl":
-                kl = rel_entr(k, j).sum()
+                zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
+                k = zfill(wrk[key])
+                j = zfill(syn[key])
+
+                kl = rel_entr(k / k.sum(), j).sum()
                 kl_norm = 1 / (1 + kl)
                 out = [col_i, col_j, kl, kl_norm, len(k)]
-            else:
+            elif metr in ASSOC_METRICS:
                 assert domain
+
+                k = wrk[key] + 1
+                j = syn[key] + 1
+
                 dom_i = domain[table][col_i]
-                chi2 = chi2_contingency(j.reshape((dom_i, -1))).statistic # type: ignore
-                chi2_norm = 1 / (1 + chi2)
-                out = [col_i, col_j, chi2, chi2_norm, len(k)]
+                m_wrk = association(k.reshape((dom_i, -1)), method=metr)
+                m_syn = association(j.reshape((dom_i, -1)), method=metr)
+                m_res = np.abs(m_wrk - m_syn)
+
+                out = [col_i, col_j, m_syn, m_res, len(k)]
+            else:
+                assert False, f"Metric {metr} not supported."
 
             if p:
                 if p not in pres:
@@ -280,7 +283,14 @@ def _visualise_2way(
                 split_ref="ref",
             )
 
-    fn = f"distr/{metr}.html" if table == "table" else f"distr/{metr}/{table}.html"
+    pref = ""
+    if metr in ASSOC_METRICS:
+        pref = "assoc/"
+    fn = (
+        f"distr/{pref}{metr}.html"
+        if table == "table"
+        else f"distr/{pref}{metr}/{table}.html"
+    )
     mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
     return res
 
@@ -643,7 +653,12 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
                 if metr == "kl":
                     ax.set_ylim([0.55, 1.03])
+                # elif metr == "chi2":
+                #     ax.set_ylim([0.5, 1.03])
                 ax.legend(loc="lower right")
                 plt.tight_layout()
-                mlflow.log_figure(fig, f"distr/{metr}_overall/{table}.png")
+                pref = ""
+                if metr in ASSOC_METRICS:
+                    pref = "assoc/"
+                mlflow.log_figure(fig, f"distr/{pref}{metr}_overall/{table}.png")
                 plt.close()
