@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, Any, NamedTuple, Sequence, TypeVar, cast
 
 import numpy as np
@@ -25,6 +26,8 @@ from ...utils.mlflow import load_matplotlib_style, mlflow_log_hists
 if TYPE_CHECKING:
     from matplotlib.figure import Figure
 
+logger = logging.getLogger(__name__)
+
 A = TypeVar("A")
 
 def _percent_formatter(x, pos):
@@ -41,8 +44,12 @@ def _gen_hist(
 ):
     import matplotlib.pyplot as plt
 
+
     fig, ax = plt.subplots()
     x = np.array(bins)[:-1]
+    if len(x) <= 1:
+        logger.error(f"Column {title} has only one value.")
+        return None
     w = (x[1] - x[0]) / len(heights)
 
     for i, (name, h) in enumerate(heights.items()):
@@ -193,7 +200,8 @@ class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             splits,
         )
 
-        mlflow_log_hists(self.table, self.col, v)
+        if v:
+            mlflow_log_hists(self.table, self.col, v)
 
 
 class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
@@ -578,7 +586,7 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             syn=np.sum([s.syn for s in summaries if s.syn is not None], axis=0),
         )
 
-    def _visualise(self, data: dict[str, Summaries[np.ndarray]]) -> "Figure":
+    def _visualise(self, data: dict[str, Summaries[np.ndarray]]) -> "Figure | None":
         keys = list(data.keys())
         splits = {"wrk": data[keys[0]].wrk, "ref": data[keys[0]].ref}
         for name, split in data.items():
@@ -613,7 +621,8 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
     def visualise(self, data: dict[str, Summaries[np.ndarray]]):
         load_matplotlib_style()
         v = self._visualise(data)
-        mlflow_log_hists(self.table, self.col, v)
+        if v:
+            mlflow_log_hists(self.table, self.col, v)
 
 
 class DatetimeData(NamedTuple):
@@ -675,7 +684,8 @@ class DatetimeHist(
         date_fig = self.date._visualise({n: c[0] for n, c in data.items()})
         time_fig = self.time._visualise({n: c[1] for n, c in data.items()})
 
-        mlflow_log_hists(self.table, self.col, {**date_fig, "time": time_fig})
+        figs = {**date_fig, "time": time_fig}
+        mlflow_log_hists(self.table, self.col, {k: v for k, v in figs.items() if v})
 
 
 class SeqHist(
@@ -753,5 +763,6 @@ class SeqHist(
             np.arange(self.max_len + 1) - 0.5,
             splits,
         )
-
-        mlflow_log_hists(self.table, f"_n_per_{self.parent}", f)
+        
+        if f:
+            mlflow_log_hists(self.table, f"_n_per_{self.parent}", f)
