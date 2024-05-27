@@ -40,7 +40,11 @@ tables:
           span: year.hour
           bins: 10
       outtime: datetime?|day.hour:intime
-      los: numerical
+      los:
+        type: numerical
+        min: 0
+        max: 40
+        bins: 5
 
   events:
     primary_key: chart_id

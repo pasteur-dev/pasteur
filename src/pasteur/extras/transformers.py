@@ -60,7 +60,7 @@ class NumericalTransformer(Transformer):
             self.min = other.min
 
         if self.max is not None and other.max is not None:
-            self.min = min(self.max, other.max)
+            self.max = min(self.max, other.max)
         elif other.max is not None:
             self.max = other.max
 
