@@ -28,3 +28,8 @@ mimic_core:
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
+
+mimic_icu:
+  algs:
+    mare:
+      marginal_mode: inmemory_batched

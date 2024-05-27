@@ -170,8 +170,8 @@ def _marginal_batch_worker_inmem(
     out = []
     u = 0
     last_updated = time_ns()
-    for x, p in requests:
-        out.append(calc_marginal(data, info, x, p))
+    for x in requests:
+        out.append(calc_marginal(data, info, x))
 
         u += 1
         if (curr_time := time_ns()) - last_updated > PROGRESS_STEP_NS:
@@ -370,7 +370,6 @@ class MarginalOracle:
             progress_lock = Lock()
 
         base_args = {
-            "preprocess": preprocess,
             "progress_send": progress_send,
             "progress_lock": progress_lock,
             "requests": requests,
@@ -382,6 +381,7 @@ class MarginalOracle:
                 {"data": chunks} for chunks in LazyFrame.zip_values(self.data)
             ]
             l = len(requests) * len(LazyFrame.zip_values(self.data))
+            base_args.update({"preprocess": preprocess})
             fun = _marginal_batch_worker_load
         else:
             self.load_data(preprocess)
