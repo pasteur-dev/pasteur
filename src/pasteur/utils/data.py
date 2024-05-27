@@ -285,9 +285,10 @@ class LazyDataset(Generic[A], LazyPartition[A]):
                 continue
 
             if keys == None:
-                keys = list(partition.keys())
+                keys = set(partition.keys())
             else:
-                assert set(keys) == set(partition.keys())
+                new_keys = set(partition.keys())
+                assert keys == new_keys, f"Found different keys {keys} != {new_keys}"
 
         return keys is not None
 
