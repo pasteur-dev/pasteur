@@ -123,6 +123,33 @@ def _ingest_chunk(
     return out
 
 
+def _ingest_chunk_icu(
+    part_id,
+    duplicates: int,
+    partitions: int,
+    icu_chartevents: LazyChunk,
+):
+    events = icu_chartevents()
+
+    # Join tables
+    table = (
+        events.drop(columns=["itemid", "storetime", "value", "hadm_id"])
+    )
+
+    # Change to rangeindex (saves space) and shuffle table (helps marginal calc.)
+    table = (
+        table.reset_index(drop=True).rename_axis("chart_id").sample(frac=1, random_state=53)
+    )
+
+    n = (table.shape[0] - 1) // partitions + 1
+
+    out = {}
+    for i in range(partitions):
+        for j in range(duplicates):
+            out[f"{part_id}_{i}_{j}"] = table[i * n : min((i + 1) * n, len(table))]
+
+    return out
+
 def _remove_empty_partitions(func):
     """Purges empty partitions returned by func"""
     res = func()
@@ -200,7 +227,10 @@ class MimicIcu(View):
             case "stays":
                 return tables["icu_icustays"]().dropna(subset=["hadm_id"])
             case "events":
-                return tables["icu_chartevents"]
+                funs = set()
+                for part_id, events in tables["icu_chartevents"].items():
+                    funs.add(partial(_ingest_chunk_icu, part_id, 1, 4, events))
+                return funs
 
         assert False, f"Table {name} not part of view {self.name}"
 

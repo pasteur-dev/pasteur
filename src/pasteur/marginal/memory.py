@@ -99,7 +99,8 @@ def merge_memory(
         for height in range(max_height):
             # Create new array using memory and append info
             new_rows = sum([len(inst[name][height]) for inst in cols])
-            new_cols = cols[0][name][height].shape[1]
+            shape = cols[0][name][height].shape
+            new_cols = shape[1] if len(shape) > 1 else 1
             new_shape = (new_rows, new_cols)
             dtype = cols[0][name][height].dtype
             arr = np.ndarray(new_shape, dtype, buffer=out_mem.buf, offset=ofs)
@@ -111,7 +112,7 @@ def merge_memory(
             for inst in cols:
                 col = inst[name][height]
                 end = start + len(col)
-                arr[start:end] = col
+                arr[start:end] = col if col.shape == 2 else col.reshape(-1, 1)
                 start = end
 
     if close:
