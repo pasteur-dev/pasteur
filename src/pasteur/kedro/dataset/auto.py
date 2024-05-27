@@ -137,7 +137,7 @@ def _save_worker(
 
         # Use parquet writer to write chunks
         with pq.ParquetWriter(path, schema, filesystem=fs) as w:
-            w.write(pa.Table.from_pandas(p0, schema=schema))
+            w.write(pa.Table.from_pandas(p0, schema=schema, preserve_index=True))
             del p0
 
             for p in chunk:  # type: ignore
@@ -149,6 +149,9 @@ def _save_worker(
         if protocol == "file":
             if fs.isdir(path):
                 fs.rm(path, recursive=True, maxdepth=1)
+
+            if isinstance(chunk, pd.Series):
+                chunk = pd.DataFrame(chunk)
 
             with fs.open(path, mode="wb") as fs_file:
                 chunk.to_parquet(fs_file, **save_args)
