@@ -194,6 +194,7 @@ class MareSynth(Synth):
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0):
+        part_id = i
         meta = calculate_stripped_meta(self.attrs)
         todo = list(self.models)
 
@@ -270,7 +271,7 @@ class MareSynth(Synth):
         out_ids = {name: df for (name, ctx), df in ids.items() if not ctx}
         out_tables = {name: df for (name, ctx), df in tables.items() if not ctx}
 
-        return {k: {f"{i:03d}": v} for k, v in tables_to_data(out_ids, out_tables).items()}
+        return {k: {f"{part_id:03d}": v} for k, v in tables_to_data(out_ids, out_tables).items()}
 
 
 def sample_model(
