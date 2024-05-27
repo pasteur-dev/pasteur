@@ -76,8 +76,8 @@ def main(download_dir: str, datasets: dict[str, DS], username: str | None):
         save_path = os.path.join(download_dir, save_name)
         os.makedirs(save_path, exist_ok=True)
 
-        if ds.credentials:
-            assert username, f"Dataset requires credentials, use --user <user>"
+        if ds.credentials and not username:
+            username = input("Enter username for download: ")
 
         if isinstance(ds.files, list):
             download_files(name, save_path, ds.files)
