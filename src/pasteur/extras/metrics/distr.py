@@ -608,9 +608,11 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
             lines = {}
             for table, split_scores_per_table in [
+                ("_overall_single", scores),
                 ("_overall", scores),
                 *scores_per_table.items(),
             ]:
+                combined = "_single" in table
                 fig, ax = plt.subplots()
                 bar_width = 0.3
 
@@ -622,16 +624,25 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
                 l_res = 0
                 split_scores = {}
-                for i, (stype, split_scores) in enumerate(lines.items()):
-                    l_res = len(split_scores)
-                    x = np.arange(l_res)
-                    ax.bar(
-                        x + i * bar_width,
-                        split_scores.values(),
-                        bar_width,
-                        label=fancy_names[stype],
-                    )
-
+                if combined:
+                    l_res = len(split_scores_per_table)
+                    split_scores = split_scores_per_table
+                    for x, y in enumerate(split_scores_per_table.values()):
+                        ax.bar(
+                            x,
+                            np.mean([np.mean(v) for v in y.values()]),
+                        )
+                else:
+                    for i, (stype, split_scores) in enumerate(lines.items()):
+                        l_res = len(split_scores)
+                        x = np.arange(l_res)
+                        ax.bar(
+                            x + i * bar_width,
+                            split_scores.values(),
+                            bar_width,
+                            label=fancy_names[stype],
+                        )
+                        
                 ax.set_xlabel("Experiment")
                 ax.set_ylabel(f"Mean Norm {metr.upper()}")
                 ax.set_title(f"Overall Mean Norm {metr.upper()}")
@@ -642,7 +653,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for param in params:
                         max_len = max(max_len, len(param))
 
-                ax.set_xticks(np.arange(l_res) + 0.3)
+                ax.set_xticks(np.arange(l_res) + (0 if combined else 0.3))
                 if max_len > 15 or l_res > 7:
                     tick_labels = [" ".join(l) for l in labels]
                     rot = min(3 * l_res, 90)
@@ -654,8 +665,11 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     tick_labels = ["\n".join(l) for l in labels]
                     ax.set_xticklabels(tick_labels)
 
-                if metr == "kl":
-                    ax.set_ylim([0.55, 1.03])
+                if combined:
+                    # Dont use legend on combined graph
+                    pass
+                elif metr == "kl":
+                    # ax.set_ylim([0.55, 1.03])
                     ax.legend(loc="lower right")
                 elif metr in ASSOC_METRICS:
                     ax.legend(loc="upper right")
