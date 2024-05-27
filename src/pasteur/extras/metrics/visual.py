@@ -44,26 +44,26 @@ def _gen_hist(
 ):
     import matplotlib.pyplot as plt
 
+    try:
+        fig, ax = plt.subplots()
+        x = np.array(bins)[:-1]
+        w = (x[1] - x[0]) / len(heights)
 
-    fig, ax = plt.subplots()
-    x = np.array(bins)[:-1]
-    if len(x) <= 1:
-        logger.error(f"Column '{title}' has only one value.")
+        for i, (name, h) in enumerate(heights.items()):
+            ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=y_log)
+
+        ax.legend()
+        ax.set_title(title)
+        ax.yaxis.set_major_formatter(_percent_formatter)
+
+        if xticks_x is not None:
+            ax.set_xticks(xticks_x, xticks_label)
+
+        plt.tight_layout()
+        return fig
+    except Exception as e:
+        logger.error(f"Failed to generate histogram '{title}' with error:\n{e}")
         return None
-    w = (x[1] - x[0]) / len(heights)
-
-    for i, (name, h) in enumerate(heights.items()):
-        ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=y_log)
-
-    ax.legend()
-    ax.set_title(title)
-    ax.yaxis.set_major_formatter(_percent_formatter)
-
-    if xticks_x is not None:
-        ax.set_xticks(xticks_x, xticks_label)
-
-    plt.tight_layout()
-    return fig
 
 
 def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndarray]):
