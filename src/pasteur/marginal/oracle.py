@@ -66,13 +66,13 @@ class PreprocessFun(Protocol):
     def __call__(
         self,
         data: Mapping[str, LazyPartition],
-    ) -> dict[TableSelector, pd.DataFrame]:
-        ...
+    ) -> dict[TableSelector, pd.DataFrame]: ...
 
 
 class PostprocessFun(Protocol, Generic[A]):
-    def __call__(self, req: AttrSelectors, mar: np.ndarray, info: CalculationInfo) -> A:
-        ...
+    def __call__(
+        self, req: AttrSelectors, mar: np.ndarray, info: CalculationInfo
+    ) -> A: ...
 
 
 def counts_preprocess(
@@ -117,6 +117,19 @@ def parallel_load(
     mem_arr, mem_info = merge_memory(out)
 
     return mem_arr, mem_info, info
+
+
+def get_info(
+    attrs: Mapping[str | None, Attributes | SeqAttributes],
+    data: Mapping[str, LazyPartition],
+    preprocess: PreprocessFun,
+):
+    out = preprocess(
+        {k: v.sample if isinstance(v, LazyDataset) else v() for k, v in data.items()}
+    )
+
+    _, info = expand_table(attrs, out)
+    return info
 
 
 def _marginal_initializer(base_args, per_call_args):
@@ -264,6 +277,7 @@ class MarginalOracle:
         self.counts = None
         self.log = log
         self._load_id = None
+        self.info = None
 
         self.marginal_count = 0
 
@@ -424,6 +438,8 @@ class MarginalOracle:
             mar = np.sum([batch[i] for batch in res], axis=0)
 
             if postprocess is not None:
+                if not self.info:
+                    self.info = get_info(self.attrs, self.data, preprocess)
                 out.append(postprocess(requests[i], mar, self.info))
             else:
                 out.append(mar)
@@ -436,8 +452,7 @@ class MarginalOracle:
         requests: list[MarginalRequest],
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
-    ) -> list[np.ndarray]:
-        ...
+    ) -> list[np.ndarray]: ...
 
     @overload
     def process(
@@ -446,8 +461,7 @@ class MarginalOracle:
         desc: str = ...,
         preprocess: PreprocessFun | None = ...,
         postprocess: PostprocessFun[A] = ...,  # type: ignore
-    ) -> list[A]:
-        ...
+    ) -> list[A]: ...
 
     def process(
         self,

@@ -1146,8 +1146,10 @@ class SeqTransformerWrapper(SeqTransformer):
         self.seq.fit(data, ref_df)
 
     def reduce(self, other: "SeqTransformerWrapper"):
-        self.ctx.reduce(other)
-        self.seq.reduce(other)
+        if self.mode == "dual":
+            self.ctx.reduce(other.ctx)
+        if self.mode != "notrn":
+            self.seq.reduce(other.seq)
         self.max_len = max(other.max_len, self.max_len)
 
     def transform(

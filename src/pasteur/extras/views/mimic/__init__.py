@@ -126,7 +126,8 @@ def _ingest_chunk(
 def _remove_empty_partitions(func):
     """Purges empty partitions returned by func"""
     res = func()
-    assert isinstance(res, dict)
+    if not isinstance(res, dict):
+        return res
 
     out = {}
     for name, part in res.items():
@@ -195,9 +196,9 @@ class MimicIcu(View):
     def ingest(self, name, **tables: LazyFrame):
         match name:
             case "patients":
-                return tables["patients"]
+                return mm_core_transform_patients(tables["patients"]())
             case "stays":
-                return tables["icu_icustays"]
+                return tables["icu_icustays"]().dropna(subset=["hadm_id"])
             case "events":
                 return tables["icu_chartevents"]
 
@@ -208,8 +209,8 @@ class MimicIcu(View):
 
         if n < 2000:
             return filter_by_keys_merged(
-                keys, tables[name], reset_index=True, drop_index=True
+                keys, tables[name], reset_index=True, drop_index=name == "events"
             )
 
-        funcs = filter_by_keys(keys, tables[name], drop_index=True)
+        funcs = filter_by_keys(keys, tables[name], drop_index=name == "events")
         return {partial(_remove_empty_partitions, func) for func in funcs}  # type: ignore

@@ -162,6 +162,9 @@ def _visualise_2way(
             elif metr in ASSOC_METRICS:
                 assert domain
 
+                if col_i == col_j and not p:
+                    continue
+
                 k = wrk[key] + 1
                 j = syn[key] + 1
 
@@ -170,7 +173,7 @@ def _visualise_2way(
                 m_syn = association(j.reshape((dom_i, -1)), method=metr)
                 m_res = np.abs(m_wrk - m_syn)
 
-                out = [col_i, col_j, m_syn, m_res, len(k)]
+                out = [col_i, col_j, m_res, m_syn, len(k)]
             else:
                 assert False, f"Metric {metr} not supported."
 
@@ -653,9 +656,14 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
                 if metr == "kl":
                     ax.set_ylim([0.55, 1.03])
+                    ax.legend(loc="lower right")
+                elif metr in ASSOC_METRICS:
+                    ax.legend(loc="upper right")
+                else:
+                    ax.legend(loc="lower right")
+
                 # elif metr == "chi2":
                 #     ax.set_ylim([0.5, 1.03])
-                ax.legend(loc="lower right")
                 plt.tight_layout()
                 pref = ""
                 if metr in ASSOC_METRICS:

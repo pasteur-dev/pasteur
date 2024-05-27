@@ -166,7 +166,7 @@ class IdxTransformer(Transformer):
         if self.nullable:
             out_col = out_col.fillna(0)
         else:
-            assert not np.any(data.isna()), f"Nullable '{self.col}' has nullable values"
+            assert not np.any(data.isna()), f"Not nullable '{self.col}' has nullable values"
 
         if self.unknown_value is not None:
             out_col = out_col.where(
