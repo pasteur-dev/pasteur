@@ -270,7 +270,7 @@ class MareSynth(Synth):
         out_ids = {name: df for (name, ctx), df in ids.items() if not ctx}
         out_tables = {name: df for (name, ctx), df in tables.items() if not ctx}
 
-        return tables_to_data(out_ids, out_tables)
+        return {k: {f"{i:03d}": v} for k, v in tables_to_data(out_ids, out_tables).items()}
 
 
 def sample_model(
