@@ -688,8 +688,13 @@ class ColumnMetricHolder(
         for name in self.meta.tables:
             ref_mgr = ReferenceManager(self.meta, name)
 
-            for i, (tables_wrk, tables_ref, tables_syn) in enumerate(
-                LazyDataset.zip_values([wrk, ref, syn])
+            # FIXME: Syn may not be partitioned the same way as the others
+            # This ideally would need an API change. If partition numbers are
+            # different, there will be a truncation.
+            for i, (tables_wrk, tables_ref, tables_syn) in enumerate(zip(
+                LazyDataset.zip_values(wrk), LazyDataset.zip_values(ref), LazyDataset.zip_values(syn)
+            )
+                
             ):
                 per_call.append(
                     {
