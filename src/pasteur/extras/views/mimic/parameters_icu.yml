@@ -60,7 +60,7 @@ tables:
         type: seq
         ref: stays.intime
         order: 2
-        max_len: 200
+        max_len: 1500
         seq:
           type: datetime
           span: day.hour
