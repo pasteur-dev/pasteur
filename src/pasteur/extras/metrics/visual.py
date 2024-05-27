@@ -48,7 +48,7 @@ def _gen_hist(
     fig, ax = plt.subplots()
     x = np.array(bins)[:-1]
     if len(x) <= 1:
-        logger.error(f"Column {title} has only one value.")
+        logger.error(f"Column '{title}' has only one value.")
         return None
     w = (x[1] - x[0]) / len(heights)
 
