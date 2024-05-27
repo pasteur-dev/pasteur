@@ -5,11 +5,9 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from kedro.io.core import (
-    VERSION_KEY,
-    VERSIONED_FLAG_KEY,
     AbstractDataset,
     AbstractVersionedDataset,
-    DatasetError,
+    VersionNotFoundError,
     parse_dataset_definition,
 )
 
@@ -98,14 +96,18 @@ class Multiset(AbstractVersionedDataset):
         return versioned_path
 
     def _list_partitions(self) -> list[str]:
-        if not self._filesystem.isdir(self._get_load_path(), **self._load_args):
+        try:
+            lpath = self._get_load_path()
+        except VersionNotFoundError:
+            return []
+        if not self._filesystem.isdir(lpath, **self._load_args):
             # If the path does not exist, ie no datasets were saved before
             # return no partitions instead of crashing
             return []
         return [
             path["name"]
             for path in self._filesystem.listdir(
-                self._get_load_path(), **self._load_args
+                lpath, **self._load_args
             )
             if path["name"].endswith(self._filename_suffix)
         ]
