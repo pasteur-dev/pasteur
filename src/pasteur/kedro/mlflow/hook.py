@@ -164,17 +164,19 @@ class MlflowTrackingHook:
 
         run_id = get_run_id(run_name, self.parent_name, finished=False)
         if run_id:
-            logger.info("Resuming unfinished mlflow run.")
-            mlflow.start_run(
-                run_id=run_id,
-                nested=bool(self.parent_name),
-            )
-        else:
-            mlflow.start_run(
-                experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
-                run_name=run_name,
-                nested=bool(self.parent_name),
-            )
+            # logger.info("Resuming unfinished mlflow run.")
+            # mlflow.start_run(
+            #     run_id=run_id,
+            #     nested=bool(self.parent_name),
+            # )
+            logger.info("Removing existing mlflow run.")
+            mlflow.delete_run(run_id)
+        
+        mlflow.start_run(
+            experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
+            run_name=run_name,
+            nested=bool(self.parent_name),
+        )
         mlflow.set_tag("pasteur_id", run_name)
 
         if self.parent_name:
