@@ -119,5 +119,6 @@ def merge_memory(
         del cols
         for mem, _, _ in mem_data:
             mem.close()
+            mem.unlink()
 
     return out_mem, out_info
