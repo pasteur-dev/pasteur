@@ -164,7 +164,10 @@ def log_parent_run(
 
             splits = {}
             for alg_name, artifact in artifacts.items():
-                splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
+                try:
+                    splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
+                except Exception as e:
+                    logger.error(f"Split '{pretty[alg_name]}' metric '{name}' is broken.")
 
             metric.visualise(data=splits)
             metric.summarize(data=splits)
