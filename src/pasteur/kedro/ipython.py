@@ -3,6 +3,16 @@
 import logging
 from pathlib import Path
 
+def _init_logger():
+    import os
+
+    log_fn = os.path.join(os.curdir, "../conf/base/logging.yml")
+    if os.path.exists(log_fn):
+        print(f"Overriding kedro config with '{log_fn}'")
+        os.environ["KEDRO_LOGGING_CONFIG"] = log_fn
+
+_init_logger()
+
 from IPython.core.getipython import get_ipython
 from kedro.framework.context import KedroContext
 from kedro.framework.session.session import KedroSession

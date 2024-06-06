@@ -18,6 +18,7 @@ dependencies = [
   "kedro",
   "kedro-datasets",
   "mlflow",
+  "pydantic", # required by mlflow config structure
   "pyarrow",
   "tqdm",
   # Comp. Libs
