@@ -607,6 +607,9 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             }
 
             lines = {}
+            import pprint
+            mlflow.log_text(pprint.pformat(scores, compact=True), f"_raw/metrics/distr/{metr}_overall.txt")
+            mlflow.log_text(pprint.pformat(scores_per_table, compact=True), f"_raw/metrics/distr/{metr}_overall_per_table.txt")
             for table, split_scores_per_table in [
                 ("_overall_single", scores),
                 ("_overall", scores),
