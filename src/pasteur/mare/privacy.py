@@ -25,6 +25,10 @@ def calc_table_complexity(ver, attrs, params = {}):
 
 
 def calc_sens(ver):
+    # unwrap table partition
+    if hasattr(ver, 'table'):
+        ver = getattr(ver, 'table')
+
     if ver.max_len:
         sens = ver.max_len
     elif ver.children:
