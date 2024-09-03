@@ -379,7 +379,7 @@ def _process_marginals_chunk(
 
 
 class DistributionMetric(Metric[DistrSummary, DistrSummary]):
-    name = "dstr"
+    name = "distr"
     encodings = "idx"
 
     def fit(
@@ -607,9 +607,8 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             }
 
             lines = {}
-            import pprint
-            mlflow.log_text(pprint.pformat(scores, compact=True, sort_dicts=False), f"_raw/metrics/distr/{metr}_overall.json")
-            mlflow.log_text(pprint.pformat(scores_per_table, compact=True, sort_dicts=False), f"_raw/metrics/distr/{metr}_overall_per_table.json")
+            mlflow.log_dict(scores, f"_raw/metrics/distr/{metr}_overall.json")
+            mlflow.log_dict(scores_per_table, f"_raw/metrics/distr/{metr}_overall_per_table.json")
             for table, split_scores_per_table in [
                 ("_overall_single", scores),
                 ("_overall", scores),
