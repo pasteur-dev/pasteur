@@ -160,6 +160,8 @@ def log_parent_run(
             logger.error(f"Error logging performance:\n{e}")
 
         for name, folder in ref_artifacts["metrics"].items():
+            if not "metric" in folder:
+                logger.error(f"Metric '{name}' does not have a 'metric' executable, skipping...")
             metric = folder["metric"]
 
             splits = {}
