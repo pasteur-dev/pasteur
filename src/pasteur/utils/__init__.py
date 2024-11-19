@@ -18,3 +18,7 @@ from .data import (
     tables_to_data,
     to_chunked,
 )
+
+from .progress import (
+    init_pool,
+)
