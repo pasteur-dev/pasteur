@@ -42,7 +42,7 @@ tables:
         bins: 32
       
       valueuom: categorical?|ukn
-      warning: categorical
+      warning: categorical?
       first_careunit: categorical|ukn
       last_careunit: categorical|ukn
       gender: categorical
