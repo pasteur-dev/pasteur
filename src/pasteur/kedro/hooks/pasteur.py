@@ -79,7 +79,7 @@ class PasteurHook:
             # Try to use location configs for locations
             patterns = getattr(context.config_loader, "config_patterns", {})
             if "locations" not in patterns:
-                patterns["locations"] = ["location*", "location*/**"]
+                patterns["locations"] = ["location*", "location*/**", "**/location*"]
             locations = context.config_loader.get("locations")
         except MissingConfigException:
             locations = {}
