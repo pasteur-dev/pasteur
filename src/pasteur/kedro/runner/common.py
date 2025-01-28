@@ -3,7 +3,6 @@ from typing import Any, Callable, cast
 
 from kedro.io import DataCatalog
 from kedro.pipeline.node import Node
-from kedro.runner.runner import _call_node_run, _collect_inputs_from_hook
 from pluggy import PluginManager
 from rich import get_console
 
@@ -11,6 +10,70 @@ from ...utils.perf import PerformanceTracker
 from ...utils.progress import RICH_TRACEBACK_ARGS, process_in_parallel, set_node_name
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_inputs_from_hook(  # noqa: PLR0913
+    node: Node,
+    catalog: Any,
+    inputs: dict[str, Any],
+    is_async: bool,
+    hook_manager: PluginManager,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    inputs = inputs.copy()  # shallow copy to prevent in-place modification by the hook
+    hook_response = hook_manager.hook.before_node_run(
+        node=node,
+        catalog=catalog,
+        inputs=inputs,
+        is_async=is_async,
+        session_id=session_id,
+    )
+
+    additional_inputs = {}
+    if (
+        hook_response is not None
+    ):  # all hooks on a _NullPluginManager will return None instead of a list
+        for response in hook_response:
+            if response is not None and not isinstance(response, dict):
+                response_type = type(response).__name__
+                raise TypeError(
+                    f"'before_node_run' must return either None or a dictionary mapping "
+                    f"dataset names to updated values, got '{response_type}' instead."
+                )
+            additional_inputs.update(response or {})
+
+    return additional_inputs
+
+
+def _call_node_run(  # noqa: PLR0913
+    node: Node,
+    catalog: Any,
+    inputs: dict[str, Any],
+    is_async: bool,
+    hook_manager: PluginManager,
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    try:
+        outputs = node.run(inputs)
+    except Exception as exc:
+        hook_manager.hook.on_node_error(
+            error=exc,
+            node=node,
+            catalog=catalog,
+            inputs=inputs,
+            is_async=is_async,
+            session_id=session_id,
+        )
+        raise exc
+    hook_manager.hook.after_node_run(
+        node=node,
+        catalog=catalog,
+        inputs=inputs,
+        outputs=outputs,
+        is_async=is_async,
+        session_id=session_id,
+    )
+    return outputs
 
 
 def _task_worker(fun: Callable[..., dict[str, Any]], catalog: DataCatalog):

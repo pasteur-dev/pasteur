@@ -111,6 +111,12 @@ loggers:
         handlers: [rich, user, debug, error]
         propagate: no
 
+    kedro.framework.project:
+        # Stupid log init
+        level: NOTSET
+        handlers: []
+        propagate: no
+
 root:
     level: NOTSET
     handlers: [rich, user, debug, error]
