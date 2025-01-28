@@ -39,6 +39,7 @@ class PasteurHook:
         self.modules = None
         self._param_hash = None
         self._module_id = None
+        self.load_any = False
 
     def update_data(self):
         params = self.context.params
@@ -147,7 +148,9 @@ class PasteurHook:
 
     def get_version(self, name: str, versioned: bool):
         load_version = self.save_version
-        if self.load_versions:
+        if self.load_any:
+            load_version = None
+        elif self.load_versions:
             load_version = self.load_versions.get(name, load_version)
         if versioned:
             return Version(load_version, self.save_version)

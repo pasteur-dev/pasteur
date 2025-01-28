@@ -15,5 +15,8 @@ if modules:
 
     pasteur = PasteurHook(modules)
     mlflow = MlflowTrackingHook()
+else:
+    pasteur = None
+    mlflow = None
 
 __all__ = ["PasteurHook", "MlflowTrackingHook", "mlflow", "pasteur"]

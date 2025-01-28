@@ -98,6 +98,12 @@ def pipe(
         elif metrics:
             logger.warning("Only running metrics nodes.")
             tags = [TAG_METRICS]
+
+            # Disable load versions for metrics, due to missing .e.g, models
+            from pasteur.kedro.hooks import pasteur
+
+            if pasteur:
+                pasteur.load_any = True
         else:
             logger.debug(
                 "Skipping dataset ingestion. In case of error, run the pipeline with the name of the dataset."
@@ -325,7 +331,7 @@ def sweep(
 
     with KedroSession.create(extra_params=extra_params, env="base") as session:
         ctx = session.load_context()
-        experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split('.')[0])
+        experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split(".")[0])
         log_parent_run(
             parent_name, runs, skip_parent=skip_parent, experiment_id=experiment_id
         )
