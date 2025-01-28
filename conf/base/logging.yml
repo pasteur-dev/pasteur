@@ -7,7 +7,7 @@ formatters:
 handlers:
     rich:
         class: rich.logging.RichHandler
-        enable_link_path: False
+        # enable_link_path: False
         log_time_format: "[%X]"
         level: INFO
 
