@@ -56,7 +56,7 @@ def calc_privacy_budgets(total: float, mvers, params = {}):
             max_complexity = MAX_COMPLEXITY * (initial_sum - compl) / len(mvers)
             if compl > max_complexity:
                 complexities[mver] = max_complexity
-        print(i, list(complexities.values()))
+        # print(i, list(complexities.values()))
         total_complexity = sum(complexities.values())
 
     budgets = {}
