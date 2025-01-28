@@ -29,30 +29,32 @@ def _log_metadata(view: View):
 
 def _get_metric_encs(view: View, encodings: list[str] | str):
     if isinstance(encodings, str):
-        return f"{view}.enc.{encodings}" if encodings != "raw" else {}
+        return f"{view}.enc.{encodings}" if encodings not in ("raw", "bst") else {}
     else:
         return {
             enc: ({t: f"{view}.enc.{t}" for t in view.tables})
             for enc in encodings
-            if enc != "raw"
+            if enc not in ("raw", "bst")
         }
 
 
 def _get_metric_data(view: View, split: str, encodings: list[str] | str):
     if isinstance(encodings, str):
-        if encodings == "raw":
-            return {t: f"{view}.{split}.{t}" for t in view.tables}
-        else:
-            return f"{view}.{split}.{encodings}"
+        strip = True
+        encodings = [encodings]
     else:
-        return {
-            enc: (
-                {t: f"{view}.{split}.{t}" for t in view.tables}
-                if enc == "raw"
-                else f"{view}.{split}.{enc}"
-            )
-            for enc in encodings
-        }
+        strip = False
+
+    out = {}
+    for enc in encodings:
+        if enc == "raw":
+            out[enc] = {t: f"{view}.{split}.{t}" for t in view.tables}
+        elif enc == "bst":
+            out[enc] = {t: f"{view}.{split}.bst_{t}" for t in view.tables}
+        else:
+            out[enc] = f"{view}.{split}.{enc}"
+    
+    return next(iter(out.values())) if strip else out
 
 
 def _create_fit_pipeline(

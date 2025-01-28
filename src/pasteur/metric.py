@@ -774,12 +774,15 @@ def fit_metric(
     module = fs.build()
     if isinstance(fs.encodings, list):
         assert isinstance(encoder, dict)
-        meta = {name: enc.get_metadata() for name, enc in encoder.items()}
+        meta = {name: enc.get_metadata() for name, enc in encoder.items() if name in fs.encodings}
         if "raw" in fs.encodings:
             meta["raw"] = metadata
     else:
         if fs.encodings == "raw":
             meta = metadata
+        elif fs.encodings == "bst":
+            # FIXME: Should be something
+            meta = None
         else:
             assert isinstance(encoder, Encoder)
             meta = encoder.get_metadata()
