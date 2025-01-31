@@ -49,7 +49,11 @@ def calc_marginal_1way(
     mul = 1
     for col in reversed(x):
         # idx += mul*data[:, col]
-        np.add(idx, np.multiply(mul, data[:, col], out=tmp), out=idx)
+        np.add(
+            idx,
+            np.multiply(mul, data[:, col], out=tmp, casting="unsafe"),
+            out=idx,
+        )
         mul *= domain[col]
 
     counts = np.bincount(idx, minlength=x_dom)
@@ -110,6 +114,206 @@ def _visualise_cs(
 
     fn = f"distr/cs.html" if table == "table" else f"distr/cs/{table}.html"
     mlflow.log_text(gen_html_table(style, FONT_SIZE), fn)
+
+
+def _get_histdata(val):
+    if len(val) == 2 and val[0] == "None":
+        v = _get_histdata(val[1])
+        if v is None:
+            return None
+        return [float("NaN"), *v]
+
+    out = []
+    for v in val:
+        if not isinstance(v, str):
+            return None
+
+        try:
+            out.append(float(v))
+            continue
+        except ValueError:
+            pass
+
+        if len(v) < 4:
+            return None
+
+        if v[0] not in "([":
+            return None
+
+        if v[-1] not in ")]":
+            return None
+
+        try:
+            l, r = v[1:-1].split(", ", maxsplit=1)
+            out.append((float(l) + float(r)) / 2)
+        except ValueError:
+            return None
+
+    return out
+
+
+def _visualise_basetable(
+    table: str,
+    attrs: Attributes,
+    data: dict[str, Summaries[dict[str, np.ndarray]]],
+):
+    import re
+    from pasteur.hierarchy import RebalancedValue
+
+    from ...utils.mlflow import gen_html_table, color_dataframe
+
+    # Unroll splits
+    ref_split = next(iter(data.values()))
+    splits = {
+        "wrk": ref_split.wrk,
+        "ref": ref_split.ref,
+    }
+
+    for split, split_data in data.items():
+        splits[split] = split_data.syn
+
+    # Handle them individually
+    out_num = []
+    out_cat = []
+
+    CAT_VALS = 5
+    CAT_MIN_VAL = 0.001
+
+    TRE = re.compile(r"\d{2}:\d{2}")
+    hvals_prev = {}
+    for attr in attrs.values():
+        for name, col in attr.vals.items():
+            if not hasattr(col, "head"):
+                continue
+
+            for sname, split in splits.items():
+                bins = _get_histdata(getattr(col, "head"))
+
+                if bins is None:
+                    break
+
+                bins = np.array(bins)
+
+                mean = np.nansum(bins * split[name]) / np.nansum(split[name])
+                std = np.sqrt(
+                    np.nansum((bins - mean) ** 2 * split[name])
+                    / (np.nansum(split[name]) - 1)
+                )
+                out_num.append(
+                    {
+                        "name": name,
+                        "split": sname,
+                        "mean": float(mean),
+                        "std": float(std),
+                    }
+                )
+
+            counts = splits["wrk"][name]
+            try:
+                hval = RebalancedValue(counts, col)  # type: ignore
+            except Exception:
+                logger.exception(f"Failed to get human values for {name}")
+                hvals_prev[name] = (None, 0)
+                continue
+
+            height = 0
+            for h in range(hval.height):
+                height = h
+                dom = hval.get_domain(h)
+
+                tmp = [0 for _ in range(dom)]
+                for i, j in enumerate(hval.get_mapping(h)):
+                    tmp[j] += counts[i]
+
+                if dom <= CAT_VALS and min(tmp) > CAT_MIN_VAL:
+                    break
+
+            hvals_prev[name] = (hval, height)
+
+            vnames = [[] for _ in range(hval.get_domain(height))]
+            hnames = getattr(hval.original, "head").get_human_values()
+
+            for i, v in enumerate(hval.get_mapping(height)):
+                vnames[v].append(hnames[i])
+
+            def process_names(l):
+                if not l:
+                    return "[Empty]"
+                if len(l) == 1:
+                    return l[0]
+
+                # Handle intervals
+                if l[0] and l[0][0] in "[(" and l[-1] and l[-1][-1] in ")]":
+                    return f"{l[0].split(',')[0]}, {l[-1].split(', ')[-1]}"
+
+                # Handle times
+                if re.match(TRE, l[0]) and re.match(TRE, l[-1]):
+                    return f"{l[0]}-{l[-1]}"
+
+                # Handle numbers
+                if all(v.isnumeric() for v in l):
+                    return f"[{min(l)}, {max(l)}]"
+
+                return ", ".join([v for v in l if v])[:35]
+
+            vnames = [process_names(v) for v in vnames]
+
+            for i, vname in enumerate(vnames):
+                for sname, split in splits.items():
+                    nsum = np.sum(split[name])
+
+                    mval = 0
+                    for j, v in enumerate(hval.get_mapping(height)):
+                        if v == i:
+                            mval += split[name][j]
+
+                    rate = mval / nsum
+
+                    out_cat.append(
+                        {
+                            "name": name,
+                            "split": sname,
+                            "value": "[missing]" if vname == "None" else vname,
+                            "rate": 100*float(rate),
+                        }
+                    )
+
+    import mlflow
+
+    out_num = color_dataframe(
+        out_num,
+        idx=["name"],
+        cols=[],
+        vals=["mean", "std"],
+        split_ref="wrk",
+        split_col="split",
+        formatters={"mean": {"precision": 3}, "std": {"precision": 3}},
+    )
+
+    out_cat = color_dataframe(
+        out_cat,
+        idx=["name", "value"],
+        cols=[],
+        vals=["rate"],
+        split_ref="wrk",
+        split_col="split",
+        formatters={"rate": {"precision": 1}},
+    )
+
+    # logger.info(f"Out cat:\n{out_cat.head(300)}")
+    fn = (
+        f"distr/basetable.html" if table == "table" else f"distr/basetable/{table}.html"
+    )
+    mlflow.log_text(
+        gen_html_table(
+            {
+                "Numerical": out_num,
+                "Categorical": out_cat,
+            },
+            FONT_SIZE,
+        ),
+        fn,
+    )
 
 
 def _visualise_kl(
@@ -388,6 +592,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
         data: dict[str, LazyFrame],
     ):
         self.domain = defaultdict(dict)
+        self.attrs = meta
 
         self.parents = {
             k[:-4]: list(v.sample().columns)
@@ -541,6 +746,19 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
+            _visualise_basetable(
+                name,
+                self.attrs[name],
+                {
+                    k: Summaries(
+                        wrk=v.wrk[name][0],
+                        ref=v.ref[name][0],
+                        syn=v.syn[name][0] if v.syn else None,
+                    )
+                    for k, v in data.items()
+                },
+            )
+
             for metric in METRICS:
                 if metric not in overall_metr:
                     overall_metr[metric] = {}
@@ -608,7 +826,9 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
 
             lines = {}
             mlflow.log_dict(scores, f"_raw/metrics/distr/{metr}_overall.json")
-            mlflow.log_dict(scores_per_table, f"_raw/metrics/distr/{metr}_overall_per_table.json")
+            mlflow.log_dict(
+                scores_per_table, f"_raw/metrics/distr/{metr}_overall_per_table.json"
+            )
             for table, split_scores_per_table in [
                 ("_overall_single", scores),
                 ("_overall", scores),
@@ -644,7 +864,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                             bar_width,
                             label=fancy_names[stype],
                         )
-                        
+
                 ax.set_xlabel("Experiment")
                 ax.set_ylabel(f"Mean Norm {metr.upper()}")
                 ax.set_title(f"Overall Mean Norm {metr.upper()}")

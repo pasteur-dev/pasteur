@@ -144,7 +144,7 @@ def load_matplotlib_style():
 
 
 def color_dataframe(
-    df: pd.DataFrame | dict[str, pd.DataFrame],
+    df: pd.DataFrame | dict[str, pd.DataFrame] | list[dict],
     idx: list[str],
     cols: list[str],
     vals: list[str],
@@ -178,6 +178,9 @@ def color_dataframe(
         dfs = [d.assign(**{split_col: n}) for n, d in df.items()]
         splits = list(df.keys())
         df = pd.concat(dfs)
+    elif isinstance(df, list):
+        df = pd.DataFrame(df)
+        splits = list(df[split_col].unique())
     else:
         df = df.copy()
         splits = [split_ref]
