@@ -96,6 +96,11 @@ class SimpleParallelRunner(ParallelRunner):
         futures = set()
         done = None
 
+        # Get run id, since 2.18.0 parallel processes/threads dont receive it
+        import mlflow
+        ar = mlflow.active_run()
+        run_id = ar.info.run_id if ar else None
+
         # Init subprocess pool
         init_pool(self.max_workers, self.refresh_processes)
 
@@ -138,6 +143,7 @@ class SimpleParallelRunner(ParallelRunner):
                                     "catalog": catalog,
                                     "hook_manager": hook_manager,
                                     "session_id": session_id,
+                                    "run_id": run_id,
                                 },
                             )
                         )

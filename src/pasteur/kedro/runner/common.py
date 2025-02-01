@@ -87,6 +87,7 @@ def run_expanded_node(
     catalog: DataCatalog,
     hook_manager: PluginManager,
     session_id: str | None = None,
+    run_id: str | None = None,
 ) -> Node:
     """Handles expanded output's option of returning a set of callables.
     Callables are processed by the process pool and the result is untangled
@@ -99,6 +100,12 @@ def run_expanded_node(
         t = PerformanceTracker.get("nodes")
         t.log_to_file()
         t.start(node_name)
+
+        # Readd mlflow tracking
+        if run_id:
+            import mlflow
+            if not mlflow.active_run():
+                mlflow.start_run(run_id=run_id)
 
         inputs = {}
         session_id = cast(str, session_id)
