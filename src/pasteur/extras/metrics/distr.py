@@ -274,46 +274,42 @@ def _visualise_basetable(
                             "name": name,
                             "split": sname,
                             "value": "[missing]" if vname == "None" else vname,
-                            "rate": 100*float(rate),
+                            "rate": 100 * float(rate),
                         }
                     )
 
     import mlflow
 
-    out_num = color_dataframe(
-        out_num,
-        idx=["name"],
-        cols=[],
-        vals=["mean", "std"],
-        split_ref="wrk",
-        split_col="split",
-        formatters={"mean": {"precision": 3}, "std": {"precision": 3}},
-    )
+    stylers = {}
+    if out_num:
+        stylers["Numerical"] = color_dataframe(
+            out_num,
+            idx=["name"],
+            cols=[],
+            vals=["mean", "std"],
+            split_ref="wrk",
+            split_col="split",
+            formatters={"mean": {"precision": 3}, "std": {"precision": 3}},
+        )
 
-    out_cat = color_dataframe(
-        out_cat,
-        idx=["name", "value"],
-        cols=[],
-        vals=["rate"],
-        split_ref="wrk",
-        split_col="split",
-        formatters={"rate": {"precision": 1}},
-    )
+    if out_cat:
+        stylers["Categorical"] = color_dataframe(
+            out_cat,
+            idx=["name", "value"],
+            cols=[],
+            vals=["rate"],
+            split_ref="wrk",
+            split_col="split",
+            formatters={"rate": {"precision": 1}},
+        )
 
-    # logger.info(f"Out cat:\n{out_cat.head(300)}")
-    fn = (
-        f"distr/basetable.html" if table == "table" else f"distr/basetable/{table}.html"
-    )
-    mlflow.log_text(
-        gen_html_table(
-            {
-                "Numerical": out_num,
-                "Categorical": out_cat,
-            },
-            FONT_SIZE,
-        ),
-        fn,
-    )
+    if stylers:
+        fn = (
+            f"distr/basetable.html"
+            if table == "table"
+            else f"distr/basetable/{table}.html"
+        )
+        mlflow.log_text(gen_html_table(stylers, FONT_SIZE), fn)
 
 
 def _visualise_kl(
