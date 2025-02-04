@@ -179,7 +179,9 @@ def _visualise_basetable(
     CAT_VALS = 5
     CAT_MIN_VAL = 0.001
 
-    TRE = re.compile(r"\d{2}:\d{2}")
+    TRE = re.compile(r"\d{2}:\d{2}") # 12:34
+    MRE = re.compile(r"\+?\d{2}:\d{2}") # +12:34
+
     hvals_prev = {}
     for attr in attrs.values():
         for name, col in attr.vals.items():
@@ -249,6 +251,10 @@ def _visualise_basetable(
                 # Handle times
                 if re.match(TRE, l[0]) and re.match(TRE, l[-1]):
                     return f"{l[0]}-{l[-1]}"
+
+                # Handle intervals (skip first +)
+                if re.match(MRE, l[0]) and re.match(MRE, l[-1]):
+                    return f"{l[0]}-{l[-1][1:]}"
 
                 # Handle numbers
                 if all(v.isnumeric() for v in l):
@@ -728,8 +734,11 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             DistrSummary,
         ],
     ):
+        # import time 
+
         overall_metr = {}
         for name in self.domain:
+            # start = time.perf_counter()
             _visualise_cs(
                 name,
                 self.domain[name],
@@ -742,6 +751,9 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
+            # logger.info(f"cs {name} {time.perf_counter()-start:.2f}s")
+
+            # start = time.perf_counter()
             _visualise_basetable(
                 name,
                 self.attrs[name],
@@ -754,10 +766,12 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for k, v in data.items()
                 },
             )
+            # logger.info(f"bs {name} {time.perf_counter()-start:.2f}s")
 
             for metric in METRICS:
                 if metric not in overall_metr:
                     overall_metr[metric] = {}
+                # start = time.perf_counter()
                 overall_metr[metric][name] = _visualise_2way(
                     name,
                     {
@@ -771,6 +785,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     metric,
                     domain=self.domain,
                 )
+                # logger.info(f"2w {metric} {name} {time.perf_counter()-start:.2f}s")
 
         from pasteur.utils.styles import use_style
         import matplotlib.pyplot as plt
