@@ -103,7 +103,7 @@ def _process_outer(
         _process_se,
         per_call,
         # base_args=base_args,
-        desc="Processing SynthEval tables",
+        desc="Processing SynthEval metrics",
     )
 
     out = []
