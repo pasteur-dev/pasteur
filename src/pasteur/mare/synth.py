@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Any, Type, cast
 
 import pandas as pd
+import numpy as np
 
 from ..attribute import (
     Attributes,
@@ -271,7 +272,10 @@ class MareSynth(Synth):
         out_ids = {name: df for (name, ctx), df in ids.items() if not ctx}
         out_tables = {name: df for (name, ctx), df in tables.items() if not ctx}
 
-        return {k: {f"{part_id:03d}": v} for k, v in tables_to_data(out_ids, out_tables).items()}
+        return {
+            k: {f"{part_id:03d}": v}
+            for k, v in tables_to_data(out_ids, out_tables).items()
+        }
 
 
 def sample_model(
@@ -350,7 +354,14 @@ def sample_model(
                 ]
                 for col, ofs in col_ofs[unroll].items():
                     sers.append(
-                        df[col].astype(get_dtype(df[col].max() + ofs + 1)) + ofs
+                        df[col].astype(
+                            get_dtype(
+                                int(np.nanmax(df[col])) + ofs + 1
+                                if len(df)
+                                else ofs + 1
+                            )
+                        )
+                        + ofs
                     )
                 ctx_dfs.append(pd.concat(sers, axis=1))
             ctx_rerolled = pd.concat(ctx_dfs, axis=0, ignore_index=True)
