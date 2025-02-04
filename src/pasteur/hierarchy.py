@@ -209,21 +209,31 @@ def find_smallest_group(
                 s_b = b
                 s_size = size
     else:
-        # For categorical nodes we check all pairs
-        for i, j in combinations(range(len(parent)), 2):
-            a = parent[i]
-            if not isinstance(a, set):
-                continue
-            b = parent[j]
-            if not isinstance(b, set):
-                continue
+        # Find two smallest parents and pair
+        sizes = np.array([get_group_size(counts, a) if isinstance(a, set) else np.nan for a in parent])
+        i, j = np.argsort(sizes)[:2]
+        size = float(sizes[i] + sizes[j])
+        if s_size == -1 or size < s_size:
+            s_node = parent
+            s_a = parent[i]
+            s_b = parent[j]
+            s_size = size
 
-            size = get_group_size(counts, a.union(b))
-            if s_size == -1 or size < s_size:
-                s_node = parent
-                s_a = a
-                s_b = b
-                s_size = size
+        # # For categorical nodes we check all pairs
+        # for i, j in combinations(range(len(parent)), 2):
+        #     a = parent[i]
+        #     if not isinstance(a, set):
+        #         continue
+        #     b = parent[j]
+        #     if not isinstance(b, set):
+        #         continue
+
+        #     size = get_group_size(counts, a.union(b))
+        #     if s_size == -1 or size < s_size:
+        #         s_node = parent
+        #         s_a = a
+        #         s_b = b
+        #         s_size = size
 
     return s_node, s_a, s_b, s_size
 
