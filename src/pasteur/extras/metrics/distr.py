@@ -227,7 +227,12 @@ def _visualise_basetable(
                 for i, j in enumerate(hval.get_mapping(h)):
                     tmp[j] += counts[i]
 
-                if dom <= CAT_VALS and min(tmp) > CAT_MIN_VAL:
+                # Missing values merge last, which can make
+                # unecessary merges. Therefore, check the second largest
+                # min is above min val
+                vmins = sorted(tmp)[:2]
+
+                if dom <= CAT_VALS and vmins[1] > CAT_MIN_VAL:
                     break
 
             hvals_prev[name] = (hval, height)
