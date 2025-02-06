@@ -35,7 +35,7 @@ def _log_metadata(view: View):
                     namespace=str(view),
                 ),
             ],
-            tags=TAGS_METRICS_INGEST,
+            tags=TAGS_METRICS_LOG,
         ),
         outputs=[
             D(
