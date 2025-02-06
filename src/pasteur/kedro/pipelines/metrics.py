@@ -12,18 +12,40 @@ from .meta import DatasetMeta as D
 from .meta import PipelineMeta, node
 
 
+def _log_metajson(meta):
+    return {"algorithm": meta.algs, "override": meta.alg_override}
+
+
 def _log_metadata(view: View):
-    return pipeline(
-        [
-            node(
-                func=mlflow_log_artifacts,
-                name=f"log_metadata",
-                inputs={"meta": f"{view}.metadata"},
-                outputs=None,
-                namespace=str(view),
-            )
+    return PipelineMeta(
+        pipeline(
+            [
+                node(
+                    func=mlflow_log_artifacts,
+                    name=f"log_metadata",
+                    inputs={"meta": f"{view}.metadata"},
+                    outputs=None,
+                    namespace=str(view),
+                ),
+                node(
+                    func=_log_metajson,
+                    name=f"log_metajson",
+                    inputs={"meta": f"{view}.metadata"},
+                    outputs=f"{view}.metajson",
+                    namespace=str(view),
+                ),
+            ],
+            tags=TAGS_METRICS_INGEST,
+        ),
+        outputs=[
+            D(
+                "measure",
+                f"{view}.metajson",
+                ["view", view, "metajson"],
+                type="json",
+                versioned=True,
+            ),
         ],
-        tags=TAGS_METRICS_INGEST,
     )
 
 
@@ -53,7 +75,7 @@ def _get_metric_data(view: View, split: str, encodings: list[str] | str):
             out[enc] = {t: f"{view}.{split}.bst_{t}" for t in view.tables}
         else:
             out[enc] = f"{view}.{split}.{enc}"
-    
+
     return next(iter(out.values())) if strip else out
 
 

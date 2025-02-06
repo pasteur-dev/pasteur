@@ -9,6 +9,7 @@ from kedro.framework.hooks import hook_impl
 from kedro.framework.project import pipelines
 from kedro.io import DataCatalog, Version
 from kedro.io.memory_dataset import MemoryDataset
+from kedro_datasets.json import JSONDataset
 
 from ...module import Module
 from ..dataset import AutoDataset, Multiset, PickleDataset
@@ -201,6 +202,20 @@ class PasteurHook:
             ),
         )
 
+    def add_json(self, layer, name, path_seg, versioned=False):
+        self.catalog.add(
+            name,
+            JSONDataset(
+                filepath=path.join(
+                    self.base_location,
+                    *path_seg[:-1],
+                    path_seg[-1] + ".json",
+                ),
+                version=self.get_version(name, versioned),  # type: ignore
+                metadata={"kedro-viz": {"layer": layer}} if layer else None,
+            ),
+        )
+
     def add_mem(self, layer, name):
         self.catalog.add(
             name,
@@ -313,5 +328,7 @@ class PasteurHook:
                     self.add_set(d.layer, d.name, d.str_path, d.versioned, multi=True)
                 case "mem":
                     self.add_mem(d.layer, d.name)
+                case "json":
+                    self.add_json(d.layer, d.name, d.str_path, d.versioned)
                 case _:
                     assert False, "Not implemented"

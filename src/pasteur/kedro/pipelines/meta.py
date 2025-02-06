@@ -12,7 +12,7 @@ class DatasetMeta(NamedTuple):
     name: str
     path: list[Any]  # todo: fix any memory leaks that occur with this
     versioned: bool = False
-    type: Literal["pkl", "pq", "mpq", "mem", "auto", "multi"] = "pq"
+    type: Literal["pkl", "pq", "mpq", "mem", "auto", "multi", "json"] = "pq"
 
     @property
     def str_path(self) -> tuple[str, ...]:
