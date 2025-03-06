@@ -3,7 +3,7 @@ import threading
 from collections import Counter
 from itertools import chain
 from multiprocessing.pool import ThreadPool
-from os import cpu_count
+from os import cpu_count, environ
 
 from kedro.io import DataCatalog, DatasetError
 from kedro.pipeline import Pipeline
@@ -27,7 +27,11 @@ from .common import run_expanded_node
 
 # Add a couple of workers to fill in extra tasks
 # Too many will cause issues with ram...
-DEFAULT_WORKERS = cpu_count() or 1
+try:
+    DEFAULT_WORKERS = int(environ["PASTEUR_WORKERS"])
+except Exception:
+    DEFAULT_WORKERS = cpu_count() or 1
+
 logger = logging.getLogger(__name__)
 
 
