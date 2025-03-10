@@ -210,5 +210,20 @@ class SynthEvalMetric(Metric[None, list[pd.DataFrame]]):
                 split_ref="ref",
             )
 
+        dfs["overall"] = color_dataframe(
+            {
+                k: v.drop(columns=["table", "dim"])
+                .groupby(["base_metric", "metric"])
+                .mean()
+                .reset_index()
+                for k, v in df.items()
+            },
+            idx=["base_metric", "metric"],
+            cols=[],
+            vals=vals,
+            formatters=formatters,
+            split_ref="ref",
+        )
+
         fn = f"syntheval.html"
         mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
