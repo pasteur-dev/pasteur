@@ -1,0 +1,24 @@
+boston.raw@table:
+  type: pasteur.kedro.dataset.FragmentedCSVDataset
+  filepath: ${bootstrap}/HousingData.csv
+  metadata:
+    kedro-viz:
+      layer: raw
+
+  load_args:
+    index_col: false
+    dtype:
+      CRIM: float32
+      ZN: category
+      INDUS: category
+      CHAS: category
+      NOX: float32
+      RM: float32
+      AGE: float32
+      DIS: float32
+      RAD: category
+      TAX: Int16
+      PTRATIO: float32
+      B: float32
+      LSTAT: float32
+      MEDV: float32
