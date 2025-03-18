@@ -38,6 +38,9 @@ class SimpleSequentialRunner(AbstractRunner):
 
     def create_default_data_set(self, ds_name: str) -> AbstractDataset:
         return MemoryDataset()
+    
+    def _get_executor(self):
+        pass
 
     @property
     def _logger(self):
