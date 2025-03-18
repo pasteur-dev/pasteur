@@ -1,0 +1,23 @@
+tables:
+  table:
+    primary_key: id
+
+    fields:
+      CRIM: numerical?
+      ZN: numerical?
+      INDUS: numerical?
+      CHAS: categorical?
+      NOX: numerical
+      RM: numerical
+      AGE: numerical?
+      DIS: numerical
+      RAD: numerical
+      TAX: numerical
+      PTRATIO: numerical
+      B: numerical
+      LSTAT: numerical?
+      MEDV: numerical
+
+ratios:
+  wrk: 0.8
+  ref: 0.2

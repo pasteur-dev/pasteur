@@ -9,14 +9,14 @@ boston.raw@table:
     index_col: false
     dtype:
       CRIM: float32
-      ZN: category
-      INDUS: category
-      CHAS: category
+      ZN: float32
+      INDUS: float32
+      CHAS: float32
       NOX: float32
       RM: float32
       AGE: float32
       DIS: float32
-      RAD: category
+      RAD: float32
       TAX: Int16
       PTRATIO: float32
       B: float32
