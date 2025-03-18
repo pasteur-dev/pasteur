@@ -132,6 +132,7 @@ class PrivBayesSynth(Synth):
         ep: float | None = None,
         e1: float = 0.3,
         e2: float = 0.7,
+        etotal: float | None = None,
         theta: float = 4,
         use_r: bool = True,
         seed: float | None = None,
@@ -144,6 +145,8 @@ class PrivBayesSynth(Synth):
         skip_zero_counts: bool = True,
         **kwargs,
     ) -> None:
+        if etotal is None:
+            etotal = 1
         self.ep = ep
         self.e1 = e1
         self.e2 = e2
