@@ -227,3 +227,8 @@ class SynthEvalMetric(Metric[None, list[pd.DataFrame]]):
 
         fn = f"syntheval.html"
         mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
+        
+        import json
+
+        fn = f"_raw/metrics/distr/syntheval.json"
+        mlflow.log_text(json.dumps({k: v.to_dict() for k, v in df.items()}), fn)
