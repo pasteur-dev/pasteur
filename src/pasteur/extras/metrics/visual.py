@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 A = TypeVar("A")
 
+
 def _percent_formatter(x, pos):
     return f"{100*x:.1f}%"
 
@@ -68,7 +69,7 @@ def _gen_hist(
 
 def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndarray]):
     import matplotlib.pyplot as plt
-    
+
     fig, ax = plt.subplots()
 
     x = np.array(range(len(cols)))
@@ -262,7 +263,13 @@ class OrdinalHist(CategoricalHist):
 
     def fit(self, table: str, col: str, data: pd.Series):
         super().fit(table, col, data)
-        self.cols = pd.Index(np.sort(data.unique()))
+        try:
+            self.cols = pd.Index(np.sort(data.unique()))
+        except Exception as e:
+            logger.error(
+                f"Column '{table}:{col}' has non-sortable values:\n{data.unique()}"
+            )
+            raise e
 
 
 class FixedHist(ColumnMetric[Any, Any]):
@@ -763,6 +770,6 @@ class SeqHist(
             np.arange(self.max_len + 1) - 0.5,
             splits,
         )
-        
+
         if f:
             mlflow_log_hists(self.table, f"_n_per_{self.parent}", f)
