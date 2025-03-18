@@ -147,9 +147,9 @@ class PrivBayesSynth(Synth):
     ) -> None:
         if etotal is None:
             etotal = 1
-        self.ep = ep
-        self.e1 = e1
-        self.e2 = e2
+        self.ep = ep * etotal if ep is not None else None
+        self.e1 = e1 * etotal
+        self.e2 = e2 * etotal
         self.theta = theta
         self.use_r = use_r
         self.seed = seed
