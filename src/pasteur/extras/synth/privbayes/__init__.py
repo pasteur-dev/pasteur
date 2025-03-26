@@ -42,6 +42,7 @@ class PrivBayesMare(MareModel):
         unbounded_dp: bool = False,
         random_init: bool = False,
         skip_zero_counts: bool = True,
+        minimum_cutoff: int | None = 3,
         rake: bool = True,
         **kwargs,
     ) -> None:
@@ -58,6 +59,7 @@ class PrivBayesMare(MareModel):
         self.skip_zero_counts = skip_zero_counts
         self.rake = rake
         self.kwargs = kwargs
+        self.minimum_cutoff = minimum_cutoff
 
     @make_deterministic
     def fit(self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle):
@@ -94,7 +96,11 @@ class PrivBayesMare(MareModel):
             noise = 0
 
         self.marginals = calc_noisy_marginals(
-            oracle, self.nodes, noise, self.skip_zero_counts
+            oracle,
+            self.nodes,
+            noise,
+            self.skip_zero_counts,
+            minimum_cutoff=self.minimum_cutoff,
         )
 
     def sample(
@@ -116,6 +122,7 @@ class PrivBayesMare(MareModel):
             self.e2,
             self.theta,
             self.t,
+            minimum_cutoff=self.minimum_cutoff,
         )
 
 
@@ -143,6 +150,7 @@ class PrivBayesSynth(Synth):
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
         skip_zero_counts: bool = True,
+        minimum_cutoff: int | None = 3,
         **kwargs,
     ) -> None:
         if etotal is None:
@@ -160,6 +168,7 @@ class PrivBayesSynth(Synth):
         self.marginal_min_chunk = marginal_min_chunk
         self.marginal_worker_mult = marginal_worker_mult
         self.skip_zero_counts = skip_zero_counts
+        self.minimum_cutoff = minimum_cutoff
         self.kwargs = kwargs
 
     @make_deterministic
@@ -259,7 +268,11 @@ class PrivBayesSynth(Synth):
             max_worker_mult=self.marginal_worker_mult,
         ) as o:
             self.marginals = calc_noisy_marginals(
-                o, self.nodes, noise, self.skip_zero_counts
+                o,
+                self.nodes,
+                noise,
+                self.skip_zero_counts,
+                minimum_cutoff=self.minimum_cutoff,
             )
 
     @make_deterministic("i")
@@ -289,6 +302,7 @@ class PrivBayesSynth(Synth):
             self.e2,
             self.theta,
             self.t,
+            minimum_cutoff=self.minimum_cutoff
         )
 
 

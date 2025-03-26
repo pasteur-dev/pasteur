@@ -22,7 +22,11 @@ def calc_marginal(
         if isinstance(sel, dict):
             for i, (n, h) in enumerate(reversed(sel.items())):
                 if common == 0 or i == 0:
-                    ops.append((l_mul * mul, data[(table, n, False)][h]))
+                    try:
+                        ops.append((l_mul * mul, data[(table, n, False)][h]))
+                    except Exception as e:
+                        print()
+                        raise e
                 else:
                     ops.append((l_mul * mul, data[(table, n, True)][h]))
                 l_mul *= info.domains[(table, n)][h] - common

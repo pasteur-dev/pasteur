@@ -304,7 +304,7 @@ def greedy_bayes(
     score_cache = {}
 
     def calc_candidate_scores(
-        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]
+        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]],
     ):
         """Calculates the mutual information approximation score for each candidate
         marginal based on `calc_fun`"""
@@ -346,7 +346,7 @@ def greedy_bayes(
         return scores
 
     def pick_candidate(
-        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]]
+        candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]],
     ) -> tuple[str, MarginalRequest]:
         """Selects a candidate based on the exponential mechanism by calculating
         all of their scores first."""
@@ -399,7 +399,7 @@ def greedy_bayes(
             ):
                 has_deps = False
                 break
-    
+
     if has_deps:
         x1 = -1
     elif random_init:
@@ -613,11 +613,12 @@ def print_tree(
     e2: float,
     theta: float,
     t: float,
+    minimum_cutoff: int | None = None,
 ):
     s = f"Bayesian Network Tree:\n"
     e1 = e1 or -1
     e2 = e2 or -1
-    s += f"(PrivBayes e1={e1:.5f}, e2={e2:.5f}, theta={theta:.2f}, available t={t:.2f})"
+    s += f"(PrivBayes e1={e1:.5f}, e2={e2:.5f}, theta={theta:.2f}, available t={t:.2f}, cutoff: {minimum_cutoff if minimum_cutoff else 'NA'})"
 
     pset_len = 57
 
@@ -733,6 +734,7 @@ def calc_noisy_marginals(
     nodes: Nodes,
     noise_scale: float,
     skip_zero_counts: bool,
+    minimum_cutoff: int | None = None,
 ):
     """Calculates the marginals and adds laplacian noise with scale `noise_scale`."""
     requests = []
@@ -749,6 +751,10 @@ def calc_noisy_marginals(
 
     noised_marginals = []
     for (x_attr, x, p, _, _), marginal in zip(nodes, marginals):
+        if minimum_cutoff is not None:
+            # Certain regulation requires we have a cutoff for rare counts
+            marginal[marginal <= minimum_cutoff] = 0
+
         noise = cast(
             np.ndarray, np.random.laplace(scale=noise_scale, size=marginal.shape)
         )
