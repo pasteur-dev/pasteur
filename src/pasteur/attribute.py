@@ -264,6 +264,10 @@ class Grouping(list["Grouping | str"]):
     ):
         max_height = self.get_height(common)
         lvl = max_height - 1 - height
+
+        if max_height == 0:
+            return [], 0
+
         assert (
             lvl >= 0
         ), f"Max height for group is {max_height} and zero-based (e.g., {max_height} - 1 = {max_height - 1}), received {height}."
