@@ -348,6 +348,10 @@ def sample_model(
                     .reset_index(names=PARENT_KEY)
                     .rename(columns=rev_maps)
                 )
+
+                if not len(df):
+                    continue
+
                 sers = [
                     df[PARENT_KEY],
                     pd.Series(unroll, index=df.index, name=tmeta.unroll),
@@ -356,12 +360,10 @@ def sample_model(
                     sers.append(
                         df[col].astype(
                             get_dtype(
-                                int(np.nanmax(df[col])) + ofs + 1
-                                if len(df)
-                                else ofs + 1
+                                int(np.nanmax(df[col])) + ofs
                             )
                         )
-                        + ofs
+                        + ofs - 1
                     )
                 ctx_dfs.append(pd.concat(sers, axis=1))
             ctx_rerolled = pd.concat(ctx_dfs, axis=0, ignore_index=True)
