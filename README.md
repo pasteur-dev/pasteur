@@ -13,166 +13,97 @@
 [![Code style is Black](https://img.shields.io/badge/code%20style-black-black.svg)](https://github.com/psf/black)
 <!-- [![]()]() -->
 
-Pasteur is a library for managing the end-to-end process of data synthesis.
-Gather your raw data and preprocess, synthesize, and evaluate it within a single
-project.
-Use the tools you're familiar with: numpy, pandas, scikit-learn, scipy or any other.
-When your dataset grows, scale to out-of-core data by using Pasteur's parallelization 
-and partitioning primitives, without code changes or using different libraries.
+Pasteur is a library for managing the end-to-end process of structured data synthesis.
+It features the algorithms MARE, PrivBayes, AIM, or MST to produce synthetic data
+and contains a variety of evaluation metrics and transformation tools for data.
+In addition, a collection of premade datasets is included, focusing on MIMIC-IV.
 
-Pasteur focuses on providing a common platform for the processing, evaluation and 
-sharing of synthetic data.
-In the current version, Pasteur can ingest and encode arbitrary multi-table
-hierarchical/sequential datasets with a mixture of numerical, categorical, and date values
-into a common format for synthesis, through a flexible metadata and encoding system.
-Post synthesis, Pasteur can evaluate the resulting data through a multi-table
-native, extensible evaluation architecture (with built-in support for basic metrics
-such as histograms) and allows for comparison to "ideal" synthetic data, through the
-use of a hold-out reference set, which it also creates and manages.
- 
-Pasteur features built-in support for synthesizing data using PrivBayes, AIM, or MST
-(due to the lack of viable multi-table synthesis algorithms).
-If not, or if a custom algorithm should be used, it is trivial to add support for
-it to Pasteur, by implementing the `Synth` interface.
+# Example Usage
 
->
-> Pasteur is currently an early research alpha. It is architected to allow multi-modal
-> data synthesis (e.g., the combination of hierarchical data with sounds and images)
-> and will soon feature a novel synthesis method for hierarchical/event-based data.
->
-
-## Usage
-You can install Pasteur with pip.
+## Preparing the work area
+On the same directory, clone the following repositories:
 ```bash
-pip install pasteur
+git clone https://github.com/pasteur-dev/pasteur
+# For privacy metrics, fork with a small change to allow calling the library
+git clone https://github.com/antheas/syntheval
 ```
 
-Following, you can create a Pasteur project with:
+Then, install the dependencies in the same virtual environment:
 ```bash
-pasteur new --starter=pasteur
-```
-
-The `pasteur` command is aliased to `kedro`, so you can use them interchangeably.
-Within your new project, you can now begin working with Pasteur.
-Create a virtual environment to install the project's dependencies.
-```bash
-# Create a Virtual environment
-cd <myproject>
-python3.10 -m venv venv # Python 3.10+ required.
+# In the pasteur folder
+cd pasteur
+python3 -m venv venv
 source venv/bin/activate
-# Freeze your dependencies to allow reproducible installs between colleagues
-# and install the default project dependencies.
-pip install pip-tools
-pip-compile --resolver=backtracking
-pip install -r requirements.txt
+pip install -e .
+pip install -e ../syntheval
+
+# todo: include in the requirements
+pip install tabulate
 ```
-You can now download and synthesize datasets!
+
+You can now place your data in the `raw/` folder of the pasteur directory.
+
+### Testing the Adult Dataset
+Adult is a tabular dataset that can be used to test synthesis works.
+
 ```bash
-# Download adult and perform 1-time actions (bootstrap; unzipping adult.zip)
+# Download and unzip
 pasteur download --accept adult
 pasteur bootstrap adult
-# Ingest the dataset, then the view that's derived from it and finally run
-# synthesis using privbayes
+
+# Ingest the datasets and views created from those
 pasteur ingest_dataset adult
 pasteur ingest_view tab_adult
-pasteur pipe tab_adult.privbayes
+
+# Run synthesis executions
+## Normal hyperparameters
+pasteur p tab_adult.privbayes
+
+## Normal hyperparameters + run ingest_view, ingest_dataset
+pasteur p tab_adult.privbayes --all
+
+## Sweep (privacy budgets 1,2,5,10,100)
+pasteur s tab_adult.privbayes -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg.theta="[5,5,10,10,25][i]"
 ```
 
-Access Kedro viz and mlflow to preview runs and quality reports:
+### Testing the MIMIC-IV Datasets
+MIMIC-IV is a large dataset we can partition in a variety of ways to create
+synthetic datasets. You need physionet credentials to download the data.
+
 ```bash
-kedro viz
-mlflow ui --backend-store-uri data/reporting/flow/ 
-```
+# Download (you will be prompted for your credentials)
+# takes a while to download
+pasteur download --accept mimic_iv
+# Data is not zipped, no bootstrap needed
 
-### Using Jupyter
-Use jupyter to iterate on new prototypes.
+# Ingest the MIMIC-IV tables
+# Requires a lot of memory per worker. For 64GB of RAM, 5 workers are ok
+# Takes ~45min for 5 workers
+pasteur ingest_dataset mimic -w 5
 
-First, to eliminate path issues depending from where you launch jupyter,
-fill in `conf/local/globals.yml with absolute paths for your raw and data directories:
-```
-raw_location: <project_dir>/raw
-base_location: <project_dir>/data
-```
+# Below are the commands that run the experiments shown in the MARE paper
+# With MIMIC-IV.
 
-Then, create a notebook in the `./notebooks` directory and open it with jupyter
-or VS Code.
+#
+# MIMIC Core
+#
 
-The first cell of your notebook should contain a variation of the following:
-```python
-# Star notation allows importing type hints for kedro variables (catalog, pipeline, etc)
-# along with the register_kedro function.
-from pasteur.kedro.ipython import *
+pasteur ingest_view mimic_core
 
-# Import data analysis libraries
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+# This is a privacy budget sweep. We also change the PrivBayes theta param
+# to accoutn for the larger privacy budget.
+pasteur s mimic_core.mare -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg.theta="[5,5,10,10,25][i]" -p
+# This is the ablation study from the MARE paper. It turns on/off components
+# of the algorithm to see how they affect the results.
+pasteur s mimic_core.mare -i noh='range(4)' alg.etotal="2" alg.theta='5' alg.no_hist='noh == 0 or noh == 2' alg.no_seq='noh == 0 or noh == 1' -p
 
-# Add autoreload to allow iterating on your modules
-%load_ext autoreload
-%autoreload 2
+#
+# MIMIC-ICU
+#
+pasteur iv mimic_icu 
 
-# Register your project as a `kedro` project to access the catalog
-register_kedro()
-```
+# Same setup as above.
+pasteur s mimic_icu.mare -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg.theta="[5,5,10,10,25][i]" -p
+pasteur s mimic_icu.mare -i noh='range(4)' alg.etotal="2" alg.theta='5' alg.no_hist='noh == 0 or noh == 2' alg.no_seq='noh == 0 or noh == 1' -p
 
-From then on, you may access the `kedro` catalog and experiment with variables.
-```python
-# Access lazy dataframes and load them by calling them
-raw_train = catalog.load('adult.raw@train')()
-wrk = catalog.load('tab_adult.wrk.table')()
-enc = catalog.load('tab_adult.wrk.idx')['table']()
-print(enc.head())
-
-# Access pasteur modules like transformers, encoders, and synth models after synthesis to debug their attributes
-print(catalog.load('tab_adult.trn.table').get_attributes())
-print(catalog.load('tab_adult.privbayes.model'))
-
-# Unsure of whether one of your modules works?
-# Import it and test it in the notebook by pulling intermediary artifacts from the catalog
-# Here, we build the transformer for the `workclass` column and apply it to it
-# to see if the transformation works and is reversible
-from pasteur.extras.transformers import IdxTransformer
-
-data = wrk['workclass']
-t = IdxTransformer.get_factory().build()
-t.fit(data)
-
-workclass_trn = t.transform(data)
-workclass_rev = t.reverse(workclass_trn)
-workclass_comp = pd.concat([data, workclass_trn, workclass_rev], axis=1)
-print(workclass_comp)
-```
-
-
-## Contributing
-To contribute, clone this repository and install the frozen requirements.
-```bash
-git clone github.com/pasteur-dev/pasteur pasteur
-
-cd pasteur
-python3.10 -m venv venv # Python 3.10+ required.
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-The requirements file installs Pasteur from this repository in an editable
-state, so you can begin modifying files.
-The requirements file can be regenerated with the following commands, which
-will pull the latest version of packages.
-To ensure interoperability with other packages, Pasteur does not specify narrow
-ranges for supported package versions, which might cause issues for certain version
-combinations.
-```bash
-rm requirements.txt
-pip-compile --resolver=backtracking
-```
-
-This repository is a Pasteur project used for testing. 
-You can start testing Pasteur by running commands.
-```bash
-pasteur download --accept adult
-pasteur ingest_dataset adult
-pasteur ingest_view tab_adult
-pasteur pipe tab_adult.privbayes
 ```
