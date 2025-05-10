@@ -106,4 +106,6 @@ pasteur iv mimic_icu
 pasteur s mimic_icu.mare -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg.theta="[5,5,10,10,25][i]" -p
 pasteur s mimic_icu.mare -i noh='range(4)' alg.etotal="2" alg.theta='5' alg.no_hist='noh == 0 or noh == 2' alg.no_seq='noh == 0 or noh == 1' -p
 
+# You can view the resulting experiments with:
+mlflow ui --backend-store-uri data/reporting/flow
 ```
