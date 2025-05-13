@@ -189,6 +189,12 @@ class MareSynth(Synth):
                         f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sensitivities[ver]}, adjusted to e_adj = {adj_budget:.5f}"
                     )
                     kwargs["etotal"] = adj_budget
+                if sensitivities:
+                    prev = kwargs["minimum_cutoff"] if "minimum_cutoff" in kwargs else 3
+                    if prev:
+                        kwargs["minimum_cutoff"] = prev * sensitivities[ver]
+                        logger.info(f"Adjusting minimum cutoff from {prev} to {kwargs['minimum_cutoff']} due to sensitivity {sensitivities[ver]}.")
+
                 model = self.model_cls(**kwargs)
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model

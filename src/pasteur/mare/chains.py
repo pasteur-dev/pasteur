@@ -198,7 +198,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
                     partition = next(iter(attr.vals))
 
             if attr.unroll:
-                if len(attr.vals) > 1:
+                if len(attr.vals) > 1 or attr.common:
                     assert attr.common
                     unroll = attr.common.name
                 else:
