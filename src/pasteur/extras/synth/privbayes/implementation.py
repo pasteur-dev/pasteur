@@ -464,9 +464,9 @@ def greedy_bayes(
     first = True
     for _ in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
-        if d > 30:
+        if d > 50:
             if first:
-                logger.error("Too many columns, disabling parent correlations.")
+                logger.error(f"Too many columns ({d}), disabling parent correlations.")
                 first = False
 
             info = [(x, []) for x in todo]
