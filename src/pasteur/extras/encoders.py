@@ -42,7 +42,9 @@ class DiscretizationColumnTransformer:
             group = Grouping("cat", [None, group])
             null = [True, *[False for _ in range(len(b) - 1)]]
 
-        self.val = StratifiedNumValue(self.col, self.col_cnt, group, null)
+        self.val = StratifiedNumValue(
+            self.col, self.col_cnt, group, null, ignore_nan=val.ignore_nan
+        )
         self.nullable = val.nullable
         return self.val
 

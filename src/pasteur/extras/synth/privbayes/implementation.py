@@ -792,6 +792,12 @@ def sample_rows(
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
             m = marginal.reshape(-1)
+
+            if attrs[None][x_attr][x].ignore_nan:
+                m = m.copy()
+                m[0] = 0
+                m /= np.sum(m)
+
             try:
                 out_col = np.random.choice(domain, size=n, p=m)
             except ValueError as e:

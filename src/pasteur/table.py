@@ -925,7 +925,7 @@ def _calculate_seq(data: pd.Series, ids: pd.DataFrame, parent: str, col_seq: str
             pd.Series,
             pd.concat({parent: ids[parent], _ID_SEQ: data}, axis=1)
             .groupby(parent)[_ID_SEQ]
-            .rank("first"),
+            .rank("first", na_option="top"),
         )
         - 1
     )
@@ -1391,14 +1391,14 @@ class SeqTransformerWrapper(SeqTransformer):
             if not len(data_df):
                 break
             ref_df = (
-                ids[[parent]]
-                .loc[data_df.index]
-                .join(
-                    ids[[parent]].join(out[-1], how="right").set_index(parent),
-                    on=parent,
+                ids.loc[data_df.index]
+                .merge(
+                    (ids[[parent]].join(out[-1], how="left").groupby(parent).first()),
+                    left_on=parent,
+                    right_index=True,
                     how="left",
                 )
-                .drop(columns=parent)
+                .drop(columns=ids.columns)
             )
             if ref_df.shape[1] == 1:
                 ref_df = ref_df[next(iter(ref_df))]

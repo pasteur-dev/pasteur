@@ -283,7 +283,11 @@ class DateTransformer(RefTransformer):
         ]
 
         if self.nullable:
-            common = CommonValue(f"{col}_common", True)
+            common = CommonValue(
+                f"{col}_common",
+                True,
+                ignore_nan=self.ignore_nan,
+            )
         else:
             common = None
 

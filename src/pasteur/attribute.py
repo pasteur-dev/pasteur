@@ -530,7 +530,7 @@ class StratifiedValue(CatValue):
         self.name = name
         self.head = head
         self.common = common
-        self.ignore_nan = ignore_nan,
+        self.ignore_nan = ignore_nan
 
     def __str__(self) -> str:
         return "Idx" + str(self.head)
@@ -704,6 +704,7 @@ class StratifiedNumValue(StratifiedValue):
         head: Grouping,
         null: None | Sequence[bool] = None,
         common: Grouping | None = None,
+        ignore_nan: bool = False,
     ) -> None:
         self.name_cnt = name_cnt
         if null:
@@ -712,7 +713,7 @@ class StratifiedNumValue(StratifiedValue):
         else:
             self.null = [False for _ in range(head.get_domain(0))]
 
-        super().__init__(name, head, common)
+        super().__init__(name, head, common, ignore_nan=ignore_nan)
 
     def __str__(self) -> str:
         return "NumIdx" + str(self.head)
@@ -743,7 +744,11 @@ def _groups_match(main: Grouping, other: Grouping):
 
 
 def CommonValue(
-    name: str, na: bool = False, ukn_val: Any | None = None, normal_name: str = "Normal"
+    name: str,
+    na: bool = False,
+    ukn_val: Any | None = None,
+    normal_name: str = "Normal",
+    ignore_nan: bool = False,
 ):
     vals = []
     if na:
@@ -752,7 +757,7 @@ def CommonValue(
         vals.append(ukn_val)
     vals.append(normal_name)
 
-    return StratifiedValue(name, Grouping("cat", vals))
+    return StratifiedValue(name, Grouping("cat", vals), ignore_nan=ignore_nan)
 
 
 class Attribute:
