@@ -579,6 +579,10 @@ def calculate_model_versions(
             new_vers = merge_versions_heuristic(
                 vers, max_vers, preproc_fn, merge_fn, score_fn
             )
+
+            if not new_vers:
+                new_vers = vers
+
             for ver in new_vers:
                 new_attrs = generate_fit_attrs(ver, attrs, True, no_hist=no_hist)
                 assert new_attrs is not None
