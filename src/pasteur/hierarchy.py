@@ -388,6 +388,7 @@ class RebalancedValue(CatValue):
         self.original = col
 
         self.name = col.name
+        self.ignore_nan = col.ignore_nan
         self.counts = counts
         self.common = col.common
         self.grouping, self.common_sizes, self.common_groups = make_grouping(

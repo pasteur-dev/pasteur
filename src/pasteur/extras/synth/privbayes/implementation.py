@@ -913,25 +913,33 @@ def sample_rows(
                 m_g = m[parent_group, :]  # m[:, group]
 
                 # If we have sampled the common value, mask the marginal to allow only common values
+                cv = cast(CatValue, tattrs[x_attr][x])
                 if partial and cmn:
-                    cv = cast(CatValue, tattrs[x_attr][x])
                     m_g = m_g * (cv.get_mapping(cv.height - 1) == common_group)
+                # Block generating nan, which is the first value
+                if cv.ignore_nan:
+                    m_g[0] = 0
 
                 # FIXME: find sampling strategy for this
                 m_sum = m_g.sum()
                 if m_sum < 1e-6:
                     # If the sum of the group is zero, there are no samples
                     # Use the average probability of the variable
+                    m_sum = marginal.sum()
                     m_avg = (
-                        marginal.sum(axis=0) / marginal.sum()
+                        marginal.sum(axis=0) / m_sum
                     )  # marginal.sum(axis=1) / marginal.sum()
                     m_g = m_avg
                 else:
                     # Otherwise normalize
                     m_g = m_g / m_sum
 
-                size = np.count_nonzero(groups == group)
-                out_col[groups == group] = np.random.choice(x_domain, size=size, p=m_g)
+                if m_sum < 1e-6:
+                    # If we are completely at 0, just 0 output
+                    out_col[groups == group] = 0
+                else:
+                    size = np.count_nonzero(groups == group)
+                    out_col[groups == group] = np.random.choice(x_domain, size=size, p=m_g)
 
         # Output column
         out_cols[x] = out_col

@@ -1,7 +1,7 @@
-"""This module implements the base abstractions of Attribute and Value, 
+"""This module implements the base abstractions of Attribute and Value,
 which are used to encapsulate the information of complex types.
 
-Values are separated into CatValues (Categorical; defined by an index) and 
+Values are separated into CatValues (Categorical; defined by an index) and
 NumValues (Numerical). In addition, we define StratifiedValue as a special
 CatValue that holds a Stratification.
 
@@ -80,10 +80,12 @@ class Grouping(list["Grouping | str"]):
             assert len(self) == len(common)
             return (
                 max(
-                    g.get_height(c if isinstance(c, Grouping) else None)
-                    - (1 if isinstance(c, Grouping) else 0)
-                    if isinstance(g, Grouping)
-                    else 0
+                    (
+                        g.get_height(c if isinstance(c, Grouping) else None)
+                        - (1 if isinstance(c, Grouping) else 0)
+                        if isinstance(g, Grouping)
+                        else 0
+                    )
                     for g, c in zip(self, common)
                 )
                 + 1
@@ -407,6 +409,8 @@ class CatValue(Value):
     The implementation of this class remains abstract, and is expanded in
     the StratifiedValue class."""
 
+    ignore_nan: bool
+
     def get_domain(self, height: int = 0) -> int:
         """Returns the domain of the attribute in the given height."""
         raise NotImplementedError()
@@ -517,11 +521,16 @@ class StratifiedValue(CatValue):
     By traversing the tree in DFS, each leaf is mapped to an integer."""
 
     def __init__(
-        self, name: str, head: Grouping, common: Grouping | None = None
+        self,
+        name: str,
+        head: Grouping,
+        common: Grouping | None = None,
+        ignore_nan: bool = False,
     ) -> None:
         self.name = name
         self.head = head
         self.common = common
+        self.ignore_nan = ignore_nan,
 
     def __str__(self) -> str:
         return "Idx" + str(self.head)
@@ -630,7 +639,11 @@ def _create_strat_value_cat(
 
 
 def _create_strat_value_ord(
-    name: str, vals, na: bool = False, ukn_val: Any | None = None
+    name: str,
+    vals,
+    na: bool = False,
+    ukn_val: Any | None = None,
+    ignore_nan: bool = False,
 ):
     g = Grouping("ord", vals)
 
@@ -644,7 +657,7 @@ def _create_strat_value_ord(
 
         g = Grouping("cat", arr)
 
-    return StratifiedValue(name, g)
+    return StratifiedValue(name, g, ignore_nan=ignore_nan)
 
 
 OrdValue = _create_strat_value_ord
@@ -660,6 +673,7 @@ class NumValue(Value):
         nullable: bool = False,
         min: int | float | None = None,
         max: int | float | None = None,
+        ignore_nan: bool = False,
     ) -> None:
         self.name = name
 
@@ -671,6 +685,7 @@ class NumValue(Value):
             ), f"Please provide 'min' and 'max' when 'bins' is an int."
             self.bins = np.linspace(min, max, bins + 1)
         self.nullable = nullable
+        self.ignore_nan = ignore_nan
 
     def __str__(self) -> str:
         return f"Num[{', '.join([f'{f:.2f}' for f in self.bins])}]"

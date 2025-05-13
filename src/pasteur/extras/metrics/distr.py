@@ -468,6 +468,10 @@ def _visualise_2way(
     outs += "\n"
     logger.info(outs)
 
+    for v in results.values():
+        if v.empty:
+            return res
+    
     base = color_dataframe(
         results,
         idx=["col_j"],

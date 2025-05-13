@@ -1,4 +1,4 @@
-""" Contains the logic for handling multiple tables, and holding transformers and
+"""Contains the logic for handling multiple tables, and holding transformers and
 encoders.
 
 The functionality is achieved through a class named `ReferenceManager`, which
@@ -975,8 +975,8 @@ class SeqTransformerWrapper(SeqTransformer):
         if seq is not None:
             seq_kwargs = seq.copy()
             seq_type = seq_kwargs.pop("type")
-            if seq_kwargs.get("nullable", False) and not first_seq_ref_itself:
-                logger.warn(
+            if not seq_kwargs.get("nullable", False) and not first_seq_ref_itself:
+                logger.warning(
                     f"Setting `nullable` to true for ref transformer `{seq_type}`, since reference for first seq will always be None. Set `first_seq_ref_itself` to True, to avoid introducing null values."
                 )
                 seq_kwargs["nullable"] = True
@@ -1319,9 +1319,15 @@ class SeqTransformerWrapper(SeqTransformer):
             if i > 0:
                 ref_df = (
                     ids.loc[data_df.index]
-                    .join(
-                        ids[[parent]].join(out[-1], how="right").set_index(parent),
-                        on=parent,
+                    .merge(
+                        (
+                            ids[[parent]]
+                            .join(out[-1], how="left")
+                            .groupby(parent)
+                            .first()
+                        ),
+                        left_on=parent,
+                        right_index=True,
                         how="left",
                     )
                     .drop(columns=ids.columns)

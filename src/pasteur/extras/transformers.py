@@ -166,7 +166,9 @@ class IdxTransformer(Transformer):
         if self.nullable:
             out_col = out_col.fillna(0)
         else:
-            assert not np.any(data.isna()), f"Not nullable '{self.col}' has nullable values"
+            assert not np.any(
+                data.isna()
+            ), f"Not nullable '{self.col}' has nullable values"
 
         if self.unknown_value is not None:
             out_col = out_col.where(
@@ -226,7 +228,13 @@ class DateTransformer(RefTransformer):
     stateful = True
 
     def __init__(
-        self, span: str = "year", nullable: bool = False, bins=64, max_len=63, **_
+        self,
+        span: str = "year",
+        nullable: bool = False,
+        bins=64,
+        max_len=63,
+        ignore_nan=False,
+        **_,
     ):
         self.weeks53 = span == "year53"
         if self.weeks53:
@@ -239,6 +247,7 @@ class DateTransformer(RefTransformer):
         self.nullable = nullable
         self.bins = bins
         self.max_len = max_len
+        self.ignore_nan = ignore_nan
         self.ref = None
 
     def fit(
@@ -246,11 +255,10 @@ class DateTransformer(RefTransformer):
         data: pd.Series,
         ref: pd.Series | None = None,
     ):
-        if ref is None:
-            if self.ref is None:
-                self.ref = data.min()
-            else:
-                self.ref = min(data.min(), self.ref)
+        if self.ref is None:
+            self.ref = data.min()
+        else:
+            self.ref = min(data.min(), self.ref)
         self.col = cast(str, data.name)
         self._finalize_props()
 
@@ -285,14 +293,25 @@ class DateTransformer(RefTransformer):
                     col,
                     [
                         NumValue(
-                            f"{col}_year", self.bins, self.nullable, 0, self.max_len
+                            f"{col}_year",
+                            self.bins,
+                            self.nullable,
+                            0,
+                            self.max_len,
+                            ignore_nan=self.ignore_nan,
                         ),
                         OrdValue(
                             f"{col}_week",
                             range(53 if self.weeks53 else 52),
                             na=self.nullable,
+                            ignore_nan=self.ignore_nan,
                         ),
-                        OrdValue(f"{col}_day", days, na=self.nullable),
+                        OrdValue(
+                            f"{col}_day",
+                            days,
+                            na=self.nullable,
+                            ignore_nan=self.ignore_nan,
+                        ),
                     ],
                     common,
                 )
@@ -301,9 +320,19 @@ class DateTransformer(RefTransformer):
                     col,
                     [
                         NumValue(
-                            f"{col}_week", self.bins, self.nullable, 0, self.max_len
+                            f"{col}_week",
+                            self.bins,
+                            self.nullable,
+                            0,
+                            self.max_len,
+                            ignore_nan=self.ignore_nan,
                         ),
-                        OrdValue(f"{col}_day", days, na=self.nullable),
+                        OrdValue(
+                            f"{col}_day",
+                            days,
+                            na=self.nullable,
+                            ignore_nan=self.ignore_nan,
+                        ),
                     ],
                     common,
                 )
@@ -312,7 +341,7 @@ class DateTransformer(RefTransformer):
                     col,
                     [
                         NumValue(
-                            f"{col}_day", self.bins, self.nullable, 0, self.max_len
+                            f"{col}_day", self.bins, self.nullable, 0, self.max_len, ignore_nan=self.ignore_nan
                         ),
                     ],
                 )
@@ -355,7 +384,7 @@ class DateTransformer(RefTransformer):
                 pd.isna(vals)
             ), f"NA values detected in non-NA field: {self.col}"
 
-        rf = self.ref if self.ref else ref
+        rf = ref.fillna(self.ref) if ref is not None else self.ref
         assert rf is not None
         # When using a ref column accessing the date parameters is done by the dt member.
         # When self referencing to the minimum value, its type is a Timestamp
@@ -434,7 +463,7 @@ class DateTransformer(RefTransformer):
             ofs = 0
             assert not np.any(pd.isna(vals[fcol])), "NAN values found on nonNAN col"
 
-        rf = self.ref if self.ref is not None else ref
+        rf = ref.fillna(self.ref) if ref is not None else self.ref
         assert rf is not None
         # When using a ref column accessing the date parameters is done by the dt member.
         # When self referencing to the minimum value, its type is a Timestamp
