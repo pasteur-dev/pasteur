@@ -490,7 +490,7 @@ def generate_fit_tables(
     if unroll:
         if ctx:
             assert ver.unrolls
-            _, cmn, cols, ofs = recurse_unroll_attr(ver.unrolls, attrs["medicine"])
+            _, cmn, cols, ofs = recurse_unroll_attr(ver.unrolls, attrs[ver.name])
 
             fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
 

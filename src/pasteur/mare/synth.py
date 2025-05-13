@@ -319,10 +319,18 @@ def sample_model(
             p = p.table
         pname = p.name
 
-        pids = ids[(pname, False)].reset_index()
+        og_ids = ids[(pname, False)].reset_index()
         for sel in hist:
             name = sel[0] if isinstance(sel, tuple) else sel
-            pids = pids[pids[name].isin(hist[sel].index)]
+            og_ids = og_ids[og_ids[name].isin(hist[sel].index)]
+
+        gen_first = tmeta.seq_repeat and meta[pname].sequence
+        if gen_first:
+            logger.info("Generating only first part of series")
+            pids = og_ids[hist[pname][meta[pname].sequence] == 0]
+        else:
+            pids = og_ids
+
         for sel in list(hist):
             name = sel[0] if isinstance(sel, tuple) else sel
             hist[name] = (
@@ -331,7 +339,20 @@ def sample_model(
         idx = pids.index
 
         table = model.sample(idx, hist)
-        return pids, table
+
+        if gen_first:
+            PARENT_KEY = "_key_jhudfghkj"
+            pp = p.parents[0]
+            if isinstance(pp, TablePartition):
+                pp = pp.table
+            ppname = pp.name
+            midx = (
+                og_ids[[ppname]]
+                .merge(pids.reset_index(names=PARENT_KEY), on=ppname)[[PARENT_KEY]]
+            )
+            table = midx.merge(table, left_on=PARENT_KEY, right_index=True)
+
+        return og_ids, table
     else:
         PARENT_KEY = "_key_jhuiojkj"
         pids = ids[(ver.ver.name, True)]

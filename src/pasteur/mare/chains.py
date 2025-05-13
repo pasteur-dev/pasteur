@@ -38,6 +38,7 @@ class TableMeta(NamedTuple):
     along: tuple[str, ...] | None
     parent: str | None
     max_len: int | None
+    seq_repeat: bool
 
 
 def get_parents(
@@ -179,6 +180,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
         unroll = None
         parent = None
         along = None
+        seq_repeat = False
 
         for attr in attrs[name].values():
             for v in attr.vals.values():
@@ -207,6 +209,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
 
                 along = []
                 along.extend(attr.vals)
+                seq_repeat = attr.seq_repeat
 
                 for n in attr.along:
                     along.extend(attrs[name][n].vals)
@@ -214,7 +217,7 @@ def calculate_stripped_meta(attrs: dict[str, Attributes]) -> dict[str, TableMeta
         if along is not None:
             along = tuple(along)
         out[name] = TableMeta(
-            sequence, order, partition, unroll, along, parent, max_len
+            sequence, order, partition, unroll, along, parent, max_len, seq_repeat
         )
     return out
 

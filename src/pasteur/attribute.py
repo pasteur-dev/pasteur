@@ -751,6 +751,7 @@ class Attribute:
         unroll: bool = False,
         along: tuple[str | tuple[str, ...], ...] = tuple(),
         partition: bool = False,
+        seq_repeat: bool = True,
     ) -> None:
         self.name = name
         self.common = common
@@ -758,6 +759,7 @@ class Attribute:
         self.along = along
         self.partition = partition
         self.vals = {k.name: k for k in vals}
+        self.seq_repeat = seq_repeat
 
         self.domain_lru = {}
         self.mapping_lru = {}
