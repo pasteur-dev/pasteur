@@ -151,7 +151,7 @@ def _recurse_unroll_groups(
                         out[cmn_ofs][name] = (
                             ofs[name],
                             StratifiedValue(
-                                f"u{cmn_ofs:03d}_{name}", Grouping("cat", [None, g[i]])
+                                f"{name}.o{cmn_ofs:03d}", Grouping("cat", [None, g[i]])
                             ),
                         )
 
@@ -226,7 +226,7 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
             else:
                 ofs[cmn_ofs][name] = t
 
-        cmn_name = f"u{cmn_ofs:03d}_cmn"
+        cmn_name = f"{'.'.join(base_name)}.o{cmn_ofs:03d}"
         cmn[cmn_ofs] = cmn_name
         if new_vals:
             new_attrs[new_name] = Attribute(

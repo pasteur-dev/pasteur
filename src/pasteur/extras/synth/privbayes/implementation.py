@@ -672,7 +672,7 @@ def print_tree(
                 tattrs = cast(Attributes, attrs[None])
 
             if isinstance(p_name, tuple):
-                p_str += "_".join(map(str, p_name)) + "["
+                p_str += ".".join(map(str, p_name)) + "["
             else:
                 p_str += f"{p_name}["
             if isinstance(attr_sel, dict):
