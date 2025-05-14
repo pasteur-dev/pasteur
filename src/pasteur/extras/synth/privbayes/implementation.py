@@ -671,7 +671,10 @@ def print_tree(
             else:
                 tattrs = cast(Attributes, attrs[None])
 
-            p_str += f"{p_name}["
+            if isinstance(p_name, tuple):
+                p_str += "_".join(map(str, p_name)) + "["
+            else:
+                p_str += f"{p_name}["
             if isinstance(attr_sel, dict):
                 for col in tattrs[p_name].vals:
                     if col in attr_sel:
@@ -945,7 +948,9 @@ def sample_rows(
                     out_col[groups == group] = 0
                 else:
                     size = np.count_nonzero(groups == group)
-                    out_col[groups == group] = np.random.choice(x_domain, size=size, p=m_g)
+                    out_col[groups == group] = np.random.choice(
+                        x_domain, size=size, p=m_g
+                    )
 
         # Output column
         out_cols[x] = out_col
