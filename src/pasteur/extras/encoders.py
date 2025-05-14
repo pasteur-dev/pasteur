@@ -147,6 +147,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             unroll=attr.unroll,
             along=attr.along,
             partition=attr.partition,
+            seq_repeat=attr.seq_repeat
         )
 
     def get_metadata(self) -> dict[str | tuple[str, ...], Attribute]:

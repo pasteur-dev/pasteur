@@ -771,7 +771,7 @@ class Attribute:
         unroll: bool = False,
         along: tuple[str | tuple[str, ...], ...] = tuple(),
         partition: bool = False,
-        seq_repeat: bool = True,
+        seq_repeat: bool = False,
     ) -> None:
         self.name = name
         self.common = common
