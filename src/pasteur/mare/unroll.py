@@ -486,12 +486,20 @@ def generate_fit_tables(
     sequence = meta[ver.name].sequence
     order = meta[ver.name].order
     max_len = meta[ver.name].max_len
+    seq_repeat = meta[ver.name].seq_repeat
 
     if unroll:
         if ctx:
             assert ver.unrolls
             _, cmn, cols, ofs = recurse_unroll_attr(ver.unrolls, attrs[ver.name])
 
+            if seq_repeat and ver.parents:
+                # Don't sample multiple rows from parent
+                parent = ver.parents[0]
+                if hasattr(parent, "table"):
+                    parent = getattr(parent, "table")
+                parent = getattr(parent, "name")
+                fids = fids.drop_duplicates([c for c in fids.columns if c != parent])
             fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
 
             udfs = []

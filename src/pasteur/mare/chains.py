@@ -23,6 +23,7 @@ class TableVersion(NamedTuple):
     partitions: tuple[int, ...] | None
     unrolls: tuple[int, ...] | None
     parents: tuple["TableVersion | TablePartition", ...]
+    seq_repeat: bool
 
 
 class TablePartition(NamedTuple):
@@ -261,6 +262,7 @@ def _calculate_chains_of_table(
     partition = meta[name].partition
     unroll = meta[name].unroll
     max_len = meta[name].max_len
+    seq_repeat = meta[name].seq_repeat
 
     # Unrolling and Partitioning have values that are extracted from data so have
     # to run per partution
@@ -329,6 +331,7 @@ def _calculate_chains_of_table(
             partitions=partitions,
             unrolls=unrolls,
             parents=combo,
+            seq_repeat=seq_repeat,
         )
         versions.append(ver)
 

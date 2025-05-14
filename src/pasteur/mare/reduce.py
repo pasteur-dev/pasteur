@@ -286,6 +286,7 @@ def merge_versions(vers: Sequence[TableVersion]):
         partitions=partitions,
         unrolls=unrolls,
         parents=tuple(new_parents),
+        seq_repeat=ref.seq_repeat,
     )
 
 

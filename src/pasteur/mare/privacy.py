@@ -3,11 +3,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def calc_table_complexity(ver, attrs, params = {}):
+
+def calc_table_complexity(ver, attrs, params={}):
     c = len(attrs[None])
     h = 0
 
-    if not params.get('no_hist', False):
+    if not params.get("no_hist", False):
         for table_sel, tattrs in attrs.items():
             if table_sel is None:
                 continue
@@ -16,36 +17,53 @@ def calc_table_complexity(ver, attrs, params = {}):
                 if tattrs.attrs:
                     h += len(tattrs.attrs)
                 if tattrs.hist:
-                    if not params.get('rake', False):
+                    if not params.get("rake", False):
                         for ha in tattrs.hist.values():
                             h += len(ha)
             else:
                 h += len(tattrs)
 
     n = ver.rows
-    return c * ((c + h) ** (1/3)) * (n ** (1/3))
+    return c * ((c + h) ** (1 / 3)) * (n ** (1 / 3))
 
 
-def calc_sens(ver):
+def get_table_sens(ver, skip_sens=False):
     # unwrap table partition
-    if hasattr(ver, 'table'):
-        ver = getattr(ver, 'table')
+    if hasattr(ver, "table"):
+        ver = getattr(ver, "table")
 
-    if ver.max_len:
-        sens = ver.max_len
+    if skip_sens:
+        return 1
+    elif ver.max_len:
+        return ver.max_len
     elif ver.children:
-        sens = ver.children
+        return ver.children
     else:
-        sens = 1
+        return 1
+
+
+def calc_sens(ver, skip_sens=False, ctx=False):
+    # unwrap table partition
+    if hasattr(ver, "table"):
+        ver = getattr(ver, "table")
+
+    sens = get_table_sens(ver, skip_sens or ctx)
+
+    # If we repeat the unroll, we only use 1 row per grandparent, so we
+    # have to skip the sensitivity of the parent
+    skip_sens_next = ctx and ver.seq_repeat
 
     if ver.parents:
-        sens *= max([calc_sens(p) for p in ver.parents])
+        sens *= max([calc_sens(p, skip_sens=skip_sens_next) for p in ver.parents])
 
     return sens
 
 
-def calc_privacy_budgets(total: float, mvers, params = {}):
-    complexities = {mver: calc_table_complexity(mver.ver, attrs, params) for mver, (attrs, _) in mvers.items()}
+def calc_privacy_budgets(total: float, mvers, params={}):
+    complexities = {
+        mver: calc_table_complexity(mver.ver, attrs, params)
+        for mver, (attrs, _) in mvers.items()
+    }
 
     MAX_COMPLEXITY = 3
 
@@ -62,7 +80,7 @@ def calc_privacy_budgets(total: float, mvers, params = {}):
     budgets = {}
     sensitivities = {}
     for mver, (attrs, _) in mvers.items():
-        sens = calc_sens(mver.ver)
+        sens = calc_sens(mver.ver, ctx=mver.ctx)
         if smax := params.get("max_sens", None):
             sens = min(sens, smax)
         budget = total * (complexities[mver] / total_complexity)
