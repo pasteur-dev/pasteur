@@ -555,23 +555,23 @@ def generate_fit_tables(
     sequence = meta[ver.name].sequence
     order = meta[ver.name].order
     max_len = meta[ver.name].max_len
-    seq_repeat = meta[ver.name].seq_repeat and False
+    seq_repeat = meta[ver.name].seq_repeat
 
     parent, gparent, ggparent = get_parents(ver)
 
     # Create new id that is unique per sequence
     SID_NAME = "nid_jsdi78"
-    sid = fids.join(
-        fids.drop_duplicates()
-        .reset_index(drop=True)
-        .reset_index(names=SID_NAME)
-        .set_index(list(fids.columns)),
-        on=list(fids.columns),
-    ).drop(columns=list(fids.columns))
+    if seq_repeat and parent:
+        # If seq_repeat, skip parent
+        fltr = [c for c in fids.columns if c != parent]
+    else:
+        fltr = list(fids.columns)
+    # Create index with just parents, add a column that acts as an
+    # index, join back to fids
+    sid = fids[fltr].groupby(fltr).first()[[]]
+    sid[SID_NAME] = range(len(sid))
+    sid = fids[fltr].join(sid, on=fltr).drop(columns=fltr)
 
-    # # If seq_repeat, don't sample multiple rows from parent
-    if seq_repeat and parent and ctx:
-        fids = fids.drop_duplicates([c for c in fids.columns if c != parent])
     if ctx:
         # common operation for indexing to parent for context tables
         fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
