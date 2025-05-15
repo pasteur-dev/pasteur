@@ -53,8 +53,7 @@ IS_SUBPROCESS = False
 
 CHECK_LEAKS = False
 
-
-def is_jupyter() -> bool:  # pragma: no cover
+def _is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
 
     taken from rich package."""
@@ -71,6 +70,16 @@ def is_jupyter() -> bool:  # pragma: no cover
     else:
         return False  # Other type (?)
 
+_jupyter = None
+
+def is_jupyter() -> bool:
+    # Avoid triggering raised exceptions
+    global _jupyter
+
+    if _jupyter is None:
+        _jupyter = _is_jupyter()
+
+    return _jupyter
 
 def get_tqdm_args():
     if IS_SUBPROCESS:
