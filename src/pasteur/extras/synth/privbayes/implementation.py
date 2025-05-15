@@ -178,7 +178,7 @@ def maximal_parents(domains: list[list[int]], tau: float) -> list[tuple[int, ...
                     if i == length - 1:
                         not_overflow = False
 
-    return out
+    return list(dict.fromkeys(out))
 
 
 def get_attrs(ds_attrs: DatasetAttributes, sel: TableSelector):
@@ -302,6 +302,7 @@ def greedy_bayes(
     # Implement misc functions for summating the scores
     #
     score_cache = {}
+    pset_to_cand_hash = {}
 
     def calc_candidate_scores(
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]],
@@ -462,7 +463,7 @@ def greedy_bayes(
         )
 
     first = True
-    for _ in prange(len(todo), desc="Finding Nodes: "):
+    for cnter in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
         if d > 50:
             if first:
@@ -556,6 +557,9 @@ def greedy_bayes(
                 desc="Finding Maximal Parent sets",
             )
 
+        import time
+        start = time.perf_counter()
+        loops = 0
         for (val, sels), psets in zip(info, node_psets):
             for pset in psets:
                 cand_hash = list(EMPTY_HASH)
@@ -580,6 +584,9 @@ def greedy_bayes(
             if not psets:
                 candidates.append((val, [], (val, EMPTY_HASH)))
 
+        logger.info(
+            f"({cnter:>2d}) Time: {time.perf_counter() - start:.3}s Loops: {loops:_d} Marginals: {len(candidates):_d}"
+        )
         x, pset = pick_candidate(candidates)
         attr = val_to_attr[x]
         generated.append(x)

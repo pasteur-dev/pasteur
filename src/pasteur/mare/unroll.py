@@ -35,20 +35,46 @@ from .reduce import (
 )
 
 
-def _unroll_sequence(seq_name: str, order: int, ids: pd.DataFrame, data: pd.DataFrame):
+def _unroll_sequence(
+    seq_name: str,
+    order: int,
+    ids: pd.DataFrame,
+    data: pd.DataFrame,
+    seq: pd.Series | None = None,
+    stable: str | None = None,
+    ptable: str | None = None,
+):
     _IDX_NAME = "_id_lkjijk"
     _JOIN_NAME = "_id_zdjwk"
-    seq = data[seq_name]
-    ids_seq = ids.join(seq, how="right").reset_index(names=_IDX_NAME)
+
+    if seq is not None:
+        assert stable
+
+        ids_seq = ids.merge(seq, left_on=stable, right_index=True, how="right")
+        seq = ids_seq[seq_name]
+        ids_seq = ids_seq.reset_index(names=_IDX_NAME)
+    else:
+        seq = data[seq_name]
+        ids_seq = ids.join(seq, how="right").reset_index(names=_IDX_NAME)
 
     out = {}
     for i in range(order):
         # Create join with previous seq
         ids_seq_prev = ids.join(seq + i + 1, how="right").reset_index(names=_JOIN_NAME)
+
+        if ptable:
+            # Here, if we use a lower table, the merge below fails
+            cols = [ptable]
+        else:
+            cols = ids.columns
+
         join_ids = ids_seq.merge(
-            ids_seq_prev, on=[*ids.columns, seq_name], how="inner"
+            ids_seq_prev, on=[*cols, seq_name], how="inner"
         ).set_index(_IDX_NAME)[[_JOIN_NAME]]
-        ref_df = join_ids.join(data, on=_JOIN_NAME).drop(columns=[_JOIN_NAME, seq_name])
+        ref_df = join_ids.join(data, on=_JOIN_NAME).drop(columns=[_JOIN_NAME])
+
+        if seq_name in ref_df:
+            ref_df = ref_df.drop(columns=[seq_name])
 
         # Rebase discrete columns to new stratified structure with offset
         idx_cols = [
@@ -271,7 +297,7 @@ def convert_rebalanced_to_seq_val(s: RebalancedValue, order: int):
     return reb
 
 
-def convert_to_seq_attr(attrs: Attributes, order: int):
+def convert_to_seq_attr(attrs: Attributes, order: int) -> Attributes:
     out = {}
     for name, attr in attrs.items():
         vals = []
@@ -357,6 +383,35 @@ def _gen_history_attributes(
     return _out
 
 
+def get_parents(ver):
+    # Get parents for building sequences
+    # This is a bit dirty coding-wise
+    parent = None
+    gparent = None
+    ggparent = None
+    if ver.parents:
+        parent = ver.parents[0]
+        if hasattr(parent, "table"):
+            parent = getattr(parent, "table")
+
+        if parent.parents:  # type: ignore
+            gparent = parent.parents[0]  # type: ignore
+            if hasattr(gparent, "table"):
+                gparent = getattr(gparent, "table")
+
+            if gparent.parents:  # type: ignore
+                ggparent = gparent.parents[0]  # type: ignore
+                if hasattr(ggparent, "table"):
+                    ggparent = getattr(ggparent, "table")
+                ggparent = getattr(ggparent, "name")
+
+            gparent = getattr(gparent, "name")
+
+        parent = getattr(parent, "name")
+
+    return parent, gparent, ggparent
+
+
 def gen_history_attributes(
     parents: tuple[TableVersion | TablePartition, ...],
     attrs: dict[str, Attributes],
@@ -374,11 +429,15 @@ def generate_fit_attrs(
     if not ver.parents and ctx:
         return None
 
+    meta = _calculate_stripped_meta(attrs)
+
     unroll = None
     seq = None
+    seq_repeat = False
     for attr in attrs[ver.name].values():
         if attr.unroll:
             unroll = attr.name
+            seq_repeat = attr.seq_repeat
         for v in attr.vals.values():
             if isinstance(v, SeqValue):
                 seq = v
@@ -434,6 +493,26 @@ def generate_fit_attrs(
     else:
         hist[None] = attrs[ver.name]
 
+    # Add sequentiality to context tables through parent
+    parent, gparent, ggparent = get_parents(ver)
+    target = gparent if seq_repeat else parent
+    ptarget = ggparent if seq_repeat else gparent
+    if ctx and target and ptarget and meta[target].sequence:
+        sequence = meta[target].sequence
+        norder = meta[target].order or 1
+        assert sequence
+
+        ahist = {}
+        for i in range(norder):
+            ahist[i] = convert_to_seq_attr(hist[None], i)
+
+        hist[ver.name] = SeqAttributes(
+            norder,
+            SeqCommonValue(sequence, norder),
+            {sequence: SeqAttribute(sequence, order=norder, max=ver.children)},
+            ahist,
+        )
+
     return hist
 
 
@@ -471,6 +550,15 @@ def generate_fit_tables(
         assert not tmeta.unroll and not tmeta.sequence
         return {None: table}
 
+    new_hist = {}
+    unroll = meta[ver.name].unroll
+    sequence = meta[ver.name].sequence
+    order = meta[ver.name].order
+    max_len = meta[ver.name].max_len
+    seq_repeat = meta[ver.name].seq_repeat and False
+
+    parent, gparent, ggparent = get_parents(ver)
+
     # Create new id that is unique per sequence
     SID_NAME = "nid_jsdi78"
     sid = fids.join(
@@ -481,26 +569,17 @@ def generate_fit_tables(
         on=list(fids.columns),
     ).drop(columns=list(fids.columns))
 
-    new_hist = {}
-    unroll = meta[ver.name].unroll
-    sequence = meta[ver.name].sequence
-    order = meta[ver.name].order
-    max_len = meta[ver.name].max_len
-    seq_repeat = meta[ver.name].seq_repeat
+    # # If seq_repeat, don't sample multiple rows from parent
+    if seq_repeat and parent and ctx:
+        fids = fids.drop_duplicates([c for c in fids.columns if c != parent])
+    if ctx:
+        # common operation for indexing to parent for context tables
+        fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
 
     if unroll:
         if ctx:
             assert ver.unrolls
             _, cmn, cols, ofs = recurse_unroll_attr(ver.unrolls, attrs[ver.name])
-
-            if seq_repeat and ver.parents:
-                # Don't sample multiple rows from parent
-                parent = ver.parents[0]
-                if hasattr(parent, "table"):
-                    parent = getattr(parent, "table")
-                parent = getattr(parent, "name")
-                fids = fids.drop_duplicates([c for c in fids.columns if c != parent])
-            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
 
             udfs = []
             for u in cmn.keys():
@@ -529,7 +608,6 @@ def generate_fit_tables(
             synth = table.drop(columns=unroll_cols)
     elif sequence:
         if ctx:
-            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
             lens = sid.groupby(SID_NAME).size().rename(f"{ver.name}_n")
             if max_len is not None:
                 lens = lens.clip(upper=max_len)
@@ -544,7 +622,6 @@ def generate_fit_tables(
             synth = table
     else:
         if ctx:
-            fids = fids.join(sid.drop_duplicates(), how="inner").set_index(SID_NAME)
             synth = pd.DataFrame(sid.groupby(SID_NAME).size().rename(f"{ver.name}_n"))
         else:
             synth = table
@@ -558,6 +635,29 @@ def generate_fit_tables(
         new_hist[idx] = (
             fids[[name]].join(table, on=name, how="inner").drop(columns=name)
         )
+
+    # Apply sequentiality to context tables. If seq_repeat, to grand_parent. Else to parent
+    target = gparent if seq_repeat else parent
+    ptarget = ggparent if seq_repeat else gparent
+    if ctx and target and ptarget and meta[target].sequence:
+        seq = meta[target].sequence
+        norder = meta[target].order or 1
+        assert seq
+
+        seq_hist = _unroll_sequence(
+            seq,
+            norder,
+            fids,
+            synth,
+            seq=tables[target]()[seq],
+            stable=target,
+            ptable=ptarget,
+        )
+        for o, data in seq_hist.items():
+            new_hist[(ver.name, o)] = data
+
+        new_hist[ver.name] = new_hist[parent]
+
     return {**new_hist, None: synth}
 
 
@@ -567,7 +667,10 @@ class ModelVersion(NamedTuple):
 
 
 def calculate_model_versions(
-    attrs: dict[str, Attributes], data: Mapping[str, LazyDataset], max_vers: int, no_hist: bool = False
+    attrs: dict[str, Attributes],
+    data: Mapping[str, LazyDataset],
+    max_vers: int,
+    no_hist: bool = False,
 ) -> dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]]:
     ids, tables = data_to_tables(data)
     chains = calculate_table_chains(attrs, ids, tables)
