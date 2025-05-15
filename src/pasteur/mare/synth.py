@@ -427,26 +427,36 @@ def sample_model(
                 [s.reset_index(names=PARENT_KEY) for s in sampled], axis=0
             ).reset_index(drop=True)
 
+            # Join context ids to the new index to form the new ids table
+            pids = ids[(parent, False)]
+            pids[parent] = pids.index
+
             # Reindex to add rows that are the same
             if stable != parent:
                 table = (
                     ids[(parent, False)][[stable]]
-                    .merge(table, left_on=stable, right_index=True)
-                    .drop(columns=stable)
+                    .merge(table, left_on=stable, right_on=PARENT_KEY)
                 )
                 table.index.name = ver.ver.name
 
-            # Join context ids to the new index to form the new ids table
-            pids = ids[(parent, False)]
-            pids[parent] = pids.index
-            pids = (
-                table[[PARENT_KEY]]
-                .join(pids, on=PARENT_KEY, how="left")
-                .drop(columns=PARENT_KEY)
-            )
-            pids.index.name = ver.ver.name
-            # Drop context index
-            table = table.set_index(PARENT_KEY)
+                pids = (
+                    table[[PARENT_KEY]]
+                    .join(pids, on=PARENT_KEY, how="left")
+                    .drop(columns=PARENT_KEY)
+                )
+                pids.index.name = ver.ver.name
+
+                table = table.drop(columns=[stable, PARENT_KEY])
+            else:
+                pids = (
+                    table[[PARENT_KEY]]
+                    .join(pids, on=PARENT_KEY, how="left")
+                    .drop(columns=PARENT_KEY)
+                )
+                pids.index.name = ver.ver.name
+                # Drop context index
+                table = table.set_index(PARENT_KEY)
+
             return pids, table
         else:
             # TODO: Fix id for multiple relations
