@@ -29,6 +29,7 @@ from .unroll import (
     calculate_model_versions,
     gen_history,
     recurse_unroll_attr,
+    get_parents as get_parents_upwards,
 )
 from .privacy import calc_privacy_budgets
 
@@ -193,7 +194,9 @@ class MareSynth(Synth):
                     prev = kwargs["minimum_cutoff"] if "minimum_cutoff" in kwargs else 3
                     if prev:
                         kwargs["minimum_cutoff"] = prev * sensitivities[ver]
-                        logger.info(f"Adjusting minimum cutoff from {prev} to {kwargs['minimum_cutoff']} due to sensitivity {sensitivities[ver]}.")
+                        logger.info(
+                            f"Adjusting minimum cutoff from {prev} to {kwargs['minimum_cutoff']} due to sensitivity {sensitivities[ver]}."
+                        )
 
                 model = self.model_cls(**kwargs)
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
@@ -293,6 +296,7 @@ def sample_model(
     ids: dict[tuple[str, bool], pd.DataFrame],
     tables: dict[tuple[str, bool], pd.DataFrame],
 ):
+    PARENT_KEY = "_key_jhudfghkj"
 
     if not ver.ver.parents:
         assert not ver.ctx, "Can't generate a context model for a primary relation"
@@ -310,51 +314,184 @@ def sample_model(
         meta,
     )
     tmeta = meta[ver.ver.name]
+
     if ver.ctx:
-        # TODO: Fix id for multiple relations
-        assert len(ver.ver.parents) == 1, "Multiple relations not supported for now"
-
-        p = ver.ver.parents[0]
-        if isinstance(p, TablePartition):
-            p = p.table
-        pname = p.name
-
-        og_ids = ids[(pname, False)].reset_index()
-        for sel in hist:
-            name = sel[0] if isinstance(sel, tuple) else sel
-            og_ids = og_ids[og_ids[name].isin(hist[sel].index)]
-
-        gen_first = tmeta.seq_repeat and meta[pname].sequence
-        if gen_first:
-            logger.info("Generating only first part of series")
-            pids = og_ids[hist[pname][meta[pname].sequence] == 0]
+        # Check whether we are in a sequence
+        seq_repeat = tmeta.seq_repeat
+        parent, gparent, ggparent = get_parents_upwards(ver.ver)
+        ctx_seq = ver.ctx and (
+            seq_repeat and gparent and ggparent and meta[gparent].sequence
+        )
+        if ver.ctx and seq_repeat and gparent and ggparent and meta[gparent].sequence:
+            stable = gparent
+            ptable = ggparent
+            ctx_seq = True
+        elif (
+            ver.ctx and not seq_repeat and parent and gparent and meta[parent].sequence
+        ):
+            stable = parent
+            ptable = gparent
+            ctx_seq = True
         else:
-            pids = og_ids
+            stable = None
+            ptable = None
+            ctx_seq = False
 
-        for sel in list(hist):
-            name = sel[0] if isinstance(sel, tuple) else sel
-            hist[name] = (
-                pids[[name]].join(hist[name], on=name, how="left").drop(columns=name)
+        if ctx_seq:
+            assert stable and ptable and parent
+            # TODO: Fix id for multiple relations
+            assert len(ver.ver.parents) == 1, "Multiple relations not supported for now"
+
+            children = ver.ver.max_len or ver.ver.children
+            assert children is not None
+
+            seq_attrs = attrs[ver.ver.name]
+            assert isinstance(seq_attrs, SeqAttributes)
+            order = seq_attrs.order
+            name = ver.ver.name
+
+            seq = tables[(stable, False)][seq_attrs.seq.name]
+            if stable == parent:
+                tids = ids[(stable, False)]
+            else:
+                tids = (
+                    ids[(parent, False)]
+                    .drop_duplicates()
+                    .reset_index()
+                    .set_index(stable)
+                )
+            tids[stable] = tids.index  # dupe the key to have it as a column
+
+            # if stable != parent:
+            #     # grab some parent ids
+
+            # Find values and their domains for placeholder history
+            vals = {}
+            if seq_attrs.hist:
+                for attr in next(iter(seq_attrs.hist.values())).values():
+                    # if attr.common:
+                    #     vals[attr.common.name] = attr.common.get_domain(0)
+                    for val_name, val in attr.vals.items():
+                        if isinstance(val, CatValue):
+                            vals[val_name] = val.get_domain(0)
+
+            # Create sample history
+            sampled = []
+            for i in range(seq.max() + 1):
+                idx = seq[seq == i].index
+                if not len(idx):
+                    break
+
+                # Add seq value to history
+                new_hist = {
+                    n: h.loc[tids.loc[idx, n[0] if isinstance(n, tuple) else n]]
+                    for n, h in hist.items()
+                }
+                new_hist[ver.ver.name] = pd.DataFrame(
+                    {seq_attrs.seq.name: i},
+                    index=idx,
+                    dtype="uint8",
+                )
+
+                # Add placeholder if not enough history is sampled
+                if i < order:
+                    placeholder = pd.DataFrame(
+                        {k: i for k in vals}, index=idx, dtype="uint8"
+                    )
+                    for j in range(i, order):
+                        new_hist[(name, j)] = placeholder
+
+                # Add the rest of history
+                for j in range(min(len(sampled), order)):
+                    new_hist[(name, j)] = (
+                        tids.loc[idx, [ptable]]
+                        .merge(
+                            (
+                                sampled[-j - 1].astype(
+                                    {k: get_dtype(v + j + 1) for k, v in vals.items()}
+                                )
+                                + j
+                                + 1
+                            ).join(tids[[ptable]]),
+                            on=ptable,
+                        )
+                        .drop(columns=ptable)
+                    )
+
+                table = model.sample(idx, new_hist)
+                table[seq_attrs.seq.name] = i
+                sampled.append(table)
+
+            # Concat to single table with a context index column
+            table = pd.concat(
+                [s.reset_index(names=PARENT_KEY) for s in sampled], axis=0
+            ).reset_index(drop=True)
+
+            # Reindex to add rows that are the same
+            if stable != parent:
+                table = (
+                    ids[(parent, False)][[stable]]
+                    .merge(table, left_on=stable, right_index=True)
+                    .drop(columns=stable)
+                )
+                table.index.name = ver.ver.name
+
+            # Join context ids to the new index to form the new ids table
+            pids = ids[(parent, False)]
+            pids[parent] = pids.index
+            pids = (
+                table[[PARENT_KEY]]
+                .join(pids, on=PARENT_KEY, how="left")
+                .drop(columns=PARENT_KEY)
             )
-        idx = pids.index
+            pids.index.name = ver.ver.name
+            # Drop context index
+            table = table.set_index(PARENT_KEY)
+            return pids, table
+        else:
+            # TODO: Fix id for multiple relations
+            assert len(ver.ver.parents) == 1, "Multiple relations not supported for now"
 
-        table = model.sample(idx, hist)
+            p = ver.ver.parents[0]
+            if isinstance(p, TablePartition):
+                p = p.table
+            pname = p.name
 
-        if gen_first:
-            PARENT_KEY = "_key_jhudfghkj"
-            pp = p.parents[0]
-            if isinstance(pp, TablePartition):
-                pp = pp.table
-            ppname = pp.name
-            midx = (
-                og_ids[[ppname]]
-                .merge(pids.reset_index(names=PARENT_KEY), on=ppname)[[PARENT_KEY]]
-            )
-            table = midx.merge(table, left_on=PARENT_KEY, right_index=True)
+            og_ids = ids[(pname, False)].reset_index()
+            for sel in hist:
+                name = sel[0] if isinstance(sel, tuple) else sel
+                og_ids = og_ids[og_ids[name].isin(hist[sel].index)]
 
-        return og_ids, table
+            gen_first = tmeta.seq_repeat and meta[pname].sequence
+            if gen_first:
+                logger.info("Generating only first part of series")
+                pids = og_ids[hist[pname][meta[pname].sequence] == 0]
+            else:
+                pids = og_ids
+
+            for sel in list(hist):
+                name = sel[0] if isinstance(sel, tuple) else sel
+                hist[name] = (
+                    pids[[name]]
+                    .join(hist[name], on=name, how="left")
+                    .drop(columns=name)
+                )
+            idx = pids.index
+
+            table = model.sample(idx, hist)
+
+            if gen_first:
+                pp = p.parents[0]
+                if isinstance(pp, TablePartition):
+                    pp = pp.table
+                ppname = pp.name
+                midx = og_ids[[ppname]].merge(
+                    pids.reset_index(names=PARENT_KEY), on=ppname
+                )[[PARENT_KEY]]
+                table = midx.merge(table, left_on=PARENT_KEY, right_index=True)
+
+            return og_ids, table
     else:
-        PARENT_KEY = "_key_jhuiojkj"
         pids = ids[(ver.ver.name, True)]
 
         if tmeta.unroll:
@@ -385,12 +522,9 @@ def sample_model(
                 ]
                 for col, ofs in col_ofs[unroll].items():
                     sers.append(
-                        df[col].astype(
-                            get_dtype(
-                                int(np.nanmax(df[col])) + ofs
-                            )
-                        )
-                        + ofs - 1
+                        df[col].astype(get_dtype(int(np.nanmax(df[col])) + ofs))
+                        + ofs
+                        - 1
                     )
                 ctx_dfs.append(pd.concat(sers, axis=1))
             ctx_rerolled = pd.concat(ctx_dfs, axis=0, ignore_index=True)
