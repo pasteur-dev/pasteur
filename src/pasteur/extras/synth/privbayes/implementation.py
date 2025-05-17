@@ -462,100 +462,99 @@ def greedy_bayes(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
 
-    first = True
+    if d > 30 and e2 and e2 > 1.5:
+        THETA_BOOST = 1.5
+        logger.error(
+            f"Too many columns ({d}) and privacy budget (e2={e2:.2f}), increasing theta from {theta:.2f} to {THETA_BOOST*theta:.2f}"
+        )
+        theta *= THETA_BOOST
+
     for cnter in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
-        if d > 50:
-            if first:
-                logger.error(f"Too many columns ({d}), disabling parent correlations.")
-                first = False
 
-            info = [(x, []) for x in todo]
-            node_psets = [[] for _ in range(len(todo))]
-        else:
-            base_args = {}
-            per_call_args = []
-            info = []
+        base_args = {}
+        per_call_args = []
+        info = []
 
-            for x in todo:
-                domains = []
-                selectors = []
-                x_dom = cast(CatValue, attrs[val_to_attr[x]][x]).domain
-                new_tau = t / x_dom
+        for x in todo:
+            domains = []
+            selectors = []
+            x_dom = cast(CatValue, attrs[val_to_attr[x]][x]).domain
+            new_tau = t / x_dom
 
-                # Create customized domain, with relevant selectors, by
-                # Removing combinations with unmet dependencies
-                for name, attr_combos in combos.items():
-                    if (
-                        rake
-                        and name[0]
-                        and len(name[0]) == 2
-                        and name[1] != val_to_attr[x]
-                    ):
-                        # Skip seq attrs that are not the same column
-                        continue
-                    doms = []
-                    sels = []
-                    for sel, dom, deps in attr_combos:
-                        # For each combination, check that its dependencies are met
-                        # This is the case when a dependency is not in todo (generated values)
-                        # and its attribute has been partially generated (common values)
-                        deps_met = True
-                        if sel[0] == None:
-                            for dep in deps:
-                                if (
-                                    dep in todo
-                                    or not val_to_attr[dep] in generated_attrs
-                                ):
-                                    deps_met = False
-                                    break
+            # Create customized domain, with relevant selectors, by
+            # Removing combinations with unmet dependencies
+            for name, attr_combos in combos.items():
+                if (
+                    rake
+                    and name[0]
+                    and len(name[0]) == 2
+                    and name[1] != val_to_attr[x]
+                ):
+                    # Skip seq attrs that are not the same column
+                    continue
+                doms = []
+                sels = []
+                for sel, dom, deps in attr_combos:
+                    # For each combination, check that its dependencies are met
+                    # This is the case when a dependency is not in todo (generated values)
+                    # and its attribute has been partially generated (common values)
+                    deps_met = True
+                    if sel[0] == None:
+                        for dep in deps:
+                            if (
+                                dep in todo
+                                or not val_to_attr[dep] in generated_attrs
+                            ):
+                                deps_met = False
+                                break
 
-                        if deps_met:
-                            if name[0] is None and name[1] == val_to_attr[x]:
-                                val_sel = sel[-1]
-                                if isinstance(val_sel, int):
-                                    # If val_sel is an int, we're sampling the common value
-                                    # on x already, making this an invalid combination
-                                    deps_met = False
-                                else:
-                                    # There needs to be a common value
-                                    attr = attrs[name[1]]
-                                    cmn = attr.common
-                                    # Adjust domain if x is in the same attribute
-                                    # Find full domain when including x for attribute
-                                    # Divide by x's domain
-                                    # This is not a representative domain, but will
-                                    # be equivalent in the `maximal_parents` computation
-                                    # as tau /= x_dom
-                                    if isinstance(cmn, CatValue):
-                                        full_dom = cmn.get_domain_multiple(
-                                            [*val_sel.values(), 0],
-                                            [
-                                                *[
-                                                    cast(CatValue, attr[v])
-                                                    for v in val_sel
-                                                ],
-                                                cast(CatValue, attr[x]),
+                    if deps_met:
+                        if name[0] is None and name[1] == val_to_attr[x]:
+                            val_sel = sel[-1]
+                            if isinstance(val_sel, int):
+                                # If val_sel is an int, we're sampling the common value
+                                # on x already, making this an invalid combination
+                                deps_met = False
+                            else:
+                                # There needs to be a common value
+                                attr = attrs[name[1]]
+                                cmn = attr.common
+                                # Adjust domain if x is in the same attribute
+                                # Find full domain when including x for attribute
+                                # Divide by x's domain
+                                # This is not a representative domain, but will
+                                # be equivalent in the `maximal_parents` computation
+                                # as tau /= x_dom
+                                if isinstance(cmn, CatValue):
+                                    full_dom = cmn.get_domain_multiple(
+                                        [*val_sel.values(), 0],
+                                        [
+                                            *[
+                                                cast(CatValue, attr[v])
+                                                for v in val_sel
                                             ],
-                                        )
-                                        dom = full_dom // x_dom
+                                            cast(CatValue, attr[x]),
+                                        ],
+                                    )
+                                    dom = full_dom // x_dom
 
-                        if deps_met:
-                            doms.append(dom)
-                            sels.append(sel)
+                    if deps_met:
+                        doms.append(dom)
+                        sels.append(sel)
 
-                    if doms and sels:
-                        domains.append(doms)
-                        selectors.append(sels)
-                per_call_args.append({"tau": new_tau, "domains": domains})
-                info.append((x, selectors))
+                if doms and sels:
+                    domains.append(doms)
+                    selectors.append(sels)
+            per_call_args.append({"tau": new_tau, "domains": domains})
+            info.append((x, selectors))
 
-            node_psets = process_in_parallel(
-                maximal_parents,
-                per_call_args,
-                base_args,
-                desc="Finding Maximal Parent sets",
-            )
+        node_psets = process_in_parallel(
+            maximal_parents,
+            per_call_args,
+            base_args,
+            desc="Finding Maximal Parent sets",
+        )
 
         import time
         start = time.perf_counter()
