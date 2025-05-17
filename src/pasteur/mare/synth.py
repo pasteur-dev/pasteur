@@ -434,28 +434,12 @@ def sample_model(
             # Reindex to add rows that are the same
             if stable != parent:
                 table = (
-                    ids[(parent, False)][[stable]]
-                    .merge(table, left_on=stable, right_on=PARENT_KEY)
-                )
-                table.index.name = ver.ver.name
-
-                pids = (
-                    table[[PARENT_KEY]]
-                    .join(pids, on=PARENT_KEY, how="left")
-                    .drop(columns=PARENT_KEY)
-                )
-                pids.index.name = ver.ver.name
-
-                table = table.drop(columns=[stable, PARENT_KEY])
+                    ids[(parent, False)][[stable]].merge(
+                        table, left_on=stable, right_on=PARENT_KEY
+                    )
+                ).drop(columns=[stable, PARENT_KEY])
             else:
-                pids = (
-                    table[[PARENT_KEY]]
-                    .join(pids, on=PARENT_KEY, how="left")
-                    .drop(columns=PARENT_KEY)
-                )
-                pids.index.name = ver.ver.name
-                # Drop context index
-                table = table.set_index(PARENT_KEY)
+                table = table.drop(columns=PARENT_KEY)
 
             return pids, table
         else:
