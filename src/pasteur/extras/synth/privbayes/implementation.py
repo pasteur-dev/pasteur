@@ -462,12 +462,12 @@ def greedy_bayes(
             f"Considering e2={e2} unbounded, t will be bound to min(n/10, {MAX_T:.0e})={t:.2f} for computational reasons."
         )
 
-    if d > 30 and e2 and e2 > 1.5:
-        THETA_BOOST = 1.5
-        logger.error(
-            f"Too many columns ({d}) and privacy budget (e2={e2:.2f}), increasing theta from {theta:.2f} to {THETA_BOOST*theta:.2f}"
-        )
-        theta *= THETA_BOOST
+    # if d > 30 and e2 and e2 > 1.5:
+    #     THETA_BOOST = 1.5
+    #     logger.error(
+    #         f"Too many columns ({d}) and privacy budget (e2={e2:.2f}), increasing theta from {theta:.2f} to {THETA_BOOST*theta:.2f}"
+    #     )
+    #     theta *= THETA_BOOST
 
     for cnter in prange(len(todo), desc="Finding Nodes: "):
         candidates: list[tuple[str, MarginalRequest, tuple[str, tuple[int, ...]]]] = []
