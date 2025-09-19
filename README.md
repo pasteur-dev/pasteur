@@ -43,6 +43,10 @@ pip install tabulate
 
 You can now place your data in the `raw/` folder of the pasteur directory.
 
+## Testing tabular datasets
+With the commands below you can synthesize the tabular Adult and MIMIC-IV
+datasets.
+
 ### Testing the Adult Dataset
 Adult is a tabular dataset that can be used to test synthesis works.
 
@@ -109,3 +113,16 @@ pasteur s mimic_icu.mare -i noh='range(4)' alg.etotal="2" alg.theta='5' alg.no_h
 # You can view the resulting experiments with:
 mlflow ui --backend-store-uri data/reporting/flow
 ```
+
+# Citations
+
+This work has been part of two papers so far. If you use Pasteur in your work, please cite one of the following:
+ 
+ - Kapenekakis, A., Dell'Aglio, D., Bøgsted, M., Garofalakis, M., & Hose, K. (Accepted/In press). Pasteur: Scaling Privacy-aware Data Synthesis. In The 29th European Conference on Advances in Databases and Information Systems (ADBIS 2025). Springer.
+
+ - A. Kapenekakis et al., "Synthesizing Accurate Relational Data under Differential Privacy," 2024 IEEE International Conference on Big Data (BigData), Washington, DC, USA, 2024, pp. 433-439, doi: 10.1109/BigData62323.2024.10825515.
+
+The first paper covers the system itself, while the second paper focuses on the MARE algorithm for relational data synthesis. Of course, you should also cite the relevant tabular algorithms you use, e.g., PrivBayes, AIM, MST, etc that are not part of this work.
+
+# Acknowledgements
+This project received funding from the European Union's Horizon 2020 research and innovation programme under Marie Skłodowska-Curie (grant No 955895), the Poul Due Jensens Fond (Grundfos Foundation), and the Novo Nordisk Foundation (grant number NNF23OC0083510).
