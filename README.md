@@ -116,7 +116,7 @@ mlflow ui --backend-store-uri data/reporting/flow
 
 # Citations
 
-This work has been part of two papers so far. If you use Pasteur in your work, please cite one of the following:
+This work has been part of two papers so far. If you use Pasteur in your work, please cite the first paper, and if you use MARE, please cite the second paper as well:
  
  - Kapenekakis, A., Dell'Aglio, D., Bøgsted, M., Garofalakis, M., & Hose, K. (Accepted/In press). Pasteur: Scaling Privacy-aware Data Synthesis. In The 29th European Conference on Advances in Databases and Information Systems (ADBIS 2025). Springer.
 
