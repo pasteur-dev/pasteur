@@ -80,9 +80,9 @@ def _process_outer(
     per_call = []
 
     for table in wrk:
-        train = wrk[table]()[:ROW_LIMIT]
-        test = ref[table]()[:ROW_LIMIT]
-        synth = syn[table]()[:ROW_LIMIT]
+        train = wrk[table].sample()[:ROW_LIMIT]
+        test = ref[table].sample()[:ROW_LIMIT]
+        synth = syn[table].sample()[:ROW_LIMIT]
 
         for metric, args in metrics.items():
             if table.endswith("_ids"):
