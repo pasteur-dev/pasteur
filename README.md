@@ -43,11 +43,11 @@ pip install tabulate
 
 You can now place your data in the `raw/` folder of the pasteur directory.
 
-## Testing tabular datasets
+## Synthesizing tabular datasets
 With the commands below you can synthesize the tabular Adult and MIMIC-IV
 datasets.
 
-### Testing the Adult Dataset
+### Synthesizing the Adult Dataset
 Adult is a tabular dataset that can be used to test synthesis works.
 
 ```bash
@@ -70,9 +70,41 @@ pasteur p tab_adult.privbayes --all
 pasteur s tab_adult.privbayes -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg.theta="[5,5,10,10,25][i]"
 ```
 
-### Testing the MIMIC-IV Datasets
+### Synthesizing the MIMIC-IV Datasets
 MIMIC-IV is a large dataset we can partition in a variety of ways to create
 synthetic datasets. You need physionet credentials to download the data.
+
+Here, we run the MIMIC Admissions dataset, which is a tabular dataset created
+from the admissions table of MIMIC-IV when combined with the patients table.
+```bash
+# Download (you will be prompted for your credentials)
+# takes a while to download
+pasteur download --accept mimic_iv
+# Data is not zipped, no bootstrap needed
+
+# Ingest the MIMIC-IV tables
+# Requires a lot of memory per worker. For 64GB of RAM, 5 workers are ok
+# Takes ~45min for 5 workers
+pasteur ingest_dataset mimic -w 5
+
+#
+# MIMIC Admissions
+#
+
+pasteur ingest_view mimic_tab_admissions
+
+pasteur s mimic_tab_admissions.privbayes -i i="range(3)" alg.etotal="[0.01, 0.1, 1][i]" alg.theta="[5,5,10][i]" -p
+
+# You can view the resulting experiments with:
+mlflow ui --backend-store-uri data/reporting/flow
+```
+
+## Synthesizing relational data
+With MARE, it is also possible to synthesize relational data in combination with PrivBayes. From the paper, two datasets are publicly available: MIMIC CORE, and MIMIC ICU Charts.
+
+Those datasets are essentially relational versions of the MIMIC-ICU and MIMIC Core datasets. The difference is that unlike in those, the tables are not flattened, but kept in their relational form. This means that the tables are linked with foreign keys, and the one-to-many relationships are preserved.
+
+Tne download and ingest commands from the previous section are skipped. So you should run those as well.
 
 ```bash
 # Download (you will be prompted for your credentials)
@@ -116,7 +148,7 @@ mlflow ui --backend-store-uri data/reporting/flow
 
 # Citations
 
-This work has been part of two papers so far. If you use Pasteur in your work, please cite the first paper, and if you use MARE, please cite the second paper as well:
+This work has been part of two papers so far. If you use Pasteur in your work, please cite the first paper, and if you use the synthesis algorithm MARE, please cite the second paper as well:
  
  - Kapenekakis, A., Dell'Aglio, D., Bøgsted, M., Garofalakis, M., & Hose, K. (Accepted/In press). Pasteur: Scaling Privacy-aware Data Synthesis. In The 29th European Conference on Advances in Databases and Information Systems (ADBIS 2025). Springer.
 
