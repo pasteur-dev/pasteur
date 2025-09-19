@@ -13,10 +13,7 @@
 [![Code style is Black](https://img.shields.io/badge/code%20style-black-black.svg)](https://github.com/psf/black)
 <!-- [![]()]() -->
 
-Pasteur is a library for managing the end-to-end process of structured data synthesis.
-It features the algorithms MARE, PrivBayes, AIM, or MST to produce synthetic data
-and contains a variety of evaluation metrics and transformation tools for data.
-In addition, a collection of premade datasets is included, focusing on MIMIC-IV.
+Pasteur is a library for managing the end-to-end process of structured data synthesis. It features the algorithms MARE, PrivBayes, AIM, or MST to produce synthetic data and contains a variety of evaluation metrics and transformation tools for data. In addition, a collection of premade datasets is included, focusing on MIMIC-IV.
 
 # Example Usage
 
@@ -71,11 +68,9 @@ pasteur s tab_adult.privbayes -i i="range(5)" alg.etotal="[1,2,5,10,100][i]" alg
 ```
 
 ### Synthesizing the MIMIC-IV Datasets
-MIMIC-IV is a large dataset we can partition in a variety of ways to create
-synthetic datasets. You need physionet credentials to download the data.
+MIMIC-IV is a large dataset we can partition in a variety of ways to create synthetic datasets. You need physionet credentials to download the data.
 
-Here, we run the MIMIC Admissions dataset, which is a tabular dataset created
-from the admissions table of MIMIC-IV when combined with the patients table.
+Here, we run the MIMIC Admissions dataset, which is a tabular dataset created from the admissions table of MIMIC-IV when combined with the patients table, and the MIMIC billion dataset, which is a collection of columns from ICU Chart events, along with some columns from the patients and ICU stays tables duplicated to reach 1 billion rows.
 ```bash
 # Download (you will be prompted for your credentials)
 # takes a while to download
@@ -94,6 +89,14 @@ pasteur ingest_dataset mimic -w 5
 pasteur ingest_view mimic_tab_admissions
 
 pasteur s mimic_tab_admissions.privbayes -i i="range(3)" alg.etotal="[0.01, 0.1, 1][i]" alg.theta="[5,5,10][i]" -p
+
+#
+# MIMIC Billion
+#
+# Workers during ingest are very memory intensive, 3 is good for 64GB RAM
+pasteur ingest_view mimic_billion -w 3
+# Needs more than 64gb of ram to run parallelized with e.g., more than 10 cores
+pasteur p mimic_billion.privbayes alg.etotal=0.001
 
 # You can view the resulting experiments with:
 mlflow ui --backend-store-uri data/reporting/flow
