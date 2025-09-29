@@ -189,7 +189,7 @@ class MimicBillion(TabularView):
         for part_id, (_patients, stays, events) in LazyFrame.zip(
             patients, icu_icustays, icu_chartevents
         ).items():
-            funs.add(partial(_ingest_chunk, part_id, 3, 4, _patients, stays, events))
+            funs.add(partial(_ingest_chunk, part_id, 3, 16, _patients, stays, events))
         return funs
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
