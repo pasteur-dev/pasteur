@@ -337,6 +337,12 @@ def create_pydantic_model(
             assert top_table is None, f"Multiple top tables found: {top_table}, {name}"
             top_table = name
 
+    # One table has no relationships, so select it
+    if not top_table and len(attrs) == 1:
+        top_table = next(iter(attrs))
+
+    assert top_table, f"Top-level table not found (How?)"
+
     # Now, recurse and create pydantic model
     def to_pydantic(name):
         fields = {}
