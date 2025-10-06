@@ -197,4 +197,30 @@ class IdentSynth(Synth):
         return self.data
 
 
-__all__ = ["Synth", "SynthFactory", "IdentSynth", "make_deterministic"]
+class IdentSynthJson(Synth):
+    """Samples the data it was provided."""
+
+    name = "ident_json"
+    type = "json"
+    partitions = 1
+
+    def preprocess(self, meta: Any, data: dict[str, LazyDataset]):
+        pass
+
+    def bake(self, data: dict[str, LazyDataset]):
+        pass
+
+    def fit(self, data: dict[str, LazyDataset]):
+        self.data = data
+
+    def sample(self, n: int | None = None):
+        return self.data
+
+
+__all__ = [
+    "Synth",
+    "SynthFactory",
+    "IdentSynth",
+    "IdentSynthJson",
+    "make_deterministic",
+]
