@@ -234,6 +234,7 @@ class DateTransformer(RefTransformer):
         bins=64,
         max_len=63,
         ignore_nan=False,
+        year_name = "age_years",
         **_,
     ):
         self.weeks53 = span == "year53"
@@ -249,6 +250,7 @@ class DateTransformer(RefTransformer):
         self.max_len = max_len
         self.ignore_nan = ignore_nan
         self.ref = None
+        self.year_name = year_name
 
     def fit(
         self,
@@ -297,7 +299,7 @@ class DateTransformer(RefTransformer):
                     col,
                     [
                         NumValue(
-                            f"{col}_year",
+                            f"{col}_{self.year_name}",
                             self.bins,
                             self.nullable,
                             0,
@@ -418,7 +420,7 @@ class DateTransformer(RefTransformer):
                     year[m] = year[m] + 1
                     weeks[m] = 0
 
-                out[f"{col}_year"] = year.astype("float32")
+                out[f"{col}_{self.year_name}"] = year.astype("float32")
                 out[f"{col}_week"] = (weeks + ofs).astype("uint8")
                 out[f"{col}_day"] = (iso["day"] - 1 + ofs).astype("uint8")
             case "week":
@@ -486,7 +488,7 @@ class DateTransformer(RefTransformer):
         match self.span:
             case "year":
                 out = self.iso_to_gregorian(
-                    rf_year + np.round(vals[f"{col}_year"]).clip(0),
+                    rf_year + np.round(vals[f"{col}_{self.year_name}"]).clip(0),
                     (vals[f"{col}_week"] + 1 - ofs)
                     .clip(1, 53 if self.weeks53 else 52)
                     .astype("uint16"),
