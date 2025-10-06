@@ -1,22 +1,22 @@
-from copy import copy
-from typing import Any, cast
-
 import numpy as np
 import pandas as pd
 
-from pasteur.attribute import Attribute
-from pasteur.metadata import Metadata
-from pasteur.utils import LazyPartition
-
-from ..attribute import (
+from pasteur.attribute import (
     Attribute,
+    Attributes,
     CatValue,
+    Grouping,
     NumValue,
     StratifiedNumValue,
-    Grouping,
     get_dtype,
 )
-from ..encode import AttributeEncoder, PostprocessEncoder
+from pasteur.metadata import Metadata
+from pasteur.utils import (
+    LazyDataset,
+    LazyFrame,
+)
+
+from ..encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
 
 
 class DiscretizationColumnTransformer:
@@ -147,7 +147,7 @@ class IdxEncoder(AttributeEncoder[Attribute]):
             unroll=attr.unroll,
             along=attr.along,
             partition=attr.partition,
-            seq_repeat=attr.seq_repeat
+            seq_repeat=attr.seq_repeat,
         )
 
     def get_metadata(self) -> dict[str | tuple[str, ...], Attribute]:
@@ -294,6 +294,134 @@ class NumEncoder(AttributeEncoder[Attribute]):
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         assert False, "Not Implemented"
+
+
+def create_pydantic_model(
+    ids: dict[str, LazyFrame],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+):
+    from pydantic import create_model
+
+    from collections import defaultdict
+    from typing import Literal
+
+    from pasteur.attribute import CatValue, NumValue, SeqValue
+
+    full_relationships = defaultdict(list)
+
+    # Find parents
+    for name, table_ids in ids.items():
+        for parent in table_ids.sample().columns:
+            full_relationships[parent].append(name)
+
+    # Trim leaf tables
+    relationships = {}
+    seen = set()
+
+    for name in list(full_relationships.keys()):
+        tmp = list(full_relationships[name])
+        for child in full_relationships[name]:
+            for k in full_relationships[child]:
+                if k in tmp:
+                    tmp.remove(k)
+
+            seen.add(child)
+
+        relationships[name] = tmp
+
+    # Find table we should start with
+    top_table = None
+    for name in relationships:
+        if name not in seen:
+            assert top_table is None, f"Multiple top tables found: {top_table}, {name}"
+            top_table = name
+
+    # Now, recurse and create pydantic model
+    def to_pydantic(name):
+        fields = {}
+
+        table_attrs = list(attrs[name].items())
+
+        for ctxs in ctx_attrs.values():
+            table_attrs.extend(ctxs.get(name, {}).items())
+
+        for k, v in table_attrs:
+            afields = {}
+            nullable = True
+            for kc, c in v.vals.items():
+                if kc.startswith(f"{k}_"):
+                    kc = kc[len(k) + 1 :]
+                if isinstance(c, CatValue):
+                    vals = c.get_human_readable()
+                    nullable &= str(vals[0]) == "None"
+                    afields[kc] = (Literal[*vals], ...)
+                elif isinstance(c, NumValue):
+                    if c.nullable:
+                        afields[kc] = (float | None, ...)
+                    else:
+                        nullable = False
+                        afields[kc] = (float, ...)
+                elif isinstance(c, SeqValue):
+                    # Sequence values are restored from their order
+                    nullable = False
+                else:
+                    assert False, f"Unknown attribute type: {type(c)}"
+            if len(afields) > 1:
+                if isinstance(k, tuple):
+                    k = "_".join(k)
+                model = create_model(k, **afields)
+                if nullable:
+                    model = model | None
+                fields[k] = (model, ...)
+            elif len(afields) == 1:
+                fields[k] = list(afields.values())[0]
+
+        for child in relationships.get(name, []):
+            fields[child] = (list[to_pydantic(child)], ...)
+
+        return create_model(
+            name,
+            **fields,
+        )
+
+    return to_pydantic(top_table)
+
+
+class JsonEncoder(ViewEncoder[str]):
+    name = "json"
+
+    def fit(
+        self,
+        attrs: dict[str, Attributes],
+        tables: dict[str, LazyFrame],
+        ctx_attrs: dict[str, dict[str, Attributes]],
+        ctx: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
+    ):
+        import json 
+        print(json.dumps(create_pydantic_model(ids, attrs, ctx_attrs).schema(), indent=2))
+
+    def encode(
+        self,
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
+    ) -> dict[str, LazyDataset[str]]:
+        raise NotImplementedError()
+
+    def decode(
+        self,
+        data: dict[str, LazyDataset[str]],
+    ) -> tuple[
+        dict[str, LazyFrame],
+        dict[str, dict[str, LazyFrame]],
+        dict[str, LazyFrame],
+    ]:
+        raise NotImplementedError()
+
+    def get_metadata(self) -> str:
+        raise NotImplementedError()
 
 
 class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
