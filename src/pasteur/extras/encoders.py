@@ -14,10 +14,16 @@ from pasteur.metadata import Metadata
 from pasteur.utils import (
     LazyDataset,
     LazyFrame,
+    LazyPartition,
+    LazyChunk,
+    to_chunked,
 )
 
 from ..encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    import pydantic
 
 class DiscretizationColumnTransformer:
     """Converts a numerical column into an ordinal one using histograms."""
@@ -296,17 +302,10 @@ class NumEncoder(AttributeEncoder[Attribute]):
         assert False, "Not Implemented"
 
 
-def create_pydantic_model(
+def get_relationships(
     ids: dict[str, LazyFrame],
-    attrs: dict[str, Attributes],
-    ctx_attrs: dict[str, dict[str, Attributes]],
 ):
-    from pydantic import create_model
-
     from collections import defaultdict
-    from typing import Literal
-
-    from pasteur.attribute import CatValue, NumValue, SeqValue
 
     full_relationships = defaultdict(list)
 
@@ -317,7 +316,6 @@ def create_pydantic_model(
 
     # Trim leaf tables
     relationships = {}
-    seen = set()
 
     for name in list(full_relationships.keys()):
         tmp = list(full_relationships[name])
@@ -326,9 +324,25 @@ def create_pydantic_model(
                 if k in tmp:
                     tmp.remove(k)
 
-            seen.add(child)
-
         relationships[name] = tmp
+
+    return relationships
+
+
+def create_pydantic_model(
+    relationships: dict[str, list[str]],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+):
+    from pydantic import create_model
+
+    from typing import Literal
+
+    from pasteur.attribute import CatValue, NumValue, SeqValue
+
+    seen = set()
+    for r in relationships.values():
+        seen.update(r)
 
     # Find table we should start with
     top_table = None
@@ -394,7 +408,7 @@ def create_pydantic_model(
     return to_pydantic(top_table)
 
 
-class JsonEncoder(ViewEncoder[str]):
+class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
     name = "json"
 
     def fit(
@@ -405,15 +419,17 @@ class JsonEncoder(ViewEncoder[str]):
         ctx: dict[str, dict[str, LazyFrame]],
         ids: dict[str, LazyFrame],
     ):
-        import json 
-        print(json.dumps(create_pydantic_model(ids, attrs, ctx_attrs).schema(), indent=2))
+        self.relationships = get_relationships(ids)
+        self.attrs = attrs
+        self.ctx_attrs = ctx_attrs
 
+    @to_chunked
     def encode(
         self,
-        tables: dict[str, LazyFrame],
-        ctx: dict[str, dict[str, LazyFrame]],
-        ids: dict[str, LazyFrame],
-    ) -> dict[str, LazyDataset[str]]:
+        tables: dict[str, LazyChunk],
+        ctx: dict[str, dict[str, LazyChunk]],
+        ids: dict[str, LazyChunk],
+    ) -> dict[str, LazyPartition[str]]:
         raise NotImplementedError()
 
     def decode(
@@ -426,8 +442,8 @@ class JsonEncoder(ViewEncoder[str]):
     ]:
         raise NotImplementedError()
 
-    def get_metadata(self) -> str:
-        raise NotImplementedError()
+    def get_metadata(self) -> "type[pydantic.BaseModel]":
+        return create_pydantic_model(self.relationships, self.attrs, self.ctx_attrs)
 
 
 class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
