@@ -420,6 +420,10 @@ class CatValue(Value):
         the given height."""
         raise NotImplementedError()
 
+    def get_human_readable(self) -> list[str | int | float]:
+        """Returns a list of human readable values for each discrete value."""
+        raise NotImplementedError()
+
     @property
     def height(self) -> int:
         """Returns the maximum height of this value."""
@@ -615,6 +619,9 @@ class StratifiedValue(CatValue):
                 [cast(StratifiedValue, v).head for v in vals],
             )
         return out
+    
+    def get_human_readable(self) -> list[str]:
+        return self.head.get_human_values()
 
 
 class GenerationValue(StratifiedValue):
