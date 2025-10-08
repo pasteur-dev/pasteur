@@ -328,6 +328,20 @@ def get_relationships(
 
     return relationships
 
+def get_top_table(relationships: dict[str, list[str]]):
+    seen = set()
+    for r in relationships.values():
+        seen.update(r)
+
+    # Find table we should start with
+    top_table = None
+    for name in relationships:
+        if name not in seen:
+            assert top_table is None, f"Multiple top tables found: {top_table}, {name}"
+            top_table = name
+
+    assert top_table is not None, "No top table found"
+    return top_table
 
 def create_pydantic_model(
     relationships: dict[str, list[str]],
@@ -340,22 +354,7 @@ def create_pydantic_model(
 
     from pasteur.attribute import CatValue, NumValue, SeqValue
 
-    seen = set()
-    for r in relationships.values():
-        seen.update(r)
-
-    # Find table we should start with
-    top_table = None
-    for name in relationships:
-        if name not in seen:
-            assert top_table is None, f"Multiple top tables found: {top_table}, {name}"
-            top_table = name
-
-    # One table has no relationships, so select it
-    if not top_table and len(attrs) == 1:
-        top_table = next(iter(attrs))
-
-    assert top_table, f"Top-level table not found (How?)"
+    top_table = get_top_table(relationships)
 
     # Now, recurse and create pydantic model
     def to_pydantic(name):
@@ -387,9 +386,9 @@ def create_pydantic_model(
                     nullable = False
                 else:
                     assert False, f"Unknown attribute type: {type(c)}"
+            if isinstance(k, tuple):
+                k = "_".join(k)
             if len(afields) > 1:
-                if isinstance(k, tuple):
-                    k = "_".join(k)
                 model = create_model(k, **afields)
                 if nullable:
                     model = model | None
