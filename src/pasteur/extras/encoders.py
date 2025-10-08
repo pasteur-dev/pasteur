@@ -518,7 +518,7 @@ def process_entity(
         cached = {}
         cached[None] = tables[table].loc[cid]
         for k, v in ctx.items():
-            if table in v and v[table].columns.any():
+            if table in v and cid in v[table].index:
                 cached[k] = v[table].loc[cid]
 
         for key, value in mapping.items():
@@ -529,6 +529,8 @@ def process_entity(
             elif isinstance(value, AttrMapping):
                 current[key] = {}
                 for subkey, subvalue in value.cols.items():
+                    if subvalue.table not in cached:
+                        continue
                     if isinstance(subvalue, NumMapping):
                         v = cached[subvalue.table][subvalue.name]
                         if value.nullable and pd.isna(v):
@@ -560,7 +562,7 @@ def process_entity(
                 current[key] = children
             else:
                 assert False, f"Unexpected value type: {type(value)}"
-    
+
     return result
 
 
@@ -579,14 +581,38 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
         self.attrs = attrs
         self.ctx_attrs = ctx_attrs
 
-    @to_chunked
+    # @to_chunked
     def encode(
         self,
         tables: dict[str, LazyChunk],
         ctx: dict[str, dict[str, LazyChunk]],
         ids: dict[str, LazyChunk],
-    ) -> dict[str, LazyPartition[str]]:
-        raise NotImplementedError()
+    ):
+        import pandas as pd
+        from pasteur.utils.progress import piter
+
+        l_tables = {k: v() for k, v in tables.items()}
+        l_ctx = {k: {kk: vv() for kk, vv in v.items()} for k, v in ctx.items()}
+        l_ids = {k: v() for k, v in ids.items()}
+
+        top_table = get_top_table(self.relationships)
+
+        out = []
+        for id in piter(l_ids[top_table].index):
+            out.append(
+                process_entity(
+                    top_table,
+                    id,
+                    create_table_mapping(
+                        top_table, self.relationships, self.attrs, self.ctx_attrs
+                    ),
+                    l_tables,
+                    l_ctx,
+                    l_ids,
+                )
+            )
+
+        return {"data": pd.DataFrame(map(str, out))}
 
     def decode(
         self,
