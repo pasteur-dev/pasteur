@@ -83,6 +83,12 @@ class PasteurHook:
             if "locations" not in patterns:
                 patterns["locations"] = ["location*", "location*/**", "**/location*"]
             locations = context.config_loader.get("locations")
+
+            # Allow without duplicate errors
+            if "hidden_raw" in locations:
+                locations["raw"] = locations.pop("hidden_raw")
+            if "hidden_base" in locations:
+                locations["base"] = locations.pop("hidden_base")
         except MissingConfigException:
             locations = {}
             logger.warn(
