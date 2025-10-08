@@ -230,6 +230,9 @@ def _calc_worker(args):
 _max_workers: int = 1
 _pool: "tuple[Pool, SyncManager, Any] | None" = None
 
+def get_max_workers() -> int:
+    """Returns the maximum number of workers in the current process pool."""
+    return _max_workers
 
 def _logging_thread_fun(q):
     try:

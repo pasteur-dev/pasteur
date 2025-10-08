@@ -1,3 +1,6 @@
+import logging
+from typing import TYPE_CHECKING, NamedTuple
+
 import numpy as np
 import pandas as pd
 
@@ -7,26 +10,20 @@ from pasteur.attribute import (
     CatValue,
     Grouping,
     NumValue,
+    SeqValue,
     StratifiedNumValue,
     get_dtype,
 )
-from pasteur.metadata import Metadata
-from pasteur.utils import (
-    LazyDataset,
-    LazyFrame,
-    LazyPartition,
-    LazyChunk,
-    to_chunked,
-)
+from pasteur.utils import LazyChunk, LazyDataset, LazyFrame
 
 from ..encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
-from typing import TYPE_CHECKING
-from typing import NamedTuple
-from pasteur.attribute import CatValue, NumValue, SeqValue, Attributes
 
 if TYPE_CHECKING:
+    import numpy as np
     import pydantic
     from pandas import DataFrame
+
+logger = logging.getLogger(__name__)
 
 
 class DiscretizationColumnTransformer:
@@ -354,9 +351,9 @@ def create_pydantic_model(
     attrs: dict[str, Attributes],
     ctx_attrs: dict[str, dict[str, Attributes]],
 ):
-    from pydantic import create_model
-
     from typing import Literal
+
+    from pydantic import create_model
 
     from pasteur.attribute import CatValue, NumValue, SeqValue
 
@@ -566,6 +563,67 @@ def process_entity(
     return result
 
 
+def _get_partition_keys(
+    ids: dict[str, LazyChunk],
+    relationships: dict[str, list[str]],
+    /,
+    single_partition: bool = False,
+):
+    out_ids = {k: v() for k, v in ids.items()}
+    top_table = get_top_table(relationships)
+
+    if single_partition:
+        return sorted(set(out_ids[top_table].index))
+
+    leafs = sorted(set(ids).difference(relationships))
+    keys = set()
+    for l in leafs:
+        keys.update(
+            out_ids[l].index if l == top_table else out_ids[l][top_table].unique()
+        )
+
+    return keys
+
+
+def _json_encode(
+    tables: dict[str, LazyChunk],
+    ctx: dict[str, dict[str, LazyChunk]],
+    ids: dict[str, LazyChunk],
+    relationships: dict[str, list[str]],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+    nrange: "list[int] | np.ndarray",
+):
+    import pandas as pd
+
+    from pasteur.utils.progress import piter
+
+    l_tables = {k: v() for k, v in tables.items()}
+    l_ctx = {k: {kk: vv() for kk, vv in v.items()} for k, v in ctx.items()}
+    l_ids = {k: v() for k, v in ids.items()}
+
+    top_table = get_top_table(relationships)
+
+    out = []
+    i = 0
+    for id in nrange:
+        out.append(
+            process_entity(
+                top_table,
+                id,
+                create_table_mapping(top_table, relationships, attrs, ctx_attrs),
+                l_tables,
+                l_ctx,
+                l_ids,
+            )
+        )
+
+    return {"data": pd.DataFrame(map(str, out))}
+
+
+WORKER_MULTIPLIER = 2
+
+
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
     name = "json"
 
@@ -581,38 +639,106 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
         self.attrs = attrs
         self.ctx_attrs = ctx_attrs
 
-    # @to_chunked
     def encode(
         self,
-        tables: dict[str, LazyChunk],
-        ctx: dict[str, dict[str, LazyChunk]],
-        ids: dict[str, LazyChunk],
+        tables: dict[str, LazyFrame],
+        ctx: dict[str, dict[str, LazyFrame]],
+        ids: dict[str, LazyFrame],
     ):
-        import pandas as pd
-        from pasteur.utils.progress import piter
+        import numpy as np
 
-        l_tables = {k: v() for k, v in tables.items()}
-        l_ctx = {k: {kk: vv() for kk, vv in v.items()} for k, v in ctx.items()}
-        l_ids = {k: v() for k, v in ids.items()}
+        from pasteur.utils.progress import get_max_workers, process, process_in_parallel
 
-        top_table = get_top_table(self.relationships)
+        if LazyDataset.are_partitioned(tables, ctx, ids):
+            pids = []
+            per_call = []
+            # This path is not tested
 
-        out = []
-        for id in piter(l_ids[top_table].index):
-            out.append(
-                process_entity(
-                    top_table,
-                    id,
-                    create_table_mapping(
-                        top_table, self.relationships, self.attrs, self.ctx_attrs
-                    ),
-                    l_tables,
-                    l_ctx,
-                    l_ids,
+            for pid, vals in LazyDataset.zip(
+                tables=tables,
+                ctx=ctx,
+                ids=ids,
+            ).items():  # type: ignore
+                pids.append(pid)
+                per_call.append(vals)
+
+            key_sets = process_in_parallel(
+                _get_partition_keys,
+                per_call,
+                desc="Finding partition keys",
+            )
+            keys = {k: v for k, v in zip(pids, key_sets)}
+
+            n_per_partition = get_max_workers() * WORKER_MULTIPLIER // len(pids)
+
+            base_args = {
+                "relationships": self.relationships,
+                "attrs": self.attrs,
+                "ctx_attrs": self.ctx_attrs,
+            }
+            per_call = []
+
+            for pid, key_set in keys.items():
+                key_list = sorted(key_set)
+                pids = np.array_split(key_list, max(1, int(n_per_partition)))
+                for p in pids:
+                    per_call.append(
+                        {
+                            "tables": tables[pid],
+                            "ctx": {k: v[pid] for k, v in ctx.items()},
+                            "ids": ids[pid],
+                            "nrange": p,
+                        }
+                    )
+
+            return {
+                "data": process_in_parallel(
+                    _json_encode,
+                    per_call,
+                    base_args,
+                    desc="Encoding parts to JSON",
                 )
+            }
+        else:
+            keys = process(
+                _get_partition_keys,
+                ids,  # type: ignore
+                self.relationships,
+                single_partition=True,
             )
 
-        return {"data": pd.DataFrame(map(str, out))}
+            # Partition into MAX_WORKERS*WORKER_MULTIPLIER chunks
+            pids = list(
+                np.array_split(sorted(keys), get_max_workers() * WORKER_MULTIPLIER)
+            )
+
+            logger.info(
+                f"Processing {len(keys)} entities to JSON in {len(pids)} chunks"
+            )
+            base_args = {
+                "tables": tables,
+                "ctx": ctx,
+                "ids": ids,
+                "relationships": self.relationships,
+                "attrs": self.attrs,
+                "ctx_attrs": self.ctx_attrs,
+            }
+            per_call = []
+            for pid_set in pids:
+                per_call.append(
+                    {
+                        "nrange": pid_set,
+                    }
+                )
+
+            return {
+                "data": process_in_parallel(
+                    _json_encode,
+                    per_call,
+                    base_args,
+                    desc="Encoding parts to JSON",
+                )
+            }
 
     def decode(
         self,
