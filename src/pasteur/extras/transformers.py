@@ -234,7 +234,7 @@ class DateTransformer(RefTransformer):
         bins=64,
         max_len=63,
         ignore_nan=False,
-        year_name = "age_years",
+        year_name="age_years",
         **_,
     ):
         self.weeks53 = span == "year53"
@@ -347,7 +347,12 @@ class DateTransformer(RefTransformer):
                     col,
                     [
                         NumValue(
-                            f"{col}_day", self.bins, self.nullable, 0, self.max_len, ignore_nan=self.ignore_nan
+                            f"{col}_day",
+                            self.bins,
+                            self.nullable,
+                            0,
+                            self.max_len,
+                            ignore_nan=self.ignore_nan,
                         ),
                     ],
                 )
@@ -437,7 +442,7 @@ class DateTransformer(RefTransformer):
             out[f"{col}_common"] = pd.Series(1, index=out.index, dtype="uint8")
             out = out.reindex(data.index, fill_value=0)
             # NAs were set as 0, change them to floats
-            out.loc[na_mask, f"{col}_{self.span}"] = np.nan  # type: ignore
+            out.loc[na_mask, f"{col}_{self.year_name if self.span == "year" else self.span}"] = np.nan  # type: ignore
 
         return out
 
