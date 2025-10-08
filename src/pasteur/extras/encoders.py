@@ -26,6 +26,7 @@ from pasteur.attribute import CatValue, NumValue, SeqValue, Attributes
 
 if TYPE_CHECKING:
     import pydantic
+    from pandas import DataFrame
 
 
 class DiscretizationColumnTransformer:
@@ -499,6 +500,68 @@ def create_table_mapping(
     ctx_attrs: dict[str, dict[str, Attributes]],
 ) -> TableMapping:
     return _create_table_mapping(table, relationships, attrs, ctx_attrs)[0]
+
+
+def process_entity(
+    table: str,
+    cid: int,
+    mapping: TableMapping,
+    tables: dict[str, "DataFrame"],
+    ctx: dict[str, dict[str, "DataFrame"]],
+    ids: dict[str, "DataFrame"],
+) -> dict:
+    result = {}
+    stack = [(table, cid, mapping, result)]
+
+    while stack:
+        table, cid, mapping, current = stack.pop()
+        cached = {}
+        cached[None] = tables[table].loc[cid]
+        for k, v in ctx.items():
+            if table in v and v[table].columns.any():
+                cached[k] = v[table].loc[cid]
+
+        for key, value in mapping.items():
+            if isinstance(value, NumMapping):
+                current[key] = float(cached[value.table][value.name])
+            elif isinstance(value, CatMapping):
+                current[key] = value.mapping[int(cached[value.table][value.name])]
+            elif isinstance(value, AttrMapping):
+                current[key] = {}
+                for subkey, subvalue in value.cols.items():
+                    if isinstance(subvalue, NumMapping):
+                        v = cached[subvalue.table][subvalue.name]
+                        if value.nullable and pd.isna(v):
+                            current[key] = None
+                            break
+                        current[key][subkey] = float(v)
+                    elif isinstance(subvalue, CatMapping):
+                        if value.nullable and not v:
+                            current[key] = None
+                            break
+                        current[key][subkey] = subvalue.mapping[
+                            int(cached[subvalue.table][subvalue.name])
+                        ]
+                    else:
+                        assert False, f"Unexpected subvalue type: {type(subvalue)}"
+            elif isinstance(value, ChildMapping):
+                # Get children
+                cids = ids[value.name].index[ids[value.name][table] == cid]
+
+                # Sort if required
+                if value.seq:
+                    cids = tables[value.name][value.seq][cids].sort_values().index
+
+                children = []
+                for cid in cids:
+                    child = {}
+                    stack.append((value.name, cid, value.child, child))
+                    children.append(child)
+                current[key] = children
+            else:
+                assert False, f"Unexpected value type: {type(value)}"
+    
+    return result
 
 
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
