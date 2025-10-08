@@ -21,9 +21,12 @@ from pasteur.utils import (
 
 from ..encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
 from typing import TYPE_CHECKING
+from typing import NamedTuple
+from pasteur.attribute import CatValue, NumValue, SeqValue, Attributes
 
 if TYPE_CHECKING:
     import pydantic
+
 
 class DiscretizationColumnTransformer:
     """Converts a numerical column into an ordinal one using histograms."""
@@ -328,6 +331,7 @@ def get_relationships(
 
     return relationships
 
+
 def get_top_table(relationships: dict[str, list[str]]):
     seen = set()
     for r in relationships.values():
@@ -342,6 +346,7 @@ def get_top_table(relationships: dict[str, list[str]]):
 
     assert top_table is not None, "No top table found"
     return top_table
+
 
 def create_pydantic_model(
     relationships: dict[str, list[str]],
@@ -405,6 +410,95 @@ def create_pydantic_model(
         )
 
     return to_pydantic(top_table)
+
+
+class CatMapping(NamedTuple):
+    table: str | None
+    name: str
+    mapping: list
+
+
+class NumMapping(NamedTuple):
+    table: str | None
+    name: str
+    nullable: bool
+
+
+class AttrMapping(NamedTuple):
+    table: str | None
+    name: str
+    nullable: bool
+    cols: dict[str, CatMapping | NumMapping]
+
+
+class ChildMapping(NamedTuple):
+    name: str
+    seq: str | None
+    child: "TableMapping"
+
+
+TopLevelAttr = NumMapping | CatMapping | AttrMapping | ChildMapping
+TableMapping = dict[str, TopLevelAttr]
+
+
+def _create_table_mapping(
+    table: str,
+    relationships: dict[str, list[str]],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+) -> tuple[TableMapping, str | None]:
+    seq = None
+
+    mapping: TableMapping = {}
+    adjacent = {}
+    adjacent[None] = attrs[table]
+    for k, v in ctx_attrs.items():
+        adjacent[k] = v.get(table, {})
+    for adj, adj_attrs in adjacent.items():
+        for attr_name, attr in adj_attrs.items():
+            afields: dict[str, CatMapping | NumMapping] = {}
+            nullable = True
+            for k, c in attr.vals.items():
+                kc = k
+                if kc.startswith(f"{k}_"):
+                    kc = kc[len(k) + 1 :]
+                if isinstance(c, CatValue):
+                    vals = c.get_human_readable()
+                    nullable &= str(vals[0]) == "None"
+                    afields[kc] = CatMapping(adj, k, vals)
+                elif isinstance(c, NumValue):
+                    nullable &= c.nullable
+                    afields[kc] = NumMapping(adj, k, c.nullable)
+                elif isinstance(c, SeqValue):
+                    # Sequence values are restored from their order
+                    seq = k
+                    nullable = False
+                else:
+                    assert False, f"Unknown attribute type: {type(c)}"
+            if isinstance(attr_name, tuple):
+                attr_name = "_".join(attr_name)
+            if len(afields) > 1:
+                mapping[attr_name] = AttrMapping(adj, attr_name, nullable, afields)
+            elif len(afields) == 1:
+                mapping[attr_name] = list(afields.values())[0]
+
+    if table in relationships:
+        for child in relationships[table]:
+            child_mapping, child_seq = _create_table_mapping(
+                child, relationships, attrs, ctx_attrs
+            )
+            mapping[child] = ChildMapping(child, child_seq, child_mapping)
+
+    return mapping, seq
+
+
+def create_table_mapping(
+    table: str,
+    relationships: dict[str, list[str]],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+) -> TableMapping:
+    return _create_table_mapping(table, relationships, attrs, ctx_attrs)[0]
 
 
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
