@@ -618,10 +618,10 @@ def _json_encode(
             )
         )
 
-    return {"data": pd.DataFrame(map(str, out))}
+    return {"ids": pd.DataFrame(nrange), "data": pd.DataFrame(map(str, out))}
 
 
-WORKER_MULTIPLIER = 2
+WORKER_MULTIPLIER = 4
 
 
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
@@ -648,6 +648,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
         import numpy as np
 
         from pasteur.utils.progress import get_max_workers, process, process_in_parallel
+        from pasteur.utils import gen_closure
 
         if LazyDataset.are_partitioned(tables, ctx, ids):
             pids = []
@@ -690,15 +691,6 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                             "nrange": p,
                         }
                     )
-
-            return {
-                "data": process_in_parallel(
-                    _json_encode,
-                    per_call,
-                    base_args,
-                    desc="Encoding parts to JSON",
-                )
-            }
         else:
             keys = process(
                 _get_partition_keys,
@@ -731,14 +723,10 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                     }
                 )
 
-            return {
-                "data": process_in_parallel(
-                    _json_encode,
-                    per_call,
-                    base_args,
-                    desc="Encoding parts to JSON",
-                )
-            }
+        return {
+            gen_closure(_json_encode, **base_args, **p)
+            for p in per_call
+        }
 
     def decode(
         self,
