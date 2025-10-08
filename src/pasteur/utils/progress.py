@@ -1,4 +1,4 @@
-""" This utility module provides constants and functions for multiprocessing
+"""This utility module provides constants and functions for multiprocessing
 and progress monitoring in Pasteur.
 
 In most cases, the functions and constants are simple wrappers around existing libraries.
@@ -53,6 +53,7 @@ IS_SUBPROCESS = False
 
 CHECK_LEAKS = False
 
+
 def _is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
 
@@ -70,7 +71,9 @@ def _is_jupyter() -> bool:  # pragma: no cover
     else:
         return False  # Other type (?)
 
+
 _jupyter = None
+
 
 def is_jupyter() -> bool:
     # Avoid triggering raised exceptions
@@ -80,6 +83,7 @@ def is_jupyter() -> bool:
         _jupyter = _is_jupyter()
 
     return _jupyter
+
 
 def get_tqdm_args():
     if IS_SUBPROCESS:
@@ -230,9 +234,11 @@ def _calc_worker(args):
 _max_workers: int = 1
 _pool: "tuple[Pool, SyncManager, Any] | None" = None
 
+
 def get_max_workers() -> int:
     """Returns the maximum number of workers in the current process pool."""
     return _max_workers
+
 
 def _logging_thread_fun(q):
     try:
@@ -400,8 +406,7 @@ class AsyncResultStub(AsyncResult):
     def successful(self):
         return True
 
-    def wait(self, timeout=None):
-        ...
+    def wait(self, timeout=None): ...
 
     def get(self, timeout=None):
         return self.obj
