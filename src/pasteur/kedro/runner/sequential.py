@@ -14,7 +14,7 @@ from kedro.runner.runner import AbstractRunner
 from pluggy import PluginManager
 
 from ...utils.progress import is_jupyter, logging_redirect_pbar, piter, set_node_name
-from .common import run_expanded_node
+from .common import run_expanded_node, resume_from
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +30,11 @@ class SimpleSequentialRunner(AbstractRunner):
         params_str: str | None = None,
         max_workers: int | None = None,
         refresh_processes: int | None = None,
+        resume_node: str | None = None,
     ):
         self.pipe_name = pipe_name
         self.params_str = params_str
+        self.resume_node = resume_node
 
         super().__init__(is_async=False)
 
@@ -64,7 +66,7 @@ class SimpleSequentialRunner(AbstractRunner):
         Raises:
             Exception: in case of any downstream node failure.
         """
-        nodes = pipeline.nodes
+        nodes = resume_from(pipeline, self.resume_node)
         done_nodes = set()
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))

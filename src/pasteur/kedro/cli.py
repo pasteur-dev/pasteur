@@ -1,6 +1,6 @@
-""" In this module, all Pasteur related cli commands are defined.
+"""In this module, all Pasteur related cli commands are defined.
 
-You can access them through `pasteur <command>` or `kedro <command>`. """
+You can access them through `pasteur <command>` or `kedro <command>`."""
 
 import logging
 from typing import Any, Iterable, Literal
@@ -14,6 +14,66 @@ from ..utils.progress import init_pool
 from .runner import SimpleRunner
 
 logger = logging.getLogger(__name__)
+
+
+def create_session(
+    cls,
+    project_path: str | None = None,
+    save_on_close: bool = True,
+    env: str | None = None,
+    extra_params: dict[str, Any] | None = None,
+    conf_source: str | None = None,
+    session_id: str | None = None,
+) -> KedroSession:
+    # We have to stub this to change session_id
+
+    from kedro.io.core import generate_timestamp
+    from kedro.framework.project import validate_settings
+    from kedro.framework.session.session import _jsonify_cli_context, _describe_git
+    import getpass
+    import os
+
+    if session_id:
+        logger.info(f'Reusing session id: "{session_id}"')
+
+    validate_settings()
+
+    session = cls(
+        project_path=project_path,
+        session_id=generate_timestamp() if session_id is None else session_id,
+        save_on_close=save_on_close,
+        conf_source=conf_source,
+    )
+
+    # have to explicitly type session_data otherwise mypy will complain
+    # possibly related to this: https://github.com/python/mypy/issues/1430
+    session_data: dict[str, Any] = {
+        "project_path": session._project_path,
+        "session_id": session.session_id,
+    }
+
+    ctx = click.get_current_context(silent=True)
+    if ctx:
+        session_data["cli"] = _jsonify_cli_context(ctx)
+
+    env = env or os.getenv("KEDRO_ENV")
+    if env:
+        session_data["env"] = env
+
+    if extra_params:
+        session_data["extra_params"] = extra_params
+
+    try:
+        session_data["username"] = getpass.getuser()
+    except Exception as exc:
+        logging.getLogger(__name__).debug(
+            "Unable to get username. Full exception: %s", exc
+        )
+
+    session_data.update(**_describe_git(session._project_path))
+    session._store.update(session_data)
+
+    return session
 
 
 @click.command
@@ -45,6 +105,20 @@ logger = logging.getLogger(__name__)
     help="Restarts processes after `n` tasks. Lower numbers help with memory leaks but slower. Set to 0 to disable. Check `pasteur.utils.leaks` to fix.",
 )
 @click.option("-w", "--max-workers", type=int, default=None)
+@click.option(
+    "-c",
+    "--continue-from",
+    type=str,
+    default=None,
+    help="Node name to continue from, all previous nodes are skipped (nodes in the same topological generation are also skipped).",
+)
+@click.option(
+    "-s",
+    "--session-id",
+    type=str,
+    default=None,
+    help="Session ID to use. Allows reusing artifacts from a previous run.",
+)
 @click.pass_context
 def pipe(
     ctx,
@@ -56,6 +130,8 @@ def pipe(
     metrics,
     max_workers,
     refresh_processes,
+    continue_from,
+    session_id,
 ):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
@@ -80,7 +156,9 @@ def pipe(
             case "i" | "ingest":
                 pipeline = f"{pipeline}.ingest"
 
-    with KedroSession.create(extra_params=param_dict, env="base") as session:
+    with create_session(
+        KedroSession, extra_params=param_dict, env="base", session_id=session_id
+    ) as session:
         if "ingest" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
             tags = []
@@ -121,6 +199,7 @@ def pipe(
                 " ".join(params),
                 max_workers=max_workers,
                 refresh_processes=refresh_processes,
+                resume_node=continue_from,
             ),  # SequentialRunner(True),
             node_names="",
             from_nodes="",

@@ -4,6 +4,7 @@ from typing import Any, Callable, cast
 from kedro.io import DataCatalog
 from kedro.pipeline.node import Node
 from pluggy import PluginManager
+from kedro.pipeline import Pipeline, transcoding
 from rich import get_console
 
 from ...utils.perf import PerformanceTracker
@@ -104,6 +105,7 @@ def run_expanded_node(
         # Readd mlflow tracking
         if run_id:
             import mlflow
+
             if not mlflow.active_run():
                 mlflow.start_run(run_id=run_id)
 
@@ -131,6 +133,9 @@ def run_expanded_node(
             get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
+            )
+            logger.info(
+                f"To continue from this node, add `-c \"{node.name}\" -s \"{session_id}\"` to a pipeline run's arguments."
             )
         raise e
 
@@ -168,3 +173,43 @@ def run_expanded_node(
 
     t.stop(node.name.split("(")[0])
     return node
+
+
+def resume_from(pipeline: Pipeline, node: str | None):
+    groups = pipeline.grouped_nodes
+
+    if node is None:
+        return [n for group in groups for n in group]
+
+    out = []
+    started = False
+
+    for g in groups:
+        group_started = started
+        for n in g:
+            if group_started:
+                out.append(n)
+                continue
+
+            # Append us, skip the rest of the group
+            # assuming it ran. Fair assumption that skips extra
+            # steps but could cause failures down the pipeline
+            if n.name == node:
+                started = True
+                out.append(n)
+
+    return out
+
+
+def resume_from_dependencies(pipeline: Pipeline, nodes):
+    dependencies: dict[Node, set[Node]] = {node: set() for node in nodes}
+    for parent in nodes:
+        if parent not in nodes:
+            continue
+        for output in parent.outputs:
+            for child in pipeline._nodes_by_input[
+                transcoding._strip_transcoding(output)
+            ]:
+                dependencies[child].add(parent)
+
+    return dependencies

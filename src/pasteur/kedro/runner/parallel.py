@@ -23,7 +23,7 @@ from ...utils.progress import (
     piter,
     set_node_name,
 )
-from .common import run_expanded_node
+from .common import run_expanded_node, resume_from, resume_from_dependencies
 
 # Add a couple of workers to fill in extra tasks
 # Too many will cause issues with ram...
@@ -51,12 +51,14 @@ class SimpleParallelRunner(ParallelRunner):
         params_str: str | None = None,
         max_workers: int | None = None,
         refresh_processes: int | None = None,
+        resume_node: str | None = None,
     ):
         assert MULTIPROCESS_ENABLE
         self.pipe_name = pipe_name
         self.params_str = params_str
         self.max_workers = max_workers or DEFAULT_WORKERS
         self.refresh_processes = refresh_processes
+        self.resume_node = resume_node
 
         super().__init__(is_async=False)
 
@@ -89,12 +91,16 @@ class SimpleParallelRunner(ParallelRunner):
         """
         # pylint: disable=import-outside-toplevel,cyclic-import
 
-        nodes = pipeline.nodes
+        if self.resume_node:
+            nodes = resume_from(pipeline, self.resume_node)
+            node_dependencies = resume_from_dependencies(pipeline, nodes)
+        else:
+            nodes = pipeline.nodes
+            node_dependencies = pipeline.node_dependencies
         self._validate_catalog(catalog, pipeline)
         self._validate_nodes(nodes)
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
-        node_dependencies = pipeline.node_dependencies
         todo_nodes = set(node_dependencies.keys())
         done_nodes = set()  # type: set[Node]
         futures = set()
