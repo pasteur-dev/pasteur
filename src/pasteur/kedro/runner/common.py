@@ -135,7 +135,7 @@ def run_expanded_node(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
             logger.info(
-                f"To continue from this node, add `-c \"{node.name}\" -s \"{session_id}\"` to a pipeline run's arguments."
+                f'To continue from this node, add `-c "{node.name}" -s "{session_id}"` to a pipeline run\'s arguments.'
             )
         raise e
 
@@ -176,6 +176,7 @@ def run_expanded_node(
 
 
 def resume_from(pipeline: Pipeline, node: str | None):
+    # Since the list is always the same, resume from the last node that was ran
     groups = pipeline.grouped_nodes
 
     if node is None:
@@ -201,15 +202,33 @@ def resume_from(pipeline: Pipeline, node: str | None):
     return out
 
 
-def resume_from_dependencies(pipeline: Pipeline, nodes):
-    dependencies: dict[Node, set[Node]] = {node: set() for node in nodes}
-    for parent in nodes:
-        if parent not in nodes:
-            continue
-        for output in parent.outputs:
-            for child in pipeline._nodes_by_input[
-                transcoding._strip_transcoding(output)
-            ]:
-                dependencies[child].add(parent)
+def resume_from_dependencies(pipeline: Pipeline, node: str):
+    # For the parallel runner, get a bit more complicated.
+    # Only run nodes that are children of the resume node
+    dependencies: dict[Node, set[Node]] = pipeline.node_dependencies.copy()
 
-    return dependencies
+    # Find resume node
+    resume_node = None
+    for n in dependencies:
+        if n.name == node:
+            resume_node = n
+            break
+    assert resume_node is not None, f"Could not find node {node}"
+
+    keep = {resume_node}
+    dependencies[resume_node] = set()
+    stack: set[Node] = {resume_node}
+
+    while stack:
+        n = stack.pop()
+
+        for child, parents in dependencies.items():
+            if n in parents and child not in keep:
+                keep.add(child)
+                stack.add(child)
+
+    new_dependencies = {}
+    for n in keep:
+        new_dependencies[n] = dependencies[n].intersection(keep)
+
+    return new_dependencies, list(new_dependencies)

@@ -92,8 +92,9 @@ class SimpleParallelRunner(ParallelRunner):
         # pylint: disable=import-outside-toplevel,cyclic-import
 
         if self.resume_node:
-            nodes = resume_from(pipeline, self.resume_node)
-            node_dependencies = resume_from_dependencies(pipeline, nodes)
+            node_dependencies, nodes = resume_from_dependencies(
+                pipeline, self.resume_node
+            )
         else:
             nodes = pipeline.nodes
             node_dependencies = pipeline.node_dependencies
@@ -134,7 +135,7 @@ class SimpleParallelRunner(ParallelRunner):
 
                 failed = None
                 interrupted = False
-                while not failed:
+                while True:
                     if use_pbar:
                         n = len(done_nodes) - last_index
                         pbar.update(n)
@@ -159,6 +160,8 @@ class SimpleParallelRunner(ParallelRunner):
                         )
 
                     if not futures:
+                        if failed:
+                            break
                         if todo_nodes:
                             debug_data = {
                                 "todo_nodes": todo_nodes,
@@ -236,7 +239,7 @@ class SimpleParallelRunner(ParallelRunner):
                             # Log to console
                             if not interrupted:
                                 logger.error(
-                                    f"One (or more) of the nodes failed, exiting..."
+                                    f"One (or more) of the nodes failed, finishing remaining nodes so resuming works. Ctrl+c to force."
                                 )
                             failed = e
 
