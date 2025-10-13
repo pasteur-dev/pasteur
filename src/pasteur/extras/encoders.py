@@ -1,4 +1,6 @@
+import json
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
@@ -14,9 +16,8 @@ from pasteur.attribute import (
     StratifiedNumValue,
     get_dtype,
 )
+from pasteur.encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
 from pasteur.utils import LazyChunk, LazyDataset, LazyFrame
-
-from ..encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
 
 if TYPE_CHECKING:
     import numpy as np
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
     from pandas import DataFrame
 
 logger = logging.getLogger(__name__)
+
+WORKER_MULTIPLIER = 4
+MAX_IDX = 1000
 
 
 class DiscretizationColumnTransformer:
@@ -524,10 +528,13 @@ def process_entity(
             elif isinstance(value, CatMapping):
                 current[key] = value.mapping[int(cached[value.table][value.name])]
             elif isinstance(value, AttrMapping):
+                if value.table not in cached:
+                    current[key] = None
+                    continue
                 current[key] = {}
                 for subkey, subvalue in value.cols.items():
-                    if subvalue.table not in cached:
-                        continue
+                    assert subvalue.table in cached
+
                     if isinstance(subvalue, NumMapping):
                         v = cached[subvalue.table][subvalue.name]
                         if value.nullable and pd.isna(v):
@@ -569,12 +576,12 @@ def _get_partition_keys(
     /,
     single_partition: bool = False,
 ):
-    out_ids = {k: v() for k, v in ids.items()}
     top_table = get_top_table(relationships)
 
     if single_partition:
-        return sorted(set(out_ids[top_table].index))
+        return sorted(set(ids[top_table]().index))
 
+    out_ids = {k: v() for k, v in ids.items()}
     leafs = sorted(set(ids).difference(relationships))
     keys = set()
     for l in leafs:
@@ -618,10 +625,112 @@ def _json_encode(
             )
         )
 
+    # We have to save the ids to be able to do look ups for the json
     return {"ids": pd.DataFrame(nrange), "data": pd.DataFrame(map(str, out))}
 
 
-WORKER_MULTIPLIER = 4
+def _json_decode_entity(
+    table: str,
+    cid: int,
+    obj: dict,
+    mapping: TableMapping,
+    out: dict[str | tuple[str, str], dict[int, dict]],
+    out_ids: dict[str, dict[int, dict[str, int]]],
+):
+    stack = [(table, cid, mapping, obj)]
+
+    while stack:
+        table, cid, mapping, current = stack.pop()
+
+        for key, v in mapping.items():
+            if isinstance(v, NumMapping):
+                lt = (table, v.table) if v.table else table
+                out[lt][cid][v.name] = float(current[v.name])
+            elif isinstance(v, CatMapping):
+                lt = (table, v.table) if v.table else table
+                out[lt][cid][v.name] = int(v.mapping.index(current[key]))
+            elif isinstance(v, AttrMapping):
+                for subkey, subvalue in v.cols.items():
+                    null = current[v.name] is None
+                    if isinstance(subvalue, NumMapping):
+                        lt = (table, subvalue.table) if subvalue.table else table
+                        if null:
+                            out[lt][cid][subvalue.name] = None
+                        else:
+                            out[lt][cid][subvalue.name] = float(current[v.name][subkey])
+                    elif isinstance(subvalue, CatMapping):
+                        lt = (table, subvalue.table) if subvalue.table else table
+                        if null:
+                            out[lt][cid][subvalue.name] = 0
+                        else:
+                            k = current[v.name][subkey]
+                            out[lt][cid][subvalue.name] = (
+                                int(subvalue.mapping.index(k)) if k is not None else 0
+                            )
+                    else:
+                        assert False, f"Unexpected subvalue type: {type(subvalue)}"
+            elif isinstance(v, ChildMapping):
+                for i, chld in enumerate(current[v.name]):
+                    ccid = cid * MAX_IDX + i
+                    out_ids[v.name][ccid] = {
+                        **out_ids[table].get(cid, {}),
+                        table: int(cid),
+                    }
+
+                    # Add seq if required
+                    if v.seq:
+                        out[v.name][ccid][v.seq] = i
+
+                    stack.append((v.name, ccid, v.child, chld))
+            else:
+                assert False, f"Unexpected value type: {type(v)}"
+
+
+def _json_decode(
+    ids: LazyChunk,
+    data: LazyChunk,
+    relationships: dict[str, list[str]],
+    attrs: dict[str, Attributes],
+    ctx_attrs: dict[str, dict[str, Attributes]],
+):
+    cids = ids()
+    cdata = data()
+    out = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    out_ids = defaultdict(lambda: defaultdict(dict))
+
+    top_table = get_top_table(relationships)
+    mapping = create_table_mapping(top_table, relationships, attrs, ctx_attrs)
+
+    for cid, d in zip(cids.iterrows(), cdata.iterrows()):
+        obj = eval(d[1][0])
+        _json_decode_entity(top_table, int(cid[1][0]), obj, mapping, out, out_ids)  # type: ignore
+
+    # Convert to dataframes
+    cctx = defaultdict(dict)
+    cdata = {}
+
+    for k, v in out.items():
+        if isinstance(k, tuple):
+            cctx[k[0]][k[1]] = pd.DataFrame.from_dict(v, orient="index")
+        else:
+            cdata[k] = pd.DataFrame.from_dict(v, orient="index")
+
+    # Convert IDs to dataframes
+    cids = {}
+    table = get_top_table(relationships)
+
+    stack = [table]
+    while stack:
+        t = stack.pop()
+        for child in relationships.get(t, []):
+            stack.append(child)
+
+        if not out_ids.get(t, {}):
+            cids[t] = pd.DataFrame(index=cdata[t].index)
+        else:
+            cids[t] = pd.DataFrame.from_dict(out_ids[t], orient="index")
+
+    return cids, cdata, dict(cctx)
 
 
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
@@ -647,8 +756,8 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
     ):
         import numpy as np
 
-        from pasteur.utils.progress import get_max_workers, process, process_in_parallel
         from pasteur.utils import gen_closure
+        from pasteur.utils.progress import get_max_workers, process, process_in_parallel
 
         if LazyDataset.are_partitioned(tables, ctx, ids):
             pids = []
@@ -723,20 +832,25 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                     }
                 )
 
-        return {
-            gen_closure(_json_encode, **base_args, **p)
-            for p in per_call
-        }
+        return {gen_closure(_json_encode, **base_args, **p) for p in per_call}
 
     def decode(
         self,
         data: dict[str, LazyDataset[str]],
-    ) -> tuple[
-        dict[str, LazyFrame],
-        dict[str, dict[str, LazyFrame]],
-        dict[str, LazyFrame],
-    ]:
-        raise NotImplementedError()
+    ):
+        from pasteur.utils import gen_closure
+
+        return {
+            gen_closure(
+                _json_decode,
+                d["ids"],
+                d["data"],
+                self.relationships,
+                self.attrs,
+                self.ctx_attrs,
+            )
+            for d in LazyDataset.zip_values(data)
+        }
 
     def get_metadata(self) -> "type[pydantic.BaseModel]":
         return create_pydantic_model(self.relationships, self.attrs, self.ctx_attrs)
