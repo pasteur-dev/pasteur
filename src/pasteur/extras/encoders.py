@@ -711,7 +711,7 @@ def _json_decode(
 
     for k, v in out.items():
         if isinstance(k, tuple):
-            cctx[k[0]][k[1]] = pd.DataFrame.from_dict(v, orient="index")
+            cctx[k[1]][k[0]] = pd.DataFrame.from_dict(v, orient="index")
         else:
             cdata[k] = pd.DataFrame.from_dict(v, orient="index")
 
@@ -730,7 +730,7 @@ def _json_decode(
         else:
             cids[t] = pd.DataFrame.from_dict(out_ids[t], orient="index")
 
-    return cids, cdata, dict(cctx)
+    return cdata, dict(cctx), cids
 
 
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
