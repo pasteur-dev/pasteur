@@ -451,7 +451,7 @@ class DateTransformer(RefTransformer):
         vals = data
 
         # Check for nullability in the columns below
-        fcol = f"{self.col}_{self.span}"
+        fcol = f"{self.col}_{self.year_name if self.span == "year" else self.span}"
         match self.span:
             case "year":
                 dcols = [f"{self.col}_week", f"{self.col}_day"]

@@ -578,8 +578,12 @@ def _get_partition_keys(
 ):
     top_table = get_top_table(relationships)
 
-    if single_partition:
-        return sorted(set(ids[top_table]().index))
+    # This allows us to also process entities with missing values
+    # in tables. However, the rest of the codebase does not like it
+    # Specifically, ctx values become null on parents where we assume they
+    # are not null.
+    # if single_partition:
+    #     return sorted(set(ids[top_table]().index))
 
     out_ids = {k: v() for k, v in ids.items()}
     leafs = sorted(set(ids).difference(relationships))
