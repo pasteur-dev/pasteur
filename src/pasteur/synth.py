@@ -1,7 +1,7 @@
-""" Contains the base definition for Synth(esizer modules).
+"""Contains the base definition for Synth(esizer modules).
 
 In addition, a test Synthesizer (IdentSynth) is provided, which returns
-the data it was provided as is. """
+the data it was provided as is."""
 
 from __future__ import annotations
 
@@ -66,9 +66,14 @@ class SynthFactory(ModuleFactory["Synth"]):
     def __init__(self, cls: type[Synth], *args, name: str | None = None, **_) -> None:
         super().__init__(cls, *args, name=name, **_)
         self.type = cls.type
+        self.in_types = cls.in_types
 
 
 class Synth(ModuleClass, Generic[META]):
+    # If in_types is provided, it must include type, and the data provided to
+    # preprocess, bake, fit will be dict[str, dict[str, LazyDataset]].
+    # Otherwise, it will be dict[str, LazyDataset].
+    in_types: list[str] | None = None
     type = "idx"
     _factory = SynthFactory
 
@@ -80,14 +85,14 @@ class Synth(ModuleClass, Generic[META]):
     def preprocess(
         self,
         meta: META,
-        data: dict[str, LazyDataset],
+        data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]],
     ):
         """Runs any preprocessing required, such as domain reduction."""
         raise NotImplementedError()
 
     def bake(
         self,
-        data: dict[str, LazyDataset],
+        data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]],
     ):
         """Bakes the model based on the data provided (such as creating and
         modeling a bayesian network on the data).
@@ -98,7 +103,7 @@ class Synth(ModuleClass, Generic[META]):
 
     def fit(
         self,
-        data: dict[str, LazyDataset],
+        data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]],
     ):
         """Fits the model based on the provided data.
 
@@ -142,7 +147,7 @@ class Synth(ModuleClass, Generic[META]):
 def synth_fit(
     factory: SynthFactory,
     metadata: Metadata,
-    encoder: ViewEncoder,
+    encoder: ViewEncoder | dict[str, ViewEncoder],
     data: dict[str, LazyDataset],
 ):
     from .utils.perf import PerformanceTracker
@@ -151,7 +156,11 @@ def synth_fit(
 
     tracker.ensemble("total", "preprocess", "bake", "fit")
 
-    meta = encoder.get_metadata()
+    meta = (
+        {t: e.get_metadata() for t, e in encoder.items()}
+        if isinstance(encoder, dict)
+        else encoder.get_metadata()
+    )
     args = {**metadata.algs.get(factory.name, {}), **metadata.alg_override}
     model = factory.build(**args, seed=metadata.seed)
 
@@ -200,18 +209,19 @@ class IdentSynth(Synth):
 class IdentSynthJson(Synth):
     """Samples the data it was provided."""
 
+    in_types = ["json", "idx"]
     name = "ident_json"
     type = "json"
     partitions = 1
 
-    def preprocess(self, meta: Any, data: dict[str, LazyDataset]):
+    def preprocess(self, meta: Any, data: dict[str, dict[str, LazyDataset]]):
         pass
 
-    def bake(self, data: dict[str, LazyDataset]):
+    def bake(self, data: dict[str, dict[str, LazyDataset]]):
         pass
 
-    def fit(self, data: dict[str, LazyDataset]):
-        self.data = data
+    def fit(self, data: dict[str, dict[str, LazyDataset]]):
+        self.data = data["json"]
 
     def sample(self, n: int | None = None):
         return self.data

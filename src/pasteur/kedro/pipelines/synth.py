@@ -22,6 +22,9 @@ def create_synth_pipeline(
 ):
     tags: list[str] = list(TAGS_SYNTH)
 
+    if fr.in_types is not None:
+        assert fr.type in fr.in_types, f"in_types must include type for '{fr.name}'"
+
     pipe = pipeline(
         [
             node(
@@ -30,8 +33,16 @@ def create_synth_pipeline(
                 args=[fr],
                 inputs={
                     "metadata": f"{view}.metadata",
-                    "encoder": f"{view}.enc.{fr.type}",
-                    "data": f"{view}.{split}.{fr.type}",
+                    "encoder": (
+                        f"{view}.enc.{fr.type}"
+                        if fr.in_types is None
+                        else {t: f"{view}.enc.{t}" for t in fr.in_types}
+                    ),
+                    "data": (
+                        f"{view}.{split}.{fr.type}"
+                        if fr.in_types is None
+                        else {t: f"{view}.{split}.{t}" for t in fr.in_types}
+                    ),
                 },
                 namespace=f"{view}.{fr.name}",
                 outputs=f"{view}.{fr.name}.model",
@@ -51,14 +62,14 @@ def create_synth_pipeline(
         D(
             "synth_models",
             f"{view}.{fr.name}.model",
-            ["synth", view, fr.name, 'model'],
+            ["synth", view, fr.name, "model"],
             versioned=True,
             type="pkl",
         ),
         D(
             "synth_output",
             f"{view}.{fr.name}.enc",
-            ["synth", view, fr.name, 'enc'],
+            ["synth", view, fr.name, "enc"],
             versioned=True,
             type="multi",
         ),
