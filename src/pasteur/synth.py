@@ -67,6 +67,7 @@ class SynthFactory(ModuleFactory["Synth"]):
         super().__init__(cls, *args, name=name, **_)
         self.type = cls.type
         self.in_types = cls.in_types
+        self.in_sample = cls.in_sample
 
 
 class Synth(ModuleClass, Generic[META]):
@@ -75,6 +76,8 @@ class Synth(ModuleClass, Generic[META]):
     # Otherwise, it will be dict[str, LazyDataset].
     in_types: list[str] | None = None
     type = "idx"
+    # Include input data in sample()
+    in_sample: bool = False
     _factory = SynthFactory
 
     # Fill in for `sample` function to work
@@ -121,7 +124,13 @@ class Synth(ModuleClass, Generic[META]):
         """
         raise NotImplementedError()
 
-    def sample(self, *, n: int | None = None, partitions: int | None = None):
+    def sample(
+        self,
+        *,
+        n: int | None = None,
+        partitions: int | None = None,
+        data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]] | None = None,
+    ):
         """Samples `n` samples across `partitions` partitions.
 
         The return value should be finalized to `dict[str, Any]`, which
@@ -182,8 +191,11 @@ def synth_fit(
     return model
 
 
-def synth_sample(s: Synth):
-    return s.sample()
+def synth_sample(s: Synth, data=None):
+    if data is not None:
+        return s.sample(data=data)
+    else:
+        return s.sample()
 
 
 class IdentSynth(Synth):

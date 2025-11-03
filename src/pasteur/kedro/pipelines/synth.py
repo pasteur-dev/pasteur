@@ -25,6 +25,14 @@ def create_synth_pipeline(
     if fr.in_types is not None:
         assert fr.type in fr.in_types, f"in_types must include type for '{fr.name}'"
 
+    data_in = (
+        f"{view}.{split}.{fr.type}"
+        if fr.in_types is None
+        else {t: f"{view}.{split}.{t}" for t in fr.in_types}
+    )
+
+    synth_in = {"data": data_in} if fr.in_sample else {}
+
     pipe = pipeline(
         [
             node(
@@ -38,11 +46,7 @@ def create_synth_pipeline(
                         if fr.in_types is None
                         else {t: f"{view}.enc.{t}" for t in fr.in_types}
                     ),
-                    "data": (
-                        f"{view}.{split}.{fr.type}"
-                        if fr.in_types is None
-                        else {t: f"{view}.{split}.{t}" for t in fr.in_types}
-                    ),
+                    "data": data_in, # type: ignore
                 },
                 namespace=f"{view}.{fr.name}",
                 outputs=f"{view}.{fr.name}.model",
@@ -50,7 +54,10 @@ def create_synth_pipeline(
             ),
             node(
                 func=synth_sample,
-                inputs=f"{view}.{fr.name}.model",
+                inputs={
+                    "s": f"{view}.{fr.name}.model",
+                    **synth_in, # type: ignore
+                },
                 outputs=f"{view}.{fr.name}.enc",
                 namespace=f"{view}.{fr.name}",
                 tags=tags,

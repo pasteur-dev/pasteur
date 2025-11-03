@@ -9,6 +9,7 @@ class AmalgamSynth(Synth):
 
     name = "amalgam"
     in_types = ["json", "idx"]
+    in_sample = True
     type = "json"
     partitions = 1
 
@@ -21,5 +22,5 @@ class AmalgamSynth(Synth):
     def fit(self, data: dict[str, dict[str, LazyDataset]]):
         self.data = data["json"]
 
-    def sample(self, n: int | None = None):
-        return self.data
+    def sample(self, n: int | None = None, data=None):
+        return data['json'] # type: ignore
