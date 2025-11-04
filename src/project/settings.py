@@ -74,5 +74,5 @@ PASTEUR_MODULES = get_recommended_modules() + [
     MareSynth.get_factory(PrivBayesMare),
     # SynthEvalMetric.get_factory(),
     JsonEncoder.get_factory(),
-    AmalgamSynth.get_factory(),
+    AmalgamSynth.get_factory(PrivBayesMare),
 ]

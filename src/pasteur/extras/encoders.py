@@ -856,8 +856,12 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
             for d in LazyDataset.zip_values(data)
         }
 
-    def get_metadata(self) -> "type[pydantic.BaseModel]":
-        return create_pydantic_model(self.relationships, self.attrs, self.ctx_attrs)
+    def get_metadata(self):
+        return {
+            # "model": create_pydantic_model(self.relationships, self.attrs, self.ctx_attrs),
+            "relationships": self.relationships,
+            "top_table": get_top_table(self.relationships),
+        }
 
 
 class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
