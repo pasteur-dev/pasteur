@@ -40,11 +40,14 @@ def _wrap_retry(f):
                 import time
 
                 # Prevents pipeline crashing on unreliable network shares
-                logger.warn(
+                logger.warning(
                     f"Failed fs function '{f.__name__}(path={kwargs.get('path', str(args[0]) if args else 'None')})' (attempt {i + 1}/3). Waiting 1 second and retrying..."
                 )
                 time.sleep(1)
-                ex = e
+                # Only push first exception, as following ones might be due to
+                # a file having been created
+                if ex is None:
+                    ex = e
         if ex:
             raise ex
 
