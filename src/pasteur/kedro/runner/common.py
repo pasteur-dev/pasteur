@@ -135,7 +135,7 @@ def run_expanded_node(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
             logger.info(
-                f'To continue from this node, add `-c "{node.name}" -s "{session_id}"` to a pipeline run\'s arguments.'
+                f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
             )
         raise e
 
@@ -210,7 +210,7 @@ def resume_from_dependencies(pipeline: Pipeline, node: str):
     # Find resume node
     resume_node = None
     for n in dependencies:
-        if n.name == node:
+        if n.name.startswith(node):
             resume_node = n
             break
     assert resume_node is not None, f"Could not find node {node}"
