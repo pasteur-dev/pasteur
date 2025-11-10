@@ -120,10 +120,15 @@ def limit_pbar_nesting(pbar_gen: A) -> A:
 prange = limit_pbar_nesting(trange)
 piter = limit_pbar_nesting(tqdm)
 
-_first_error = True
 
 def _wrap_exceptions(
-    fun: Callable[P, X], /, node_name: str, *args: P.args, **kwargs: P.kwargs
+    fun: Callable[P, X],
+    /,
+    node_name: str,
+    lock,
+    first_error,
+    *args: P.args,
+    **kwargs: P.kwargs,
 ) -> X:
     set_node_name(node_name)
     try:
@@ -140,7 +145,13 @@ def _wrap_exceptions(
 
         return res
     except Exception as e:
-        global _first_error
+        # Use some logic to only print the first error
+        if lock and first_error:
+            with lock:
+                _first_error = first_error.value
+                first_error.value = False
+        else:
+            _first_error = True
 
         # raise original exception to to catch proper breakpoint
         if _first_error:
@@ -159,6 +170,7 @@ def _calc_worker(args):
         node_name,
         progress_send,
         progress_lock,
+        progress_first_error,
         initializer,
         fun,
         finalizer,
@@ -174,12 +186,16 @@ def _calc_worker(args):
             try:
                 base_args, chunk = initializer(base_args, chunk)
             except Exception as e:
-                if DEBUG:
-                    raise e
-                get_console().print_exception(**RICH_TRACEBACK_ARGS)
-                logger.error(
-                    f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
-                )
+                with progress_lock:
+                    first_error = progress_first_error.value
+                    progress_first_error.value = False
+                if first_error:
+                    if DEBUG:
+                        raise e
+                    get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                    logger.error(
+                        f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                    )
                 raise RuntimeError("subprocess failed") from e
 
         last_update = time.perf_counter_ns()
@@ -199,12 +215,16 @@ def _calc_worker(args):
                     del a
                     check(f"Node {node_name}:{i} leaks")
             except Exception as e:
-                if DEBUG:
-                    raise e
-                get_console().print_exception(**RICH_TRACEBACK_ARGS)
-                logger.error(
-                    f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
-                )
+                with progress_lock:
+                    first_error = progress_first_error.value
+                    progress_first_error.value = False
+                if first_error:
+                    if DEBUG:
+                        raise e
+                    get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                    logger.error(
+                        f'Subprocess of "{get_node_name()}" at index {i} failed with error:\n{type(e).__name__}: {e}'
+                    )
                 raise RuntimeError("subprocess failed") from e
 
             u += 1
@@ -219,12 +239,16 @@ def _calc_worker(args):
             try:
                 finalizer(base_args, chunk)
             except Exception as e:
-                if DEBUG:
-                    raise e
-                get_console().print_exception(**RICH_TRACEBACK_ARGS)
-                logger.error(
-                    f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
-                )
+                with progress_lock:
+                    first_error = progress_first_error.value
+                    progress_first_error.value = False
+                if first_error:
+                    if DEBUG:
+                        raise e
+                    get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                    logger.error(
+                        f'Subprocess finalization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                    )
                 raise RuntimeError("subprocess failed") from e
 
         return out
@@ -397,7 +421,8 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return fun(*args, **kwargs)
 
-    return _get_pool()[0].apply(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
+    pool, manager, _ = _get_pool()
+    return pool.apply(_wrap_exceptions, (fun, get_node_name(), manager.Lock(), manager.Value("first_error", True), *args), kwargs)  # type: ignore
 
 
 class AsyncResultStub(AsyncResult):
@@ -424,7 +449,8 @@ def process_async(
     if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return AsyncResultStub(fun(*args, **kwargs))
 
-    return _get_pool()[0].apply_async(_wrap_exceptions, (fun, get_node_name(), *args), kwargs)  # type: ignore
+    pool, manager, _ = _get_pool()
+    return pool.apply_async(_wrap_exceptions, (fun, get_node_name(), manager.Lock(), manager.Value("first_error", True), *args), kwargs)  # type: ignore
 
 
 def process_in_parallel(
@@ -462,7 +488,7 @@ def process_in_parallel(
             kwargs = args.copy()
             if base_args:
                 kwargs.update(base_args)
-            res = _wrap_exceptions(fun, get_node_name(), **kwargs)
+            res = _wrap_exceptions(fun, get_node_name(), None, None, **kwargs)
             out.append(res)
 
         if finalizer is not None:
@@ -473,6 +499,7 @@ def process_in_parallel(
     pool, manager, _ = _get_pool()
     progress_recv, progress_send = Pipe(duplex=False)
     progress_lock = manager.Lock()
+    progress_first_error = manager.Value("first_error", True)
 
     n_tasks = len(per_call_args)
     if n_tasks == 0:
@@ -495,6 +522,7 @@ def process_in_parallel(
                 get_node_name(),
                 progress_send,
                 progress_lock,
+                progress_first_error,
                 initializer,
                 fun,
                 finalizer,
