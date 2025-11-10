@@ -1,7 +1,7 @@
 from typing import Any
 
 from pasteur.synth import Synth
-from pasteur.utils import LazyDataset
+from pasteur.utils import LazyDataset, gen_closure
 from pasteur.mare.synth import MareModel
 
 import logging
@@ -19,6 +19,13 @@ from pasteur.attribute import (
     SeqAttributes,
     get_dtype,
 )
+
+
+def _repack(pid, ids, data):
+    return {
+        "ids": {pid: ids()},
+        "data": {pid: data()},
+    }
 
 
 class AmalgamSynth(Synth):
@@ -77,4 +84,7 @@ class AmalgamSynth(Synth):
             self.model = model
 
     def sample(self, n: int | None = None, data=None):
-        return data["json"]  # type: ignore
+        return {
+            gen_closure(_repack, pid, i, d)
+            for pid, (i, d) in LazyDataset.zip(data["json"]["ids"], data["json"]["data"]).items()  # type: ignore
+        }
