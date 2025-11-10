@@ -858,7 +858,8 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
 
     def get_metadata(self):
         return {
-            # "model": create_pydantic_model(self.relationships, self.attrs, self.ctx_attrs),
+            "attrs": self.attrs,
+            "ctx_attrs": self.ctx_attrs,
             "relationships": self.relationships,
             "top_table": get_top_table(self.relationships),
         }
