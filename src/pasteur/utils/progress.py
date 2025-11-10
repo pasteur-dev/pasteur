@@ -120,6 +120,7 @@ def limit_pbar_nesting(pbar_gen: A) -> A:
 prange = limit_pbar_nesting(trange)
 piter = limit_pbar_nesting(tqdm)
 
+_first_error = True
 
 def _wrap_exceptions(
     fun: Callable[P, X], /, node_name: str, *args: P.args, **kwargs: P.kwargs
@@ -139,13 +140,17 @@ def _wrap_exceptions(
 
         return res
     except Exception as e:
+        global _first_error
+
         # raise original exception to to catch proper breakpoint
-        if DEBUG:
-            raise e
-        get_console().print_exception(**RICH_TRACEBACK_ARGS)
-        logger.error(
-            f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
-        )
+        if _first_error:
+            _first_error = False
+            if DEBUG:
+                raise e
+            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+            logger.error(
+                f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+            )
         raise RuntimeError("subprocess failed") from e
 
 
