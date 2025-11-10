@@ -134,9 +134,9 @@ def run_expanded_node(
             logger.error(
                 f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
             )
-            logger.info(
-                f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
-            )
+        logger.info(
+            f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
+        )
         raise e
 
     # Clear outputs
