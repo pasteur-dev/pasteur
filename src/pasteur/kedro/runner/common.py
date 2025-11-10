@@ -148,12 +148,18 @@ def run_expanded_node(
     if isinstance(outputs, set):
         # TODO: Fix hooks
         # When a set is received, process it in parallel
-        process_in_parallel(
-            _task_worker,
-            per_call_args=[{"fun": fun} for fun in outputs],
-            base_args={"catalog": catalog},
-            desc=f"Processing tasks ({node.name.split('(')[0]:>25s})",
-        )
+        try:
+            process_in_parallel(
+                _task_worker,
+                per_call_args=[{"fun": fun} for fun in outputs],
+                base_args={"catalog": catalog},
+                desc=f"Processing tasks ({node.name.split('(')[0]:>25s})",
+            )
+        except Exception as e:
+            logger.info(
+                f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
+            )
+            raise e
     else:
         try:
             for name, data in outputs.items():
