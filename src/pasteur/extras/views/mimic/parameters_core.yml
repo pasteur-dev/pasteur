@@ -33,10 +33,12 @@ tables:
           span: year.hour
           max_len: 99
           bins: 32
+          year_name: age_years
         seq:
           type: datetime
           span: year.hour
           bins: 10
+          year_name: years_from
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
