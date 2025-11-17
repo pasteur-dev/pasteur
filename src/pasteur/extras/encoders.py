@@ -534,6 +534,8 @@ def process_entity(
                 current[key] = {}
                 for subkey, subvalue in value.cols.items():
                     assert subvalue.table in cached
+                    if subkey.startswith(f"{key}_"):
+                        subkey = subkey[len(key) + 1 :]
 
                     if isinstance(subvalue, NumMapping):
                         v = cached[subvalue.table][subvalue.name]
@@ -662,6 +664,9 @@ def _json_decode_entity(
                 out[lt][cid][v.name] = int(v.mapping.index(current[key]))
             elif isinstance(v, AttrMapping):
                 for subkey, subvalue in v.cols.items():
+                    if subkey.startswith(f"{v.name}_"):
+                        subkey = subkey[len(v.name) + 1 :]
+
                     null = current[v.name] is None
                     if isinstance(subvalue, NumMapping):
                         lt = (table, subvalue.table) if subvalue.table else table
