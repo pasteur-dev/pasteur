@@ -38,7 +38,7 @@ tables:
           type: datetime
           span: year.hour
           bins: 10
-          year_name: years_from
+          year_name: years_passed
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
