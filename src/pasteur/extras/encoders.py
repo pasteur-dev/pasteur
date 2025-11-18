@@ -1,7 +1,7 @@
 import json
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, Mapping, NamedTuple, Type, cast
 
 import numpy as np
 import pandas as pd
@@ -10,14 +10,25 @@ from pasteur.attribute import (
     Attribute,
     Attributes,
     CatValue,
+    DatasetAttributes,
+    GenAttribute,
     Grouping,
     NumValue,
+    SeqAttributes,
     SeqValue,
     StratifiedNumValue,
     get_dtype,
 )
 from pasteur.encode import AttributeEncoder, PostprocessEncoder, ViewEncoder
-from pasteur.utils import LazyChunk, LazyDataset, LazyFrame
+from pasteur.marginal.oracle import TableSelector
+from pasteur.utils import (
+    LazyChunk,
+    LazyDataset,
+    LazyFrame,
+    LazyPartition,
+    data_to_tables,
+    gen_closure,
+)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -877,5 +888,107 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
         }
 
 
-class MareEncoder(IdxEncoder, PostprocessEncoder[Attribute]):
-    name = "mare"
+SEQ_MAX = 20
+
+
+def _flatten_load(
+    meta: Any,
+    ids: Mapping[str, "DataFrame"],
+    tables: Mapping[str, "DataFrame"],
+    ctx: Mapping[str, Mapping[str, "DataFrame"]],
+) -> "DataFrame":
+    top_table = meta["top_table"]
+    out = tables[top_table].add_prefix(f"{top_table}_")
+
+    for t in tables:
+        if t == top_table:
+            continue
+        t_ids = ids[t][[top_table]]
+        t_data = t_ids.join(tables[t]).groupby(top_table).first()
+        t_data["n"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+        out = out.join(t_data.add_prefix(f"{t}_"))
+
+    for creator, ctx_tables in ctx.items():
+        for t, table in ctx_tables.items():
+            if t == top_table:
+                t_data = table.add_prefix(f"{top_table}#{creator}_")
+                out = out.join(t_data)
+            else:
+                t_ids = ids[t][[top_table]]
+                t_data = t_ids.join(table).groupby(top_table).first()
+                t_data["n"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+                out = out.join(t_data.add_prefix(f"{t}#{creator}_"))
+
+    return out
+
+
+def _flatten_meta(
+    attrs: Mapping[tuple[str, ...] | str, Attribute],
+    ctx_attrs: Mapping[str, Mapping[tuple[str, ...] | str, Attribute]],
+):
+    out = {}
+
+    top_table = None
+
+    for table, table_attrs in attrs.items():
+        is_top_table = True
+        for name, attr in table_attrs.items():
+            new_vals = [v.rename(f"{table}_{k}") for k, v in attr.vals.items()]
+
+            new_common = (
+                attr.common.rename(f"{table}_{attr.common.name}")
+                if attr.common
+                else None
+            )
+
+            out[f"{table}_{name}"] = Attribute(
+                f"{table}_{name}", new_vals, attr.common, attr.unroll, attr.along
+            )
+
+            if any(isinstance(v, SeqValue) for v in attr.vals.values()):
+                is_top_table = False
+            if attr.unroll:
+                is_top_table = False
+        
+        if is_top_table:
+            assert top_table is None, f"Multiple top tables found: {top_table}, {table}"
+            top_table = table
+
+    for ctx, ctx_table_attrs in ctx_attrs.items():
+        for table, table_attrs in ctx_table_attrs.items():
+            for name, attr in table_attrs.items():
+                new_vals = [
+                    v.rename(f"{table}#{ctx}_{k}") for k, v in attr.vals.items()
+                ]
+
+                new_common = (
+                    attr.common.rename(f"{table}#{ctx}_{attr.common.name}")
+                    if attr.common
+                    else None
+                )
+
+                out[f"{table}#{ctx}_{name}"] = Attribute(
+                    f"{table}#{ctx}_{name}",
+                    new_vals,
+                    new_common,
+                    attr.unroll,
+                    attr.along,
+                )
+
+    return {
+        "meta": out,
+        "top_table": top_table,
+    }
+
+
+class FlatEncoder(IdxEncoder, PostprocessEncoder[Attribute, Attributes]):
+    name = "flat"
+
+    def finalize(self, meta, ids, tables, ctx):
+        return _flatten_load(meta, ids, tables, ctx)
+
+    def undo(self, meta, data):
+        raise NotImplementedError("\"flat\" is a one way transformation.")
+
+    def get_post_metadata(self, attrs, ctx_attrs):
+        return _flatten_meta(attrs, ctx_attrs)

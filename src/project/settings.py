@@ -51,7 +51,7 @@ CONFIG_LOADER_ARGS = {}
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
-from pasteur.extras.encoders import MareEncoder, JsonEncoder
+from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 # from pasteur.synth import IdentSynth
 from pasteur.mare.synth import MareSynth
 from pasteur.extras.synth.privbayes import PrivBayesMare
@@ -70,9 +70,9 @@ PASTEUR_MODULES = get_recommended_modules() + [
     MimicBillion(),
     MimicCore(),
     MimicIcu(),
-    MareEncoder.get_factory(),
     MareSynth.get_factory(PrivBayesMare),
     # SynthEvalMetric.get_factory(),
     JsonEncoder.get_factory(),
     AmalgamSynth.get_factory(PrivBayesMare),
+    FlatEncoder.get_factory(),
 ]

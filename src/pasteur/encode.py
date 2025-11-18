@@ -32,7 +32,7 @@ class EncoderFactory(ModuleFactory):
 
 
 META = TypeVar("META")
-
+POST_META = TypeVar("POST_META")
 
 class AttributeEncoder(ModuleClass, Generic[META]):
     """Encapsulates a special way to encode an Attribute.
@@ -76,19 +76,17 @@ class AttributeEncoder(ModuleClass, Generic[META]):
         raise NotImplementedError()
 
 
-class PostprocessEncoder(AttributeEncoder[META], Generic[META]):
+class PostprocessEncoder(AttributeEncoder[META], Generic[META, POST_META]):
     """Same as `AttributeEncoder` but allows customizing the tables after they
     have been encoded or adding additional ones.
 
     Unlike `AttributeEncoder`, this one does not parallelize per-table, so it should
     be avoided unless customization is required.
-
-    Default implementations are provided which behave as the normal AttributeEncoder.
     """
 
     def finalize(
         self,
-        meta: Mapping[str, Mapping[tuple[str, ...] | str, META]],
+        meta: POST_META,
         ids: Mapping[str, pd.DataFrame],
         tables: Mapping[str, pd.DataFrame],
         ctx: Mapping[str, Mapping[str, pd.DataFrame]],
@@ -97,7 +95,7 @@ class PostprocessEncoder(AttributeEncoder[META], Generic[META]):
 
     def undo(
         self,
-        meta: Mapping[str, Mapping[tuple[str, ...] | str, META]],
+        meta: POST_META,
         data: Mapping[str, LazyPartition],
     ) -> tuple[
         Mapping[str, pd.DataFrame],
@@ -119,6 +117,13 @@ class PostprocessEncoder(AttributeEncoder[META], Generic[META]):
             {k: v() for k, v in tables.items()},
             ctx_out,
         )
+
+    def get_post_metadata(
+        self,
+        attrs: Mapping[tuple[str, ...] | str, META],
+        ctx_attrs: Mapping[str, Mapping[tuple[str, ...] | str, META]],
+    ) -> POST_META:
+        raise NotImplementedError()
 
 
 class Encoder(ModuleClass, Generic[META]):

@@ -690,7 +690,9 @@ class AttributeEncoderHolder(
     ctx_encoders: dict[
         str, dict[str, dict[str | tuple[str, ...], AttributeEncoder[META]]]
     ]
-    postprocess_enc: PostprocessEncoder[META] | None
+    postprocess_enc: (
+        PostprocessEncoder[META, Any] | None
+    )
 
     def __init__(self, encoder: AttributeEncoderFactory, **kwargs) -> None:
         self.kwargs = kwargs
@@ -882,15 +884,22 @@ class AttributeEncoderHolder(
 
     def get_metadata(self) -> dict[str, dict[str | tuple[str, ...], META]]:
         out = defaultdict(dict)
+        attrs = defaultdict(dict)
+        ctx_attrs = defaultdict(lambda: defaultdict(dict))
 
         for table, encs in self.table_encoders.items():
             for enc in encs.values():
                 out[table].update(enc.get_metadata())
+                attrs[table].update(enc.get_metadata())
 
-        for cencs in self.ctx_encoders.values():
+        for cname, cencs in self.ctx_encoders.items():
             for table, encs in cencs.items():
                 for enc in encs.values():
                     out[table].update(enc.get_metadata())
+                    ctx_attrs[cname][table].update(enc.get_metadata())
+
+        if self.postprocess_enc is not None:
+            return self.postprocess_enc.get_post_metadata(dict(attrs), dict(ctx_attrs))  # type: ignore
 
         return dict(out)
 

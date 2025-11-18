@@ -375,6 +375,13 @@ class Value:
 
     name: str
 
+    def rename(self, name: str) -> "Value":
+        from copy import copy
+
+        c = copy(self)
+        c.name = name
+        return c
+
 
 class SeqValue(Value):
     table: str | None

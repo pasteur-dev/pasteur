@@ -42,8 +42,14 @@ NAME_LOCATION = "dataset_{}"
 
 
 def _get_alg_types(algs: dict[str, SynthFactory]):
-    alg_types = [a.type for a in algs.values()]
-    return list_unique(alg_types)
+    out = []
+
+    for a in algs.values():
+        out.append(a.type)
+        if a.in_types is not None:
+            out.extend(a.in_types)
+
+    return list_unique(out)
 
 
 def _is_downloaded(ds: Dataset, params: dict):

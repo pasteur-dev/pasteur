@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 class MareModel:
     def fit(
-        self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle
+        self, n: int, table: str | None, attrs: DatasetAttributes, oracle: MarginalOracle
     ): ...
 
     def sample(
