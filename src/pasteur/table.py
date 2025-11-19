@@ -769,11 +769,34 @@ class AttributeEncoderHolder(
         ctx: Mapping[str, Mapping[str, LazyChunk]],
     ):
         assert self.postprocess_enc is not None
+
+        def encode_table(enc, table: LazyChunk):
+            tts = []
+            cached_table = table()
+            for attr_name, attr_enc in enc.items():
+                tts.append(attr_enc.encode(cached_table))
+            
+            if tts:
+                return pd.concat(tts, axis=1, copy=False, join="inner")
+            else:
+                return pd.DataFrame(index=cached_table.index)
+
+        tables_enc = {}
+        ctx_enc = {}
+
+        for name, enc in self.table_encoders.items():
+            tables_enc[name] = encode_table(enc, tables[name])
+        
+        for creator, cencs in self.ctx_encoders.items():
+            ctx_enc[creator] = {}
+            for name, enc in cencs.items():
+                ctx_enc[creator][name] = encode_table(enc, ctx[creator][name])
+
         return self.postprocess_enc.finalize(
             self.get_metadata(),
             {k: v() for k, v in ids.items()},
-            {k: v() for k, v in tables.items()},
-            {c: {k: v() for k, v in t.items()} for c, t in ctx.items()},
+            tables_enc,
+            ctx_enc,
         )
 
     @to_chunked
@@ -858,6 +881,8 @@ class AttributeEncoderHolder(
 
     @to_chunked
     def _decode_postprocess(self, data: Mapping[str, LazyChunk]):
+        assert False, "Decoding for postprocess encoders not implemented yet. Only used for flat encoder."
+
         assert self.postprocess_enc is not None
         ids, tables, ctx = self.postprocess_enc.undo(self.get_metadata(), dict(data))
         return tables, ctx, ids

@@ -375,11 +375,22 @@ class Value:
 
     name: str
 
-    def rename(self, name: str) -> "Value":
+    def prefix_rename(self, prefix: str) -> "Value":
+        from copy import copy
+
+        c = copy(self)
+        c.name = prefix + c.name
+        if hasattr(c, "name_cnt"):
+            setattr(c, "name_cnt", prefix + getattr(c, "name_cnt"))
+        return c
+
+    def rename(self, name: str, name_cnt: str | None = None) -> "Value":
         from copy import copy
 
         c = copy(self)
         c.name = name
+        if name_cnt and hasattr(c, "name_cnt"):
+            setattr(c, "name_cnt", name_cnt)
         return c
 
 

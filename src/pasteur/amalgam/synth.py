@@ -1,24 +1,9 @@
-from typing import Any
+from typing import Any, Mapping, Type, TypedDict
 
+from pasteur.mare.synth import MareModel
+from pasteur.marginal import MarginalOracle
 from pasteur.synth import Synth
 from pasteur.utils import LazyDataset, gen_closure
-from pasteur.mare.synth import MareModel
-
-import logging
-from collections import defaultdict
-from typing import Any, Type, cast
-
-import pandas as pd
-import numpy as np
-from pasteur.marginal import MarginalOracle, counts_preprocess
-
-from pasteur.attribute import (
-    Attributes,
-    CatValue,
-    DatasetAttributes,
-    SeqAttributes,
-    get_dtype,
-)
 
 
 def _repack(pid, ids, data):
@@ -27,10 +12,13 @@ def _repack(pid, ids, data):
         "data": {pid: data()},
     }
 
+class AmalgamInput(TypedDict):
+    flat: dict[str, LazyDataset]
+    json: Any
 
 class AmalgamSynth(Synth):
     name = "amalgam"
-    in_types = ["json", "idx"]
+    in_types = ["json", "flat"]
     in_sample = True
     type = "json"
     partitions = 1
@@ -49,36 +37,27 @@ class AmalgamSynth(Synth):
         self.marginal_min_chunk = marginal_min_chunk
         self.model_cls = model_cls
 
-    def preprocess(self, meta: Any, data: dict[str, dict[str, LazyDataset]]):
-        with MarginalOracle(
-            data["idx"],  # type: ignore
-            meta["idx"],  # type: ignore
-            mode=self.marginal_mode,
-            min_chunk_size=self.marginal_min_chunk,
-            max_worker_mult=self.marginal_worker_mult,
-            preprocess=counts_preprocess,
-        ) as o:
-            self.counts = o.get_counts(desc="Calculating counts for column rebalancing")
+    def preprocess(self, meta: Any, data: AmalgamInput):
         self.meta = meta
 
-    def bake(self, data: dict[str, dict[str, LazyDataset]]): ...
+    def bake(self, data: AmalgamInput): ...
 
-    def fit(self, data: dict[str, dict[str, LazyDataset]]):
-        top_table = self.meta["json"]["top_table"]
+    def fit(self, data: AmalgamInput):
         with MarginalOracle(
-            {top_table: data["idx"][top_table]},  # type: ignore
-            {None: self.meta["idx"][top_table]},  # type: ignore
+            data["flat"],  # type: ignore
+            self.meta['flat']['meta'],  # type: ignore
             mode=self.marginal_mode,
-            max_worker_mult=self.marginal_worker_mult,
             min_chunk_size=self.marginal_min_chunk,
+            max_worker_mult=self.marginal_worker_mult,
         ) as o:
+            self.counts = o.get_counts(desc="Calculating counts for column rebalancing")
             kwargs = dict(self.kwargs)
 
             model = self.model_cls(**kwargs)
             model.fit(
-                data["idx"][top_table].shape[0],
-                top_table,
-                {None: self.meta["idx"][top_table]},
+                data["flat"]["table"].shape[0],
+                None,
+                {None: self.meta["flat"]["meta"]},
                 o,
             )
             self.model = model

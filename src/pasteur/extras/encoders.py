@@ -896,7 +896,7 @@ def _flatten_load(
     ids: Mapping[str, "DataFrame"],
     tables: Mapping[str, "DataFrame"],
     ctx: Mapping[str, Mapping[str, "DataFrame"]],
-) -> "DataFrame":
+) -> dict[str, "DataFrame"]:
     top_table = meta["top_table"]
     out = tables[top_table].add_prefix(f"{top_table}_")
 
@@ -906,20 +906,20 @@ def _flatten_load(
         t_ids = ids[t][[top_table]]
         t_data = t_ids.join(tables[t]).groupby(top_table).first()
         t_data["n"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
-        out = out.join(t_data.add_prefix(f"{t}_"))
+        out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
         for t, table in ctx_tables.items():
             if t == top_table:
                 t_data = table.add_prefix(f"{top_table}#{creator}_")
-                out = out.join(t_data)
+                out = out.join(t_data, how="inner")
             else:
                 t_ids = ids[t][[top_table]]
                 t_data = t_ids.join(table).groupby(top_table).first()
                 t_data["n"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
-                out = out.join(t_data.add_prefix(f"{t}#{creator}_"))
+                out = out.join(t_data.add_prefix(f"{t}#{creator}_"), how="inner")
 
-    return out
+    return {"table": out}
 
 
 def _flatten_meta(
@@ -933,23 +933,23 @@ def _flatten_meta(
     for table, table_attrs in attrs.items():
         is_top_table = True
         for name, attr in table_attrs.items():
-            new_vals = [v.rename(f"{table}_{k}") for k, v in attr.vals.items()]
+            new_vals = [
+                v.prefix_rename(f"{table}_")
+                for v in attr.vals.values()
+                if not isinstance(v, SeqValue)
+            ]
 
-            new_common = (
-                attr.common.rename(f"{table}_{attr.common.name}")
-                if attr.common
-                else None
-            )
+            new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
             out[f"{table}_{name}"] = Attribute(
-                f"{table}_{name}", new_vals, attr.common, attr.unroll, attr.along
+                f"{table}_{name}", new_vals, new_common
             )
 
             if any(isinstance(v, SeqValue) for v in attr.vals.values()):
                 is_top_table = False
             if attr.unroll:
                 is_top_table = False
-        
+
         if is_top_table:
             assert top_table is None, f"Multiple top tables found: {top_table}, {table}"
             top_table = table
@@ -958,11 +958,11 @@ def _flatten_meta(
         for table, table_attrs in ctx_table_attrs.items():
             for name, attr in table_attrs.items():
                 new_vals = [
-                    v.rename(f"{table}#{ctx}_{k}") for k, v in attr.vals.items()
+                    v.prefix_rename(f"{table}#{ctx}_") for k, v in attr.vals.items()
                 ]
 
                 new_common = (
-                    attr.common.rename(f"{table}#{ctx}_{attr.common.name}")
+                    attr.common.prefix_rename(f"{table}#{ctx}_")
                     if attr.common
                     else None
                 )
@@ -988,7 +988,7 @@ class FlatEncoder(IdxEncoder, PostprocessEncoder[Attribute, Attributes]):
         return _flatten_load(meta, ids, tables, ctx)
 
     def undo(self, meta, data):
-        raise NotImplementedError("\"flat\" is a one way transformation.")
+        raise NotImplementedError('"flat" is a one way transformation.')
 
     def get_post_metadata(self, attrs, ctx_attrs):
         return _flatten_meta(attrs, ctx_attrs)
