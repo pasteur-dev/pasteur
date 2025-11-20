@@ -726,8 +726,8 @@ def print_tree(
             c_str = f" {col}"
 
             if len(c_str) + len(line_str) >= pset_len + 11:
-                s += f"{line_str:57s}│"
-                s += f"\n│{' '*(tlen+1)}│     │"
+                s += f"{line_str:68s}│"
+                s += f"\n│{' '*(tlen+1)}│      │"
                 line_str = f" >{c_str}"
             else:
                 line_str += c_str

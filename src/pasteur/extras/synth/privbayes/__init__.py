@@ -106,8 +106,6 @@ class PrivBayesMare(MareModel):
     def sample(
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
     ) -> pd.DataFrame:
-        import pandas as pd
-
         from .implementation import sample_rows
 
         return sample_rows(index, self.attrs, hist, self.nodes, self.marginals)
