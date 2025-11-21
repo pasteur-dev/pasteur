@@ -548,8 +548,8 @@ def process_entity(
                     if subkey.startswith(f"{key}_"):
                         subkey = subkey[len(key) + 1 :]
 
+                    v = cached[subvalue.table][subvalue.name]
                     if isinstance(subvalue, NumMapping):
-                        v = cached[subvalue.table][subvalue.name]
                         if value.nullable and pd.isna(v):
                             current[key] = None
                             break
@@ -628,6 +628,7 @@ def _json_encode(
 
     top_table = get_top_table(relationships)
 
+    mapping = create_table_mapping(top_table, relationships, attrs, ctx_attrs)
     out = []
     i = 0
     for id in nrange:
@@ -635,7 +636,7 @@ def _json_encode(
             process_entity(
                 top_table,
                 id,
-                create_table_mapping(top_table, relationships, attrs, ctx_attrs),
+                mapping,
                 l_tables,
                 l_ctx,
                 l_ids,
