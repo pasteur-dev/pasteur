@@ -916,7 +916,6 @@ def _flatten_load(
             else:
                 t_ids = ids[t][[top_table]]
                 t_data = t_ids.join(table).groupby(top_table).first()
-                t_data["n"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
                 out = out.join(t_data.add_prefix(f"{t}#{creator}_"), how="inner")
 
     return {"table": out}
@@ -941,14 +940,15 @@ def _flatten_meta(
 
             new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
-            out[f"{table}_{name}"] = Attribute(
-                f"{table}_{name}", new_vals, new_common
-            )
+            out[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
 
             if any(isinstance(v, SeqValue) for v in attr.vals.values()):
                 is_top_table = False
             if attr.unroll:
                 is_top_table = False
+        
+        if not is_top_table:
+            out[f"{table}_n"] = GenAttribute(f"{table}_n", SEQ_MAX)
 
         if is_top_table:
             assert top_table is None, f"Multiple top tables found: {top_table}, {table}"
