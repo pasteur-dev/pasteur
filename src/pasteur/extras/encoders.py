@@ -906,7 +906,7 @@ def _flatten_load(
             continue
         t_ids = ids[t][[top_table]]
         t_data = t_ids.join(tables[t]).groupby(top_table).first()
-        t_data["number"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+        t_data["total_count"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
         out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
@@ -932,6 +932,8 @@ def _flatten_meta(
 
     for table, table_attrs in attrs.items():
         is_top_table = True
+
+        tmp = {}
         for name, attr in table_attrs.items():
             new_vals = [
                 v.prefix_rename(f"{table}_")
@@ -941,7 +943,7 @@ def _flatten_meta(
 
             new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
-            out[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
+            tmp[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
 
             if any(isinstance(v, SeqValue) for v in attr.vals.values()):
                 is_top_table = False
@@ -949,14 +951,18 @@ def _flatten_meta(
                 is_top_table = False
 
         if not is_top_table:
-            out[f"{table}_number"] = GenAttribute(f"{table}_number", SEQ_MAX)
+            out[f"{table}_total_count"] = GenAttribute(f"{table}_total_count", SEQ_MAX)
+
+        # Add attrs after count to be clearer
+        out.update(tmp)
 
         if is_top_table:
             assert top_table is None, f"Multiple top tables found: {top_table}, {table}"
             top_table = table
 
-    for ctx, ctx_table_attrs in ctx_attrs.items():
-        for table, table_attrs in ctx_table_attrs.items():
+        for ctx, ctx_table_attrs in ctx_attrs.items():
+            table_attrs = ctx_table_attrs.get(table, {})
+
             for name, attr in table_attrs.items():
                 new_vals = [
                     v.prefix_rename(f"{table}#{ctx}_") for k, v in attr.vals.items()
