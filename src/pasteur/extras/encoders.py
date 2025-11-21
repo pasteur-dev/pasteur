@@ -649,7 +649,7 @@ def _json_encode(
     pid = f"part_{nrange[0]}_{nrange[-1]}"
     return {
         "ids": {pid: pd.DataFrame(nrange)},
-        "data": {pid: pd.DataFrame(map(str, out))},
+        "data": {pid: pd.DataFrame(map(str, out), index=nrange)},
     }
 
 
