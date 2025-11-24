@@ -915,11 +915,11 @@ def _flatten_load(
         t_ids = ids[t][[top_table]]
         t_data = t_ids.join(tables[t]).groupby(top_table).first()
         if t not in parents or parents[t] == top_table:
-            t_data["total_count"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+            t_data["count"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
         else:
-            # Keep the total_count of the first event only
+            # Keep the count of the first event only
             t_ids = ids[t][[top_table, parents[t]]]
-            t_data["total_count"] = t_ids.groupby([top_table, parents[t]]).size().clip(0, SEQ_MAX - 1).groupby([top_table]).first()
+            t_data["count"] = t_ids.groupby([top_table, parents[t]]).size().clip(0, SEQ_MAX - 1).groupby([top_table]).first()
         out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
@@ -969,7 +969,7 @@ def _flatten_meta(
                 is_top_table = False
 
         if not is_top_table:
-            out[f"{table}_total_count"] = GenAttribute(f"{table}_total_count", SEQ_MAX)
+            out[f"{table}_count"] = GenAttribute(f"{table}_count", SEQ_MAX)
 
         # Add attrs after count to be clearer
         out.update(tmp)
