@@ -53,10 +53,17 @@ class DiscretizationColumnTransformer:
         assert val.bins is not None
 
         self.edges = val.bins
-        self.centers = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.float32)
+        self.centers = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.int32 if val.is_int else np.float32)
 
         b = val.bins
-        names = [f"[{b[i]:.2f}, {b[i + 1]:.2f})" for i in range(len(b) - 1)]
+        names = [
+            (
+                f"[{b[i]:.0f}, {b[i + 1]:.0f})"
+                if val.is_int
+                else f"[{b[i]:.2f}, {b[i + 1]:.2f})"
+            )
+            for i in range(len(b) - 1)
+        ]
 
         group = Grouping("ord", names)
         null = None
@@ -65,7 +72,7 @@ class DiscretizationColumnTransformer:
             null = [True, *[False for _ in range(len(b) - 1)]]
 
         self.val = StratifiedNumValue(
-            self.col, self.col_cnt, group, null, ignore_nan=val.ignore_nan
+            self.col, self.col_cnt, group, null, ignore_nan=val.ignore_nan, is_int=val.is_int
         )
         self.nullable = val.nullable
         return self.val

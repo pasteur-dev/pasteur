@@ -699,8 +699,10 @@ class NumValue(Value):
         min: int | float | None = None,
         max: int | float | None = None,
         ignore_nan: bool = False,
+        is_int: bool = False,
     ) -> None:
         self.name = name
+        self.is_int = is_int
 
         if isinstance(bins, np.ndarray) or isinstance(bins, Sequence):
             self.bins = np.array(bins)
@@ -708,7 +710,9 @@ class NumValue(Value):
             assert (
                 bins is not None and min is not None and max is not None
             ), f"Please provide 'min' and 'max' when 'bins' is an int."
-            self.bins = np.linspace(min, max, bins + 1)
+            if is_int:
+                kwargs = {"dtype": np.int64}
+            self.bins = np.linspace(min, max, bins + 1, **kwargs)
         self.nullable = nullable
         self.ignore_nan = ignore_nan
 
@@ -730,6 +734,7 @@ class StratifiedNumValue(StratifiedValue):
         null: None | Sequence[bool] = None,
         common: Grouping | None = None,
         ignore_nan: bool = False,
+        is_int: bool = False,
     ) -> None:
         self.name_cnt = name_cnt
         if null:
@@ -737,6 +742,7 @@ class StratifiedNumValue(StratifiedValue):
             self.null = null
         else:
             self.null = [False for _ in range(head.get_domain(0))]
+        self.is_int = is_int
 
         super().__init__(name, head, common, ignore_nan=ignore_nan)
 

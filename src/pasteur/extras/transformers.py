@@ -305,6 +305,7 @@ class DateTransformer(RefTransformer):
                             0,
                             self.max_len,
                             ignore_nan=self.ignore_nan,
+                            is_int=True,
                         ),
                         OrdValue(
                             f"{col}_week",
@@ -332,6 +333,7 @@ class DateTransformer(RefTransformer):
                             0,
                             self.max_len,
                             ignore_nan=self.ignore_nan,
+                            is_int=True,
                         ),
                         OrdValue(
                             f"{col}_day",
@@ -353,6 +355,7 @@ class DateTransformer(RefTransformer):
                             0,
                             self.max_len,
                             ignore_nan=self.ignore_nan,
+                            is_int=True,
                         ),
                     ],
                 )
