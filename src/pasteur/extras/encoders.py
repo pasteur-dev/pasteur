@@ -906,6 +906,7 @@ def _flatten_load(
     ctx: Mapping[str, Mapping[str, "DataFrame"]],
 ) -> dict[str, "DataFrame"]:
     top_table = meta["top_table"]
+    parents = meta["parents"]
     out = tables[top_table].add_prefix(f"{top_table}_")
 
     for t in tables:
@@ -913,7 +914,12 @@ def _flatten_load(
             continue
         t_ids = ids[t][[top_table]]
         t_data = t_ids.join(tables[t]).groupby(top_table).first()
-        t_data["total_count"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+        if t not in parents or parents[t] == top_table:
+            t_data["total_count"] = t_ids.groupby([top_table]).size().clip(0, SEQ_MAX - 1)
+        else:
+            # Keep the total_count of the first event only
+            t_ids = ids[t][[top_table, parents[t]]]
+            t_data["total_count"] = t_ids.groupby([top_table, parents[t]]).size().clip(0, SEQ_MAX - 1).groupby([top_table]).first()
         out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
@@ -936,6 +942,9 @@ def _flatten_meta(
     out = {}
 
     top_table = None
+    parents = {}
+
+    blacklist = []
 
     for table, table_attrs in attrs.items():
         is_top_table = True
@@ -951,9 +960,11 @@ def _flatten_meta(
             new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
             tmp[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
-
-            if any(isinstance(v, SeqValue) for v in attr.vals.values()):
-                is_top_table = False
+            
+            for v in attr.vals.values():
+                if isinstance(v, SeqValue):
+                    is_top_table = False
+                    parents[table] = v.table
             if attr.unroll:
                 is_top_table = False
 
@@ -989,8 +1000,17 @@ def _flatten_meta(
                     attr.along,
                 )
 
+                blacklist.append(f"{ctx}_{name}")
+
+    # Do not add the child values for context attrs
+    # This removes the model's confusion if the first entry is always null
+    for b in blacklist:
+        if b in out:
+            del out[b]
+
     return {
         "meta": out,
+        "parents": parents,
         "top_table": top_table,
     }
 
