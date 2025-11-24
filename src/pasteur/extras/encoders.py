@@ -395,10 +395,10 @@ def create_pydantic_model(
                     afields[kc] = (Literal[*vals], ...)
                 elif isinstance(c, NumValue):
                     if c.nullable:
-                        afields[kc] = (float | None, ...)
+                        afields[kc] = (float | int | None, ...)
                     else:
                         nullable = False
-                        afields[kc] = (float, ...)
+                        afields[kc] = (float | int, ...)
                 elif isinstance(c, SeqValue):
                     # Sequence values are restored from their order
                     nullable = False
@@ -553,7 +553,7 @@ def process_entity(
                         if value.nullable and pd.isna(v):
                             current[key] = None
                             break
-                        current[key][subkey] = float(v)
+                        current[key][subkey] = float(v) if v % 1 != 0 else int(v)
                     elif isinstance(subvalue, CatMapping):
                         if value.nullable and not v:
                             current[key] = None
