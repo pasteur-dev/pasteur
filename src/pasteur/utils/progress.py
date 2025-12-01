@@ -577,7 +577,16 @@ def logging_redirect_pbar():
     out_stream = sys.stdout if is_jupyter() else sys.stderr
 
     class PbarIO(io.StringIO):
+        rmtext = ""
+
         def write(self, text: str):
+            if "<ephemeral>" in text:
+                self.rmtext = "\033[F\033[2K" * len(text.splitlines())
+                text = text.replace("<ephemeral>", "")
+
+            if self.rmtext:
+                text = self.rmtext + text
+                self.rmtext = ""
             tqdm.write(text[:-1], file=out_stream)
 
     # Swap rich logger

@@ -71,6 +71,8 @@ class MlflowHandler(Handler):
     def emit(self, record):
         try:
             msg = self.format(record)
+            if "<ephemeral>" in msg:
+                return
             stream = self.stream
             # issue 35046: merged two stream.writes into one.
             stream.write(msg + self.terminator)
