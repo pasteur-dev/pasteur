@@ -8,6 +8,8 @@ implementations in the future."""
 import functools
 import io
 import logging
+import re
+import shutil
 import sys
 import time
 from contextlib import contextmanager
@@ -569,6 +571,8 @@ def logging_redirect_pbar():
     """ "Implementation of the logging_redirect_tqdm context manager that supports the rich handler."""
     from rich import get_console
 
+    ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
     loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
     loggers.append(logging.root)
     orig_streams: list[list[TextIO | None]] = []
@@ -581,14 +585,46 @@ def logging_redirect_pbar():
 
         def write(self, text: str):
             if self.rmtext:
-                text = self.rmtext + text
+                queue_rm = self.rmtext
                 self.rmtext = ""
+            else:
+                queue_rm = ""
 
             if ":ephemeral:" in text:
-                self.rmtext = "\033[F\033[2K" * len(text.splitlines())
-                text = text.replace(":ephemeral:", "")
+                cleaned = text.replace(":ephemeral:", "")
+                term_size = shutil.get_terminal_size(fallback=(80, 24))
+                term_w = term_size.columns
+                active_pbars = len(tqdm._instances) if hasattr(tqdm, "_instances") else 0  # type: ignore[attr-defined]
+                term_h = max(1, term_size.lines - active_pbars)
 
-            tqdm.write(text[:-1], file=out_stream)
+                def wrapped_rows(line: str, _extra: int = 0) -> int:
+                    vlen = len(ansi_re.sub("", line))
+                    return max(1, (vlen + term_w - 1 + _extra) // term_w)
+
+                # keep only the trailing rows that fit on screen, with the
+                # first line for context
+                lines = cleaned.splitlines() or [""]
+                kept: list[str] = []
+                used = wrapped_rows(lines[0])
+
+                leftover = False
+                for line in reversed(lines[1:]):
+                    need = wrapped_rows(line)
+                    if used + need > term_h:
+                        leftover = True
+                        break
+                    kept.append(line)
+                    used += need
+                kept.reverse()
+                kept.insert(0, lines[0])
+
+                if leftover:
+                    kept[0] = kept[0]
+
+                text = "\n".join(kept) if kept else ""
+                self.rmtext = "\033[F\033[2K" * max(used, 1)
+
+            tqdm.write(queue_rm + text[:-1], file=out_stream)
 
     # Swap rich logger
     pbar_stream = PbarIO()
