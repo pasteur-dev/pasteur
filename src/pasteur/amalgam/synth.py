@@ -1,11 +1,12 @@
-from jsonschema._utils import unbool
-from typing import Any, Mapping, Type, TypedDict, Literal
+from typing import Any, Literal, Mapping, Type, TypedDict
 
+from pasteur.hierarchy import rebalance_attributes
 from pasteur.mare.synth import MareModel
 from pasteur.marginal import MarginalOracle
 from pasteur.synth import Synth
 from pasteur.utils import LazyDataset, gen_closure
-from pasteur.hierarchy import rebalance_attributes
+
+from .llm import AmalgamHFParams
 
 
 def _repack(pid, ids, data):
@@ -20,16 +21,12 @@ class AmalgamInput(TypedDict):
     json: Any
 
 
-class AmalgamHFParams(TypedDict):
-    type: Literal["hf"]
-    repo_id: str
-    filename: str
-
-
-MODEL_PARAMS_QWEN3: AmalgamInput = {
+MODEL_PARAMS_QWEN3: AmalgamHFParams = {
     "type": "hf",
     "repo_id": "Qwen/Qwen3-8B-GGUF",
     "filename": "Qwen3-8B-Q4_K_M.gguf",
+    "n_ctx": 40960,
+    "n_gpu_layers": -1,
 }
 
 
@@ -89,10 +86,12 @@ class AmalgamSynth(Synth):
         self.pgm_cls = pgm_cls
         self.pgm = pgm
         self.marginal = marginal
-        self.model = model
+        self.model = {
+            **MODEL_PARAMS_QWEN3,
+            **model,
+        }
         self.rebalance = rebalance
         self.prompt = prompt
-        # assert False
 
     def preprocess(self, meta: Any, data: AmalgamInput):
         self.meta = meta
@@ -141,10 +140,37 @@ class AmalgamSynth(Synth):
                 {None: self.attrs},
                 o,
             )
-            self.model = model
+            self.pgm_model = model
 
-    def sample(self, n: int | None = None, data=None):
-        return {
-            gen_closure(_repack, pid, i, d)
-            for pid, (i, d) in LazyDataset.zip(data["json"]["ids"], data["json"]["data"]).items()  # type: ignore
-        }
+    def sample(self, n: int | None = None, data=None, _llm=None):
+        import pandas as pd
+
+        from pasteur.extras.encoders import create_pydantic_model
+
+        from .llm import load_llm_model, sample
+
+        if not _llm:
+            llm = load_llm_model(
+                self.model,
+                create_pydantic_model(
+                    self.meta["json"]["relationships"],
+                    self.meta["json"]["attrs"],
+                    self.meta["json"]["ctx_attrs"],
+                ),
+            )
+            if _llm is not None:
+                _llm.update(llm)
+        else:
+            llm = _llm
+
+        n = 50
+
+        return sample(
+            llm,
+            self.prompt,
+            self.counts[None],
+            self.meta,
+            self.pgm_model.sample(pd.RangeIndex(0, n), {}),
+            data["flat"]['table'](),
+            data["json"],
+        )

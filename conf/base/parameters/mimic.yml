@@ -32,11 +32,11 @@ mimic_core:
       prompt: |
         You are a doctor working at a hospital.
 
-        Reference the following {samples_n} example patients:
-        {samples}
+        Reference the following <samples_n> example patients:
+        <samples>
 
         And derive a JSON patient using:
-        {seed}
+        <seed>
 
         Guidelines:
           - the provided values are for the first admission/transfer, generate the rest in a realistic manner
