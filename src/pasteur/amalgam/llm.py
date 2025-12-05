@@ -267,7 +267,7 @@ def _sample(
     stop = _ctx["stop"]
 
     jdata = data['data']
-    for i in range(jdata.shape[0]):
+    for i in range(syn.shape[0]):
         if t is not None:
             stop.set()
             t.join()
@@ -406,7 +406,11 @@ def _sample(
         except json.JSONDecodeError:
             pass
 
-    assert False
+    df = pd.DataFrame({"entity": map(str, out)})
+    return {
+        "ids": pd.DataFrame({"id": df.index}),
+        "data": df,
+    }
 
 
 def sample(
