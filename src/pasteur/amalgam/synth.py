@@ -80,6 +80,7 @@ class AmalgamSynth(Synth):
         prompt: str = "",
         model: AmalgamHFParams = MODEL_PARAMS_QWEN3,
         rebalance: RebalanceParams | Literal[False] = REBALANCE_DEFAULT,
+        samples: int | None = None,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -92,6 +93,7 @@ class AmalgamSynth(Synth):
         }
         self.rebalance = rebalance
         self.prompt = prompt
+        self.n = samples
 
     def preprocess(self, meta: Any, data: AmalgamInput):
         self.meta = meta
@@ -163,7 +165,11 @@ class AmalgamSynth(Synth):
         else:
             llm = _llm
 
-        n = 50
+        if n is None:
+            n = self.n
+
+        if n is None:
+            n = data["flat"]['table'].shape[0]
 
         return sample(
             llm,
