@@ -580,13 +580,14 @@ def logging_redirect_pbar():
         rmtext = ""
 
         def write(self, text: str):
-            if "<ephemeral>" in text:
-                self.rmtext = "\033[F\033[2K" * len(text.splitlines())
-                text = text.replace("<ephemeral>", "")
-
             if self.rmtext:
                 text = self.rmtext + text
                 self.rmtext = ""
+
+            if ":ephemeral:" in text:
+                self.rmtext = "\033[F\033[2K" * len(text.splitlines())
+                text = text.replace(":ephemeral:", "")
+
             tqdm.write(text[:-1], file=out_stream)
 
     # Swap rich logger
