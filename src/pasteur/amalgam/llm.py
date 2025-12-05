@@ -6,7 +6,7 @@ from pasteur.utils import LazyDataset
 import pandas as pd
 import numpy as np
 
-PRINT_FREQ = 0.3
+PRINT_FREQ = 0.2
 TOP_K = 3
 MAX_EXPOSURE = 5
 PART_SIZE = 5000
