@@ -637,7 +637,7 @@ def _json_encode(
 
     mapping = create_table_mapping(top_table, relationships, attrs, ctx_attrs)
     out = []
-    i = 0
+
     for id in nrange:
         out.append(
             process_entity(
