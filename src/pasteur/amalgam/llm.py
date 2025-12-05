@@ -267,7 +267,9 @@ def _sample(
     stop = _ctx["stop"]
 
     jdata = data['data']
-    for i in range(syn.shape[0]):
+    n_samples = syn.shape[0]
+
+    for i in range(n_samples):
         if t is not None:
             stop.set()
             t.join()
@@ -392,7 +394,7 @@ def _sample(
                 if thought:
                     thought_str = f"\nThought: {thought}"
                 logger.info(
-                    f":ephemeral:Sampling Entity. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
+                    f":ephemeral:Sampling Entity {i}/{n_samples}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
                 )
                 # pretty thought.strip() obj prompt_reduced
                 last_print = curr
