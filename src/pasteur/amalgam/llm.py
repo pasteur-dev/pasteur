@@ -293,6 +293,7 @@ def _sample(
             {},
             {},
         )
+        sample_num = i + 1
         seed = "\n".join(
             f"{_process_name(k)}: {_process_val(v)}" for k, v in base_data.items()
         )
@@ -394,7 +395,7 @@ def _sample(
                 if thought:
                     thought_str = f"\nThought: {thought}"
                 logger.info(
-                    f":ephemeral:Sampling Entity {i}/{n_samples}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
+                    f":ephemeral:Sampling Entity {sample_num}/{n_samples}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
                 )
                 # pretty thought.strip() obj prompt_reduced
                 last_print = curr
