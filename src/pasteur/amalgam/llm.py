@@ -116,6 +116,7 @@ def load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> An
     generator = Generator(llm, output_type)
 
     return {
+        "model_type": params["type"],
         "llm": llm,
         "generator": generator,
         "generator_thought": generator_thought,
@@ -429,7 +430,7 @@ def _sample(
         except json.JSONDecodeError:
             fails += 1
 
-        if fails >= MAX_FAILS:
+        if fails >= MAX_FAILS and llm["model_type"] == "or":
             logger.error(
                 f"Sampling failed {fails} times for sample {i+1}. Aborting further sampling."
             )
