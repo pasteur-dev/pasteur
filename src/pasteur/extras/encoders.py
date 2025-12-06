@@ -402,10 +402,10 @@ def create_pydantic_model(
                     afields[kc] = (Literal[*vals], ...)
                 elif isinstance(c, NumValue):
                     if c.nullable:
-                        afields[kc] = (float | int | None, ...)
+                        afields[kc] = ((int if c.is_int else float) | None, ...)
                     else:
                         nullable = False
-                        afields[kc] = (float | int, ...)
+                        afields[kc] = ((int if c.is_int else float), ...)
                 elif isinstance(c, SeqValue):
                     # Sequence values are restored from their order
                     nullable = False
