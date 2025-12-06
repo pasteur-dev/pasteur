@@ -11,6 +11,7 @@ TOP_K = 3
 MAX_EXPOSURE = 5
 PART_SIZE = 5000
 THINK = False
+MAX_FAILS = 20
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +281,8 @@ def _sample(
     jdata = data["data"]
     n_samples = syn.shape[0]
 
+    fails = 0
+
     for i in range(n_samples):
         if t is not None:
             stop.set()
@@ -416,7 +419,13 @@ def _sample(
         try:
             out.append(decoder.decode(data))
         except json.JSONDecodeError:
-            pass
+            fails += 1
+        
+        if fails >= MAX_FAILS:
+            logger.error(
+                f"Sampling failed {fails} times for sample {i+1}. Aborting further sampling."
+            )
+            raise RuntimeError("Maximum sampling failures reached.")
 
     df = pd.DataFrame({"entity": map(str, out)})
     return {
