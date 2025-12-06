@@ -153,6 +153,11 @@ class PasteurHook:
 
         setattr(context, "pasteur", self)
 
+        # Save context variable so it is available globally
+        import pasteur.kedro as kedro_init
+
+        kedro_init.context = context
+
     def get_version(self, name: str, versioned: bool):
         load_version = self.save_version
         if self.load_any:

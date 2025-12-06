@@ -1,3 +1,4 @@
+from pasteur.amalgam.llm import load_llm_model
 from typing import Any, Literal, Mapping, Type, TypedDict
 
 from pasteur.hierarchy import rebalance_attributes
@@ -6,8 +7,7 @@ from pasteur.marginal import MarginalOracle
 from pasteur.synth import Synth
 from pasteur.utils import LazyDataset, gen_closure
 
-from .llm import AmalgamHFParams
-
+from .llm import AmalgamHFParams, AmalgamORParams
 
 def _repack(pid, ids, data):
     return {
@@ -78,7 +78,7 @@ class AmalgamSynth(Synth):
         pgm: PgmParams = PGM_PARAMS_DEFAULT,
         marginal: AmalgamMarginalParams = MARGINAL_PARAMS_DEFAULT,
         prompt: str = "",
-        model: AmalgamHFParams = MODEL_PARAMS_QWEN3,
+        model: AmalgamHFParams | AmalgamORParams = MODEL_PARAMS_QWEN3,
         rebalance: RebalanceParams | Literal[False] = REBALANCE_DEFAULT,
         samples: int | None = None,
         **kwargs,
@@ -149,7 +149,7 @@ class AmalgamSynth(Synth):
 
         from pasteur.extras.encoders import create_pydantic_model
 
-        from .llm import load_llm_model, sample
+        from .llm import load_llm_model as load_llm_model, sample
 
         if not _llm:
             llm = load_llm_model(

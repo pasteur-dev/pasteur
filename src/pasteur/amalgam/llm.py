@@ -14,6 +14,7 @@ THINK = False
 
 logger = logging.getLogger(__name__)
 
+
 class CacheTracker:
     def __init__(self, cache_time: float | None = None, cache_len: int | None = None):
         self.lock = threading.Lock()
@@ -73,22 +74,41 @@ class AmalgamHFParams(TypedDict):
     n_gpu_layers: int
 
 
-def load_llm_model(params: AmalgamHFParams, output_type) -> Any:
-    import outlines
-    from llama_cpp import Llama
-    from outlines import Generator
-    from outlines.models import LlamaCpp
+class AmalgamORParams(TypedDict):
+    type: Literal["or"]
+    model: str
 
-    llm = LlamaCpp(
-        Llama.from_pretrained(
-            repo_id=params["repo_id"],
-            filename=params["filename"],
-            n_ctx=params["n_ctx"],
-            n_gpu_layers=params["n_gpu_layers"],
-            batch_size=1,
-            verbose=False,
-        )
-    )
+
+def load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> Any:
+    import outlines
+    from outlines import Generator
+
+    match params["type"]:
+        case "hf":
+            from llama_cpp import Llama
+            from outlines.models import LlamaCpp
+
+            llm = LlamaCpp(
+                Llama.from_pretrained(
+                    repo_id=params["repo_id"],
+                    filename=params["filename"],
+                    n_ctx=params["n_ctx"],
+                    n_gpu_layers=params["n_gpu_layers"],
+                    batch_size=1,
+                    verbose=False,
+                )
+            )
+        case "or":
+            import openai
+
+            # Create the model
+            llm = outlines.from_openai(
+                openai.OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=get_or_api_key(),
+                ),
+                params["model"],
+            )
 
     generator_thought = Generator(llm)
     # Generating the
@@ -101,36 +121,26 @@ def load_llm_model(params: AmalgamHFParams, output_type) -> Any:
     }
 
 
-def score():
-    max_per_val = 2**16 // len(model.counts[None])
+def get_or_api_key() -> str:
+    from pasteur.kedro import context
 
-    norm_scores = {
-        k: np.where(v > 0, max_per_val * v[v != 0].min() / np.where(v > 0, v, 1), 0).astype(np.uint16)
-        for k, v in model.counts[None].items()
-        if not k.endswith("_common") and not k.endswith("_cmn")
-    }
-    id_map = []
-    part_map = {}
-
-    for i, (k, v) in enumerate(catalog.load("mimic_core.wrk.json")["ids"].items()):
-        part_map[i] = k
-        uv = v()
-        id_map.append(uv.rename(columns={next(iter(uv.columns)): "id"}).assign(part=i))
-
-    id_map = pd.concat(id_map).set_index("id")
+    assert context is not None, "Kedro context is not initialized."
+    return context._get_config_credentials()["openrouter"]
 
 
 def _worker(prompt: str, generator, generator_thought, stop, q):
     ttft = None
     start = time.perf_counter()
-    for j in generator.stream(prompt, max_tokens=None):  # type: ignore
-        ttft = time.perf_counter()
-        if stop.is_set():
-            break
-        q.put(("data", j))
 
-    end: float = time.perf_counter()
-    q.put((start, ttft, end))  # Sentinel to indicate the end
+    try:
+        for j in generator.stream(prompt, max_tokens=None):  # type: ignore
+            ttft = time.perf_counter()
+            if stop.is_set():
+                break
+            q.put(("data", j))
+    finally:
+        end: float = time.perf_counter()
+        q.put((start, ttft, end))  # Sentinel to indicate the end
 
 
 def _thought_worker(prompt: str, generator, generator_thought, stop, q):
@@ -139,23 +149,24 @@ def _thought_worker(prompt: str, generator, generator_thought, stop, q):
 
     full_prompt = prompt + "\\think<think>"
 
-    for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
-        if ttft is None:
-            ttft = time.perf_counter()
-        if stop.is_set():
-            break
-        full_prompt += j
-        q.put(("thought", j))
+    try:
+        for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
+            if ttft is None:
+                ttft = time.perf_counter()
+            if stop.is_set():
+                break
+            full_prompt += j
+            q.put(("thought", j))
 
-    for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
-        if ttft is None:
-            ttft = time.perf_counter()
-        if stop.is_set():
-            break
-        q.put(("data", j))
-
-    end = time.perf_counter()
-    q.put((start, ttft, end))  # Sentinel to indicate the end
+        for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
+            if ttft is None:
+                ttft = time.perf_counter()
+            if stop.is_set():
+                break
+            q.put(("data", j))
+    finally:
+        end = time.perf_counter()
+        q.put((start, ttft, end))  # Sentinel to indicate the end
 
 
 def _process_name(name):
@@ -190,7 +201,7 @@ def _sample(
     meta: Any,
     syn: pd.DataFrame,
     ref: pd.DataFrame,
-    data: LazyDataset,
+    data: dict[str, LazyDataset],
     _ctx,
 ):
     import json
@@ -215,9 +226,9 @@ def _sample(
 
     max_per_val = 2**16 // len(counts)
     norm_scores = {
-        k: np.where(v > 0, max_per_val * v[v != 0].min() / np.where(v > 0, v, 1), 0).astype(
-            np.uint16
-        )
+        k: np.where(
+            v > 0, max_per_val * v[v != 0].min() / np.where(v > 0, v, 1), 0
+        ).astype(np.uint16)
         for k, v in counts.items()
         if not k.endswith("_common") and not k.endswith("_cmn")
     }
@@ -266,7 +277,7 @@ def _sample(
     t = None
     stop = _ctx["stop"]
 
-    jdata = data['data']
+    jdata = data["data"]
     n_samples = syn.shape[0]
 
     for i in range(n_samples):
@@ -286,9 +297,7 @@ def _sample(
         base_data = process_entity(
             "table",
             i,
-            create_table_mapping(
-                "table", {}, {"table": meta["flat"]["meta"]}, {}
-            ),
+            create_table_mapping("table", {}, {"table": meta["flat"]["meta"]}, {}),
             {"table": syn},
             {},
             {},
@@ -423,7 +432,7 @@ def sample(
     meta: Any,
     pgm_samples: pd.DataFrame,
     ref: pd.DataFrame,
-    data: LazyDataset,
+    data: dict[str, LazyDataset],
 ):
 
     ctx = {

@@ -43,11 +43,14 @@ mimic_core:
           - for provided ranges use a random value that is within the range
           - Reason about the key events in this patient's admission; they should make sense
           - If a value would cause an unrealistic patient, adjust it slightly for realism
-      samples: 200
-      model: # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
-        type: hf
-        repo_id: Qwen/Qwen3-8B-GGUF
-        filename: Qwen3-8B-Q4_K_M.gguf
+      samples: 2000
+      # model: # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
+      #   type: hf
+      #   repo_id: Qwen/Qwen3-8B-GGUF
+      #   filename: Qwen3-8B-Q4_K_M.gguf
+      model:
+        type: or
+        model: openai/gpt-oss-120b
       rebalance:
         unbounded_dp: True
         fixed: [4, 9, 18, 32]
