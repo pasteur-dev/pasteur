@@ -139,6 +139,10 @@ def _worker(prompt: str, generator, generator_thought, stop, q):
             if stop.is_set():
                 break
             q.put(("data", j))
+    except Exception:
+        import traceback
+
+        logger.error(f"Error in worker:\n{traceback.format_exc()}")
     finally:
         end: float = time.perf_counter()
         q.put((start, ttft, end))  # Sentinel to indicate the end
@@ -165,6 +169,10 @@ def _thought_worker(prompt: str, generator, generator_thought, stop, q):
             if stop.is_set():
                 break
             q.put(("data", j))
+    except Exception:
+        import traceback
+
+        logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
     finally:
         end = time.perf_counter()
         q.put((start, ttft, end))  # Sentinel to indicate the end
@@ -420,7 +428,7 @@ def _sample(
             out.append(decoder.decode(data))
         except json.JSONDecodeError:
             fails += 1
-        
+
         if fails >= MAX_FAILS:
             logger.error(
                 f"Sampling failed {fails} times for sample {i+1}. Aborting further sampling."
