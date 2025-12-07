@@ -610,8 +610,12 @@ def logging_redirect_pbar():
                 term_h = max(1, term_size.lines - active_pbars + 1)
 
                 def wrapped_rows(line: str, _extra: int = 0) -> int:
-                    vlen = len(ansi_re.sub("", line))
-                    return max(1, ceil((vlen + _extra) / term_w))
+                    # Rich handles pretty printing for us, there are no
+                    # double lines here. If we try to calculate we make
+                    # Mistakes.
+                    return 1
+                    # vlen = len(ansi_re.sub("", line))
+                    # return max(1, ceil((vlen + _extra) / term_w))
 
                 # keep only the trailing rows that fit on screen, with the
                 # first line for context
