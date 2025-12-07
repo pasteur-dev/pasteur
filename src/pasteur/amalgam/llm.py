@@ -130,53 +130,152 @@ def get_or_api_key() -> str:
     return context._get_config_credentials()["openrouter"]
 
 
-def _worker(prompt: str, generator, generator_thought, stop, q):
-    ttft = None
-    start = time.perf_counter()
+def _printer(prompt, sample_num, sample_n, q):
+    import json
 
-    try:
-        for j in generator.stream(prompt, max_tokens=None):  # type: ignore
+    MAX_LEN = 300
+    prompt_reduced = "\n".join(
+        line if len(line) <= MAX_LEN else line[:MAX_LEN] + "..."
+        for line in prompt.split("\n")
+    )
+
+    decoder = json.JSONDecoder()
+    thought = ""
+    data = ""
+    ttft = None
+    last_print = time.perf_counter()
+    while token := q.get():
+        dtype, j = token
+
+        if j is None:
+            break
+        if ttft is None:
             ttft = time.perf_counter()
-            if stop.is_set():
-                break
-            q.put(("data", j))
-    except Exception:
-        import traceback
+        if isinstance(j, str):
+            frac = j
+        else:
+            assert "object" in j and j["object"] == "text_completion"
+            frac = j["choices"][0]["text"]  # type: ignore
 
-        logger.error(f"Error in worker:\n{traceback.format_exc()}")
-    finally:
-        end: float = time.perf_counter()
-        q.put((start, ttft, end))  # Sentinel to indicate the end
+        if dtype == "thought":
+            thought += frac
+        else:
+            data += frac
+
+        # Flush the queue before printing
+        # Printing is slow, so we only want to print the latest
+        if not q.empty():
+            continue
+
+        curr = time.perf_counter()
+        if curr - last_print < PRINT_FREQ:
+            continue
+
+        # Try to correct invalid json as much as possible
+        # This does not work in dicts, when before the :
+        suffix = ""
+        for i, d in enumerate(data):
+            if d == "{":
+                suffix += "}"
+            elif d == "[":
+                suffix += "]"
+            elif d == '"':
+                if suffix.endswith('"'):
+                    suffix = suffix[:-1]
+                else:
+                    suffix += '"'
+            elif d == "}":
+                if suffix.endswith("}"):
+                    suffix = suffix[:-1]
+            elif d == "]":
+                if suffix.endswith("]"):
+                    suffix = suffix[:-1]
+
+        suffix = suffix[::-1]  # reverse
+
+        sdata = data.rstrip()
+        if sdata.endswith(","):
+            full = data[:-1] + suffix
+        elif sdata.endswith(":"):
+            full = data + " null" + suffix
+        else:
+            full = data + suffix
+
+        try:
+            if full:
+                obj, end = decoder.raw_decode(full)
+                pretty = json.dumps(obj, indent=2) + "\n"
+            else:
+                pretty = ""
+
+            thought_str = ""
+            if thought:
+                thought_str = f"\nThought: {thought}"
+            logger.info(
+                f":ephemeral:Sampling Entity {sample_num}/{sample_n}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
+            )
+            last_print = curr
+        except json.JSONDecodeError:
+            pass
 
 
-def _thought_worker(prompt: str, generator, generator_thought, stop, q):
-    ttft = None
+def _worker(
+    prompt: str,
+    generator,
+    generator_thought,
+    stop,
+    q,
+    sample_num,
+    sample_n,
+    think,
+    print,
+):
+    import queue
+
     start = time.perf_counter()
+    ttft = None
+    ttft_thought = None
 
     full_prompt = prompt + "\\think<think>"
+    pq = queue.Queue()
 
+    if print:
+        t = threading.Thread(
+            target=_printer, args=(prompt, sample_num, sample_n, pq), daemon=True
+        )
+        t.start()
+    else:
+        t = None
+
+    data = []
     try:
-        for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
-            if ttft is None:
-                ttft = time.perf_counter()
-            if stop.is_set():
-                break
-            full_prompt += j
-            q.put(("thought", j))
+        if think:
+            for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
+                if ttft_thought is None:
+                    ttft_thought = time.perf_counter()
+                if stop.is_set():
+                    break
+                full_prompt += j
+                pq.put(("thought", j))
+                data.append(("thought", j))
 
         for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
             if ttft is None:
                 ttft = time.perf_counter()
             if stop.is_set():
                 break
-            q.put(("data", j))
+            pq.put(("data", j))
+            data.append(("data", j))
     except Exception:
         import traceback
 
         logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
     finally:
         end = time.perf_counter()
-        q.put((start, ttft, end))  # Sentinel to indicate the end
+        q.put((start, ttft_thought, ttft, end, data))
+        pq.put(None)
+        if t is not None:
+            t.join()
 
 
 def _process_name(name):
@@ -319,111 +418,49 @@ def _sample(
             f"{_process_name(k)}: {_process_val(v)}" for k, v in base_data.items()
         )
 
-        # Turn-on the worker thread.
-        thought = ""
-        data = ""
         q = queue.Queue()
-
         fprompt = (
             prompt.replace("<seed>", seed)
             .replace("<samples>", samples)
             .replace("<samples_n>", str(TOP_K))
         )
 
+        # Turn-on the worker thread.
         t = threading.Thread(
-            target=_thought_worker if THINK else _worker,
-            args=(fprompt, generator, generator_thought, stop, q),
+            target=_worker,
+            args=(
+                fprompt,
+                generator,
+                generator_thought,
+                stop,
+                q,
+                sample_num,
+                n_samples,
+                THINK,
+                True,
+            ),
             daemon=True,
         )
         _ctx["t"] = t
         t.start()
-
-        MAX_LEN = 300
-        prompt_reduced = "\n".join(
-            line if len(line) <= MAX_LEN else line[:MAX_LEN] + "..."
-            for line in fprompt.split("\n")
-        )
-
-        ttft = None
-        last_print = time.perf_counter()
-        while token := q.get():
-            if len(token) == 3:
-                break
-            dtype, j = token
-
-            if j is None:
-                break
-            if ttft is None:
-                ttft = time.perf_counter()
-            if isinstance(j, str):
-                frac = j
-            else:
-                assert "object" in j and j["object"] == "text_completion"
-                frac = j["choices"][0]["text"]  # type: ignore
-
-            if dtype == "thought":
-                thought += frac
-            else:
-                data += frac
-
-            # Flush the queue before printing
-            # Printing is slow, so we only want to print the latest
-            if not q.empty():
-                continue
-
-            curr = time.perf_counter()
-            if curr - last_print < PRINT_FREQ:
-                continue
-
-            # Try to correct invalid json as much as possible
-            # This does not work in dicts, when before the :
-            suffix = ""
-            for i, d in enumerate(data):
-                if d == "{":
-                    suffix += "}"
-                elif d == "[":
-                    suffix += "]"
-                elif d == '"':
-                    if suffix.endswith('"'):
-                        suffix = suffix[:-1]
-                    else:
-                        suffix += '"'
-                elif d == "}":
-                    if suffix.endswith("}"):
-                        suffix = suffix[:-1]
-                elif d == "]":
-                    if suffix.endswith("]"):
-                        suffix = suffix[:-1]
-
-            suffix = suffix[::-1]  # reverse
-
-            sdata = data.rstrip()
-            if sdata.endswith(","):
-                full = data[:-1] + suffix
-            elif sdata.endswith(":"):
-                full = data + " null" + suffix
-            else:
-                full = data + suffix
-
-            try:
-                if full:
-                    obj, end = decoder.raw_decode(full)
-                    pretty = json.dumps(obj, indent=2) + "\n"
-                else:
-                    pretty = ""
-
-                thought_str = ""
-                if thought:
-                    thought_str = f"\nThought: {thought}"
-                logger.info(
-                    f":ephemeral:Sampling Entity {sample_num}/{n_samples}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
-                )
-                # pretty thought.strip() obj prompt_reduced
-                last_print = curr
-            except json.JSONDecodeError:
-                pass
-
         t.join()
+        start, ttft_thought, ttft, end, out = q.get()
+
+        data = ""
+        for d in out:
+            dtype, frac = d
+
+            if dtype != "data":
+                continue
+
+            if isinstance(frac, str):
+                data_str = frac
+            else:
+                assert "object" in frac and frac["object"] == "text_completion"
+                data_str = frac["choices"][0]["text"]  # type: ignore
+
+            data += data_str
+
         t = None
         try:
             out.append(decoder.decode(data))
