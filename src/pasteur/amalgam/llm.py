@@ -148,7 +148,7 @@ def get_or_api_key() -> str:
     return context._get_config_credentials()["openrouter"]
 
 
-def _printer(prompt, sample_num, sample_n, q):
+def _printer(prompt, sample_num, sample_n, q, stop):
     import json
 
     MAX_LEN = 300
@@ -163,6 +163,9 @@ def _printer(prompt, sample_num, sample_n, q):
     ttft = None
     last_print = time.perf_counter()
     while token := q.get():
+        if stop.is_set():
+            break
+
         dtype, j = token
 
         if j is None:
@@ -264,7 +267,9 @@ def _worker(
 
         if print:
             t = threading.Thread(
-                target=_printer, args=(prompt, sample_num, sample_n, pq), daemon=True
+                target=_printer,
+                args=(prompt, sample_num, sample_n, pq, stop),
+                daemon=True,
             )
             t.start()
         else:
@@ -464,7 +469,7 @@ def _sample(
         )
 
         in_q.put((fprompt, sample_num))
-    
+
     for i in prange(n_samples, desc="Sampling entities"):
         start, ttft_thought, ttft, end, chunks = out_q.get()
 
