@@ -470,7 +470,7 @@ def _sample(
 
         in_q.put((fprompt, sample_num))
 
-    for i in prange(n_samples, desc="Sampling entities"):
+    for i in prange(n_samples, desc="Processing entities"):
         start, ttft_thought, ttft, end, chunks = out_q.get()
 
         data = ""
