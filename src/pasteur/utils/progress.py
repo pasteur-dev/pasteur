@@ -569,6 +569,8 @@ def _is_console_logging_handler(handler) -> TypeGuard[logging.StreamHandler]:
 @contextmanager
 def logging_redirect_pbar():
     """ "Implementation of the logging_redirect_tqdm context manager that supports the rich handler."""
+    from math import ceil
+
     from rich import get_console
 
     ansi_re = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -585,21 +587,31 @@ def logging_redirect_pbar():
 
         def write(self, text: str):
             if self.rmtext:
-                queue_rm = self.rmtext
+                rm_prefix = self.rmtext
+                rm_suffix = "\r"
                 self.rmtext = ""
             else:
-                queue_rm = ""
+                rm_prefix = ""
+                rm_suffix = ""
 
             if ":ephemeral:" in text:
+                # Derive from external_write_mode
+                with tqdm.get_lock():
+                    active_pbars = 0
+                    for inst in getattr(tqdm, "_instances", []):
+                        if hasattr(inst, "start_t") and (
+                            inst.fp in [out_stream, sys.stdout, sys.stderr]
+                        ):
+                            active_pbars += 1
+
                 cleaned = text.replace(":ephemeral:", "")
                 term_size = shutil.get_terminal_size(fallback=(80, 24))
                 term_w = term_size.columns
-                active_pbars = len(tqdm._instances) if hasattr(tqdm, "_instances") else 0  # type: ignore[attr-defined]
-                term_h = max(1, term_size.lines - active_pbars)
+                term_h = max(1, term_size.lines - active_pbars + 1)
 
                 def wrapped_rows(line: str, _extra: int = 0) -> int:
                     vlen = len(ansi_re.sub("", line))
-                    return max(1, (vlen + term_w - 1 + _extra) // term_w)
+                    return max(1, ceil((vlen + _extra) / term_w))
 
                 # keep only the trailing rows that fit on screen, with the
                 # first line for context
@@ -607,24 +619,21 @@ def logging_redirect_pbar():
                 kept: list[str] = []
                 used = wrapped_rows(lines[0])
 
-                leftover = False
                 for line in reversed(lines[1:]):
+                    if not line:
+                        continue
                     need = wrapped_rows(line)
                     if used + need > term_h:
-                        leftover = True
                         break
                     kept.append(line)
                     used += need
                 kept.reverse()
                 kept.insert(0, lines[0])
 
-                if leftover:
-                    kept[0] = kept[0]
-
                 text = "\n".join(kept) if kept else ""
                 self.rmtext = "\033[F\033[2K" * max(used, 1)
 
-            tqdm.write(queue_rm + text[:-1], file=out_stream)
+            tqdm.write(rm_prefix + text, file=out_stream, end=rm_suffix)
 
     # Swap rich logger
     pbar_stream = PbarIO()
