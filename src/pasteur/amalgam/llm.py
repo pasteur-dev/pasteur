@@ -236,7 +236,7 @@ def _worker(
     ttft = None
     ttft_thought = None
 
-    full_prompt = prompt + "\\think<think>"
+    full_prompt = prompt
     pq = queue.Queue()
 
     if print:
@@ -250,6 +250,7 @@ def _worker(
     data = []
     try:
         if think:
+            full_prompt = prompt + "\\think<think>"
             for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
                 if ttft_thought is None:
                     ttft_thought = time.perf_counter()
