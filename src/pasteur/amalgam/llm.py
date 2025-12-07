@@ -3,6 +3,7 @@ import time
 import logging
 from typing import Any, Literal, Mapping, Type, TypedDict
 from pasteur.utils import LazyDataset
+from pasteur.utils.progress import prange
 import pandas as pd
 import numpy as np
 
@@ -73,14 +74,16 @@ class AmalgamHFParams(TypedDict):
     filename: str
     n_ctx: int
     n_gpu_layers: int
+    workers: int
 
 
 class AmalgamORParams(TypedDict):
     type: Literal["or"]
     model: str
+    workers: int
 
 
-def load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> Any:
+def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> Any:
     import outlines
     from outlines import Generator
 
@@ -120,6 +123,21 @@ def load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> An
         "llm": llm,
         "generator": generator,
         "generator_thought": generator_thought,
+    }
+
+
+def load_llm_model(
+    params: AmalgamHFParams | AmalgamORParams,
+    output_type,
+):
+    llms = []
+
+    for _ in range(params.get("workers", 1)):
+        llms.append(_load_llm_model(params, output_type))
+
+    return {
+        "model_type": params["type"],
+        "llms": llms,
     }
 
 
@@ -220,63 +238,69 @@ def _printer(prompt, sample_num, sample_n, q):
 
 
 def _worker(
-    prompt: str,
     generator,
     generator_thought,
     stop,
-    q,
-    sample_num,
+    in_q,
+    out_q,
     sample_n,
     think,
     print,
 ):
     import queue
 
-    start = time.perf_counter()
-    ttft = None
-    ttft_thought = None
+    while not stop.is_set():
+        try:
+            prompt, sample_num = in_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
 
-    full_prompt = prompt
-    pq = queue.Queue()
+        start = time.perf_counter()
+        ttft = None
+        ttft_thought = None
 
-    if print:
-        t = threading.Thread(
-            target=_printer, args=(prompt, sample_num, sample_n, pq), daemon=True
-        )
-        t.start()
-    else:
-        t = None
+        full_prompt = prompt
+        pq = queue.Queue()
 
-    data = []
-    try:
-        if think:
-            full_prompt = prompt + "\\think<think>"
-            for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
-                if ttft_thought is None:
-                    ttft_thought = time.perf_counter()
+        if print:
+            t = threading.Thread(
+                target=_printer, args=(prompt, sample_num, sample_n, pq), daemon=True
+            )
+            t.start()
+        else:
+            t = None
+
+        data = []
+        try:
+            if think:
+                full_prompt = prompt + "\\think<think>"
+                for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
+                    if ttft_thought is None:
+                        ttft_thought = time.perf_counter()
+                    if stop.is_set():
+                        break
+                    full_prompt += j
+                    pq.put(("thought", j))
+                    data.append(("thought", j))
+
+            for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
+                if ttft is None:
+                    ttft = time.perf_counter()
                 if stop.is_set():
                     break
-                full_prompt += j
-                pq.put(("thought", j))
-                data.append(("thought", j))
+                pq.put(("data", j))
+                data.append(("data", j))
+        except Exception:
+            import traceback
 
-        for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
-            if ttft is None:
-                ttft = time.perf_counter()
-            if stop.is_set():
-                break
-            pq.put(("data", j))
-            data.append(("data", j))
-    except Exception:
-        import traceback
+            logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
+        finally:
+            end = time.perf_counter()
+            out_q.put((start, ttft_thought, ttft, end, data))
 
-        logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
-    finally:
-        end = time.perf_counter()
-        q.put((start, ttft_thought, ttft, end, data))
-        pq.put(None)
-        if t is not None:
-            t.join()
+            pq.put(None)
+            if t is not None:
+                t.join()
 
 
 def _process_name(name):
@@ -327,8 +351,6 @@ def _sample(
     from pasteur.extras.encoders import create_table_mapping, process_entity
 
     out = []
-    generator = gen["generator"]
-    generator_thought = gen["generator_thought"]
 
     decoder = json.JSONDecoder()
     topk_idx = []
@@ -392,12 +414,28 @@ def _sample(
 
     fails = 0
 
-    for i in range(n_samples):
-        if t is not None:
-            stop.set()
-            t.join()
-            stop.clear()
+    in_q = queue.Queue()
+    out_q = queue.Queue()
 
+    for i, llm in enumerate(gen["llms"]):
+        t = threading.Thread(
+            target=_worker,
+            args=(
+                llm["generator"],
+                llm["generator_thought"],
+                stop,
+                in_q,
+                out_q,
+                n_samples,
+                THINK,
+                i == 0,
+            ),
+            daemon=True,
+        )
+        t.start()
+        _ctx["t"].append(t)
+
+    for i in range(n_samples):
         samples = []
         for k in lookups[:, i].tolist():
             arr = jdata[part_map[int(id_map.loc[k].iloc[0])]]()
@@ -419,33 +457,16 @@ def _sample(
             f"{_process_name(k)}: {_process_val(v)}" for k, v in base_data.items()
         )
 
-        q = queue.Queue()
         fprompt = (
             prompt.replace("<seed>", seed)
             .replace("<samples>", samples)
             .replace("<samples_n>", str(TOP_K))
         )
 
-        # Turn-on the worker thread.
-        t = threading.Thread(
-            target=_worker,
-            args=(
-                fprompt,
-                generator,
-                generator_thought,
-                stop,
-                q,
-                sample_num,
-                n_samples,
-                THINK,
-                True,
-            ),
-            daemon=True,
-        )
-        _ctx["t"] = t
-        t.start()
-        t.join()
-        start, ttft_thought, ttft, end, chunks = q.get()
+        in_q.put((fprompt, sample_num))
+    
+    for i in prange(n_samples):
+        start, ttft_thought, ttft, end, chunks = out_q.get()
 
         data = ""
         for d in chunks:
@@ -462,7 +483,6 @@ def _sample(
 
             data += data_str
 
-        t = None
         try:
             out.append(decoder.decode(data))
         except json.JSONDecodeError:
@@ -473,6 +493,10 @@ def _sample(
                 f"Sampling failed {fails} times for sample {i+1}. Aborting further sampling."
             )
             raise RuntimeError("Maximum sampling failures reached.")
+
+    stop.set()
+    for t in _ctx["t"]:
+        t.join()
 
     df = pd.DataFrame({"entity": map(str, out)})
     return {
@@ -492,7 +516,7 @@ def sample(
 ):
 
     ctx = {
-        "t": None,
+        "t": [],
         "stop": threading.Event(),
     }
 
@@ -508,6 +532,6 @@ def sample(
             ctx,
         )
     finally:
-        if ctx["t"] is not None:
-            ctx["stop"].set()
+        ctx["stop"].set()
+        for t in ctx["t"]:
             ctx["t"].join()

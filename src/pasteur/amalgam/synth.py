@@ -27,6 +27,7 @@ MODEL_PARAMS_QWEN3: AmalgamHFParams = {
     "filename": "Qwen3-8B-Q4_K_M.gguf",
     "n_ctx": 40960,
     "n_gpu_layers": -1,
+    "workers": 1,
 }
 
 
