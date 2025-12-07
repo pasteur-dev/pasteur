@@ -465,7 +465,7 @@ def _sample(
 
         in_q.put((fprompt, sample_num))
     
-    for i in prange(n_samples):
+    for i in prange(n_samples, desc="Sampling entities"):
         start, ttft_thought, ttft, end, chunks = out_q.get()
 
         data = ""
@@ -534,4 +534,4 @@ def sample(
     finally:
         ctx["stop"].set()
         for t in ctx["t"]:
-            ctx["t"].join()
+            t.join()
