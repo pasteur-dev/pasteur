@@ -444,10 +444,10 @@ def _sample(
         _ctx["t"] = t
         t.start()
         t.join()
-        start, ttft_thought, ttft, end, out = q.get()
+        start, ttft_thought, ttft, end, chunks = q.get()
 
         data = ""
-        for d in out:
+        for d in chunks:
             dtype, frac = d
 
             if dtype != "data":
