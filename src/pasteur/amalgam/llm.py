@@ -253,6 +253,7 @@ def _worker(
     import queue
 
     while not stop.is_set():
+        failed = True
         try:
             prompt, sample_num = in_q.get(timeout=0.1)
         except queue.Empty:
@@ -295,13 +296,16 @@ def _worker(
                     break
                 pq.put(("data", j))
                 data.append(("data", j))
+            
+            failed = stop.is_set()
         except Exception:
             import traceback
 
             logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
         finally:
             end = time.perf_counter()
-            out_q.put((start, ttft_thought, ttft, end, data))
+            if data:
+                out_q.put((start, ttft_thought, ttft, end, data, failed))
 
             pq.put(None)
             if t is not None:
@@ -471,7 +475,7 @@ def _sample(
         in_q.put((fprompt, sample_num))
 
     for i in prange(n_samples, desc="Processing entities"):
-        start, ttft_thought, ttft, end, chunks = out_q.get()
+        start, ttft_thought, ttft, end, chunks, failed = out_q.get()
 
         data = ""
         for d in chunks:
