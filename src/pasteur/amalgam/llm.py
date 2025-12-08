@@ -492,9 +492,12 @@ def _sample(
 
             data += data_str
 
-        try:
-            out.append(decoder.decode(data))
-        except json.JSONDecodeError:
+        if not failed:
+            try:
+                out.append(decoder.decode(data))
+            except json.JSONDecodeError:
+                fails += 1
+        else:
             fails += 1
 
         if fails >= MAX_FAILS and llm["model_type"] == "or":
