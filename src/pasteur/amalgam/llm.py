@@ -304,8 +304,7 @@ def _worker(
             logger.error(f"Error in thought worker:\n{traceback.format_exc()}")
         finally:
             end = time.perf_counter()
-            if data:
-                out_q.put((start, ttft_thought, ttft, end, data, failed))
+            out_q.put((start, ttft_thought, ttft, end, data, failed))
 
             pq.put(None)
             if t is not None:
@@ -476,6 +475,9 @@ def _sample(
 
     for i in prange(n_samples, desc="Processing entities"):
         start, ttft_thought, ttft, end, chunks, failed = out_q.get()
+
+        if not chunks:
+            continue
 
         data = ""
         for d in chunks:
