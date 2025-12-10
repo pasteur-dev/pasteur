@@ -83,6 +83,8 @@ class SimpleSequentialRunner(AbstractRunner):
                 pbar = piter(nodes, desc=desc, leave=True)
             else:
                 pbar = nodes
+            
+            exec_index = -1
             for exec_index, node in enumerate(pbar):
                 node_name = node.name.split("(")[0]
                 if use_pbar:
