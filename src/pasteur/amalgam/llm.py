@@ -296,7 +296,7 @@ def _worker(
                     break
                 pq.put(("data", j))
                 data.append(("data", j))
-            
+
             failed = stop.is_set()
         except Exception:
             import traceback
@@ -443,6 +443,7 @@ def _sample(
         t.start()
         _ctx["t"].append(t)
 
+    prompts = []
     for i in range(n_samples):
         samples = []
         for k in lookups[:, i].tolist():
@@ -472,9 +473,30 @@ def _sample(
         )
 
         in_q.put((fprompt, sample_num))
+        prompts.append(fprompt)
+
+    # Grab energy info
+    tracker = CacheTracker()
+    # FIXME: Generalize this
+    tokenizer = gen["llms"][0]["llm"].tokenizer
+    cached_tokens = 0
+    input_tokens = 0
+    output_tokens = 0
+
+    in_time = 0
+    out_time = 0
 
     for i in prange(n_samples, desc="Processing entities"):
         start, ttft_thought, ttft, end, chunks, failed = out_q.get()
+
+        prompt = prompts[i]
+        ptokens = tokenizer.encode(prompt)[0]
+        ctokens = tracker.get_cached_len(ptokens)
+        cached_tokens += ctokens
+        input_tokens += len(ptokens) - ctokens
+
+        in_time += ttft - start
+        out_time += end - (ttft if ttft is not None else start)
 
         if not chunks:
             continue
@@ -494,6 +516,10 @@ def _sample(
 
             data += data_str
 
+        otokens = tokenizer.encode(data)[0]
+        output_tokens += len(otokens)
+        tracker.add_cached_tokens(ptokens + otokens)
+
         if not failed:
             try:
                 out.append(decoder.decode(data))
@@ -511,6 +537,46 @@ def _sample(
     stop.set()
     for t in _ctx["t"]:
         t.join()
+
+    try:
+        input_tps = input_tokens / in_time if in_time > 0 else 0
+        output_tps = output_tokens / out_time if out_time > 0 else 0
+
+        logger.info(
+            f"""\
+Entities Generated: {len(out)}, failed: {fails}, total: {n_samples}.
+
+# Token information
+Cached: {cached_tokens:12,d}
+ Input: {input_tokens:12,d}
+Output: {output_tokens:12,d}
+ Total: {input_tokens + output_tokens:12,d}
+
+# Time spent
+ Input time: {in_time if in_time else float('NaN'):7,.2f} s
+Output time: {out_time if out_time else float('NaN'):7,.2f} s
+ Total time: {in_time + out_time if in_time + out_time else float('NaN'):7,.2f} s
+
+# Throughput
+ Input tokens per second: {input_tps if input_tps else float('NaN'):8,.2f} t/s
+Output tokens per second: {output_tps if output_tps else float('NaN'):8,.2f} t/s
+"""
+        )
+
+        import mlflow
+
+        if mlflow.active_run() is not None:
+            mlflow.log_param("sampling.cached_tokens", cached_tokens)
+            mlflow.log_param("sampling.input_tokens", input_tokens)
+            mlflow.log_param("sampling.input_time", in_time)
+            mlflow.log_param("sampling.input_tps", input_tps)
+            mlflow.log_param("sampling.output_tokens", output_tokens)
+            mlflow.log_param("sampling.output_time", out_time)
+            mlflow.log_param("sampling.output_tps", output_tps)
+            mlflow.log_param("sampling.sample_n", len(out))
+            mlflow.log_param("sampling.failures", fails)
+    except Exception:
+        logger.error("Error logging sampling performance to MLflow.", exc_info=True)
 
     df = pd.DataFrame({"entity": map(str, out)})
     return {
