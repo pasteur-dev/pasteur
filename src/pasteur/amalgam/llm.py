@@ -495,7 +495,7 @@ def _sample(
         cached_tokens += ctokens
         input_tokens += len(ptokens) - ctokens
 
-        in_time += ttft - start
+        in_time += (ttft if ttft is not None else start) - start
         out_time += end - (ttft if ttft is not None else start)
 
         if not chunks:
