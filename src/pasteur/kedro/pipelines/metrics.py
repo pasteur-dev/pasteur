@@ -54,7 +54,7 @@ def _get_metric_encs(view: View, encodings: list[str] | str):
         return f"{view}.enc.{encodings}" if encodings not in ("raw", "bst") else {}
     else:
         return {
-            enc: ({t: f"{view}.enc.{t}" for t in view.tables})
+            enc: f"{view}.enc.{enc}"
             for enc in encodings
             if enc not in ("raw", "bst")
         }
