@@ -790,6 +790,8 @@ class AttributeEncoderHolder(
         for creator, cencs in self.ctx_encoders.items():
             ctx_enc[creator] = {}
             for name, enc in cencs.items():
+                if not enc:
+                    continue
                 ctx_enc[creator][name] = encode_table(enc, ctx[creator][name])
 
         return self.postprocess_enc.finalize(
