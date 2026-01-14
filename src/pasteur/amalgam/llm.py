@@ -1,11 +1,14 @@
+import logging
 import threading
 import time
-import logging
 from typing import Any, Literal, Mapping, Type, TypedDict
+
+import numpy as np
+import pandas as pd
+from pydantic.main import BaseModel
+
 from pasteur.utils import LazyDataset
 from pasteur.utils.progress import prange
-import pandas as pd
-import numpy as np
 
 PRINT_FREQ = 0.2
 TOP_K = 3
@@ -83,6 +86,15 @@ class AmalgamORParams(TypedDict):
     workers: int
 
 
+class EvalOutputType(BaseModel):
+    score: Literal[1, 2, 3, 4, 5]
+
+
+class EvalOutputReasonType(BaseModel):
+    reasoning: str
+    score: Literal[1, 2, 3, 4, 5]
+
+
 def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> Any:
     import outlines
     from outlines import Generator
@@ -126,6 +138,17 @@ def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> A
     }
 
 
+gpu_lock = threading.Lock()
+
+
+class hold_gpu_lock:
+    def __enter__(self):
+        gpu_lock.acquire()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        gpu_lock.release()
+
+
 def load_llm_model(
     params: AmalgamHFParams | AmalgamORParams,
     output_type,
@@ -136,6 +159,25 @@ def load_llm_model(
         llms.append(_load_llm_model(params, output_type))
 
     return {
+        "type": "generate",
+        "model_type": params["type"],
+        "llms": llms,
+    }
+
+
+def load_llm_model_eval(
+    params: AmalgamHFParams | AmalgamORParams,
+    reason: bool = True,
+):
+    llms = []
+
+    for _ in range(params.get("workers", 1)):
+        llms.append(
+            _load_llm_model(params, EvalOutputReasonType if reason else EvalOutputType)
+        )
+
+    return {
+        "type": "evaluate",
         "model_type": params["type"],
         "llms": llms,
     }
@@ -308,6 +350,7 @@ def _worker(
             end = time.perf_counter()
             out_q.put((start, ttft_thought, ttft, end, data, failed))
 
+            pq.put((None, None))
             pq.put(None)
             if t is not None:
                 t.join()
@@ -355,7 +398,6 @@ def _sample(
     import time
 
     import numpy as np
-
     from IPython.display import HTML, display
 
     from pasteur.extras.encoders import create_table_mapping, process_entity
@@ -611,6 +653,303 @@ def sample(
             pgm_samples,
             ref,
             data,
+            ctx,
+        )
+    finally:
+        ctx["stop"].set()
+        for t in ctx["t"]:
+            t.join()
+
+
+def _evaluate(
+    gen,
+    prompt: str,
+    counts,
+    wrk_flat: pd.DataFrame,
+    wrk_json: dict[str, LazyDataset],
+    eval_flat: pd.DataFrame,
+    eval_json: dict[str, LazyDataset],
+    max_samples: int | None,
+    top_k: int,
+    _ctx,
+):
+    import json
+    import queue
+    import random
+    import threading
+    import time
+
+    import numpy as np
+    from IPython.display import HTML, display
+
+    from pasteur.extras.encoders import create_table_mapping, process_entity
+
+    out = []
+
+    decoder = json.JSONDecoder()
+    topk_idx = []
+    topk_scores = []
+
+    max_per_val = 2**16 // len(counts)
+    norm_scores = {
+        k: np.where(
+            v > 0, max_per_val * v[v != 0].min() / np.where(v > 0, v, 1), 0
+        ).astype(np.uint16)
+        for k, v in counts.items()
+        if not k.endswith("_common") and not k.endswith("_cmn")
+    }
+
+    id_map = []
+    part_map = {}
+
+    for i, (k, v) in enumerate(wrk_json["ids"].items()):
+        part_map[i] = k
+        uv = v()
+        id_map.append(uv.rename(columns={next(iter(uv.columns)): "id"}).assign(part=i))
+
+    id_map = pd.concat(id_map).set_index("id")
+
+    id_map_eval = []
+    part_map_eval = {}
+
+    for i, (k, v) in enumerate(eval_json["ids"].items()):
+        part_map_eval[i] = k
+        uv = v()
+        id_map_eval.append(
+            uv.rename(columns={next(iter(uv.columns)): "id"}).assign(part=i)
+        )
+
+    id_map_eval = pd.concat(id_map_eval).set_index("id")
+
+    if max_samples is not None:
+        eval_flat = eval_flat.iloc[:max_samples]
+
+    for p in range(0, len(wrk_flat) // PART_SIZE + 1):
+        start = p * PART_SIZE
+        end = min((p + 1) * PART_SIZE, len(wrk_flat))
+
+        scores = np.zeros((end - start, len(eval_flat)), np.uint16)
+
+        for k, v in norm_scores.items():
+            mult = 5 if "_total_count" in k else 1
+
+            vals = v[wrk_flat.iloc[start:end][k].values[:, None]]
+            eqs = (
+                wrk_flat.iloc[start:end][k].values[:, None]
+                == eval_flat.loc[:, k].values[None, :]
+            )
+            scores += mult * (vals * eqs).astype(np.uint16)
+
+        idx = scores.argsort(axis=0)[-top_k:, :]
+        scores_topk = np.take_along_axis(scores, idx, axis=0)
+        idx_index = np.take_along_axis(
+            np.array(wrk_flat.index), start + idx.flatten()
+        ).reshape(idx.shape)
+
+        topk_idx.append(idx_index)
+        topk_scores.append(scores_topk)
+
+    full_idx = np.concat(topk_idx)
+    full_scores = np.concat(topk_scores)
+
+    lookups = np.take_along_axis(
+        full_idx, full_scores.argsort(axis=0)[-top_k:, :], axis=0
+    )
+
+    t = None
+    stop = _ctx["stop"]
+
+    jdata = wrk_json["data"]
+    jdata_eval = eval_json["data"]
+    n_samples = eval_flat.shape[0]
+
+    fails = 0
+
+    in_q = queue.Queue()
+    out_q = queue.Queue()
+
+    for i, llm in enumerate(gen["llms"]):
+        t = threading.Thread(
+            target=_worker,
+            args=(
+                llm["generator"],
+                None,  # llm["generator_thought"],
+                stop,
+                in_q,
+                out_q,
+                n_samples,
+                False,
+                i == 0,
+            ),
+            daemon=True,
+        )
+        t.start()
+        _ctx["t"].append(t)
+
+    prompts = []
+    for i in range(n_samples):
+        samples = []
+        for k in lookups[:, i].tolist():
+            arr = jdata[part_map[int(id_map.loc[k].iloc[0])]]()
+            val = arr.loc[k, next(iter(arr.columns))]
+            samples.append(str(val))
+
+        samples = "\n".join(samples)
+
+        arr = jdata_eval[
+            part_map_eval[int(id_map_eval.loc[eval_flat.index[i]].iloc[0])]
+        ]()
+        val = arr.loc[eval_flat.index[i], next(iter(arr.columns))]
+        eval_str = str(val)
+
+        fprompt = (
+            prompt.replace("<eval>", eval_str)
+            .replace("<samples>", samples)
+            .replace("<samples_n>", str(top_k))
+        )
+
+        sample_num = i + 1
+        in_q.put((fprompt, sample_num))
+        prompts.append(fprompt)
+
+    # Grab energy info
+    tracker = CacheTracker()
+    # FIXME: Generalize this
+    tokenizer = gen["llms"][0]["llm"].tokenizer
+    cached_tokens = 0
+    input_tokens = 0
+    output_tokens = 0
+
+    in_time = 0
+    out_time = 0
+
+    for i in prange(n_samples, desc="Processing entities"):
+        start, ttft_thought, ttft, end, chunks, failed = out_q.get()
+
+        prompt = prompts[i]
+        ptokens = tokenizer.encode(prompt)[0]
+        ctokens = tracker.get_cached_len(ptokens)
+        cached_tokens += ctokens
+        input_tokens += len(ptokens) - ctokens
+
+        in_time += (ttft if ttft is not None else start) - start
+        out_time += end - (ttft if ttft is not None else start)
+
+        if not chunks:
+            continue
+
+        data = ""
+        for d in chunks:
+            dtype, frac = d
+
+            if dtype != "data":
+                continue
+
+            if isinstance(frac, str):
+                data_str = frac
+            else:
+                assert "object" in frac and frac["object"] == "text_completion"
+                data_str = frac["choices"][0]["text"]  # type: ignore
+
+            data += data_str
+
+        otokens = tokenizer.encode(data)[0]
+        output_tokens += len(otokens)
+        tracker.add_cached_tokens(ptokens + otokens)
+
+        if not failed:
+            try:
+                out.append(decoder.decode(data))
+            except json.JSONDecodeError:
+                fails += 1
+        else:
+            fails += 1
+
+        if fails >= MAX_FAILS and llm["model_type"] == "or":
+            logger.error(
+                f"Sampling failed {fails} times for sample {i+1}. Aborting further sampling."
+            )
+            raise RuntimeError("Maximum sampling failures reached.")
+
+    stop.set()
+    for t in _ctx["t"]:
+        t.join()
+
+    try:
+        input_tps = input_tokens / in_time if in_time > 0 else 0
+        output_tps = output_tokens / out_time if out_time > 0 else 0
+
+        logger.info(
+            f"""\
+Entities evaluated: {len(out)}, failed: {fails}, total: {n_samples}.
+
+# Token information
+Cached: {cached_tokens:12,d}
+ Input: {input_tokens:12,d}
+Output: {output_tokens:12,d}
+ Total: {input_tokens + output_tokens:12,d}
+
+# Time spent
+ Input time: {in_time if in_time else float('NaN'):7,.2f} s
+Output time: {out_time if out_time else float('NaN'):7,.2f} s
+ Total time: {in_time + out_time if in_time + out_time else float('NaN'):7,.2f} s
+
+# Throughput
+ Input tokens per second: {input_tps if input_tps else float('NaN'):8,.2f} t/s
+Output tokens per second: {output_tps if output_tps else float('NaN'):8,.2f} t/s
+"""
+        )
+
+        import mlflow
+
+        if mlflow.active_run() is not None:
+            mlflow.log_param("eval.cached_tokens", cached_tokens)
+            mlflow.log_param("eval.input_tokens", input_tokens)
+            mlflow.log_param("eval.input_time", in_time)
+            mlflow.log_param("eval.input_tps", input_tps)
+            mlflow.log_param("eval.output_tokens", output_tokens)
+            mlflow.log_param("eval.output_time", out_time)
+            mlflow.log_param("eval.output_tps", output_tps)
+            mlflow.log_param("eval.sample_n", len(out))
+            mlflow.log_param("eval.failures", fails)
+    except Exception:
+        logger.error("Error logging sampling performance to MLflow.", exc_info=True)
+
+    df = pd.DataFrame({"entity": map(str, out)})
+    return {
+        "ids": pd.DataFrame({"id": df.index}),
+        "data": df,
+    }
+
+
+def evaluate(
+    gen,
+    prompt: str,
+    counts,
+    wrk_flat: pd.DataFrame,
+    wrk_json: dict[str, LazyDataset],
+    eval_flat: pd.DataFrame,
+    eval_json: dict[str, LazyDataset],
+    max_samples: int | None = None,
+    top_k: int = 3,
+):
+
+    ctx = {
+        "t": [],
+        "stop": threading.Event(),
+    }
+
+    try:
+        return _evaluate(
+            gen,
+            prompt,
+            counts,
+            wrk_flat,
+            wrk_json,
+            eval_flat,
+            eval_json,
+            max_samples,
+            top_k,
             ctx,
         )
     finally:

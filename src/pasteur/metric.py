@@ -771,7 +771,7 @@ def fit_metric(
     encoder: Encoder | dict[str, Encoder],
     data: dict[str, LazyDataset] | dict[str, dict[str, LazyDataset]],
 ):
-    module = fs.build()
+    module = fs.build(**metadata.metrics.get(fs.name, {}))
     if isinstance(fs.encodings, list):
         assert isinstance(encoder, dict)
         meta = {name: enc.get_metadata() for name, enc in encoder.items() if name in fs.encodings}

@@ -1,6 +1,6 @@
-from pasteur.amalgam.llm import load_llm_model
 from typing import Any, Literal, Mapping, Type, TypedDict
 
+from pasteur.amalgam.llm import hold_gpu_lock, load_llm_model
 from pasteur.hierarchy import rebalance_attributes
 from pasteur.mare.synth import MareModel
 from pasteur.marginal import MarginalOracle
@@ -8,6 +8,7 @@ from pasteur.synth import Synth
 from pasteur.utils import LazyDataset, gen_closure
 
 from .llm import AmalgamHFParams, AmalgamORParams
+
 
 def _repack(pid, ids, data):
     return {
@@ -103,18 +104,15 @@ class AmalgamSynth(Synth):
 
     def fit(self, data: AmalgamInput):
         attrs = self.meta["flat"]["meta"]
-
-        if self.rebalance != False:
-            with MarginalOracle(
-                data["flat"],  # type: ignore
-                attrs,  # type: ignore
-                mode=self.marginal["mode"],
-                min_chunk_size=self.marginal["min_chunk"],
-                max_worker_mult=self.marginal["worker_mult"],
-            ) as o:
-                self.counts = o.get_counts(
-                    desc="Calculating counts for column rebalancing"
-                )
+        with MarginalOracle(
+            data["flat"],  # type: ignore
+            attrs,  # type: ignore
+            mode=self.marginal["mode"],
+            min_chunk_size=self.marginal["min_chunk"],
+            max_worker_mult=self.marginal["worker_mult"],
+        ) as o:
+            self.counts = o.get_counts(desc="Calculating counts for column rebalancing")
+            if self.rebalance != False:
                 self.attrs = rebalance_attributes(
                     self.counts[None],
                     attrs,
@@ -123,9 +121,8 @@ class AmalgamSynth(Synth):
                     u=self.rebalance["u"],
                     **self.kwargs,
                 )
-
-        else:
-            self.attrs = attrs
+            else:
+                self.attrs = attrs
 
         with MarginalOracle(
             data["flat"],  # type: ignore
@@ -145,12 +142,12 @@ class AmalgamSynth(Synth):
             )
             self.pgm_model = model
 
-    def sample(self, n: int | None = None, data=None, _llm=None):
+    def _sample(self, n: int | None = None, data=None, _llm=None):
         import pandas as pd
 
         from pasteur.extras.encoders import create_pydantic_model
 
-        from .llm import load_llm_model as load_llm_model, sample
+        from .llm import load_llm_model, sample
 
         if not _llm:
             llm = load_llm_model(
@@ -170,7 +167,7 @@ class AmalgamSynth(Synth):
             n = self.n
 
         if n is None:
-            n = data["flat"]['table'].shape[0]
+            n = data["flat"]["table"].shape[0]
 
         return sample(
             llm,
@@ -178,6 +175,10 @@ class AmalgamSynth(Synth):
             self.counts[None],
             self.meta,
             self.pgm_model.sample(pd.RangeIndex(0, n), {}),
-            data["flat"]['table'](),
+            data["flat"]["table"](),
             data["json"],
         )
+
+    def sample(self, n: int | None = None, data=None, _llm=None) -> AmalgamInput:
+        with hold_gpu_lock():
+            return self._sample(n=n, data=data, _llm=_llm)

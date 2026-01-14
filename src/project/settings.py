@@ -56,8 +56,8 @@ from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 from pasteur.mare.synth import MareSynth
 from pasteur.extras.synth.privbayes import PrivBayesMare
 # from pasteur.extras.metrics.syntheval import SynthEvalMetric
-from pasteur.synth import IdentSynthJson
 from pasteur.amalgam import AmalgamSynth
+from pasteur.extras.metrics.llm import LlmEvaluatorMetric
 
 # class MareSynth(IdentSynth):
 #     name = "ident_mare"
@@ -75,4 +75,5 @@ PASTEUR_MODULES = get_recommended_modules() + [
     JsonEncoder.get_factory(),
     AmalgamSynth.get_factory(PrivBayesMare),
     FlatEncoder.get_factory(),
+    LlmEvaluatorMetric.get_factory(),
 ]

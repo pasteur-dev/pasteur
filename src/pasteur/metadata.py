@@ -206,6 +206,7 @@ class ViewMeta:
 
         self.alg_override = meta.get("alg", {})
         self.algs = meta.get("algs", {})
+        self.metrics = meta.get("metrics", {})
         self.seed: int | None = meta.get("random_state", None)
         self.random_state = self.seed
 

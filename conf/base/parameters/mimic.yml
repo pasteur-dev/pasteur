@@ -58,6 +58,18 @@ mimic_core:
         u: 7
       pgm:
         etotal: 2
+  metrics:
+    llmeval:
+      samples: 20
+      model: *model
+      prompt: |
+        You are a medical doctor.
+
+        You are given the following <samples_n> real patients as a reference:
+        <samples>
+
+        Then, you are asked to comment on how real the following patient is with a rating from 1 to 5 (5 being very real):
+        <eval>
 
 mimic_icu:
   algs:
