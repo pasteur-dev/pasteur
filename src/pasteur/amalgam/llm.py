@@ -190,7 +190,7 @@ def get_or_api_key() -> str:
     return context._get_config_credentials()["openrouter"]
 
 
-def _printer(prompt, sample_num, sample_n, q, stop):
+def _printer(prompt, sample_num, sample_n, q, stop, task):
     import json
 
     MAX_LEN = 300
@@ -277,7 +277,7 @@ def _printer(prompt, sample_num, sample_n, q, stop):
             if thought:
                 thought_str = f"\nThought: {thought}"
             logger.info(
-                f":ephemeral:Sampling Entity {sample_num}/{sample_n}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
+                f":ephemeral:{task} {sample_num}/{sample_n}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
             )
             last_print = curr
         except json.JSONDecodeError:
@@ -293,6 +293,7 @@ def _worker(
     sample_n,
     think,
     print,
+    task,
 ):
     import queue
 
@@ -313,7 +314,7 @@ def _worker(
         if print:
             t = threading.Thread(
                 target=_printer,
-                args=(prompt, sample_num, sample_n, pq, stop),
+                args=(prompt, sample_num, sample_n, pq, stop, task),
                 daemon=True,
             )
             t.start()
@@ -481,6 +482,7 @@ def _sample(
                 n_samples,
                 THINK,
                 i == 0,
+                "Sampling Entity",
             ),
             daemon=True,
         )
@@ -781,6 +783,7 @@ def _evaluate(
                 n_samples,
                 False,
                 i == 0,
+                f"Evaluating {split} Entity",
             ),
             daemon=True,
         )
