@@ -312,7 +312,7 @@ def sweep(
         pipelines_tags = [
             (
                 f"{view}.{alg[0]}",
-                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER],
+                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
             ),
             *[
                 (f"{view}.{a}", [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM])
