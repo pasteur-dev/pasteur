@@ -9,7 +9,6 @@ from kedro.io import DataCatalog, DatasetError
 from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner
-from kedro.runner.runner import run_node
 from pluggy import PluginManager
 from rich import get_console
 
@@ -98,8 +97,10 @@ class SimpleParallelRunner(ParallelRunner):
         else:
             nodes = pipeline.nodes
             node_dependencies = pipeline.node_dependencies
-        self._validate_catalog(catalog, pipeline)
+
+        self._validate_catalog(catalog)
         self._validate_nodes(nodes)
+        self._set_manager_datasets(catalog)
 
         load_counts = Counter(chain.from_iterable(n.inputs for n in nodes))
         todo_nodes = set(node_dependencies.keys())

@@ -82,7 +82,7 @@ def _pipe(pipe: str, params_str: str, params: dict):
 
     metadata = bootstrap_project(project_path)
     session = KedroSession.create(
-        metadata.package_name, project_path, extra_params=params, env="base"
+        metadata.package_name, project_path, runtime_params=params, env="base"
     )
     _reconfigure_rich()
     session.run(

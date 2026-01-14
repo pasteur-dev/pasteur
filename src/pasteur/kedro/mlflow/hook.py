@@ -136,7 +136,9 @@ class MlflowTrackingHook:
             self.mlflow_config.tracking.params.long_params_strategy
         )
 
-        run_name = get_run_name(run_params["pipeline_name"], run_params["extra_params"])
+        run_name = get_run_name(
+            run_params["pipeline_name"], run_params["runtime_params"]
+        )
 
         if self.parent_name:
             query = f"tags.pasteur_id = '{sanitize_name(self.parent_name)}' and tags.pasteur_parent = '1'"
@@ -171,7 +173,7 @@ class MlflowTrackingHook:
             # )
             logger.info("Removing existing mlflow run.")
             mlflow.delete_run(run_id)
-        
+
         mlflow.start_run(
             experiment_id=self.mlflow_config.tracking.experiment._experiment.experiment_id,
             run_name=run_name,

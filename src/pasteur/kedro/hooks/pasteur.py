@@ -131,25 +131,26 @@ class PasteurHook:
         pipelines._content.update(self.pipelines)
 
         # Add view metadata for loaded modules
-        extra_params = {}
+        runtime_params = {}
         for name, view_params in self.parameters.items():
             # dict gets added straight away
             if isinstance(view_params, dict):
-                extra_params[name] = view_params
+                runtime_params[name] = view_params
             # string is considered to point to a file
             else:
-                extra_params[name] = _load_config(view_params).copy()
+                runtime_params[name] = _load_config(view_params).copy()
 
         # Add hidden dict with views to remove their params in mlflow
         assert self.modules
-        extra_params["_views"] = get_view_names(self.modules)
+        runtime_params["_views"] = get_view_names(self.modules)
 
+        # FIXME: check if this is needed
         # Restore original overrides
-        if context._extra_params:
-            extra_params.update(context._extra_params)
+        if context._runtime_params:
+            runtime_params.update(context.runtime_params)
 
         # Apply overrides
-        context._extra_params = extra_params
+        context._runtime_params = runtime_params
 
         setattr(context, "pasteur", self)
 
@@ -192,46 +193,34 @@ class PasteurHook:
                 metadata={"kedro-viz": {"layer": layer}} if layer else None,
             )
 
-        self.catalog.add(
-            name,
-            ds,
-        )
+        self.catalog[name] = ds
         # if layer:
         #     self.catalog.layers[layer].add(name)
 
     def add_pkl(self, layer, name, path_seg, versioned=False):
-        self.catalog.add(
-            name,
-            PickleDataset(
-                path.join(
-                    self.base_location,
-                    *path_seg[:-1],
-                    path_seg[-1] + ".pkl",
-                ),
-                version=self.get_version(name, versioned),  # type: ignore
-                metadata={"kedro-viz": {"layer": layer}} if layer else None,
+        self.catalog[name] = PickleDataset(
+            path.join(
+                self.base_location,
+                *path_seg[:-1],
+                path_seg[-1] + ".pkl",
             ),
+            version=self.get_version(name, versioned),  # type: ignore
+            metadata={"kedro-viz": {"layer": layer}} if layer else None,
         )
 
     def add_json(self, layer, name, path_seg, versioned=False):
-        self.catalog.add(
-            name,
-            JSONDataset(
-                filepath=path.join(
-                    self.base_location,
-                    *path_seg[:-1],
-                    path_seg[-1] + ".json",
-                ),
-                version=self.get_version(name, versioned),  # type: ignore
-                metadata={"kedro-viz": {"layer": layer}} if layer else None,
+        self.catalog[name] = JSONDataset(
+            filepath=path.join(
+                self.base_location,
+                *path_seg[:-1],
+                path_seg[-1] + ".json",
             ),
+            version=self.get_version(name, versioned),  # type: ignore
+            metadata={"kedro-viz": {"layer": layer}} if layer else None,
         )
 
     def add_mem(self, layer, name):
-        self.catalog.add(
-            name,
-            MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),  # type: ignore
-        )
+        self.catalog[name] = (MemoryDataset(metadata={"kedro-viz": {"layer": layer}} if layer else None),)  # type: ignore
         # if layer:
         #     self.catalog.layers[layer].add(name)
 
@@ -301,7 +290,8 @@ class PasteurHook:
                 )
 
                 # Add all traditional layers that exist
-                catalog.add_all(tmp_catalog._datasets)
+                for k, v in tmp_catalog.items():
+                    catalog[k] = v
                 depr_tag = set()
                 # if hasattr(tmp_catalog, "layers"):
                 #     # Passthrough layers if they are not provided through metadata

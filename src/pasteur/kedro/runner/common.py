@@ -20,6 +20,7 @@ def _collect_inputs_from_hook(  # noqa: PLR0913
     is_async: bool,
     hook_manager: PluginManager,
     session_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     inputs = inputs.copy()  # shallow copy to prevent in-place modification by the hook
     hook_response = hook_manager.hook.before_node_run(
@@ -28,6 +29,7 @@ def _collect_inputs_from_hook(  # noqa: PLR0913
         inputs=inputs,
         is_async=is_async,
         session_id=session_id,
+        run_id=run_id,
     )
 
     additional_inputs = {}
@@ -53,6 +55,7 @@ def _call_node_run(  # noqa: PLR0913
     is_async: bool,
     hook_manager: PluginManager,
     session_id: str | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         outputs = node.run(inputs)
@@ -73,6 +76,7 @@ def _call_node_run(  # noqa: PLR0913
         outputs=outputs,
         is_async=is_async,
         session_id=session_id,
+        run_id=run_id,
     )
     return outputs
 
@@ -120,12 +124,12 @@ def run_expanded_node(
         is_async = False
 
         additional_inputs = _collect_inputs_from_hook(
-            node, catalog, inputs, is_async, hook_manager, session_id=session_id
+            node, catalog, inputs, is_async, hook_manager, session_id=session_id, run_id=run_id
         )
         inputs.update(additional_inputs)
 
         outputs = _call_node_run(
-            node, catalog, inputs, is_async, hook_manager, session_id=session_id
+            node, catalog, inputs, is_async, hook_manager, session_id=session_id, run_id=run_id
         )
     except Exception as e:
         if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
@@ -141,7 +145,7 @@ def run_expanded_node(
 
     # Clear outputs
     for name in node.outputs:
-        d = catalog._get_dataset(name)
+        d = catalog[name]
         if hasattr(d, "reset"):
             getattr(d, "reset")()
 

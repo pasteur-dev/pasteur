@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from kedro.pipeline import Pipeline as pipeline
-from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...dataset import Dataset, TypedDataset
 from .meta import TAGS_DATASET
@@ -53,7 +52,7 @@ def create_dataset_pipeline(
         for t in tables
     ]
     meta_tables = PipelineMeta(
-        modular_pipeline(pipe=pipeline(nodes), namespace=dataset.name),
+        pipeline(nodes, namespace=dataset.name),
         outputs,
     )
 

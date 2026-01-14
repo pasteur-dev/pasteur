@@ -21,7 +21,7 @@ def create_session(
     project_path: str | None = None,
     save_on_close: bool = True,
     env: str | None = None,
-    extra_params: dict[str, Any] | None = None,
+    runtime_params: dict[str, Any] | None = None,
     conf_source: str | None = None,
     session_id: str | None = None,
 ) -> KedroSession:
@@ -60,8 +60,8 @@ def create_session(
     if env:
         session_data["env"] = env
 
-    if extra_params:
-        session_data["extra_params"] = extra_params
+    if runtime_params:
+        session_data["runtime_params"] = runtime_params
 
     try:
         session_data["username"] = getpass.getuser()
@@ -157,7 +157,7 @@ def pipe(
                 pipeline = f"{pipeline}.ingest"
 
     with create_session(
-        KedroSession, extra_params=param_dict, env="base", session_id=session_id
+        KedroSession, runtime_params=param_dict, env="base", session_id=session_id
     ) as session:
         if "ingest" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
@@ -349,12 +349,12 @@ def sweep(
 
     runs = {}
     ingested = False
-    extra_params = {}
+    runtime_params = {}
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
         param_dict = eval_params(params, iters)
         hyper_dict = {n: iters[n] for n in hyperparam_dict}
         vals = param_dict | hyper_dict
-        extra_params = merge_params(vals | mlflow_dict)
+        runtime_params = merge_params(vals | mlflow_dict)
 
         alg_only_hyper = all([n.startswith("alg") for n in vals])
 
@@ -366,7 +366,9 @@ def sweep(
                 if TAG_CHANGES_HYPERPARAMETER in tags:
                     tags.remove(TAG_CHANGES_HYPERPARAMETER)
 
-            with KedroSession.create(extra_params=extra_params, env="base") as session:
+            with KedroSession.create(
+                runtime_params=runtime_params, env="base"
+            ) as session:
                 session.load_context()
 
                 run_name = get_run_name(pipeline, vals)
@@ -408,7 +410,7 @@ def sweep(
         logger.info("Only 1 run executed, skipping summary.")
         return
 
-    with KedroSession.create(extra_params=extra_params, env="base") as session:
+    with KedroSession.create(runtime_params=runtime_params, env="base") as session:
         ctx = session.load_context()
         experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split(".")[0])
         log_parent_run(

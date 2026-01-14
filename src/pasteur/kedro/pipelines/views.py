@@ -4,7 +4,6 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from kedro.pipeline import Pipeline as pipeline
-from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...metadata import Metadata
 from ...utils import LazyFrame
@@ -152,8 +151,9 @@ def create_filter_pipeline(view: View, splits: list[str]):
             )
 
     return PipelineMeta(
-        modular_pipeline(
-            pipe=pipeline(nodes, tags=["view"]),
+        pipeline(
+            nodes,
+            tags=["view"],
             namespace=view.name,
         ),
         [

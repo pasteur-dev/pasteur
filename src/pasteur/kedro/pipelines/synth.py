@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from kedro.pipeline import Pipeline as pipeline
-from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...synth import synth_fit, synth_sample
 from .meta import DatasetMeta as D

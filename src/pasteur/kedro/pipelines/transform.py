@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import pandas as pd
 from kedro.pipeline import Pipeline as pipeline
-from kedro.pipeline.modular_pipeline import pipeline as modular_pipeline
 
 from ...encode import AttributeEncoderFactory, EncoderFactory, Encoder
 from ...metadata import Metadata
@@ -312,8 +311,8 @@ def create_reverse_pipeline(view: View, alg: str, enc: str):
             ]
         )
 
-    pipe = modular_pipeline(
-        pipe=pipeline(decode_nodes),
+    pipe = pipeline(
+        decode_nodes,
         tags=TAGS_REVERSE,
     )
 

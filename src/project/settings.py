@@ -18,11 +18,14 @@ install(**RICH_TRACEBACK_ARGS)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+warnings.filterwarnings("ignore", module=r"^kedro\.pipeline\.node")
+warnings.filterwarnings("ignore", module=r"^kedro\.pipeline\.pipeline")
+
 # Instantiated project hooks.
 HOOKS = ()
 
 # Installed plugins for which to disable hook auto-registration.
-DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow",)
+DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow", "kedro-viz")
 
 # Class that manages storing KedroSession data.
 # from kedro.framework.session.store import ShelveStore
