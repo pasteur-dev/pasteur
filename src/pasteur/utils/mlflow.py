@@ -1,4 +1,4 @@
-""" Mlflow utility functions.
+"""Mlflow utility functions.
 
 @TODO: refactor and clean the functions provided by this module."""
 
@@ -293,13 +293,29 @@ def mlflow_log_artifacts(*prefix: str, **args):
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
 
 
-def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
+def mlflow_log_figures(path: str, viz: "Figure | dict[str, Figure]"):
     import matplotlib.pyplot as plt
     import mlflow
 
     if not mlflow.active_run():
         return
 
+    if isinstance(viz, dict):
+        if _SAVE_HTML:
+            html = gen_html_figure_container(viz)
+            mlflow.log_text(html, f"{path}.html")
+        else:
+            for i, (n, v) in enumerate(viz.items()):
+                mlflow.log_figure(v, f"{path}_{i}_{n}.png")
+
+        for v in viz.values():
+            plt.close(v)
+    else:
+        mlflow.log_figure(viz, f"{path}.png")
+        plt.close(viz)
+
+
+def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
     path_prefix = "histograms/"
     if table != "table":
         path_prefix += f"{table}/"
@@ -307,19 +323,9 @@ def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
     if not isinstance(name, str):
         name = "_".join(name)
     name = name.lower()
-    if isinstance(viz, dict):
-        if _SAVE_HTML:
-            html = gen_html_figure_container(viz)
-            mlflow.log_text(html, f"{path_prefix}{name}.html")
-        else:
-            for i, (n, v) in enumerate(viz.items()):
-                mlflow.log_figure(v, f"{path_prefix}{name}_{i}_{n}.png")
 
-        for v in viz.values():
-            plt.close(v)
-    else:
-        mlflow.log_figure(viz, f"{path_prefix}{name}.png")
-        plt.close(viz)
+    full_name = f"{path_prefix}{name}"
+    mlflow_log_figures(full_name, viz)
 
 
 def mlflow_log_perf(**runs: dict[str, float]):

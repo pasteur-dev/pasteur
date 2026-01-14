@@ -1,6 +1,4 @@
-from pasteur.amalgam.synth import MARGINAL_PARAMS_DEFAULT
-from pasteur.amalgam.synth import AmalgamMarginalParams
-from pasteur.marginal.oracle import MarginalOracle
+import logging
 from typing import Any
 
 import pandas as pd
@@ -8,18 +6,23 @@ import pandas as pd
 from pasteur.amalgam.llm import (
     AmalgamHFParams,
     AmalgamORParams,
-    load_llm_model_eval,
-    hold_gpu_lock,
     evaluate,
+    hold_gpu_lock,
+    load_llm_model_eval,
 )
-from pasteur.amalgam.synth import MODEL_PARAMS_QWEN3
+from pasteur.amalgam.synth import (
+    MARGINAL_PARAMS_DEFAULT,
+    MODEL_PARAMS_QWEN3,
+    AmalgamMarginalParams,
+)
+from pasteur.marginal.oracle import MarginalOracle
 from pasteur.metric import Summaries
 from pasteur.utils import LazyDataset
 
-from ...attribute import Attributes, CatValue, SeqValue, get_dtype
 from ...metric import Metric, Summaries
-from ...utils import LazyChunk, LazyFrame, data_to_tables
-from ...utils.progress import process_in_parallel
+from ...utils import LazyFrame
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PROMPT = """
 You are an expert data scientist.
@@ -30,6 +33,7 @@ You are given the following <samples_n> real samples as a reference:
 Then, you are asked to comment on how real the following sample is and give it a rating from 1 to 5 (5 being very real):
 <eval>
 """
+
 
 class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
     name = "llmeval"
@@ -110,7 +114,10 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         _llm=None,
     ) -> Summaries[None | pd.DataFrame]:
         with hold_gpu_lock():
-            return Summaries(wrk=None, ref=self.evaluate_dataset("ref", self.samples_ref, wrk, ref, _llm=_llm))
+            return Summaries(
+                wrk=None,
+                ref=self.evaluate_dataset("ref", self.samples_ref, wrk, ref, _llm=_llm),
+            )
 
     def process(
         self,
@@ -121,7 +128,9 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         _llm=None,
     ) -> Summaries[pd.DataFrame]:
         with hold_gpu_lock():
-            return pre.replace(syn=self.evaluate_dataset("syn", self.samples, wrk, syn, _llm=_llm))
+            return pre.replace(
+                syn=self.evaluate_dataset("syn", self.samples, wrk, syn, _llm=_llm)
+            )
 
     def visualise(
         self,
@@ -130,18 +139,69 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
             Summaries[pd.DataFrame],
         ],
     ):
-        # from pasteur.utils.styles import use_style
-        # from pasteur.utils.mlflow import color_dataframe, gen_html_table
-        # import matplotlib.pyplot as plt
-        # import mlflow
+        import matplotlib.pyplot as plt
+        import mlflow
+        import numpy as np
+        import pandas as pd
 
-        # use_style("mlflow")
+        from pasteur.utils.mlflow import (
+            color_dataframe,
+            gen_html_table,
+            mlflow_log_figures,
+        )
+        from pasteur.utils.styles import use_style
 
-        # fn = f"syntheval.html"
-        # mlflow.log_text(gen_html_table(dfs, FONT_SIZE), fn)
+        from .visual import _gen_bar, _percent_formatter
 
-        # import json
+        use_style("mlflow")
 
-        # fn = f"_raw/metrics/distr/syntheval.json"
-        # mlflow.log_text(json.dumps({k: v.to_dict() for k, v in df.items()}), fn)
-        pass
+        def get_scores(d: list[dict]):
+            return np.array([x["score"] for x in d])
+
+        splits = {}
+        splits["ref"] = get_scores(next(iter(data.values())).ref)
+        for k, v in data.items():
+            splits[k] = get_scores(v.syn)
+
+            fig, ax = plt.subplots()
+
+        cols = ["1", "2", "3", "4", "5"]
+        title = f"LLM Evaluation Scores Distribution"
+        x = np.array(range(len(cols)))
+        w = 0.9 / len(splits)
+
+        df_data = {}
+        for i, (name, vals) in enumerate(splits.items()):
+            c = np.bincount(vals, minlength=6)[1:6]
+            h = c / c.sum() if c.sum() > 0 else c
+            ax.bar(
+                x - 0.45 + w * i,
+                h,
+                width=w,
+                align="edge",
+                label=name,
+                # log=y_log,
+            )
+
+            df_data[name] = pd.Series(
+                h,
+                index=pd.Index(cols, name="Score"),
+                name=name,
+            )
+
+        plt.xticks(x, cols)
+        rot = min(3 * len(cols), 90)
+        if rot > 10:
+            plt.setp(ax.get_xticklabels(), rotation=rot, horizontalalignment="right")
+
+        ax.legend()
+        ax.set_title(title)
+        ax.yaxis.set_major_formatter(_percent_formatter)
+
+        plt.tight_layout()
+
+        mlflow_log_figures("llm_eval/score_distribution", fig)
+
+        logger.info(
+            "LLM Evaluation Scores (%)\n" + (pd.DataFrame(df_data) * 100).to_markdown()
+        )
