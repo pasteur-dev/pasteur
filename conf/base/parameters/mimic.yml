@@ -44,7 +44,7 @@ mimic_core:
           - Reason about the key events in this patient's admission; they should make sense
           - If a value would cause an unrealistic patient, adjust it slightly for realism
       samples: 2000
-      model: # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
+      model: &model # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
         type: hf
         repo_id: Qwen/Qwen3-8B-GGUF
         filename: Qwen3-8B-Q4_K_M.gguf
@@ -60,7 +60,7 @@ mimic_core:
         etotal: 2
   metrics:
     llmeval:
-      samples: 20
+      samples: 300
       model: *model
       prompt: |
         You are a medical doctor.
