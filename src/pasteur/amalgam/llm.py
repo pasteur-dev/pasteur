@@ -671,6 +671,7 @@ def _evaluate(
     eval_json: dict[str, LazyDataset],
     max_samples: int | None,
     top_k: int,
+    split: str,
     _ctx,
 ):
     import json
@@ -823,7 +824,7 @@ def _evaluate(
     in_time = 0
     out_time = 0
 
-    for i in prange(n_samples, desc="Processing entities"):
+    for i in prange(n_samples, desc=f"Evaluating {split.capitalize()} entities"):
         start, ttft_thought, ttft, end, chunks, failed = out_q.get()
 
         prompt = prompts[i]
@@ -881,7 +882,7 @@ def _evaluate(
 
         logger.info(
             f"""\
-Entities evaluated: {len(out)}, failed: {fails}, total: {n_samples}.
+{split.capitalize()} Entities evaluated: {len(out)}, failed: {fails}, total: {n_samples}.
 
 # Token information
 Cached: {cached_tokens:12,d}
@@ -903,15 +904,15 @@ Output tokens per second: {output_tps if output_tps else float('NaN'):8,.2f} t/s
         import mlflow
 
         if mlflow.active_run() is not None:
-            mlflow.log_param("eval.cached_tokens", cached_tokens)
-            mlflow.log_param("eval.input_tokens", input_tokens)
-            mlflow.log_param("eval.input_time", in_time)
-            mlflow.log_param("eval.input_tps", input_tps)
-            mlflow.log_param("eval.output_tokens", output_tokens)
-            mlflow.log_param("eval.output_time", out_time)
-            mlflow.log_param("eval.output_tps", output_tps)
-            mlflow.log_param("eval.sample_n", len(out))
-            mlflow.log_param("eval.failures", fails)
+            mlflow.log_param(f"eval.{split}.cached_tokens", cached_tokens)
+            mlflow.log_param(f"eval.{split}.input_tokens", input_tokens)
+            mlflow.log_param(f"eval.{split}.input_time", in_time)
+            mlflow.log_param(f"eval.{split}.input_tps", input_tps)
+            mlflow.log_param(f"eval.{split}.output_tokens", output_tokens)
+            mlflow.log_param(f"eval.{split}.output_time", out_time)
+            mlflow.log_param(f"eval.{split}.output_tps", output_tps)
+            mlflow.log_param(f"eval.{split}.sample_n", len(out))
+            mlflow.log_param(f"eval.{split}.failures", fails)
     except Exception:
         logger.error("Error logging sampling performance to MLflow.", exc_info=True)
 
@@ -928,6 +929,7 @@ def evaluate(
     eval_json: dict[str, LazyDataset],
     max_samples: int | None = None,
     top_k: int = 3,
+    split: str = "ref",
 ):
 
     ctx = {
@@ -946,6 +948,7 @@ def evaluate(
             eval_json,
             max_samples,
             top_k,
+            split,
             ctx,
         )
     finally:

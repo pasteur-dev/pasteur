@@ -74,6 +74,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
 
     def evaluate_dataset(
         self,
+        split: str,
         samples_n: int,
         wrk: dict[str, dict[str, LazyDataset]],
         ref: dict[str, dict[str, LazyDataset]],
@@ -99,6 +100,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
             ref["json"],
             samples_n,
             self.topk,
+            split,
         )
 
     def preprocess(
@@ -108,7 +110,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         _llm=None,
     ) -> Summaries[None | pd.DataFrame]:
         with hold_gpu_lock():
-            return Summaries(wrk=None, ref=self.evaluate_dataset(self.samples_ref, wrk, ref, _llm=_llm))
+            return Summaries(wrk=None, ref=self.evaluate_dataset("ref", self.samples_ref, wrk, ref, _llm=_llm))
 
     def process(
         self,
@@ -119,7 +121,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         _llm=None,
     ) -> Summaries[pd.DataFrame]:
         with hold_gpu_lock():
-            return pre.replace(syn=self.evaluate_dataset(self.samples, wrk, syn, _llm=_llm))
+            return pre.replace(syn=self.evaluate_dataset("syn", self.samples, wrk, syn, _llm=_llm))
 
     def visualise(
         self,
