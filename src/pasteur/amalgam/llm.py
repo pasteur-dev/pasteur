@@ -168,29 +168,31 @@ def _printer(prompt, sample_num, sample_n, q, stop):
 
         dtype, j = token
 
-        if j is None:
-            break
-        if ttft is None:
-            ttft = time.perf_counter()
-        if isinstance(j, str):
-            frac = j
-        else:
-            assert "object" in j and j["object"] == "text_completion"
-            frac = j["choices"][0]["text"]  # type: ignore
+        end = dtype is None
+        if not end:
+            if dtype is None:
+                break
+            if ttft is None:
+                ttft = time.perf_counter()
+            if isinstance(j, str):
+                frac = j
+            else:
+                assert "object" in j and j["object"] == "text_completion"
+                frac = j["choices"][0]["text"]  # type: ignore
 
-        if dtype == "thought":
-            thought += frac
-        else:
-            data += frac
+            if dtype == "thought":
+                thought += frac
+            else:
+                data += frac
 
-        # Flush the queue before printing
-        # Printing is slow, so we only want to print the latest
-        if not q.empty():
-            continue
+            # Flush the queue before printing
+            # Printing is slow, so we only want to print the latest
+            if not q.empty():
+                continue
 
-        curr = time.perf_counter()
-        if curr - last_print < PRINT_FREQ:
-            continue
+            curr = time.perf_counter()
+            if curr - last_print < PRINT_FREQ:
+                continue
 
         # Try to correct invalid json as much as possible
         # This does not work in dicts, when before the :
