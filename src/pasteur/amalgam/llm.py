@@ -915,11 +915,7 @@ Output tokens per second: {output_tps if output_tps else float('NaN'):8,.2f} t/s
     except Exception:
         logger.error("Error logging sampling performance to MLflow.", exc_info=True)
 
-    df = pd.DataFrame({"entity": map(str, out)})
-    return {
-        "ids": pd.DataFrame({"id": df.index}),
-        "data": df,
-    }
+    return out
 
 
 def evaluate(
