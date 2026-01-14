@@ -78,34 +78,41 @@ class DiscretizationColumnTransformer:
         return self.val
 
     def encode(self, data: pd.Series) -> pd.DataFrame | pd.Series:
-        ofs = int(self.nullable)
         dtype = get_dtype(len(self.centers) + 1)
-        midx = len(self.centers) - 1  # clip digitize out of bounds values
-        digits = (
-            np.digitize(data, bins=self.edges).astype(dtype).clip(1, midx) - 1 + ofs
-        )
+        if not np.all(pd.isna(data)):
+            ofs = int(self.nullable)
+            midx = len(self.centers) - 1  # clip digitize out of bounds values
 
-        digits = pd.Series(digits, index=data.index, name=self.col)
-        if ofs:
-            digits[pd.isna(data)] = 0
+            digits = (
+                np.digitize(data, bins=self.edges).astype(dtype).clip(1, midx) - 1 + ofs
+            )
 
-        clip_min = digits.astype("float32").replace(
-            {i + ofs: c for i, c in enumerate(self.edges)}
-        )
-        clip_max = digits.astype("float32").replace(
-            {i + ofs - 1: c for i, c in enumerate(self.edges)}
-        )
-        c = self.edges
-        clip_norm = digits.astype("float32").replace(
-            {i + ofs: c[i + 1] - c[i] for i in range(len(self.edges) - 1)}
-        )
-        cont = ((data.clip(upper=clip_max) - clip_min) / clip_norm).rename(self.col_cnt)
-        if self.nullable:
-            cont[digits == 0] = np.nan
+            digits = pd.Series(digits, index=data.index, name=self.col)
+            if ofs:
+                digits[pd.isna(data)] = 0
+
+            clip_min = digits.astype("float32").replace(
+                {i + ofs: c for i, c in enumerate(self.edges)}
+            )
+            clip_max = digits.astype("float32").replace(
+                {i + ofs - 1: c for i, c in enumerate(self.edges)}
+            )
+            c = self.edges
+            clip_norm = digits.astype("float32").replace(
+                {i + ofs: c[i + 1] - c[i] for i in range(len(self.edges) - 1)}
+            )
+            cont = ((data.clip(upper=clip_max) - clip_min) / clip_norm).rename(self.col_cnt)
+            if self.nullable:
+                cont[digits == 0] = np.nan
+            else:
+                assert not np.any(
+                    pd.isna(data)
+                ), f"Found nullable data in the non-nullable column '{self.col}'"
         else:
-            assert not np.any(
-                pd.isna(data)
-            ), f"Found nullable data in the non-nullable column '{self.col}'"
+            assert self.nullable, "Column needs to be nullable to encode nullable columns with all NaN values"
+            digits = pd.Series(0, index=data.index, name=self.col, dtype=dtype)
+            cont = pd.Series(np.nan, index=data.index, name=self.col_cnt)
+
         return pd.concat([digits, cont], axis=1)
 
     def decode(self, enc: pd.DataFrame) -> pd.Series:
