@@ -147,7 +147,7 @@ class PasteurHook:
         # FIXME: check if this is needed
         # Restore original overrides
         if context._runtime_params:
-            runtime_params.update(context.runtime_params)
+            runtime_params.update(context._runtime_params)
 
         # Apply overrides
         context._runtime_params = runtime_params
