@@ -160,9 +160,9 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         use_style("mlflow")
 
         splits = {}
-        splits["ref"] = get_scores(next(iter(data.values())).ref)
+        splits["ref"] = next(iter(data.values())).ref
         for k, v in data.items():
-            splits[k] = get_scores(v.syn)
+            splits[k] = v.syn
 
             fig, ax = plt.subplots()
 
@@ -175,7 +175,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         raw_data = {}
         avgs = {}
         for i, (name, c) in enumerate(splits.items()):
-            h = c / c.sum() if c.sum() > 0 else c
+            h = c / sum(c) if sum(c) > 0 else c
             ax.bar(
                 x - 0.45 + w * i,
                 h,
