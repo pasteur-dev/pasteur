@@ -117,7 +117,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         ref: dict[str, dict[str, LazyDataset]],
         _llm=None,
     ) -> Summaries[None | pd.DataFrame]:
-        with hold_gpu_lock():
+        with hold_gpu_lock("eval.ref"):
             return Summaries(
                 wrk=None,
                 ref=self.evaluate_dataset("ref", self.samples_ref, wrk, ref, _llm=_llm),
@@ -131,7 +131,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         pre: Summaries[pd.DataFrame],
         _llm=None,
     ) -> Summaries[pd.DataFrame]:
-        with hold_gpu_lock():
+        with hold_gpu_lock("eval.syn"):
             return pre.replace(
                 syn=self.evaluate_dataset("syn", self.samples, wrk, syn, _llm=_llm)
             )

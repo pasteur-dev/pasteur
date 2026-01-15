@@ -180,5 +180,5 @@ class AmalgamSynth(Synth):
         )
 
     def sample(self, n: int | None = None, data=None, _llm=None) -> AmalgamInput:
-        with hold_gpu_lock():
+        with hold_gpu_lock("sampling"):
             return self._sample(n=n, data=data, _llm=_llm)

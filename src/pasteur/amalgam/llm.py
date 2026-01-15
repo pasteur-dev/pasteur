@@ -141,12 +141,69 @@ def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> A
 gpu_lock = threading.Lock()
 
 
+def _gpu_monitor_worker(name: str, stop: threading.Event):
+    import subprocess
+    import csv
+    import tempfile
+
+    process = subprocess.Popen(
+        [
+            "nvidia-smi",
+            "--query-gpu=timestamp,power.draw,power.draw.average,power.draw.instant,utilization.gpu,utilization.memory,memory.used,memory.total",
+            "--format=csv,nounits",
+            "-l=1",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w+") as tmpfile:
+        header = process.stdout.readline()
+        writer = csv.writer(tmpfile, fieldnames=header.strip().split(", "))
+
+        while not stop.is_set():
+            line = process.stdout.readline()
+            if not line:
+                continue
+            writer.writerow(line.strip().split(", "))
+
+        process.terminate()
+        process.wait()
+        tmpfile.flush()
+
+        try:
+            import mlflow
+
+            if mlflow.active_run() is not None:
+                mlflow.log_artifact(
+                    tmpfile.name, artifact_path=f"_raw/energy/gpu_{name}.csv"
+                )
+        except Exception:
+            logger.error("Error logging GPU energy info to MLflow.", exc_info=True)
+
+
 class hold_gpu_lock:
+    def __init__(self, name: str | None = None):
+        self.name = name
+        self.t = None
+        self.stop_event = threading.Event()
+
     def __enter__(self):
         gpu_lock.acquire()
+        self.t = threading.Thread(
+            target=_gpu_monitor_worker,
+            args=(self.name or "unknown", self.stop_event),
+            daemon=True,
+        )
+        self.t.start()
 
     def __exit__(self, exc_type, exc_value, traceback):
         gpu_lock.release()
+        if self.t is not None:
+            self.stop_event.set()
+            self.t.join()
 
 
 def load_llm_model(
