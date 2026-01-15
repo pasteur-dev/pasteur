@@ -10,10 +10,10 @@ from kedro.pipeline.node import Node
 from mlflow.entities import RunStatus
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
-from ...utils.parser import merge_dicts
 from ...utils.logging import MlflowHandler
+from ...utils.parser import merge_dicts
 from ...utils.perf import PerformanceTracker
-from .base import flatten_dict, get_run_id, get_run_name, sanitize_name
+from .base import flatten_dict, get_run_id, get_run_name, sanitize_name, get_git_suffix
 from .config import KedroMlflowConfig
 
 logger = logging.getLogger(__name__)
@@ -140,8 +140,10 @@ class MlflowTrackingHook:
             run_params["pipeline_name"], run_params["runtime_params"]
         )
 
+        git = get_git_suffix()
+
         if self.parent_name:
-            query = f"tags.pasteur_id = '{sanitize_name(self.parent_name)}' and tags.pasteur_parent = '1'"
+            query = f"tags.pasteur_id = '{sanitize_name(self.parent_name)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'"
             parent_runs = mlflow.search_runs(
                 experiment_ids=[
                     self.mlflow_config.tracking.experiment._experiment.experiment_id
@@ -163,8 +165,9 @@ class MlflowTrackingHook:
                 )
                 mlflow.set_tag("pasteur_id", self.parent_name)
                 mlflow.set_tag("pasteur_parent", "1")
+                mlflow.set_tag("pasteur_git", git)
 
-        run_id = get_run_id(run_name, self.parent_name, finished=False)
+        run_id = get_run_id(run_name, self.parent_name, git, finished=False)
         if run_id:
             # logger.info("Resuming unfinished mlflow run.")
             # mlflow.start_run(
@@ -180,6 +183,7 @@ class MlflowTrackingHook:
             nested=bool(self.parent_name),
         )
         mlflow.set_tag("pasteur_id", run_name)
+        mlflow.set_tag("pasteur_git", git)
 
         if self.parent_name:
             mlflow.set_tag("pasteur_pid", self.parent_name)

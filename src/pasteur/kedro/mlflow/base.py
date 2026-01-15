@@ -26,7 +26,7 @@ def flatten_dict(d: dict, recursive: bool = True, sep: str = ".") -> dict:
 _git_id = None
 
 
-def _get_git_suffix():
+def get_git_suffix():
     # FIXME: Dirty global var
 
     global _git_id
@@ -37,8 +37,7 @@ def _get_git_suffix():
 
         repo = git.Repo(search_parent_directories=True)
         sha = repo.head.object.hexsha
-        _git_id = f" (git:{sha[:8]})"
-        return _git_id
+        return sha[:8]
     except Exception:
         return ""
 
@@ -50,7 +49,7 @@ def get_run_name(pipeline: str, params: dict[str, Any]):
             continue
         run_name += f" {param}={val}"
 
-    return run_name + _get_git_suffix()
+    return run_name
 
 
 def get_parent_name(
@@ -66,7 +65,7 @@ def get_parent_name(
     hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
     iter_str = "".join(map(lambda x: f" -i {x}", iterators))
     param_str = "".join(map(lambda x: f" {x}", params))
-    return f"{pipeline}{algs_str}{hyper_str}{iter_str}{param_str}{_get_git_suffix()}"
+    return f"{pipeline}{algs_str}{hyper_str}{iter_str}{param_str}"
 
 
 def sanitize_name(name: str):
@@ -74,10 +73,12 @@ def sanitize_name(name: str):
     return name.replace('"', '\\"').replace("'", "\\'")
 
 
-def get_run_id(name: str, parent: str | None, finished: bool = True):
+def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = True):
     filter_string = f"tags.pasteur_id = '{sanitize_name(name)}'"
     if parent:
         filter_string += f" and tags.pasteur_pid = '{sanitize_name(parent)}'"
+    if git:
+        filter_string += f" and tags.pasteur_git = '{git}'"
     if finished:
         filter_string += (
             f" and attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'"
@@ -91,12 +92,12 @@ def get_run_id(name: str, parent: str | None, finished: bool = True):
     return None
 
 
-def check_run_done(name: str, parent: str | None):
-    return bool(get_run_id(name, parent))
+def check_run_done(name: str, parent: str | None, git: str | None):
+    return bool(get_run_id(name, parent, git))
 
 
-def get_run(name: str, parent: str | None) -> Run:
-    return mlflow.get_run(get_run_id(name, parent))
+def get_run(name: str, parent: str | None, git: str | None) -> Run:
+    return mlflow.get_run(get_run_id(name, parent, git))
 
 
 def remove_runs(parent: str, delete_parent: bool = False):
@@ -114,9 +115,10 @@ def remove_runs(parent: str, delete_parent: bool = False):
     if not delete_parent:
         return
 
+    git = get_git_suffix()
     runs = mlflow.search_runs(
         search_all_experiments=True,
-        filter_string=f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'",
+        filter_string=f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'",
     )
     for id in runs["run_id"]:
         mlflow.delete_run(id)

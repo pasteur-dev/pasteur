@@ -3,11 +3,12 @@
 You can access them through `pasteur <command>` or `kedro <command>`."""
 
 import logging
-from typing import Any, Iterable, Literal
+from typing import Any, Iterable
 
 import click
 from kedro.framework.session import KedroSession
-from functools import partial, wraps
+
+from pasteur.kedro.mlflow.base import get_git_suffix
 
 from ..utils.parser import eval_params, merge_params, str_params_to_dict
 from ..utils.progress import init_pool
@@ -27,11 +28,12 @@ def create_session(
 ) -> KedroSession:
     # We have to stub this to change session_id
 
-    from kedro.io.core import generate_timestamp
-    from kedro.framework.project import validate_settings
-    from kedro.framework.session.session import _jsonify_cli_context, _describe_git
     import getpass
     import os
+
+    from kedro.framework.project import validate_settings
+    from kedro.framework.session.session import _describe_git, _jsonify_cli_context
+    from kedro.io.core import generate_timestamp
 
     if session_id:
         logger.info(f'Reusing session id: "{session_id}"')
@@ -379,7 +381,7 @@ def sweep(
                     # ingest pipeline has None and should be skipped from cross-eval
                     runs[run_name] = vals
 
-                if check_run_done(run_name, None if skip_parent else parent_name):
+                if check_run_done(run_name, None if skip_parent else parent_name, None if skip_parent else get_git_suffix()):
                     logger.warning(f"Run '{run_name}' is complete, skipping...")
                     continue
 

@@ -7,7 +7,7 @@ from typing import Any
 import mlflow
 from mlflow.entities import Run
 from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf
-from .base import get_run, sanitize_name
+from .base import get_run, sanitize_name, get_git_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,8 @@ def log_parent_run(
     skip_parent: bool = False,
     experiment_id: str | None = None,
 ):
-    query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1'"
+    git = get_git_suffix()
+    query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
     if not len(parent_runs):
@@ -127,6 +128,7 @@ def log_parent_run(
         ctx_mgr = mlflow.start_run(run_name=parent, experiment_id=experiment_id)
         mlflow.set_tag("pasteur_id", parent)
         mlflow.set_tag("pasteur_parent", "1")
+        mlflow.set_tag("pasteur_git", git)
     else:
         parent_run_id = parent_runs["run_id"][0]  # type: ignore
         logger.info(f"Relaunching parent run for logging:\n{parent}")
@@ -134,7 +136,11 @@ def log_parent_run(
 
     with ctx_mgr:
         runs = {
-            name: get_run(name, parent if not skip_parent else None)
+            name: get_run(
+                name,
+                parent if not skip_parent else None,
+                git if not skip_parent else None,
+            )
             for name in run_params
         }
         artifacts = get_artifacts(runs)
@@ -164,7 +170,9 @@ def log_parent_run(
 
         for name, folder in ref_artifacts["metrics"].items():
             if not "metric" in folder:
-                logger.error(f"Metric '{name}' does not have a 'metric' executable, skipping...")
+                logger.error(
+                    f"Metric '{name}' does not have a 'metric' executable, skipping..."
+                )
             metric = folder["metric"]
 
             splits = {}
@@ -172,7 +180,9 @@ def log_parent_run(
                 try:
                     splits[pretty[alg_name]] = artifact["metrics"][name]["data"]
                 except Exception as e:
-                    logger.error(f"Split '{pretty[alg_name]}' metric '{name}' is broken.")
+                    logger.error(
+                        f"Split '{pretty[alg_name]}' metric '{name}' is broken."
+                    )
 
             metric.visualise(data=splits)
             metric.summarize(data=splits)
