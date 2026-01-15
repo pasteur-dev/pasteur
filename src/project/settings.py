@@ -6,6 +6,10 @@
 import logging
 import warnings
 
+import os
+
+os.environ["MLFLOW_DISABLE_TELEMETRY"] = 'true'
+
 from rich.traceback import install
 from pasteur.utils.progress import RICH_TRACEBACK_ARGS
 
@@ -25,7 +29,7 @@ warnings.filterwarnings("ignore", module=r"^kedro\.pipeline\.pipeline")
 HOOKS = ()
 
 # Installed plugins for which to disable hook auto-registration.
-DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow", "kedro-viz")
+DISABLE_HOOKS_FOR_PLUGINS = ("kedro-mlflow", "kedro-viz", "kedro-telemetry")
 
 # Class that manages storing KedroSession data.
 # from kedro.framework.session.store import ShelveStore
