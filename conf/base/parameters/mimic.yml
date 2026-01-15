@@ -43,7 +43,7 @@ mimic_core:
           - for provided ranges use a random value that is within the range
           - Reason about the key events in this patient's admission; they should make sense
           - If a value would cause an unrealistic patient, adjust it slightly for realism
-      samples: 2000
+      samples: &samples 2000
       model: &model # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
         type: hf
         repo_id: Qwen/Qwen3-8B-GGUF
@@ -60,7 +60,7 @@ mimic_core:
         etotal: 2
   metrics:
     llmeval:
-      samples: 300
+      samples: *samples
       model: *model
       prompt: |
         You are a medical doctor.

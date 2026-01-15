@@ -41,7 +41,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
 
     def __init__(
         self,
-        samples: int = 10,
+        samples: int | None,
         samples_ref: int | None = None,
         model: AmalgamHFParams | AmalgamORParams = MODEL_PARAMS_QWEN3,
         prompt: str = DEFAULT_PROMPT,
