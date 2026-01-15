@@ -158,7 +158,10 @@ def _gpu_monitor_worker(name: str, stop: threading.Event, run_id: str):
         text=True,
     )
 
-    with tempfile.NamedTemporaryFile(mode="w+") as tmpfile:
+    with (
+        tempfile.TemporaryDirectory() as tmpdir,
+        open(f"{tmpdir}/gpu_{name}.csv", "w", newline="") as tmpfile,
+    ):
         writer = csv.writer(tmpfile)
 
         while not stop.is_set():
@@ -176,9 +179,7 @@ def _gpu_monitor_worker(name: str, stop: threading.Event, run_id: str):
 
             if mlflow.active_run() is None:
                 mlflow.start_run(run_id=run_id)
-            mlflow.log_artifact(
-                tmpfile.name, artifact_path=f"_raw/energy/gpu_{name}.csv"
-            )
+            mlflow.log_artifact(tmpfile.name, artifact_path=f"_raw/energy")
         except Exception:
             logger.error("Error logging GPU energy info to MLflow.", exc_info=True)
 
