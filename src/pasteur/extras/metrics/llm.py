@@ -171,6 +171,8 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         w = 0.9 / len(splits)
 
         df_data = {}
+        raw_data = {}
+        avgs = {}
         for i, (name, vals) in enumerate(splits.items()):
             c = np.bincount(vals, minlength=6)[1:6]
             h = c / c.sum() if c.sum() > 0 else c
@@ -189,6 +191,12 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
                 name=name,
             )
 
+            avg = sum((i + 1) * v for i, v in enumerate(h))
+            avgs[name] = avg
+            mlflow.log_param(f"eval.{name}.avg_score", avg)
+
+            raw_data[name] = {str(i + 1): int(c[i]) for i in range(5)}
+
         plt.xticks(x, cols)
         rot = min(3 * len(cols), 90)
         if rot > 10:
@@ -201,7 +209,11 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         plt.tight_layout()
 
         mlflow_log_figures("llm_eval/score_distribution", fig)
+        mlflow.log_dict(raw_data, "_raw/metrics/llm_eval.json")
 
         logger.info(
-            "LLM Evaluation Scores (%)\n" + (pd.DataFrame(df_data) * 100).to_markdown()
+            "LLM Evaluation Scores (%)\n"
+            + (pd.DataFrame(df_data) * 100).to_markdown()
+            + "\nAverages:\n"
+            + "\n".join(f"- {k:>10s}: {v:.2f}" for k, v in avgs.items())
         )
