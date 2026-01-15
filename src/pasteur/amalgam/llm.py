@@ -160,8 +160,7 @@ def _gpu_monitor_worker(name: str, stop: threading.Event):
     )
 
     with tempfile.NamedTemporaryFile(mode="w+") as tmpfile:
-        header = process.stdout.readline()
-        writer = csv.writer(tmpfile, fieldnames=header.strip().split(", "))
+        writer = csv.writer(tmpfile)
 
         while not stop.is_set():
             line = process.stdout.readline()
@@ -200,10 +199,10 @@ class hold_gpu_lock:
         self.t.start()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        gpu_lock.release()
         if self.t is not None:
             self.stop_event.set()
             self.t.join()
+        gpu_lock.release()
 
 
 def load_llm_model(
