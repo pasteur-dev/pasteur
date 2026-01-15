@@ -35,7 +35,7 @@ Then, you are asked to comment on how real the following sample is and give it a
 """
 
 
-class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
+class LlmEvaluatorMetric(Metric[None, None | list[int]]):
     name = "llmeval"
     encodings = ["json", "flat"]
 
@@ -84,6 +84,8 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         ref: dict[str, dict[str, LazyDataset]],
         _llm=None,
     ) -> dict[str, pd.DataFrame]:
+        import numpy as np
+
         if not _llm:
             llm = load_llm_model_eval(
                 self.model,
@@ -94,7 +96,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         else:
             llm = _llm
 
-        return evaluate(
+        data = evaluate(
             llm,
             self.prompt,
             self.counts[None],
@@ -106,6 +108,8 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
             self.topk,
             split,
         )
+
+        return list(np.bincount(np.array([x["score"] for x in data]), minlength=6)[1:6])
 
     def preprocess(
         self,
@@ -155,9 +159,6 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
 
         use_style("mlflow")
 
-        def get_scores(d: list[dict]):
-            return np.array([x["score"] for x in d])
-
         splits = {}
         splits["ref"] = get_scores(next(iter(data.values())).ref)
         for k, v in data.items():
@@ -173,8 +174,7 @@ class LlmEvaluatorMetric(Metric[None, None | pd.DataFrame]):
         df_data = {}
         raw_data = {}
         avgs = {}
-        for i, (name, vals) in enumerate(splits.items()):
-            c = np.bincount(vals, minlength=6)[1:6]
+        for i, (name, c) in enumerate(splits.items()):
             h = c / c.sum() if c.sum() > 0 else c
             ax.bar(
                 x - 0.45 + w * i,
