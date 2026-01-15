@@ -141,7 +141,7 @@ def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> A
 gpu_lock = threading.Lock()
 
 
-def _gpu_monitor_worker(name: str, stop: threading.Event):
+def _gpu_monitor_worker(name: str, stop: threading.Event, run_id: str):
     import subprocess
     import csv
     import tempfile
@@ -156,7 +156,6 @@ def _gpu_monitor_worker(name: str, stop: threading.Event):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        bufsize=1,
     )
 
     with tempfile.NamedTemporaryFile(mode="w+") as tmpfile:
@@ -175,10 +174,11 @@ def _gpu_monitor_worker(name: str, stop: threading.Event):
         try:
             import mlflow
 
-            if mlflow.active_run() is not None:
-                mlflow.log_artifact(
-                    tmpfile.name, artifact_path=f"_raw/energy/gpu_{name}.csv"
-                )
+            if mlflow.active_run() is None:
+                mlflow.start_run(run_id=run_id)
+            mlflow.log_artifact(
+                tmpfile.name, artifact_path=f"_raw/energy/gpu_{name}.csv"
+            )
         except Exception:
             logger.error("Error logging GPU energy info to MLflow.", exc_info=True)
 
@@ -191,12 +191,21 @@ class hold_gpu_lock:
 
     def __enter__(self):
         gpu_lock.acquire()
-        self.t = threading.Thread(
-            target=_gpu_monitor_worker,
-            args=(self.name or "unknown", self.stop_event),
-            daemon=True,
-        )
-        self.t.start()
+
+        try:
+            import mlflow
+
+            ar = mlflow.active_run()
+            assert ar is not None, "MLflow active run is required for GPU monitoring."
+            run_id = ar.info.run_id
+            self.t = threading.Thread(
+                target=_gpu_monitor_worker,
+                args=(self.name or "unknown", self.stop_event, run_id),
+                daemon=True,
+            )
+            self.t.start()
+        except Exception:
+            logger.error("Error starting GPU monitor thread.", exc_info=True)
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.t is not None:
