@@ -221,6 +221,8 @@ def load_llm_model(
 ):
     llms = []
 
+    logger.info(f"Loading LLM model for sampling: {params}")
+
     for _ in range(params.get("workers", 1)):
         llms.append(_load_llm_model(params, output_type))
 
@@ -236,6 +238,8 @@ def load_llm_model_eval(
     reason: bool = True,
 ):
     llms = []
+
+    logger.info(f"Loading LLM model for evaluation: {params}")
 
     for _ in range(params.get("workers", 1)):
         llms.append(
