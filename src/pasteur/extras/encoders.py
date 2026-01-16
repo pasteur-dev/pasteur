@@ -689,16 +689,11 @@ def _json_decode_entity(
                 lt = (table, v.table) if v.table else table
                 out[lt][cid][v.name] = int(v.mapping.index(current[key]))
             elif isinstance(v, AttrMapping):
-                null = current[v.name] is None
-                for subkey, subvalue in v.cols.items():
-                    if subkey.startswith(f"{v.name}_"):
-                        subkey = subkey[len(v.name) + 1 :]
-                    null = null or current[v.name].get(subkey, None) is None
-
                 for subkey, subvalue in v.cols.items():
                     if subkey.startswith(f"{v.name}_"):
                         subkey = subkey[len(v.name) + 1 :]
 
+                    null = current[v.name] is None
                     if isinstance(subvalue, NumMapping):
                         lt = (table, subvalue.table) if subvalue.table else table
                         if null:
