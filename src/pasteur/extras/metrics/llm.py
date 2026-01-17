@@ -193,7 +193,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
 
             avg = sum((i + 1) * v for i, v in enumerate(h))
             avgs[name] = avg
-            mlflow.log_param(f"eval.{name}.avg_score", avg)
+            mlflow.log_param(f"eval.{i}.avg_score", avg)
 
             raw_data[name] = {str(i + 1): int(c[i]) for i in range(5)}
 
