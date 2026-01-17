@@ -70,7 +70,7 @@ def get_parent_name(
 
 def sanitize_name(name: str):
     # todo: properly escape
-    return name.replace('"', '\\"').replace("'", "\\'")
+    return name.replace("'", "\\'")
 
 
 def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = True):
