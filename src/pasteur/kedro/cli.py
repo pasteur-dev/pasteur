@@ -373,7 +373,7 @@ def sweep(
             ) as session:
                 session.load_context()
 
-                run_name = get_run_name(pipeline, vals)
+                run_name = get_run_name(pipeline, runtime_params)
                 if alg:
                     # if alg exists add its name
                     runs[run_name] = {"_alg": alg, **vals}
