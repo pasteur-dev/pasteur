@@ -22,23 +22,25 @@ tables:
       hadm_id: id
       subject_id: id:patients.subject_id
       admittime:
+        # We used to do ctx, seq separately but this allows admittime
+        # in patient to be null which can make generation tricky
         type: seq
         ref: patients.birth_year
-        first_seq_ref_itself: True
+        # first_seq_ref_itself: True
         order: 2
         max_len: 10
 
-        ctx:
-          type: datetime
-          span: year.hour
-          max_len: 99
-          bins: 32
-          year_name: age_years
+        # ctx:
         seq:
           type: datetime
           span: year.hour
-          bins: 10
+          bins: 32
           year_name: years_passed
+        # seq:
+        #   type: datetime
+        #   span: year.hour
+        #   bins: 10
+        #   year_name: years_passed
       dischtime: datetime|day.hour:admittime
       deathtime: datetime?|day.hour:admittime
       admission_type: categorical
