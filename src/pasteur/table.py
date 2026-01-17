@@ -984,6 +984,7 @@ class SeqTransformerWrapper(SeqTransformer):
         order: int | None = None,
         max_len: int | None = None,
         first_seq_ref_itself: bool = False,
+        ref: Any | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -1011,7 +1012,7 @@ class SeqTransformerWrapper(SeqTransformer):
         if seq is not None:
             seq_kwargs = seq.copy()
             seq_type = seq_kwargs.pop("type")
-            if not seq_kwargs.get("nullable", False) and not first_seq_ref_itself:
+            if not seq_kwargs.get("nullable", False) and not first_seq_ref_itself and (not ref or ctx):
                 logger.warning(
                     f"Setting `nullable` to true for ref transformer `{seq_type}`, since reference for first seq will always be None. Set `first_seq_ref_itself` to True, to avoid introducing null values."
                 )

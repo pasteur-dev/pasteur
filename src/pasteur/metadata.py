@@ -86,7 +86,9 @@ class ColumnMeta:
 
         # Add untyped version of args to use with transformers/column metrics
         self.args = kwargs.copy()
-        self.args.pop("ref", None)
+        # TODO: Check if we should keep this. Ref is usually not needed but otherwise
+        # seq transformer cannot know if first value is nullable or not.
+        # self.args.pop("ref", None)
 
         if main_param is not None:
             self.args.update({"main_param": main_param})
