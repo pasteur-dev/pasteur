@@ -699,7 +699,9 @@ def _json_decode_entity(
                         if null:
                             out[lt][cid][subvalue.name] = None
                         else:
-                            out[lt][cid][subvalue.name] = float(current[v.name][subkey])
+                            # FIXME: figure out why gemma likes to make this None
+                            rv = current[v.name][subkey]
+                            out[lt][cid][subvalue.name] = float(rv if rv is not None else 0)
                     elif isinstance(subvalue, CatMapping):
                         lt = (table, subvalue.table) if subvalue.table else table
                         if null:
