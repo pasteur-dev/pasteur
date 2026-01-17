@@ -702,7 +702,7 @@ class DatetimeTransformer(RefTransformer):
         ctt = next(iter(self.tt.get_attributes().values()))
 
         if self.nullable:
-            common = CommonValue(f"{self.col}_cmn", na=True, normal_name="Datetime")
+            common = CommonValue(f"{self.col}_cmn", na=True)
         else:
             common = None
 
