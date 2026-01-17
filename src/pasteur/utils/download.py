@@ -53,7 +53,7 @@ def download_s3(name: str, download_dir: str, bucket: str):
 
     logger.info(f"Downloading dataset {name} from s3 using boto3.")
     s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
-    ds_bucket = s3.Bucket(bucket) # type: ignore
+    ds_bucket = s3.Bucket(bucket)  # type: ignore
 
     for s3_object in ds_bucket.objects.all():
         _, filename = os.path.split(s3_object.key)
@@ -64,6 +64,47 @@ def download_s3(name: str, download_dir: str, bucket: str):
 
         logger.info(f"Downloading {filename} ({s3_object.size / 1e6:.3f} mb)")
         ds_bucket.download_file(s3_object.key, fn)
+
+
+def download_rfel(name: str, download_dir: str, db: str):
+    try:
+        import sqlalchemy
+        import pymysql as _
+    except Exception:
+        assert (
+            False
+        ), "Specified dataset requires the 'sqlalchemy' and 'pymysql' packages"
+
+    import pandas as pd
+
+    # Provided to us as cleartext on the website
+    user = "guest"
+    password = "ctu-relational"
+    host = "relational.fel.cvut.cz"
+    port = 3306
+
+    engine = sqlalchemy.create_engine(
+        f"mysql+pymysql://{user}:{password}@{host}:{port}/{db}"
+    )
+    saved = []
+    try:
+        with engine.connect() as conn:
+            tables = [
+                row[0]
+                for row in conn.execute(sqlalchemy.text("SHOW TABLES")).fetchall()
+            ]
+            logger.info(f"Found {len(tables)} tables in database '{db}':\n{tables}\n")
+
+            for tbl in tables:
+                logger.info(f"Downloading table '{tbl}' from database '{db}'.")
+                df = pd.read_sql(sqlalchemy.text(f"SELECT * FROM `{tbl}`"), conn)
+                path = os.path.join(download_dir, f"{tbl}.pq")
+                df.to_parquet(path, index=False)
+                saved.append(path)
+    finally:
+        engine.dispose()
+
+    pass
 
 
 def main(download_dir: str, datasets: dict[str, DS], username: str | None):
@@ -85,6 +126,10 @@ def main(download_dir: str, datasets: dict[str, DS], username: str | None):
             assert isinstance(ds.files, str)
             if ds.files.startswith("s3:"):
                 download_s3(name, save_path, ds.files.replace("s3:", ""))
+            elif ds.files.startswith("relational.fel:"):
+                ds_name = ds.files.replace("relational.fel:", "")
+
+                download_rfel(name, save_path, ds_name)
             else:
                 download_index(
                     name, save_path, ds.files, username if ds.credentials else None

@@ -1,6 +1,7 @@
 from ..utils.download import DS
 
 physio = "requires credentials and license from https://physionet.org"
+rfel = "See https://relational.fel.cvut.cz/about for citation and license info."
 
 datasets = {
     # Physionet
@@ -20,6 +21,9 @@ datasets = {
         True,
         physio,
     ),
+    # https://relational.fel.cvut.cz/
+    "rfel.ConsumerExpenditures": DS("relational.fel:ConsumerExpenditures", "rfel.consumerexp", False, rfel),
+    "rfel.StudentLoan": DS("relational.fel:Student_loan", "rfel.consumerexp", False, rfel),
     # SDGym
     "sdgym": DS(
         "s3:sdv-datasets",
