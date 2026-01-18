@@ -260,19 +260,33 @@ class PasteurHook:
                     with open(ds_catalog, "r") as f:
                         data = f.read()
 
-                    if folder_name:
-                        raw_dir = params.get(
-                            name, path.join(self.raw_location, folder_name)
-                        )
-                        data = data.replace(f"${{location}}", raw_dir)
-
-                        data = data.replace(
-                            f"${{bootstrap}}",
-                            path.join(self.base_location, "bootstrap", folder_name),
-                        )
                     conf = yaml.safe_load(data)
                 else:
                     conf = ds_catalog
+
+                if folder_name:
+                    def replace_fn(s: str):
+                        return s.replace(
+                            "${location}",
+                            params.get(
+                                name,
+                                path.join(self.raw_location, folder_name),
+                            ),
+                        ).replace(
+                            "${bootstrap}",
+                            path.join(
+                                self.base_location,
+                                "bootstrap",
+                                folder_name,
+                            ),
+                        )
+
+                    for val in conf.values():
+                        for k, v in val.items():
+                            if isinstance(v, str):
+                                val[k] = replace_fn(v)
+                            elif isinstance(v, list):
+                                val[k] = [replace_fn(x) for x in v]
 
                 # Normalize old catalog names to be '{ds}.raw@{name}' unless
                 # they are already that

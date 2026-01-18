@@ -30,8 +30,8 @@ class RfelDataset(Dataset):
         self.folder_name = "rfel/" + name
         self.catalog = {
             t: {
-                "type": "pandas.ParquetDataSet",
-                "filepath": "${location}/" + t,
+                "type": "pandas.ParquetDataset",
+                "filepath": "${location}/" + t + ".pq",
             } for t in tables
         }
 
