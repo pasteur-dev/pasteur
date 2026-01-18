@@ -597,12 +597,20 @@ def logging_redirect_pbar():
             if ":ephemeral:" in text:
                 # Derive from external_write_mode
                 with tqdm.get_lock():
-                    active_pbars = 0
+                    min_pbar = -1
+                    max_pbar = -1
                     for inst in getattr(tqdm, "_instances", []):
-                        if hasattr(inst, "start_t") and (
-                            inst.fp in [out_stream, sys.stdout, sys.stderr]
+                        if (
+                            hasattr(inst, "start_t")
+                            and hasattr(inst, "pos")
+                            and (inst.fp in [out_stream, sys.stdout, sys.stderr])
                         ):
-                            active_pbars += 1
+                            if min_pbar == -1 or inst.pos < min_pbar:
+                                min_pbar = inst.pos
+                            if max_pbar == -1 or inst.pos > max_pbar:
+                                max_pbar = inst.pos
+
+                    active_pbars = max_pbar - min_pbar + 1 if max_pbar != -1 else 0
 
                 cleaned = text.replace(":ephemeral:", "")
                 term_size = shutil.get_terminal_size(fallback=(80, 24))
