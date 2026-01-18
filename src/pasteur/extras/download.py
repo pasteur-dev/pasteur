@@ -20,9 +20,6 @@ datasets = {
         True,
         physio,
     ),
-    # https://relational.fel.cvut.cz/
-    "rfel.ConsumerExpenditures": DS,
-    "rfel.StudentLoan": DS("relational.fel:Student_loan", "rfel.studentloan", False, rfel),
     # SDGym
     "sdgym": DS(
         "s3:sdv-datasets",

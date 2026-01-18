@@ -1,3 +1,8 @@
+#
+# Datasets from
+# https://relational.fel.cvut.cz/
+#
+
 from typing import TYPE_CHECKING
 
 from ....dataset import Dataset
@@ -19,7 +24,7 @@ class RfelDataset(Dataset):
         self, short_name: str, name: str, db: str, tables: dict[str, str], **kwargs
     ) -> None:
         self.name = f"rfel_{short_name}"
-        self.key_deps = [tables[0]]
+        self.key_deps = [next(iter(tables))]
         self.deps = {k: [v] for k, v in tables.items()}
 
         self.folder_name = "rfel/" + name
