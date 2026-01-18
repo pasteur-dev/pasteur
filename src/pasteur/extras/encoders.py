@@ -742,12 +742,19 @@ def _json_decode(
     out = defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
     out_ids = defaultdict(lambda: defaultdict(dict))
 
+    model = create_pydantic_model(relationships, attrs, ctx_attrs)
     top_table = get_top_table(relationships)
     mapping = create_table_mapping(top_table, relationships, attrs, ctx_attrs)
 
     for cid, d in zip(cids.iterrows(), cdata.iterrows()):
         obj = eval(d[1][0])
-        _json_decode_entity(top_table, int(cid[1][0]), obj, mapping, out, out_ids)  # type: ignore
+        try:
+            # Verify this is a valid object with pydantic
+            model.parse_obj(obj)
+            _json_decode_entity(top_table, int(cid[1][0]), obj, mapping, out, out_ids)  # type: ignore
+        except Exception as e:
+            logger.error(f"Error decoding entity {cid[1][0]}", exc_info=True)
+            # Try to continue...
 
     # Convert to dataframes
     cctx = defaultdict(dict)
