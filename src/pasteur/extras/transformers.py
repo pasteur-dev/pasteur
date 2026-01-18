@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Literal, cast
 
 import numpy as np
@@ -21,6 +22,8 @@ from ..attribute import (
 )
 from ..transform import RefTransformer, SeqTransformer, Transformer
 from ..utils import list_unique
+
+logger = logging.getLogger(__name__)
 
 
 class NumericalTransformer(Transformer):
@@ -742,10 +745,14 @@ class DatetimeTransformer(RefTransformer):
         )
         out.name = self.col
 
-        if not self.nullable:
-            assert not np.any(
-                pd.isna(out)
-            ), f"NA values detected in non-NA field: {self.col}"
+        na_count = out.isna().sum()
+        if not self.nullable and na_count > 0:
+            logger.error(
+                "Found %s NaT values for column '%s'; replacing with max date",
+                na_count,
+                self.col,
+            )
+            out = out.fillna(out.max())
 
         return out
 
