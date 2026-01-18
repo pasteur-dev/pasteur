@@ -635,7 +635,7 @@ def logging_redirect_pbar():
                 kept.insert(0, lines[0])
 
                 text = "\n".join(kept) if kept else ""
-                self.rmtext = "\033[F\033[2K" * max(used, 1)
+                self.rmtext = "\033[F\033[2K" * max(used - 1, 0)
 
             tqdm.write(rm_prefix + text, file=out_stream, end=rm_suffix)
 
