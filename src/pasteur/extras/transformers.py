@@ -742,6 +742,11 @@ class DatetimeTransformer(RefTransformer):
         )
         out.name = self.col
 
+        if not self.nullable:
+            assert not np.any(
+                pd.isna(out)
+            ), f"NA values detected in non-NA field: {self.col}"
+
         return out
 
 
