@@ -77,8 +77,17 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     value_params = {k for k in ref_run if k.startswith("_")}
     bool_params = {k for k, v in ref_run.items() if isinstance(v, bool)}
 
+    # Skip params shared by all runs
+    skip_params = {
+        k
+        for k, v in ref_run.items()
+        if all(k in run and run[k] == v for run in run_params.values())
+    }
+
     str_params = {name: [] for name in run_params}
     for param in ref_run:
+        if param in skip_params:
+            continue
         # Calculate str length for str_params
         # length = max(
         #     map(lambda x: len(str(x)), [run[param] for run in run_params.values()])
