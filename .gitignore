@@ -179,3 +179,5 @@ mlruns/
 # Assembly files + gcc artifacts
 *.s
 a.out
+
+*.md
