@@ -396,10 +396,14 @@ class DateTransformer(RefTransformer):
                 na_mask |= pd.isna(ref)
                 ref = ref[~na_mask]
             vals = vals[~na_mask]
-        else:
-            assert not np.any(
-                pd.isna(vals)
-            ), f"NA values detected in non-NA field: {self.col}"
+        elif na_count := np.sum(pd.isna(vals)):
+            # Replace NA values with max date
+            logger.error(
+                "Found %s NaT values for Date column '%s'; replacing with max date",
+                na_count,
+                self.col,
+            )
+            vals = vals.fillna(vals.max())
 
         rf = ref.fillna(self.ref) if ref is not None else self.ref
         assert rf is not None
@@ -608,10 +612,14 @@ class TimeTransformer(Transformer):
         if self.nullable:
             out += 1
             out = out.where(~pd.isna(date), 0)
-        else:
-            assert not np.any(
-                pd.isna(date)
-            ), f"NA values detected in non-NA field: {self.col}"
+        elif na_count := np.sum(pd.isna(out)):
+            # Replace NA values with max date
+            logger.error(
+                "Found %s NaT values for Time column '%s'; replacing with max date",
+                na_count,
+                self.col,
+            )
+            out = out.fillna(out.max())
 
         out = out.astype(get_dtype(self.domain))  # type: ignore
         return pd.DataFrame({f"{self.col}_time": out})
@@ -667,6 +675,15 @@ class TimeTransformer(Transformer):
             out[~na_mask] = out_data  # type: ignore
         else:
             out.name = col
+
+            na_count = out.isna().sum()
+            if not self.nullable and na_count > 0:
+                logger.error(
+                    "Found %s NaT values for column '%s'; replacing with max date",
+                    na_count,
+                    self.col,
+                )
+                out = out.fillna(out.max())
 
         return out
 
