@@ -118,10 +118,10 @@ def _pipe_magic(line):
 
 def register_kedro(path: str | None = None, tracebacks: bool = True):
     from kedro.ipython import reload_kedro
-    from kedro.utils import _find_kedro_project
+    from kedro.utils import find_kedro_project
 
     top_level = Path(path) if path else Path.cwd()
-    proj_path = _find_kedro_project(top_level)
+    proj_path = find_kedro_project(top_level)
 
     ipy = get_ipython()
     ipy.register_magic_function(_pipe_magic, "line", "pipe")  # type: ignore
