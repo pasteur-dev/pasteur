@@ -176,12 +176,15 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         avgs = {}
         for i, (name, c) in enumerate(splits.items()):
             h = c / sum(c) if sum(c) > 0 else c
+            avg = sum((i + 1) * v for i, v in enumerate(h))
+            avgs[name] = avg
+
             ax.bar(
                 x - 0.45 + w * i,
                 h,
                 width=w,
                 align="edge",
-                label=name,
+                label=f"{name} (avg: {avg:.2f})",
                 # log=y_log,
             )
 
@@ -190,10 +193,6 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
                 index=pd.Index(cols, name="Score"),
                 name=name,
             )
-
-            avg = sum((i + 1) * v for i, v in enumerate(h))
-            avgs[name] = avg
-            mlflow.log_param(f"eval.{i}.avg_score", avg)
 
             raw_data[name] = {str(i + 1): int(c[i]) for i in range(5)}
 
