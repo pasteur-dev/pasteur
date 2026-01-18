@@ -85,6 +85,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     }
 
     str_params = {name: [] for name in run_params}
+    pretty_provided = {}
     for param in ref_run:
         if param in skip_params:
             continue
@@ -105,6 +106,9 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
             elif param == "_alg":
                 # FIXME: dirty hack to add algorithm name
                 s = str(name.split(".", 1)[-1].split(" ", 1)[0])
+            elif param == "_pretty":
+                pretty_provided[name] = str(run_params[name][param])
+                continue
             else:
                 val_str = str(run_params[name][param])
                 # buffer = " " * (length - len(val_str))
@@ -119,7 +123,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     return {
         name: " ".join(params).strip() if params and any(params) else "base"
         for name, params in str_params.items()
-    }
+    } | pretty_provided
 
 
 def log_parent_run(
