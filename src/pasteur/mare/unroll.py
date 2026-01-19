@@ -159,6 +159,7 @@ def _recurse_unroll_groups(
     out,
     cmn_ofs=0,
     ofs=None,
+    hv=None,
 ):
     if ofs is None:
         ofs = defaultdict(lambda: 0)
@@ -177,7 +178,12 @@ def _recurse_unroll_groups(
                         out[cmn_ofs][name] = (
                             ofs[name],
                             StratifiedValue(
-                                f"{name}.o{cmn_ofs:03d}", Grouping("cat", [None, g[i]])
+                                (
+                                    f"{hv[cmn_ofs]}.{name}"
+                                    if hv
+                                    else f"{name}.o{cmn_ofs:03d}"
+                                ),
+                                Grouping("cat", [None, g[i]]),
                             ),
                         )
 
@@ -198,6 +204,7 @@ def _recurse_unroll_groups(
                 out,
                 cmn_ofs,
                 ofs,
+                hv=hv,
             )
 
     return cmn_ofs
@@ -212,28 +219,36 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
 
     if attr.common is not None:
         cval = attr.common
+        has_common = True
     else:
         assert (
             len(attr.vals) == 1
         ), f"If a common val is not provided, there should only be a single value."
-        cval = next(iter(attr.vals))
+        cval = next(iter(attr.vals.values()))
+        has_common = False
+
+    if isinstance(cval, RebalancedValue):
+        cval = cval.original
     assert isinstance(
         cval, StratifiedValue
-    ), "Unrolling is supported only for stratified values for now."
+    ), "Unrolling is supported only for stratified and rebalanced values for now."
     cmn = cval.head
 
     groups = {}
     for along in [attr, *[attrs[n] for n in attr.along]]:
         for name, val in along.vals.items():
-            if name == cval.name:
+            if has_common and name == cval.name:
                 continue  # skip common val if attr.common was none
+            if isinstance(val, RebalancedValue):
+                val = val.original
             assert isinstance(
                 val, StratifiedValue
-            ), "For unrolling, all values should be StratifiedValues"
+            ), "Unrolling is supported only for stratified and rebalanced values for now."
             groups[name] = val.head
 
     unrolled = {}
-    _recurse_unroll_groups(unrolls, cmn, groups, unrolled)
+    hv = cval.get_human_readable()
+    _recurse_unroll_groups(unrolls, cmn, groups, unrolled, hv=hv)
 
     new_attrs = {}
     cmn = {}
@@ -242,6 +257,8 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
     base_name = (attr.name,) if isinstance(attr.name, str) else attr.name
 
     for cmn_ofs, vals in unrolled.items():
+        cmn_name = hv[cmn_ofs][:10]  # f"{'.'.join(base_name)}.o{cmn_ofs:03d}"
+
         new_name = (*base_name, cmn_ofs)
         new_vals = []
         for name, t in vals.items():
@@ -249,10 +266,9 @@ def recurse_unroll_attr(unrolls: tuple[int, ...], attrs: Attributes):
                 ofs[cmn_ofs][name] = t[0]
                 cols[cmn_ofs][name] = t[1].name
                 new_vals.append(t[1])
-            else:
+            elif name != cval.name:
                 ofs[cmn_ofs][name] = t
 
-        cmn_name = f"{'.'.join(base_name)}.o{cmn_ofs:03d}"
         cmn[cmn_ofs] = cmn_name
         if new_vals:
             new_attrs[new_name] = Attribute(

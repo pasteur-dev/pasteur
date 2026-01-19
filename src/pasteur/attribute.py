@@ -967,6 +967,7 @@ def OrdAttribute(
     ukn_val: Any | None = None,
     partition: bool = False,
     unroll: bool = False,
+    along: tuple[str | tuple[str, ...], ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are ordinal, based on the provided data."""
@@ -975,6 +976,7 @@ def OrdAttribute(
         [_create_strat_value_ord(name, vals, na, ukn_val)],
         partition=partition,
         unroll=unroll,
+        along=along,
     )
 
 
@@ -985,6 +987,7 @@ def CatAttribute(
     ukn_val: Any | None = None,
     partition: bool = False,
     unroll: bool = False,
+    along: tuple[str | tuple[str, ...], ...] = tuple(),
 ):
     """Returns an Attribute holding a single Stratified Value where its children
     are categorical, based on the provided data."""
@@ -993,6 +996,7 @@ def CatAttribute(
         [_create_strat_value_cat(name, vals, na, ukn_val)],
         partition=partition,
         unroll=unroll,
+        along=along,
     )
 
 

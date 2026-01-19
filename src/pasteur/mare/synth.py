@@ -510,22 +510,27 @@ def sample_model(
 
         if tmeta.unroll:
             unrolls = ver.ver.unrolls
-            along = tmeta.along
-            assert unrolls and along, "TODO: Fix along being empty"
 
             # Reroll context rows for series history
             ptable = tables[(ver.ver.name, True)]
-            _, _, col_maps, col_ofs = recurse_unroll_attr(
+            _, cmn_map, col_maps, col_ofs = recurse_unroll_attr(
                 unrolls, cast(Attributes, attrs[ver.ver.name])
             )
             ctx_dfs = []
             for unroll in unrolls:
                 rev_maps = {v: k for k, v in col_maps[unroll].items()}
-                df = (
-                    ptable.loc[ptable[next(iter(rev_maps))] > 0, list(rev_maps)]
-                    .reset_index(names=PARENT_KEY)
-                    .rename(columns=rev_maps)
-                )
+                if rev_maps:
+                    df = (
+                        ptable.loc[ptable[next(iter(rev_maps))] > 0, list(rev_maps)]
+                        .reset_index(names=PARENT_KEY)
+                        .rename(columns=rev_maps)
+                    )
+                else:
+                    # No columns, just find common value
+                    cmn_name = cmn_map[unroll]
+                    df = ptable.loc[ptable[cmn_name] > 0, []].reset_index(
+                        names=PARENT_KEY
+                    )
 
                 if not len(df):
                     continue

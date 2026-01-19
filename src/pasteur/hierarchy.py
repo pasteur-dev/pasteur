@@ -652,7 +652,7 @@ def rebalance_attributes(
             else:
                 cols.append(col)
 
-        new_attr = Attribute(name, cols, common)
+        new_attr = Attribute(name, cols, common, unroll=attr.unroll)
         new_attrs[name] = new_attr
 
     return new_attrs
