@@ -35,8 +35,19 @@ opt = [
   "black",
   "parquet-tools",
   "pip-tools",
+  # Needed for rfel datasets
   "sqlalchemy",
   "pymysql",
+  # Needed for amalgam and LLM eval
+  # - local llms
+  "outlines",
+  "numba>=0.63.1",
+  # To build for Nvidia:
+  # CUDACXX=/usr/local/cuda/bin/nvcc CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --upgrade --no-cache-dir
+  "llama-cpp-python",
+  "huggingface-hub",
+  # - openrouter support
+  "openai",
 ]
 cls = [
   "xgboost"
