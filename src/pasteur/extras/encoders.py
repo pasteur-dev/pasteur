@@ -28,6 +28,7 @@ from pasteur.utils import (
     LazyPartition,
     data_to_tables,
     gen_closure,
+    get_relationships,
 )
 
 if TYPE_CHECKING:
@@ -53,7 +54,9 @@ class DiscretizationColumnTransformer:
         assert val.bins is not None
 
         self.edges = val.bins
-        self.centers = ((self.edges[:-1] + self.edges[1:]) / 2).astype(np.int32 if val.is_int else np.float32)
+        self.centers = ((self.edges[:-1] + self.edges[1:]) / 2).astype(
+            np.int32 if val.is_int else np.float32
+        )
 
         b = val.bins
         names = [
@@ -72,7 +75,12 @@ class DiscretizationColumnTransformer:
             null = [True, *[False for _ in range(len(b) - 1)]]
 
         self.val = StratifiedNumValue(
-            self.col, self.col_cnt, group, null, ignore_nan=val.ignore_nan, is_int=val.is_int
+            self.col,
+            self.col_cnt,
+            group,
+            null,
+            ignore_nan=val.ignore_nan,
+            is_int=val.is_int,
         )
         self.nullable = val.nullable
         return self.val
@@ -101,7 +109,9 @@ class DiscretizationColumnTransformer:
             clip_norm = digits.astype("float32").replace(
                 {i + ofs: c[i + 1] - c[i] for i in range(len(self.edges) - 1)}
             )
-            cont = ((data.clip(upper=clip_max) - clip_min) / clip_norm).rename(self.col_cnt)
+            cont = ((data.clip(upper=clip_max) - clip_min) / clip_norm).rename(
+                self.col_cnt
+            )
             if self.nullable:
                 cont[digits == 0] = np.nan
             else:
@@ -109,7 +119,9 @@ class DiscretizationColumnTransformer:
                     pd.isna(data)
                 ), f"Found nullable data in the non-nullable column '{self.col}'"
         else:
-            assert self.nullable, "Column needs to be nullable to encode nullable columns with all NaN values"
+            assert (
+                self.nullable
+            ), f"Column {data.name} needs to be nullable to encode nullable columns with all NaN values"
             digits = pd.Series(0, index=data.index, name=self.col, dtype=dtype)
             cont = pd.Series(np.nan, index=data.index, name=self.col_cnt)
 
@@ -330,33 +342,6 @@ class NumEncoder(AttributeEncoder[Attribute]):
 
     def decode(self, enc: pd.DataFrame) -> pd.DataFrame:
         assert False, "Not Implemented"
-
-
-def get_relationships(
-    ids: dict[str, LazyFrame],
-):
-    from collections import defaultdict
-
-    full_relationships = defaultdict(list)
-
-    # Find parents
-    for name, table_ids in ids.items():
-        for parent in table_ids.sample().columns:
-            full_relationships[parent].append(name)
-
-    # Trim leaf tables
-    relationships = {}
-
-    for name in list(full_relationships.keys()):
-        tmp = list(full_relationships[name])
-        for child in full_relationships[name]:
-            for k in full_relationships[child]:
-                if k in tmp:
-                    tmp.remove(k)
-
-        relationships[name] = tmp
-
-    return relationships
 
 
 def get_top_table(relationships: dict[str, list[str]]):
@@ -701,7 +686,9 @@ def _json_decode_entity(
                         else:
                             # FIXME: figure out why gemma likes to make this None
                             rv = current[v.name][subkey]
-                            out[lt][cid][subvalue.name] = float(rv if rv is not None else 0)
+                            out[lt][cid][subvalue.name] = float(
+                                rv if rv is not None else 0
+                            )
                     elif isinstance(subvalue, CatMapping):
                         lt = (table, subvalue.table) if subvalue.table else table
                         if null:
@@ -935,7 +922,13 @@ def _flatten_load(
         else:
             # Keep the count of the first event only
             t_ids = ids[t][[top_table, parents[t]]]
-            t_data["count"] = t_ids.groupby([top_table, parents[t]]).size().clip(0, SEQ_MAX - 1).groupby([top_table]).first()
+            t_data["count"] = (
+                t_ids.groupby([top_table, parents[t]])
+                .size()
+                .clip(0, SEQ_MAX - 1)
+                .groupby([top_table])
+                .first()
+            )
         out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
@@ -952,13 +945,22 @@ def _flatten_load(
 
 
 def _flatten_meta(
+    relationships: Mapping[str, list[str]],
     attrs: Mapping[tuple[str, ...] | str, Attribute],
     ctx_attrs: Mapping[str, Mapping[tuple[str, ...] | str, Attribute]],
 ):
     out = {}
 
-    top_table = None
     parents = {}
+
+    for k, v in relationships.items():
+        for child in v:
+            parents[child] = k
+
+    top_table = None
+    for k in relationships:
+        if k not in parents:
+            top_table = k
 
     blacklist = []
 
@@ -976,13 +978,8 @@ def _flatten_meta(
             new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
             tmp[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
-            
-            for v in attr.vals.values():
-                if isinstance(v, SeqValue):
-                    is_top_table = False
-                    parents[table] = v.table
-            if attr.unroll:
-                is_top_table = False
+
+            is_top_table = table not in parents
 
         if not is_top_table:
             out[f"{table}_count"] = GenAttribute(f"{table}_count", SEQ_MAX)
@@ -991,7 +988,7 @@ def _flatten_meta(
         out.update(tmp)
 
         if is_top_table:
-            assert top_table is None, f"Multiple top tables found: {top_table}, {table}"
+            assert top_table is None or top_table == table, f"Multiple top tables found: {top_table}, {table}"
             top_table = table
 
         for ctx, ctx_table_attrs in ctx_attrs.items():
@@ -1040,5 +1037,5 @@ class FlatEncoder(IdxEncoder, PostprocessEncoder[Attribute, Attributes]):
     def undo(self, meta, data):
         raise NotImplementedError('"flat" is a one way transformation.')
 
-    def get_post_metadata(self, attrs, ctx_attrs):
-        return _flatten_meta(attrs, ctx_attrs)
+    def get_post_metadata(self, relationships, attrs, ctx_attrs):
+        return _flatten_meta(relationships, attrs, ctx_attrs)

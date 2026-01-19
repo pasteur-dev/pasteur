@@ -120,6 +120,7 @@ class PostprocessEncoder(AttributeEncoder[META], Generic[META, POST_META]):
 
     def get_post_metadata(
         self,
+        relationships: dict[str, list[str]],
         attrs: Mapping[tuple[str, ...] | str, META],
         ctx_attrs: Mapping[str, Mapping[tuple[str, ...] | str, META]],
     ) -> POST_META:

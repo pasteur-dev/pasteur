@@ -1,4 +1,4 @@
-""" Pasteur's data utilities. The main funcitonality provided by this module
+"""Pasteur's data utilities. The main funcitonality provided by this module
 is `LazyPartition` and `LazyDataset`, with their specializations for `pandas`:
 `LazyFrame`, `LazyChunk`.
 
@@ -568,13 +568,13 @@ def apply_fun(obj: Any, *args, _fun: str, **kwargs):
 
 @overload
 def data_to_tables(
-    data: Mapping[str, LazyDataset]
+    data: Mapping[str, LazyDataset],
 ) -> tuple[dict[str, LazyFrame], dict[str, LazyFrame]]: ...
 
 
 @overload
 def data_to_tables(
-    data: Mapping[str, LazyPartition]
+    data: Mapping[str, LazyPartition],
 ) -> tuple[dict[str, LazyChunk], dict[str, LazyChunk]]: ...
 
 
@@ -647,3 +647,30 @@ def lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):
         return table
 
     return _get_table
+
+
+def get_relationships(
+    ids: dict[str, LazyFrame],
+):
+    from collections import defaultdict
+
+    full_relationships = defaultdict(list)
+
+    # Find parents
+    for name, table_ids in ids.items():
+        for parent in table_ids.sample().columns:
+            full_relationships[parent].append(name)
+
+    # Trim leaf tables
+    relationships = {}
+
+    for name in list(full_relationships.keys()):
+        tmp = list(full_relationships[name])
+        for child in full_relationships[name]:
+            for k in full_relationships[child]:
+                if k in tmp:
+                    tmp.remove(k)
+
+        relationships[name] = tmp
+
+    return relationships

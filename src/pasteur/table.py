@@ -41,13 +41,14 @@ from .encode import (
 from .metadata import ColumnRef, Metadata
 from .module import Module, get_module_dict
 from .transform import RefTransformer, SeqTransformer, Transformer, TransformerFactory
-from .utils import LazyChunk, LazyFrame, LazyPartition, lazy_load_tables, to_chunked
+from .utils import LazyChunk, LazyFrame, LazyPartition, lazy_load_tables, to_chunked, get_relationships
 from .utils.progress import process_in_parallel, reduce
 
 logger = logging.getLogger(__file__)
 
 A = TypeVar("A", bound="Any")
 META = TypeVar("META")
+
 
 
 def _reduce_inner(
@@ -715,6 +716,7 @@ class AttributeEncoderHolder(
         ids: dict[str, LazyFrame],
     ):
         self.encoders = {}
+        self.relationships = get_relationships(ids)
 
         base_args = {"factory": self._encoder_fr}
         per_call = []
@@ -926,7 +928,7 @@ class AttributeEncoderHolder(
                     ctx_attrs[cname][table].update(enc.get_metadata())
 
         if self.postprocess_enc is not None:
-            return self.postprocess_enc.get_post_metadata(dict(attrs), dict(ctx_attrs))  # type: ignore
+            return self.postprocess_enc.get_post_metadata(self.relationships, dict(attrs), dict(ctx_attrs))  # type: ignore
 
         return dict(out)
 

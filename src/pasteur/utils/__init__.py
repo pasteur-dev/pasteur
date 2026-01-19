@@ -17,6 +17,7 @@ from .data import (
     list_unique,
     tables_to_data,
     to_chunked,
+    get_relationships,
 )
 
 from .progress import (
