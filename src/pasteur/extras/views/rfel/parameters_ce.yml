@@ -3,14 +3,7 @@ tables:
     primary_key: household_id
     fields:
       household_id: id
-
-  year:
-    primary_key: year_id
-
-    fields:
-      year_id: id
-      household_id: id:households.household_id
-      year_num: ordinal
+      year: ordinal
       income_rank: &rank
         type: numerical
         bins: 32
@@ -28,7 +21,7 @@ tables:
     primary_key: member_id
     fields:
       member_id: id
-      year_id: id:year.year_id
+      household_id: id:households.household_id
       age: ordinal
       sex: categorical
       marital: categorical
@@ -38,7 +31,7 @@ tables:
     primary_key: expenditure_id
     fields:
       expenditure_id: id
-      year_id: id:year.year_id
+      household_id: id:households.household_id
       month: categorical
       product_code: categorical
       cost: numerical

@@ -94,7 +94,7 @@ class ConsumerExpendituresDataset(RfelDataset):
             ]
         }
         keys = {
-            "households": ["HOUSEHOLD_ID", "YEAR"],
+            "households": "HOUSEHOLD_ID",
             "expenditures": "EXPENDITURE_ID",
         }
         super().__init__(
@@ -112,7 +112,7 @@ class ConsumerExpendituresDataset(RfelDataset):
         return pd.DataFrame(
             index=(
                 tables["households"]()
-                .index.get_level_values("household_id")
+                .index
                 .unique()
                 .astype(pd.Int64Dtype())
             )

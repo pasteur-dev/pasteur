@@ -31,7 +31,6 @@ class ConsumerExpendituresView(RfelView):
             short_name="ce",
             deps={
                 "households": ["households"],
-                "year": ["households"],
                 "expenditures": ["expenditures"],
                 "members": ["household_members"],
             },
@@ -42,28 +41,16 @@ class ConsumerExpendituresView(RfelView):
     def ingest(self, name, **tables: LazyChunk):
         match name:
             case "households":
-                return pd.DataFrame(
-                    index=tables["households"]()
-                    .index.get_level_values("household_id")
-                    .unique()
-                    .astype(pd.Int64Dtype())
-                )
-            case "year":
-                df = tables["households"]()
-                new_df = df.reset_index()
-                new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
-                new_df.index = new_df['household_id'] * 10000 + new_df['year']
-                new_df.index.name = "year_id"
-                new_df.rename(columns={'year': 'year_num'}, inplace=True)
+                new_df = tables["households"]()
+                new_df.index = new_df.index.astype(pd.Int64Dtype())
+                new_df.index.name = "household_id"
 
                 # sort by index
                 new_df = new_df.sort_index()
-
                 return new_df
             case "expenditures":
                 new_df = tables["expenditures"]()
                 new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
-                new_df['year_id'] = new_df['household_id'] * 10000 + new_df['year'].astype(pd.Int64Dtype())
                 new_df = new_df.drop(columns=['year'])
                 new_df.index.name = "expenditure_id"
 
@@ -74,7 +61,6 @@ class ConsumerExpendituresView(RfelView):
             case "members":
                 new_df = tables["household_members"]()
                 new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
-                new_df['year_id'] = new_df['household_id'] * 10000 + new_df['year'].astype(pd.Int64Dtype())
                 new_df = new_df.drop(columns=['year'])
                 new_df.index.name = "member_id"
                 return new_df
