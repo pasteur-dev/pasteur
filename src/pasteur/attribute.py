@@ -712,6 +712,8 @@ class NumValue(Value):
             ), f"Please provide 'min' and 'max' when 'bins' is an int."
             if is_int:
                 kwargs = {"dtype": np.int64}
+            else:
+                kwargs = {}
             self.bins = np.linspace(min, max, bins + 1, **kwargs)
         self.nullable = nullable
         self.ignore_nan = ignore_nan
