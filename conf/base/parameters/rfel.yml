@@ -18,11 +18,10 @@ rfel_ce:
         <seed>
 
         Guidelines:
-          - the provided values are for the first admission/transfer, generate the rest in a realistic manner
-          - for provided ranges use a random value that is within the range
-          - Reason about the key events in this patient's admission; they should make sense
-          - If a value would cause an unrealistic patient, adjust it slightly for realism
-      samples: &samples 50
+          - the provided values are for the first expense/member, generate the rest in a realistic manner
+          - for provided ranges use a random value that is within the range and 4 decimal places
+          - If a value would cause an unrealistic household, adjust it slightly for realism
+      samples: &samples 2000
       model: &model # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
         type: hf
         repo_id: Qwen/Qwen3-8B-GGUF
