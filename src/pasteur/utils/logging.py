@@ -60,11 +60,11 @@ class MlflowHandler(Handler):
     def flush(self):
         self.acquire()
         try:
+            self.last_sent = time()
             if mlflow.active_run() is not None:
                 mlflow.log_text(
                     self.stream.getvalue(), path.join(self.logdir, f"{self.name}.log")
                 )
-                self.last_sent = time()
         finally:
             self.release()
 
