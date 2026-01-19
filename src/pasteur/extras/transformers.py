@@ -765,11 +765,11 @@ class DatetimeTransformer(RefTransformer):
         na_count = out.isna().sum()
         if not self.nullable and na_count > 0:
             logger.error(
-                "Found %s NaT values for column '%s'; replacing with max date",
+                "Found %s NaT values for Datetime column '%s'; replacing with max/ref date",
                 na_count,
                 self.col,
             )
-            out = out.fillna(out.max())
+            out = out.fillna(ref if ref is not None else out.max())
 
         return out
 
