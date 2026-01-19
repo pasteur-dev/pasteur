@@ -1,5 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
+
+#ifdef __AVX2__
 #include <immintrin.h>
 
 #define ALG 32
@@ -172,6 +174,7 @@ static inline void sum_inline_u16(
         out[k] += 1;
     }
 }
+#endif
 
 static inline void sum_inline_u16_nonsimd(
     uint64_t l, uint32_t *out,
