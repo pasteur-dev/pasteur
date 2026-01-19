@@ -94,7 +94,7 @@ class ConsumerExpendituresDataset(RfelDataset):
             ]
         }
         keys = {
-            "households": "HOUSEHOLD_ID",
+            "households": ["HOUSEHOLD_ID", "YEAR"],
             "expenditures": "EXPENDITURE_ID",
         }
         super().__init__(
@@ -104,6 +104,18 @@ class ConsumerExpendituresDataset(RfelDataset):
             keys=keys,
             tables=tables,
             **kwargs,
+        )
+
+    def keys(self, **tables: LazyChunk) -> "pd.DataFrame":
+        import pandas as pd
+
+        return pd.DataFrame(
+            index=(
+                tables["households"]()
+                .index.get_level_values("household_id")
+                .unique()
+                .astype(pd.Int64Dtype())
+            )
         )
 
 

@@ -1,0 +1,46 @@
+tables:
+  households:
+    primary_key: household_id
+    fields:
+      household_id: id
+
+  year:
+    primary_key: year_id
+
+    fields:
+      year_id: id
+      household_id: id:households.household_id
+      year: ordinal
+      income_rank: &rank
+        type: numerical
+        bins: 32
+      income_rank_1: *rank
+      income_rank_2: *rank
+      income_rank_3: *rank
+      income_rank_4: *rank
+      income_rank_5: *rank
+
+      age_ref:
+        type: numerical
+        bins: 32
+  
+  members:
+    primary_key: member_id
+    fields:
+      member_id: id
+      year_id: id:year.year_id
+      age: ordinal
+      sex: categorical
+      marital: categorical
+      work_status: categorical?
+  
+  expenditures:
+    primary_key: expenditure_id
+    fields:
+      expenditure_id: id
+      year_id: id:year.year_id
+      month: categorical
+      product_code: categorical
+      cost: numerical
+      is_training: categorical
+      
