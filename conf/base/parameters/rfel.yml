@@ -1,0 +1,51 @@
+rfel_ce:
+  algs:
+    mare:
+      etotal: 2
+      theta: 5
+      rebalance: True
+      fixed: [4, 9, 18, 32]
+      u: 7
+      max_sens: 20
+    amalgam:
+      prompt: |
+        You are a tax accountant.
+
+        Reference the following <samples_n> households:
+        <samples>
+
+        And derive a new JSON household using:
+        <seed>
+
+        Guidelines:
+          - the provided values are for the first admission/transfer, generate the rest in a realistic manner
+          - for provided ranges use a random value that is within the range
+          - Reason about the key events in this patient's admission; they should make sense
+          - If a value would cause an unrealistic patient, adjust it slightly for realism
+      samples: &samples 50
+      model: &model # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
+        type: hf
+        repo_id: Qwen/Qwen3-8B-GGUF
+        filename: Qwen3-8B-Q4_K_M.gguf
+        workers: 1
+      # model:
+      #   type: or
+      #   model: meta-llama/llama-4-scout-17b-16e-instruct
+      rebalance:
+        unbounded_dp: True
+        fixed: [4, 9, 18, 32]
+        u: 7
+      pgm:
+        etotal: 2
+  metrics:
+    llmeval:
+      samples: *samples
+      model: *model
+      prompt: |
+        You are a tax accountant.
+
+        You are given the following <samples_n> real households as a reference:
+        <samples>
+
+        Then, you are asked to comment on how real the following household is with a rating from 1 to 5 (5 being very real):
+        <eval>
