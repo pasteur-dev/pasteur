@@ -4,21 +4,23 @@
 #
 #    pip-compile
 #
--e file:.
-    # via file:-
+-e file:.[opt,cls,docs]
+    # via file:///-[opt,cls,docs]
 accessible-pygments==0.0.5
     # via pydata-sphinx-theme
-aiofiles==24.1.0
+aiofiles==25.1.0
     # via kedro-viz
 alabaster==1.0.0
     # via sphinx
-alembic==1.14.1
+alembic==1.18.1
     # via mlflow
+annotated-doc==0.0.4
+    # via fastapi
 annotated-types==0.7.0
     # via pydantic
 antlr4-python3-runtime==4.9.3
     # via omegaconf
-anyio==4.8.0
+anyio==4.12.1
     # via
     #   httpx
     #   jupyter-server
@@ -26,67 +28,69 @@ anyio==4.8.0
     #   watchfiles
 appdirs==1.4.4
     # via kedro-telemetry
-argon2-cffi==23.1.0
+argon2-cffi==25.1.0
     # via jupyter-server
-argon2-cffi-bindings==21.2.0
+argon2-cffi-bindings==25.1.0
     # via argon2-cffi
-arrow==1.3.0
+arrow==1.4.0
     # via
     #   cookiecutter
     #   isoduration
-asttokens==3.0.0
+asttokens==3.0.1
     # via stack-data
-async-lru==2.0.4
+async-lru==2.1.0
     # via jupyterlab
-attrs==25.1.0
+attrs==25.4.0
     # via
     #   jsonschema
     #   kedro
     #   referencing
-babel==2.16.0
+babel==2.17.0
     # via
     #   jupyterlab-server
     #   pydata-sphinx-theme
     #   sphinx
-beautifulsoup4==4.12.3
+beautifulsoup4==4.14.3
     # via
     #   nbconvert
     #   pydata-sphinx-theme
 binaryornot==0.4.4
     # via cookiecutter
-black==24.10.0
+black==26.1.0
     # via pasteur
-bleach[css]==6.2.0
+bleach[css]==6.3.0
     # via nbconvert
 blinker==1.9.0
     # via flask
-boto3==1.36.7
+boto3==1.42.30
     # via parquet-tools
-botocore==1.36.7
+botocore==1.42.30
     # via
     #   boto3
     #   s3transfer
-build==1.2.2.post1
+build==1.4.0
     # via
     #   kedro
     #   pip-tools
-cachetools==5.5.1
+cachetools==6.2.4
     # via
-    #   google-auth
     #   kedro
     #   mlflow-skinny
-certifi==2024.12.14
+    #   mlflow-tracing
+certifi==2026.1.4
     # via
     #   httpcore
     #   httpx
     #   requests
-cffi==1.17.1
-    # via argon2-cffi-bindings
+cffi==2.0.0
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
 chardet==5.2.0
     # via binaryornot
-charset-normalizer==3.4.1
+charset-normalizer==3.4.4
     # via requests
-click==8.1.8
+click==8.3.1
     # via
     #   black
     #   click-default-group
@@ -98,7 +102,7 @@ click==8.1.8
     #   uvicorn
 click-default-group==1.2.4
     # via kedro-viz
-cloudpickle==3.1.1
+cloudpickle==3.1.2
     # via mlflow-skinny
 colorama==0.4.6
     # via
@@ -106,89 +110,96 @@ colorama==0.4.6
     #   log-symbols
     #   parquet-tools
     #   sphinx-autobuild
-comm==0.2.2
+comm==0.2.3
     # via ipykernel
 commonmark==0.9.1
     # via recommonmark
-contourpy==1.3.1
+contourpy==1.3.3
     # via matplotlib
 cookiecutter==2.6.0
     # via kedro
+cryptography==46.0.3
+    # via mlflow
 cycler==0.12.1
     # via matplotlib
-databricks-sdk==0.41.0
-    # via mlflow-skinny
-debugpy==1.8.12
+databricks-sdk==0.78.0
+    # via
+    #   mlflow-skinny
+    #   mlflow-tracing
+debugpy==1.8.19
     # via ipykernel
-decorator==5.1.1
+decorator==5.2.1
     # via ipython
 defusedxml==0.7.1
     # via nbconvert
-deprecated==1.2.18
-    # via
-    #   opentelemetry-api
-    #   opentelemetry-semantic-conventions
 docker==7.1.0
     # via mlflow
-docutils==0.21.2
+docutils==0.22.4
     # via
     #   nbsphinx
     #   pasteur
     #   pydata-sphinx-theme
     #   recommonmark
     #   sphinx
-dynaconf==3.2.7
+dynaconf==3.2.12
     # via kedro
-executing==2.2.0
+executing==2.2.1
     # via stack-data
-fastapi==0.115.7
-    # via kedro-viz
-fastjsonschema==2.21.1
+fastapi==0.128.0
+    # via
+    #   kedro-viz
+    #   mlflow-skinny
+fastjsonschema==2.21.2
     # via nbformat
-flask==3.1.0
+flask==3.1.2
+    # via
+    #   flask-cors
+    #   mlflow
+flask-cors==6.0.2
     # via mlflow
-fonttools==4.55.6
+fonttools==4.61.1
     # via matplotlib
 fqdn==1.5.1
     # via jsonschema
-fsspec==2024.12.0
+fsspec==2026.1.0
     # via
     #   kedro
     #   kedro-viz
 gitdb==4.0.12
     # via gitpython
-gitpython==3.1.44
+gitpython==3.1.46
     # via
     #   kedro
     #   mlflow-skinny
-google-auth==2.38.0
+google-auth==2.47.0
     # via databricks-sdk
 graphene==3.4.3
     # via mlflow
-graphql-core==3.2.6
+graphql-core==3.2.7
     # via
     #   graphene
     #   graphql-relay
-    #   strawberry-graphql
 graphql-relay==3.2.0
     # via graphene
-greenlet==3.1.1
+greenlet==3.3.0
     # via sqlalchemy
 gunicorn==23.0.0
     # via mlflow
-h11==0.14.0
+h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
 halo==0.0.31
     # via parquet-tools
-httpcore==1.0.7
+httpcore==1.0.9
     # via httpx
-httptools==0.6.4
+httptools==0.7.1
     # via uvicorn
 httpx==0.28.1
     # via jupyterlab
-idna==3.10
+huey==2.6.0
+    # via mlflow
+idna==3.11
     # via
     #   anyio
     #   httpx
@@ -196,16 +207,13 @@ idna==3.10
     #   requests
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==8.5.0
+importlib-metadata==8.7.1
     # via
-    #   kedro
     #   mlflow-skinny
     #   opentelemetry-api
-importlib-resources==6.5.2
-    # via kedro
-ipykernel==6.29.5
+ipykernel==7.1.0
     # via jupyterlab
-ipython==8.31.0
+ipython==8.38.0
     # via
     #   ipykernel
     #   kedro-viz
@@ -215,14 +223,13 @@ itsdangerous==2.2.0
     # via flask
 jedi==0.19.2
     # via ipython
-jinja2==3.1.5
+jinja2==3.1.6
     # via
     #   cookiecutter
     #   flask
     #   jupyter-server
     #   jupyterlab
     #   jupyterlab-server
-    #   mlflow
     #   nbconvert
     #   nbsphinx
     #   pasteur
@@ -231,25 +238,25 @@ jmespath==1.0.1
     # via
     #   boto3
     #   botocore
-joblib==1.4.2
+joblib==1.5.3
     # via scikit-learn
-json5==0.10.0
+json5==0.13.0
     # via jupyterlab-server
 jsonpointer==3.0.0
     # via jsonschema
-jsonschema[format-nongpl]==4.23.0
+jsonschema[format-nongpl]==4.26.0
     # via
     #   jupyter-events
     #   jupyterlab-server
     #   nbformat
-jsonschema-specifications==2024.10.1
+jsonschema-specifications==2025.9.1
     # via jsonschema
-jupyter-client==8.6.3
+jupyter-client==8.8.0
     # via
     #   ipykernel
     #   jupyter-server
     #   nbclient
-jupyter-core==5.7.2
+jupyter-core==5.9.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -258,75 +265,80 @@ jupyter-core==5.7.2
     #   nbclient
     #   nbconvert
     #   nbformat
-jupyter-events==0.11.0
+jupyter-events==0.12.0
     # via jupyter-server
-jupyter-lsp==2.2.5
+jupyter-lsp==2.3.0
     # via jupyterlab
-jupyter-server==2.15.0
+jupyter-server==2.17.0
     # via
     #   jupyter-lsp
     #   jupyterlab
     #   jupyterlab-server
     #   notebook-shim
-jupyter-server-terminals==0.5.3
+jupyter-server-terminals==0.5.4
     # via jupyter-server
-jupyterlab==4.3.4
+jupyterlab==4.5.2
     # via pasteur
 jupyterlab-pygments==0.3.0
     # via nbconvert
-jupyterlab-server==2.27.3
+jupyterlab-server==2.28.0
     # via jupyterlab
-kedro==0.19.10
+kedro==1.1.1
     # via
     #   kedro-datasets
     #   kedro-telemetry
     #   kedro-viz
     #   pasteur
-kedro-datasets==6.0.0
+kedro-datasets==9.1.1
     # via pasteur
-kedro-telemetry==0.6.2
+kedro-telemetry==0.7.0
     # via
     #   kedro
     #   kedro-viz
-kedro-viz==10.1.0
+kedro-viz==12.2.0
     # via pasteur
-kiwisolver==1.4.8
+kiwisolver==1.4.9
     # via matplotlib
+lark==1.3.1
+    # via rfc3987-syntax
 lazy-loader==0.4
     # via kedro-datasets
 log-symbols==0.0.14
     # via halo
-mako==1.3.8
+mako==1.3.10
     # via alembic
-markdown==3.7
-    # via mlflow
-markdown-it-py==3.0.0
+markdown-it-py==4.0.0
     # via rich
-markupsafe==3.0.2
+markupsafe==3.0.3
     # via
+    #   flask
     #   jinja2
     #   mako
     #   nbconvert
     #   werkzeug
-matplotlib==3.10.0
+matplotlib==3.10.8
     # via mlflow
-matplotlib-inline==0.1.7
+matplotlib-inline==0.2.1
     # via
     #   ipykernel
     #   ipython
 mdurl==0.1.2
     # via markdown-it-py
-mistune==3.1.0
+mistune==3.2.0
     # via nbconvert
-mlflow==2.20.0
+mlflow==3.8.1
     # via pasteur
-mlflow-skinny==2.20.0
+mlflow-skinny==3.8.1
     # via mlflow
-more-itertools==10.6.0
+mlflow-tracing==3.8.1
+    # via mlflow
+more-itertools==10.8.0
     # via kedro
-mypy-extensions==1.0.0
+mypy-extensions==1.1.0
     # via black
-nbclient==0.10.2
+narwhals==2.15.0
+    # via plotly
+nbclient==0.10.4
     # via nbconvert
 nbconvert==7.16.6
     # via
@@ -338,15 +350,15 @@ nbformat==5.10.4
     #   nbclient
     #   nbconvert
     #   nbsphinx
-nbsphinx==0.9.6
+nbsphinx==0.9.8
     # via pasteur
 nest-asyncio==1.6.0
     # via ipykernel
-networkx==3.4.2
+networkx==3.6.1
     # via kedro-viz
 notebook-shim==0.2.4
     # via jupyterlab
-numpy==2.2.2
+numpy==2.4.1
     # via
     #   contourpy
     #   matplotlib
@@ -356,29 +368,35 @@ numpy==2.2.2
     #   scikit-learn
     #   scipy
     #   xgboost
-nvidia-nccl-cu12==2.25.1
+nvidia-nccl-cu12==2.29.2
     # via xgboost
 omegaconf==2.3.0
     # via kedro
-opentelemetry-api==1.29.0
+opentelemetry-api==1.39.1
     # via
     #   mlflow-skinny
+    #   mlflow-tracing
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-sdk==1.29.0
-    # via mlflow-skinny
-opentelemetry-semantic-conventions==0.50b0
+opentelemetry-proto==1.39.1
+    # via
+    #   mlflow-skinny
+    #   mlflow-tracing
+opentelemetry-sdk==1.39.1
+    # via
+    #   mlflow-skinny
+    #   mlflow-tracing
+opentelemetry-semantic-conventions==0.60b1
     # via opentelemetry-sdk
-orjson==3.10.15
+orjson==3.11.5
     # via kedro-viz
-overrides==7.7.0
-    # via jupyter-server
-packaging==24.2
+packaging==25.0
     # via
     #   black
     #   build
     #   gunicorn
     #   ipykernel
+    #   jupyter-events
     #   jupyter-server
     #   jupyterlab
     #   jupyterlab-server
@@ -386,11 +404,12 @@ packaging==24.2
     #   lazy-loader
     #   matplotlib
     #   mlflow-skinny
+    #   mlflow-tracing
     #   nbconvert
     #   plotly
-    #   pytoolconfig
+    #   pydata-sphinx-theme
     #   sphinx
-pandas==2.2.3
+pandas==2.3.3
     # via
     #   kedro-viz
     #   mlflow
@@ -402,36 +421,37 @@ parquet-tools==0.2.16
     # via pasteur
 parse==1.20.2
     # via kedro
-parso==0.8.4
+parso==0.8.5
     # via jedi
-pathspec==0.12.1
+pathspec==1.0.3
     # via
     #   black
     #   kedro-viz
 pexpect==4.9.0
     # via ipython
-pillow==11.1.0
+pillow==12.1.0
     # via matplotlib
-pip-tools==7.4.1
+pip-tools==7.5.2
     # via pasteur
-platformdirs==4.3.6
+platformdirs==4.5.1
     # via
     #   black
     #   jupyter-core
-    #   pytoolconfig
-plotly==5.24.1
+plotly==6.5.2
     # via kedro-viz
-pluggy==1.5.0
+pluggy==1.6.0
     # via kedro
-pre-commit-hooks==5.0.0
-    # via kedro
-prometheus-client==0.21.1
+prometheus-client==0.24.1
     # via jupyter-server
-prompt-toolkit==3.0.50
+prompt-toolkit==3.0.52
     # via ipython
-protobuf==5.29.3
-    # via mlflow-skinny
-psutil==6.1.1
+protobuf==6.33.4
+    # via
+    #   databricks-sdk
+    #   mlflow-skinny
+    #   mlflow-tracing
+    #   opentelemetry-proto
+psutil==7.2.1
     # via ipykernel
 ptyprocess==0.7.0
     # via
@@ -439,30 +459,31 @@ ptyprocess==0.7.0
     #   terminado
 pure-eval==0.2.3
     # via stack-data
-pyarrow==18.1.0
+pyarrow==22.0.0
     # via
     #   mlflow
     #   parquet-tools
     #   pasteur
-pyasn1==0.6.1
+pyasn1==0.6.2
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.4.1
+pyasn1-modules==0.4.2
     # via google-auth
-pycparser==2.22
+pycparser==2.23
     # via cffi
-pydantic==2.10.6
+pydantic==2.12.5
     # via
     #   fastapi
     #   kedro-viz
     #   mlflow-skinny
+    #   mlflow-tracing
     #   pasteur
-pydantic-core==2.27.2
+pydantic-core==2.41.5
     # via pydantic
-pydata-sphinx-theme==0.16.1
+pydata-sphinx-theme==0.15.4
     # via sphinx-book-theme
-pygments==2.19.1
+pygments==2.19.2
     # via
     #   accessible-pygments
     #   ipython
@@ -470,7 +491,9 @@ pygments==2.19.1
     #   pydata-sphinx-theme
     #   rich
     #   sphinx
-pyparsing==3.2.1
+pymysql==1.1.2
+    # via pasteur
+pyparsing==3.3.1
     # via matplotlib
 pyproject-hooks==1.2.0
     # via
@@ -484,18 +507,19 @@ python-dateutil==2.9.0.post0
     #   jupyter-client
     #   matplotlib
     #   pandas
-    #   strawberry-graphql
-python-dotenv==1.0.1
-    # via uvicorn
-python-json-logger==3.2.1
+python-dotenv==1.2.1
+    # via
+    #   mlflow-skinny
+    #   uvicorn
+python-json-logger==4.0.0
     # via jupyter-events
 python-slugify==8.0.4
     # via cookiecutter
-pytoolconfig[global]==1.3.1
-    # via rope
-pytz==2024.2
+pytokens==0.4.0
+    # via black
+pytz==2025.2
     # via pandas
-pyyaml==6.0.2
+pyyaml==6.0.3
     # via
     #   cookiecutter
     #   jupyter-events
@@ -503,19 +527,19 @@ pyyaml==6.0.2
     #   mlflow-skinny
     #   omegaconf
     #   uvicorn
-pyzmq==26.2.0
+pyzmq==27.1.0
     # via
     #   ipykernel
     #   jupyter-client
     #   jupyter-server
 recommonmark==0.7.1
     # via pasteur
-referencing==0.36.2
+referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
     #   jupyter-events
-requests==2.32.3
+requests==2.32.5
     # via
     #   cookiecutter
     #   databricks-sdk
@@ -532,29 +556,27 @@ rfc3986-validator==0.1.1
     # via
     #   jsonschema
     #   jupyter-events
-rich==13.9.4
+rfc3987-syntax==1.1.0
+    # via jsonschema
+rich==14.2.0
     # via
     #   cookiecutter
     #   kedro
-rope==1.13.0
-    # via kedro
-rpds-py==0.22.3
+roman-numerals==4.1.0
+    # via sphinx
+rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-rsa==4.9
+rsa==4.9.1
     # via google-auth
-ruamel-yaml==0.18.10
-    # via pre-commit-hooks
-ruamel-yaml-clib==0.2.12
-    # via ruamel-yaml
-s3transfer==0.11.2
+s3transfer==0.16.0
     # via boto3
-scikit-learn==1.6.1
+scikit-learn==1.8.0
     # via
     #   mlflow
     #   pasteur
-scipy==1.15.1
+scipy==1.17.0
     # via
     #   mlflow
     #   pasteur
@@ -562,7 +584,7 @@ scipy==1.15.1
     #   xgboost
 secure==1.0.1
     # via kedro-viz
-send2trash==1.8.3
+send2trash==2.1.0
     # via jupyter-server
 six==1.17.0
     # via
@@ -572,13 +594,11 @@ six==1.17.0
     #   thrift
 smmap==5.0.2
     # via gitdb
-sniffio==1.3.1
-    # via anyio
-snowballstemmer==2.2.0
+snowballstemmer==3.0.1
     # via sphinx
-soupsieve==2.6
+soupsieve==2.8.2
     # via beautifulsoup4
-sphinx==8.1.3
+sphinx==9.1.0
     # via
     #   nbsphinx
     #   pasteur
@@ -588,11 +608,11 @@ sphinx==8.1.3
     #   sphinx-autodoc-typehints
     #   sphinx-book-theme
     #   sphinx-copybutton
-sphinx-autobuild==2024.10.3
+sphinx-autobuild==2025.8.25
     # via pasteur
-sphinx-autodoc-typehints==3.0.1
+sphinx-autodoc-typehints==3.6.2
     # via pasteur
-sphinx-book-theme==1.1.3
+sphinx-book-theme==1.1.4
     # via pasteur
 sphinx-copybutton==0.5.2
     # via pasteur
@@ -610,26 +630,22 @@ sphinxcontrib-serializinghtml==2.0.0
     # via sphinx
 spinners==0.0.24
     # via halo
-sqlalchemy==2.0.37
+sqlalchemy==2.0.45
     # via
     #   alembic
-    #   kedro-viz
     #   mlflow
-sqlparse==0.5.3
+    #   pasteur
+sqlparse==0.5.5
     # via mlflow-skinny
 stack-data==0.6.3
     # via ipython
-starlette==0.45.3
+starlette==0.50.0
     # via
     #   fastapi
     #   sphinx-autobuild
-strawberry-graphql==0.258.0
-    # via kedro-viz
 tabulate==0.9.0
     # via parquet-tools
-tenacity==9.0.0
-    # via plotly
-termcolor==2.5.0
+termcolor==3.3.0
     # via halo
 terminado==0.18.1
     # via
@@ -637,15 +653,17 @@ terminado==0.18.1
     #   jupyter-server-terminals
 text-unidecode==1.3
     # via python-slugify
-threadpoolctl==3.5.0
+threadpoolctl==3.6.0
     # via scikit-learn
 thrift==0.16.0
     # via parquet-tools
 tinycss2==1.4.0
     # via bleach
-toml==0.10.2
-    # via kedro
-tornado==6.4.2
+tomli-w==1.2.0
+    # via
+    #   kedro
+    #   kedro-telemetry
+tornado==6.5.4
     # via
     #   ipykernel
     #   jupyter-client
@@ -656,7 +674,6 @@ tqdm==4.67.1
     # via pasteur
 traitlets==5.14.3
     # via
-    #   comm
     #   ipykernel
     #   ipython
     #   jupyter-client
@@ -669,66 +686,74 @@ traitlets==5.14.3
     #   nbconvert
     #   nbformat
     #   nbsphinx
-types-python-dateutil==2.9.0.20241206
-    # via arrow
-typing-extensions==4.12.2
+typing-extensions==4.15.0
     # via
     #   alembic
     #   anyio
+    #   beautifulsoup4
     #   fastapi
     #   graphene
     #   kedro
     #   mlflow-skinny
+    #   opentelemetry-api
     #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
     #   pydata-sphinx-theme
     #   referencing
     #   sqlalchemy
-    #   strawberry-graphql
-tzdata==2025.1
-    # via pandas
+    #   starlette
+    #   typing-inspection
+typing-inspection==0.4.2
+    # via pydantic
+tzdata==2025.3
+    # via
+    #   arrow
+    #   pandas
 uri-template==1.3.0
     # via jsonschema
-urllib3==2.3.0
+urllib3==2.6.3
     # via
     #   botocore
     #   docker
     #   requests
-uvicorn[standard]==0.34.0
+uvicorn[standard]==0.40.0
     # via
     #   kedro-viz
+    #   mlflow-skinny
     #   sphinx-autobuild
-uvloop==0.21.0
+uvloop==0.22.1
     # via uvicorn
-watchfiles==1.0.4
+watchfiles==1.1.1
     # via
     #   kedro-viz
     #   sphinx-autobuild
     #   uvicorn
-wcwidth==0.2.13
+wcwidth==0.2.14
     # via prompt-toolkit
-webcolors==24.11.1
+webcolors==25.10.0
     # via jsonschema
 webencodings==0.5.1
     # via
     #   bleach
     #   tinycss2
-websocket-client==1.8.0
+websocket-client==1.9.0
     # via jupyter-server
-websockets==14.2
+websockets==16.0
     # via
     #   sphinx-autobuild
     #   uvicorn
-werkzeug==3.1.3
-    # via flask
+werkzeug==3.1.5
+    # via
+    #   flask
+    #   flask-cors
+    #   kedro-viz
 wheel==0.45.1
     # via pip-tools
-wrapt==1.17.2
-    # via deprecated
-xgboost==2.1.3
+xgboost==3.1.3
     # via pasteur
-zipp==3.21.0
+zipp==3.23.0
     # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:

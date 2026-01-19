@@ -15,7 +15,7 @@ classifiers = [
 
 dependencies = [
   # Core
-  "kedro",
+  "kedro==1.1.1",
   "kedro-datasets",
   "mlflow",
   "pydantic", # required by mlflow config structure
@@ -35,6 +35,8 @@ opt = [
   "black",
   "parquet-tools",
   "pip-tools",
+  "sqlalchemy",
+  "pymysql",
 ]
 cls = [
   "xgboost"
