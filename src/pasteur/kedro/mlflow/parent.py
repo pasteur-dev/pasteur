@@ -6,8 +6,10 @@ from typing import Any
 
 import mlflow
 from mlflow.entities import Run
+from mlflow.environment_variables import MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT
+
 from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf
-from .base import get_run, sanitize_name, get_git_suffix
+from .base import get_git_suffix, get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,8 @@ def log_parent_run(
     skip_parent: bool = False,
     experiment_id: str | None = None,
 ):
+    MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT.set(True)
+
     git = get_git_suffix()
     query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'"
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)

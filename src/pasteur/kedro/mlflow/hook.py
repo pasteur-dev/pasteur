@@ -8,12 +8,13 @@ from kedro.framework.context import KedroContext
 from kedro.framework.hooks import hook_impl
 from kedro.pipeline.node import Node
 from mlflow.entities import RunStatus
+from mlflow.environment_variables import MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
 from ...utils.logging import MlflowHandler
 from ...utils.parser import merge_dicts
 from ...utils.perf import PerformanceTracker
-from .base import flatten_dict, get_run_id, get_run_name, sanitize_name, get_git_suffix
+from .base import flatten_dict, get_git_suffix, get_run_id, get_run_name, sanitize_name
 from .config import KedroMlflowConfig
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,8 @@ class MlflowTrackingHook:
 
     @hook_impl
     def before_pipeline_run(self, run_params: dict[str, Any]) -> None:
+        MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT.set(True)
+
         self.params = self.context.params.copy()
         self.parent_name = self.params.pop("_mlflow_parent_name", "")
 
