@@ -54,6 +54,7 @@ class ConsumerExpendituresView(RfelView):
                 new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
                 new_df.index = new_df['household_id'] * 10000 + new_df['year']
                 new_df.index.name = "year_id"
+                new_df.rename(columns={'year': 'year_num'}, inplace=True)
 
                 # sort by index
                 new_df = new_df.sort_index()

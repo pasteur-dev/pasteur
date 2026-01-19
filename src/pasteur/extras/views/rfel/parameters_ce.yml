@@ -10,7 +10,7 @@ tables:
     fields:
       year_id: id
       household_id: id:households.household_id
-      year: ordinal
+      year_num: ordinal
       income_rank: &rank
         type: numerical
         bins: 32
