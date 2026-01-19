@@ -332,6 +332,8 @@ lark==1.3.1
     # via rfc3987-syntax
 lazy-loader==0.4
     # via kedro-datasets
+line-profiler==5.0.0
+    # via pasteur
 llama-cpp-python==0.3.16
     # via pasteur
 llvmlite==0.46.0
