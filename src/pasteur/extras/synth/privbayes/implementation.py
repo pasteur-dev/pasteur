@@ -669,7 +669,10 @@ def print_tree(
                 tattrs = cast(Attributes, attrs[None])
 
             if isinstance(p_name, tuple):
-                p_str += ".".join(map(str, p_name)) + "["
+                try:
+                    p_str += p_name[0] + "." + list(attrs[table][p_name].vals.values())[p_name[1]].name[:10] # type: ignore
+                except Exception:
+                    p_str += ".".join(map(str, p_name)) + "["
             else:
                 p_str += f"{p_name}["
             if isinstance(attr_sel, dict):
