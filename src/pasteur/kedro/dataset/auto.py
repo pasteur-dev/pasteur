@@ -266,7 +266,10 @@ class AutoDataset(AbstractVersionedDataset[pd.DataFrame, pd.DataFrame]):
     dataframe."""
 
     DEFAULT_LOAD_ARGS: dict[str, Any] = {}
-    DEFAULT_SAVE_ARGS: dict[str, Any] = {}
+    DEFAULT_SAVE_ARGS: dict[str, Any] = {
+        # FIXME: this might not work for all formats
+        "index": True,
+    }
 
     def __init__(
         self,
