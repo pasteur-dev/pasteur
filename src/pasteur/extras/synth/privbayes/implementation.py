@@ -389,16 +389,17 @@ def greedy_bayes(
     has_deps = True
     if len(ds_attrs) == 1:
         has_deps = False
-    elif len(ds_attrs) == 2:
+    elif len(ds_attrs) >= 2:
         # FIXME: Avoids missing dependencies with a single seq attribute causing
         # an infinite loop.
+        has_deps = False
         for k, v in ds_attrs.items():
-            if (
-                k
-                and isinstance(v, SeqAttributes)
-                and (not v.attrs or len(v.attrs) == 1)
+            if not k:
+                continue
+            if (not isinstance(v, SeqAttributes) and len(v)) or (
+                isinstance(v, SeqAttributes) and v.attrs and len(v.attrs) > 1
             ):
-                has_deps = False
+                has_deps = True
                 break
 
     if has_deps:
@@ -485,12 +486,7 @@ def greedy_bayes(
             # Create customized domain, with relevant selectors, by
             # Removing combinations with unmet dependencies
             for name, attr_combos in combos.items():
-                if (
-                    rake
-                    and name[0]
-                    and len(name[0]) == 2
-                    and name[1] != val_to_attr[x]
-                ):
+                if rake and name[0] and len(name[0]) == 2 and name[1] != val_to_attr[x]:
                     # Skip seq attrs that are not the same column
                     continue
                 doms = []
@@ -502,10 +498,7 @@ def greedy_bayes(
                     deps_met = True
                     if sel[0] == None:
                         for dep in deps:
-                            if (
-                                dep in todo
-                                or not val_to_attr[dep] in generated_attrs
-                            ):
+                            if dep in todo or not val_to_attr[dep] in generated_attrs:
                                 deps_met = False
                                 break
 
@@ -530,10 +523,7 @@ def greedy_bayes(
                                     full_dom = cmn.get_domain_multiple(
                                         [*val_sel.values(), 0],
                                         [
-                                            *[
-                                                cast(CatValue, attr[v])
-                                                for v in val_sel
-                                            ],
+                                            *[cast(CatValue, attr[v]) for v in val_sel],
                                             cast(CatValue, attr[x]),
                                         ],
                                     )
@@ -557,6 +547,7 @@ def greedy_bayes(
         )
 
         import time
+
         start = time.perf_counter()
         loops = 0
         for (val, sels), psets in zip(info, node_psets):

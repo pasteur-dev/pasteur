@@ -717,6 +717,7 @@ class AttributeEncoderHolder(
     ):
         self.encoders = {}
         self.relationships = get_relationships(ids)
+        self.tables = list(tables.keys())
 
         base_args = {"factory": self._encoder_fr}
         per_call = []
@@ -912,7 +913,7 @@ class AttributeEncoderHolder(
         return lazies
 
     def get_metadata(self) -> dict[str, dict[str | tuple[str, ...], META]]:
-        out = defaultdict(dict)
+        out = {k: {} for k in self.tables}
         attrs = defaultdict(dict)
         ctx_attrs = defaultdict(lambda: defaultdict(dict))
 

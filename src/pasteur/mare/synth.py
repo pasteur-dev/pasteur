@@ -38,7 +38,11 @@ logger = logging.getLogger(__name__)
 
 class MareModel:
     def fit(
-        self, n: int, table: str | None, attrs: DatasetAttributes, oracle: MarginalOracle
+        self,
+        n: int,
+        table: str | None,
+        attrs: DatasetAttributes,
+        oracle: MarginalOracle,
     ): ...
 
     def sample(
@@ -95,11 +99,15 @@ class MareSynth(Synth):
 
             self.counts = counts
             new_meta = {
-                k: rebalance_attributes(
-                    counts[k],
-                    v,
-                    unbounded_dp=self.kwargs.get("unbounded_dp", True),
-                    **self.kwargs,
+                k: (
+                    rebalance_attributes(
+                        counts[k],
+                        v,
+                        unbounded_dp=self.kwargs.get("unbounded_dp", True),
+                        **self.kwargs,
+                    )
+                    if v
+                    else {}
                 )
                 for k, v in meta.items()
             }
@@ -175,6 +183,12 @@ class MareSynth(Synth):
             logger.info(
                 f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' model for table '{ver.ver.name}'"
             )
+
+            if not attrs[None]:
+                # Empty table, skip
+                self.models[ver] = None
+                continue
+
             with MarginalOracle(
                 data,
                 attrs,
@@ -298,11 +312,17 @@ def sample_model(
 ):
     PARENT_KEY = "_key_jhudfghkj"
 
+    def _sample_model(idx, hist):
+        if model is not None:
+            return model.sample(idx, hist)
+        else:
+            return pd.DataFrame(index=idx)
+
     if not ver.ver.parents:
         assert not ver.ctx, "Can't generate a context model for a primary relation"
 
         idx = pd.RangeIndex(n).rename(ver.ver.name)
-        data = model.sample(idx, {})
+        data = _sample_model(idx, {})
         return pd.DataFrame(index=idx), data
 
     hist = gen_history(
@@ -418,7 +438,7 @@ def sample_model(
                         .drop(columns=ptable)
                     )
 
-                table = model.sample(idx, new_hist)
+                table = _sample_model(idx, new_hist)
                 table[seq_attrs.seq.name] = i
                 sampled.append(table)
 
@@ -472,7 +492,7 @@ def sample_model(
                 )
             idx = pids.index
 
-            table = model.sample(idx, hist)
+            table = _sample_model(idx, hist)
 
             if gen_first:
                 pp = p.parents[0]
@@ -537,7 +557,7 @@ def sample_model(
             # Drop context index to form history
             ctx_cols = ctx_rerolled.drop(columns=PARENT_KEY)
             new_hist[ver.ver.name] = ctx_cols
-            series_cols = model.sample(pkey.index, new_hist)
+            series_cols = _sample_model(pkey.index, new_hist)
             table = pd.concat([ctx_cols, series_cols], axis=1)
 
             return pids, table
@@ -598,7 +618,7 @@ def sample_model(
                         + 1
                     ).loc[idx]
 
-                table = model.sample(idx, new_hist)
+                table = _sample_model(idx, new_hist)
                 table[seq_attrs.seq.name] = i
                 sampled.append(table)
 
@@ -642,7 +662,7 @@ def sample_model(
                     columns=PARENT_KEY
                 )
             # Drop context index to form history
-            table = model.sample(pids.index, new_hist)
+            table = _sample_model(pids.index, new_hist)
             return pids, table
 
 

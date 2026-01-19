@@ -527,7 +527,7 @@ def process_entity(
     while stack:
         table, cid, mapping, current = stack.pop()
         cached = {}
-        cached[None] = tables[table].loc[cid]
+        cached[None] = tables[table].loc[cid] if not tables[table].empty else None
         for k, v in ctx.items():
             if table in v and cid in v[table].index:
                 cached[k] = v[table].loc[cid]
@@ -993,7 +993,9 @@ def _flatten_meta(
         out.update(tmp)
 
         if is_top_table:
-            assert top_table is None or top_table == table, f"Multiple top tables found: {top_table}, {table}"
+            assert (
+                top_table is None or top_table == table
+            ), f"Multiple top tables found: {top_table}, {table}"
             top_table = table
 
         for ctx, ctx_table_attrs in ctx_attrs.items():
