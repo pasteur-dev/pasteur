@@ -1,13 +1,13 @@
 rfel_ce:
   algs:
-    mare:
+    mare: &mare
       etotal: 2
       theta: 5
       rebalance: True
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
-    amalgam:
+    amalgam: &amalgam
       prompt: |
         You are a tax accountant.
 
@@ -37,7 +37,7 @@ rfel_ce:
       pgm:
         etotal: 2
   metrics:
-    llmeval:
+    llmeval: &llmeval
       samples: *samples
       model: *model
       prompt: |
@@ -47,4 +47,36 @@ rfel_ce:
         <samples>
 
         Then, you are asked to comment on how real the following household is with a rating from 1 to 5 (5 being very real):
+        <eval>
+
+rfel_sl:
+  algs:
+    mare: *mare
+    amalgam:
+      <<: *amalgam
+      samples: null
+      prompt: |
+        You are a school administrator.
+
+        Reference the following <samples_n> student profiles:
+        <samples>
+
+        And derive a new JSON student using:
+        <seed>
+
+        Guidelines:
+          - the provided values are for the first enrollment/enlistment, generate the rest in a realistic manner
+          - for provided ranges use a random value that is within the range and 4 decimal places
+          - If a value would cause an unrealistic student, adjust it slightly for realism
+
+  metrics:
+    llmeval:
+      <<: *llmeval
+      prompt: |
+        You are a school administrator.
+
+        You are given the following <samples_n> real students as a reference:
+        <samples>
+
+        Then, you are asked to comment on how real the following student is with a rating from 1 to 5 (5 being very real):
         <eval>

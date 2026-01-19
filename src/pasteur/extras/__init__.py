@@ -20,7 +20,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.rfel import ConsumerExpendituresDataset, StudentLoanDataset
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
-    from .views.rfel import ConsumerExpendituresView
+    from .views.rfel import ConsumerExpendituresView, StudentLoanView
     # from .views.boston import BostonView
 
     # from .views.texas import TexasChargesView, TexasBaseView, TexasBillionView
@@ -42,6 +42,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         ConsumerExpendituresDataset(),
         StudentLoanDataset(),
         ConsumerExpendituresView(),
+        StudentLoanView(),
     ]
 
 

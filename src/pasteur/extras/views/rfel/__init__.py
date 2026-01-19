@@ -50,19 +50,67 @@ class ConsumerExpendituresView(RfelView):
                 return new_df
             case "expenditures":
                 new_df = tables["expenditures"]()
-                new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
-                new_df = new_df.drop(columns=['year'])
+                new_df["household_id"] = new_df["household_id"].astype(pd.Int64Dtype())
+                new_df = new_df.drop(columns=["year"])
                 new_df.index.name = "expenditure_id"
 
                 # sort by index and then by month
-                new_df = new_df.sort_values(by=['household_id', 'month'])
+                new_df = new_df.sort_values(by=["household_id", "month"])
 
                 return new_df
             case "members":
                 new_df = tables["household_members"]()
-                new_df['household_id'] = new_df['household_id'].astype(pd.Int64Dtype())
-                new_df = new_df.drop(columns=['year'])
+                new_df["household_id"] = new_df["household_id"].astype(pd.Int64Dtype())
+                new_df = new_df.drop(columns=["year"])
                 new_df.index.name = "member_id"
                 return new_df
+            case other:
+                assert False, f"Table {other} not part of view {self.name}"
+
+
+class StudentLoanView(RfelView):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(
+            short_name="sl",
+            deps={
+                "person": [
+                    "person",
+                    "male",
+                    "unemployed",
+                    "no_payment_due",
+                    "filed_for_bankrupcy",
+                    "longest_absense_from_school",
+                ],
+                "enrolled": ["enrolled"],
+                "enlist": ["enlist"],
+            },
+            **kwargs,
+        )
+
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
+        match name:
+            case "person":
+                df = tables["person"]()
+                
+                df['male'] = df.index.isin(tables['male']().index)
+                df['unemployed'] = df.index.isin(tables['unemployed']().index)
+                df['no_payment_due'] = tables['no_payment_due']()['bool'] == 'pos'
+                df['filed_for_bankrupcy'] = df.index.isin(tables['filed_for_bankrupcy']().index)
+                df['longest_absense_from_school'] = tables['longest_absense_from_school']()
+
+                df.index = df.index.str.replace("student", "").astype(pd.Int64Dtype())
+
+                return df
+            case "enrolled":
+                df = tables["enrolled"]()
+                df['name'] = df['name'].str.replace("student", "").astype(pd.Int64Dtype())
+                df.index.name = "enrollment_id"
+                return df
+            case "enlist":
+                df = tables["enlist"]()
+                df['name'] = df['name'].str.replace("student", "").astype(pd.Int64Dtype())
+                df.index.name = "enlistment_id"
+                return df
             case other:
                 assert False, f"Table {other} not part of view {self.name}"

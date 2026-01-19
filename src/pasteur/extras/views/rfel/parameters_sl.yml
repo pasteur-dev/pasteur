@@ -1,0 +1,29 @@
+tables:
+  person:
+    primary_key: name
+    fields:
+      name: id
+      male: categorical
+      unemployed: categorical
+      no_payment_due: categorical
+      filed_for_bankrupcy: categorical
+      longest_absense_from_school: numerical
+  
+  enrolled:
+    primary_key: enrollment_id
+    fields:
+      enrollment_id: id
+      name: id:person.name
+      school:
+        type: categorical
+        unroll: True
+      month: ordinal
+  
+  enlist:
+    primary_key: enlistment_id
+    fields:
+      enlistment_id: id
+      name: id:person.name
+      organ:
+        type: categorical
+        unroll: True

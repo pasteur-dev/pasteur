@@ -138,8 +138,8 @@ class StudentLoanDataset(RfelDataset):
 
         keys = {
             **{t.lower(): "name" for t in all_tables},
-            "enlist": ["name", "organ"],
-            "enrolled": ["name", "school"],
+            "enlist": None,
+            "enrolled": None,
         }
 
         super().__init__(
@@ -149,4 +149,17 @@ class StudentLoanDataset(RfelDataset):
             tables=tables,
             keys=keys,
             **kwargs,
+        )
+
+    def keys(self, **tables: LazyChunk) -> "pd.DataFrame":
+        import pandas as pd
+
+        return pd.DataFrame(
+            index=(
+                tables["person"]()
+                .index
+                .str.replace("student", "")
+                .unique()
+                .astype(pd.Int64Dtype())
+            )
         )
