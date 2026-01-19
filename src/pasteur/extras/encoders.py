@@ -534,7 +534,12 @@ def process_entity(
 
         for key, value in mapping.items():
             if isinstance(value, NumMapping):
-                current[key] = float(cached[value.table][value.name])
+                v = float(cached[value.table][value.name])
+                # clip to .4f
+                try:
+                    current[key] = (int(v * 10000) / 10000) if v % 1 != 0 else int(v)
+                except Exception:
+                    current[key] = None
             elif isinstance(value, CatMapping):
                 current[key] = value.mapping[int(cached[value.table][value.name])]
             elif isinstance(value, AttrMapping):
