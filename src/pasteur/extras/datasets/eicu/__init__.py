@@ -21,13 +21,23 @@ if TYPE_CHECKING:
 def _split_table(
     name: str, chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"
 ):
-    pd_keys = pd.DataFrame(index=keys)
+    key_index = pd.Index(keys)
     del keys
 
     for chunk in table(chunksize=chunksize):
-        c = chunk.join(pd_keys, on="patientunitstayid", how="inner")
+        if "patientunitstayid" not in chunk.columns:
+            continue
 
-        yield c
+        col = chunk["patientunitstayid"]
+        try:
+            key_index = key_index.astype(col.dtype)
+        except (TypeError, ValueError):
+            pass
+
+        c = chunk[col.isin(key_index)]
+
+        if c.shape[0] > 0:
+            yield c
 
 
 def _partition_table(

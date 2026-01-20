@@ -9,7 +9,6 @@ _eicu_in_csv: &eicu_csv
     sep: ","
     engine: "c"
     header: 0
-    date_format: "%Y-%m-%d %H:%M:%S"
 
 _eicu_in_chunked: &eicu_chunked # Currently a placeholder
   <<: *eicu_csv
@@ -21,6 +20,7 @@ admissiondrug:
   filepath: ${location}/admissionDrug.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: admissiondrugid
     dtype:
       admissiondrugid: int32
       patientunitstayid: int32
@@ -42,6 +42,7 @@ admissiondx:
   filepath: ${location}/admissionDx.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: admissiondxid
     dtype:
       admissiondxid: int32
       patientunitstayid: int32
@@ -55,6 +56,7 @@ allergy:
   filepath: ${location}/allergy.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: allergyid
     dtype:
       allergyid: int32
       patientunitstayid: int32
@@ -75,6 +77,7 @@ apacheapsvar:
   filepath: ${location}/apacheApsVar.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: apacheapsvarid
     dtype:
       apacheapsvarid: Int32
       patientunitstayid: Int32
@@ -108,6 +111,7 @@ apachepatientresult:
   filepath: ${location}/apachePatientResult.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: apachepatientresultsid
     dtype:
       apachepatientresultsid: int32
       patientunitstayid: int32
@@ -138,6 +142,7 @@ apachepredvar:
   filepath: ${location}/apachePredVar.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: apachepredvarid
     dtype:
       apachepredvarid: Int32
       patientunitstayid: Int32
@@ -196,6 +201,7 @@ careplancareprovider:
   filepath: ${location}/carePlanCareProvider.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: cplcareprovderid
     dtype:
       cplcareprovderid: int32
       patientunitstayid: int32
@@ -211,6 +217,7 @@ careplaneol:
   filepath: ${location}/carePlanEOL.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: cpleolid
     dtype:
       cpleolid: int32
       patientunitstayid: int32
@@ -223,6 +230,7 @@ careplangeneral:
   filepath: ${location}/carePlanGeneral.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: cplgeneralid
     dtype:
       cplgeneralid: int32
       patientunitstayid: int32
@@ -236,6 +244,7 @@ careplangoal:
   filepath: ${location}/carePlanGoal.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: cplgoalid
     dtype:
       cplgoalid: int32
       patientunitstayid: int32
@@ -250,6 +259,7 @@ careplaninfectiousdisease:
   filepath: ${location}/carePlanInfectiousDisease.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: cplinfectid
     dtype:
       cplinfectid: int32
       patientunitstayid: int32
@@ -265,6 +275,7 @@ customlab:
   filepath: ${location}/customLab.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: customlabid
     dtype:
       customlabid: int32
       patientunitstayid: int32
@@ -279,6 +290,7 @@ diagnosis:
   filepath: ${location}/diagnosis.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: diagnosisid
     dtype:
       diagnosisid: int32
       patientunitstayid: int32
@@ -293,6 +305,7 @@ hospital:
   filepath: ${location}/hospital.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: hospitalid
     true_values: ["t", "T", "true", "True", "1", "yes", "Yes", "y", "Y"]
     false_values: ["f", "F", "false", "False", "0", "no", "No", "n", "N"]
     dtype:
@@ -306,6 +319,7 @@ infusiondrug:
   filepath: ${location}/infusionDrug.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: infusiondrugid
     dtype:
       infusiondrugid: int32
       patientunitstayid: int32
@@ -322,6 +336,7 @@ intakeoutput:
   filepath: ${location}/intakeOutput.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: intakeoutputid
     dtype:
       intakeoutputid: int32
       patientunitstayid: int32
@@ -341,6 +356,7 @@ lab:
   filepath: ${location}/lab.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: labid
     dtype:
       labid: int32
       patientunitstayid: int32
@@ -358,6 +374,7 @@ medication:
   filepath: ${location}/medication.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: medicationid
     dtype:
       medicationid: int32
       patientunitstayid: int32
@@ -380,6 +397,7 @@ microlab:
   filepath: ${location}/microLab.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: microlabid
     dtype:
       microlabid: int32
       patientunitstayid: int32
@@ -394,6 +412,7 @@ note:
   filepath: ${location}/note.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: noteid
     dtype:
       noteid: int32
       patientunitstayid: int32
@@ -409,6 +428,7 @@ nurseassessment:
   filepath: ${location}/nurseAssessment.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: nurseassessid
     dtype:
       nurseassessid: int32
       patientunitstayid: int32
@@ -424,6 +444,7 @@ nursecare:
   filepath: ${location}/nurseCare.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: nursecareid
     dtype:
       nursecareid: int32
       patientunitstayid: int32
@@ -439,6 +460,7 @@ nursecharting:
   filepath: ${location}/nurseCharting.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: nursingchartid
     dtype:
       nursingchartid: int64
       patientunitstayid: int32
@@ -454,6 +476,7 @@ pasthistory:
   filepath: ${location}/pastHistory.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: pasthistoryid
     dtype:
       pasthistoryid: int32
       patientunitstayid: int32
@@ -506,6 +529,7 @@ physicalexam:
   filepath: ${location}/physicalExam.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: physicalexamid
     dtype:
       physicalexamid: Int32
       patientunitstayid: int32
@@ -519,6 +543,7 @@ respiratorycare:
   filepath: ${location}/respiratoryCare.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: respcareid
     dtype:
       respcareid: Int32
       patientunitstayid: Int32
@@ -560,6 +585,7 @@ respiratorycharting:
   filepath: ${location}/respiratoryCharting.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: respchartid
     dtype:
       respchartid: Int32
       patientunitstayid: Int32
@@ -574,6 +600,7 @@ treatment:
   filepath: ${location}/treatment.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: treatmentid
     dtype:
       treatmentid: Int32
       patientunitstayid: Int32
@@ -586,6 +613,7 @@ vitalaperiodic:
   filepath: ${location}/vitalAperiodic.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: vitalaperiodicid
     dtype:
       vitalaperiodicid: int32
       patientunitstayid: int32
@@ -606,6 +634,7 @@ vitalperiodic:
   filepath: ${location}/vitalPeriodic.csv.gz
   load_args:
     <<: *eicu_csv_load
+    index_col: vitalperiodicid
     dtype:
       vitalperiodicid: Int64
       patientunitstayid: Int32
