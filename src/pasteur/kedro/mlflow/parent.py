@@ -182,8 +182,8 @@ def log_parent_run(
         perfs = {pretty[n]: a["perf"] for n, a in artifacts.items() if "perf" in a}
         try:
             mlflow_log_perf(**perfs)
-        except Exception as e:
-            logger.error(f"Error logging performance:\n{e}")
+        except Exception:
+            logger.error(f"Error logging performance.", exc_info=True)
 
         for name, folder in ref_artifacts["metrics"].items():
             if not "metric" in folder:

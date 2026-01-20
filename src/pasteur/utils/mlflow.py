@@ -2,8 +2,8 @@
 
 @TODO: refactor and clean the functions provided by this module."""
 
-from typing import TYPE_CHECKING
 from io import BytesIO
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -329,6 +329,8 @@ def mlflow_log_hists(table: str, name: str, viz: "Figure | dict[str, Figure]"):
 
 
 def mlflow_log_perf(**runs: dict[str, float]):
+    import math
+
     import mlflow
 
     df = pd.DataFrame(runs).reset_index(names="node")
@@ -346,7 +348,11 @@ def mlflow_log_perf(**runs: dict[str, float]):
     )
 
     time_df = df.drop(columns=["node"]).map(
-        lambda x: f"{int(x // 3600):02d}:{int((x // 60) % 60):02d}:{int(x % 60):02d}.{int((x % 1) * 1000):03d}"
+        lambda x: (
+            f"{int(x // 3600):02d}:{int((x // 60) % 60):02d}:{int(x % 60):02d}.{int((x % 1) * 1000):03d}"
+            if not math.isnan(x)
+            else "N/A"
+        )
     )
     perf_df = pd.concat([node_df, time_df], axis=1).set_index(
         ["node", "view", "package", "fun"]
