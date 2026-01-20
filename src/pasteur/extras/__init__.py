@@ -1,4 +1,4 @@
-""" This package contains reference implementations for Pasteur modules, which
+"""This package contains reference implementations for Pasteur modules, which
 may be extracted to a separate package in the future."""
 
 from __future__ import annotations
@@ -16,12 +16,15 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.mimic import MimicDataset
     from .datasets.eicu import EicuDataset
     from .datasets.texas import TexasDataset
+
     # from .datasets.boston import BostonDataset
     from .datasets.pad import PadDataset
     from .datasets.rfel import ConsumerExpendituresDataset, StudentLoanDataset
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
+    from .views.eicu import EicuRelational
     from .views.rfel import ConsumerExpendituresView, StudentLoanView
+
     # from .views.boston import BostonView
 
     # from .views.texas import TexasChargesView, TexasBaseView, TexasBillionView
@@ -40,6 +43,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         # BostonView(),
         # MimicCore,
         MimicTabAdmissions(),
+        EicuRelational(),
         # TexasBillionView(),
         ConsumerExpendituresDataset(),
         StudentLoanDataset(),

@@ -1,0 +1,71 @@
+tables:
+  patient:
+    primary_key: patientunitstayid
+    fields:
+      patientunitstayid: id
+      gender: categorical?|UKN
+      age: categorical?|UKN
+      ethnicity: categorical?|UKN
+      hospitalid: categorical?|UKN
+      hospitaladmitoffset: numerical?
+      hospitaladmitsource: categorical?|UKN
+      hospitaldischargeoffset: numerical?
+      hospitaldischargestatus: categorical?|UKN
+      unittype: categorical?|UKN
+      unitstaytype: categorical?|UKN
+      unitvisitnumber: numerical?
+      unitdischargeoffset: numerical?
+      unitdischargestatus: categorical?|UKN
+      admissionheight: numerical?
+      admissionweight: numerical?
+      dischargeweight: numerical?
+
+  admissiondx:
+    primary_key: admissiondxid
+    fields:
+      admissiondxid: id
+      patientunitstayid: id:patient.patientunitstayid
+      admitdxenteredoffset: numerical?
+
+  diagnosis:
+    primary_key: diagnosisid
+    fields:
+      diagnosisid: id
+      patientunitstayid: id:patient.patientunitstayid
+      diagnosisoffset: numerical?
+      diagnosispriority: categorical?|UKN
+
+  lab:
+    primary_key: labid
+    fields:
+      labid: id
+      patientunitstayid: id:patient.patientunitstayid
+      labresultoffset: numerical?
+      labresult: numerical?
+
+  vitalaperiodic:
+    primary_key: vitalaperiodicid
+    fields:
+      vitalaperiodicid: id
+      patientunitstayid: id:patient.patientunitstayid
+      observationoffset: numerical?
+      noninvasivesystolic: numerical?
+      noninvasivediastolic: numerical?
+      noninvasivemean: numerical?
+
+  medication:
+    primary_key: medicationid
+    fields:
+      medicationid: id
+      patientunitstayid: id:patient.patientunitstayid
+      drugorderoffset: numerical?
+      drugstartoffset: numerical?
+      drugstopoffset: numerical?
+
+  treatment:
+    primary_key: treatmentid
+    fields:
+      treatmentid: id
+      patientunitstayid: id:patient.patientunitstayid
+      treatmentoffset: numerical?
+      activeupondischarge: categorical?|UKN
