@@ -569,6 +569,15 @@ class StratifiedValue(CatValue):
     def is_ordinal(self) -> bool:
         return self.head.type == "ord" and self.head.size == len(self.head)
 
+    def make_missable(self, name="NA") -> "StratifiedValue":
+        from copy import copy
+
+        c = copy(self)
+        c.head = Grouping("cat", [name, c.head])
+        if c.common:
+            c.common = Grouping("cat", [name, c.common])
+        return c
+
     def replace(self, **kwargs):
         from copy import copy
 
