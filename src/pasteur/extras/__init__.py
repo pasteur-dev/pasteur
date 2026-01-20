@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.adult import AdultDataset
     from .datasets.mimic import MimicDataset
+    from .datasets.eicu import EicuDataset
     from .datasets.texas import TexasDataset
     # from .datasets.boston import BostonDataset
     from .datasets.pad import PadDataset
@@ -30,6 +31,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         AdultDataset(),
         # BostonDataset(),
         MimicDataset(),
+        EicuDataset(),
         PadDataset(),
         # TexasDataset(),
         # TexasChargesView(),

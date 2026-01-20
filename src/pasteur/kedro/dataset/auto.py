@@ -96,7 +96,7 @@ def _save_worker(
             while p0 is None or len(p0) == 0:
                 p0 = next(chunk)
         except:
-            logger.error(f"Generator {chunk} returned no data.\n'{path}':{pid}")
+            logger.info(f"Generator {chunk} returned no data.\n{pid}:'{path}'")
             return
 
         old_schema = pa.Schema.from_pandas(p0, preserve_index=True)

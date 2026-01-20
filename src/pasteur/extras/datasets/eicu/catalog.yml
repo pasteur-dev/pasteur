@@ -1,0 +1,628 @@
+_eicu_in_csv: &eicu_csv
+  type: pasteur.kedro.dataset.FragmentedCSVDataset
+  filepath: ""
+  metadata:
+    kedro-viz:
+      layer: raw
+
+  load_args: &eicu_csv_load
+    sep: ","
+    engine: "c"
+    header: 0
+    date_format: "%Y-%m-%d %H:%M:%S"
+
+_eicu_in_chunked: &eicu_chunked # Currently a placeholder
+  <<: *eicu_csv
+
+# Auto-generated from schema.xml (eICU)
+
+admissiondrug:
+  <<: *eicu_csv
+  filepath: ${location}/admissionDrug.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      admissiondrugid: int32
+      patientunitstayid: int32
+      drugoffset: int32
+      drugenteredoffset: int32
+      drugnotetype: category
+      specialtytype: category
+      usertype: category
+      rxincluded: category
+      writtenineicu: category
+      drugname: category
+      drugdosage: float32
+      drugunit: object
+      drugadmitfrequency: object
+      drughiclseqno: Int32
+
+admissiondx:
+  <<: *eicu_csv
+  filepath: ${location}/admissionDx.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      admissiondxid: int32
+      patientunitstayid: int32
+      admitdxenteredoffset: int32
+      admitdxpath: object
+      admitdxname: category
+      admitdxtext: category
+
+allergy:
+  <<: *eicu_csv
+  filepath: ${location}/allergy.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      allergyid: int32
+      patientunitstayid: int32
+      allergyoffset: int32
+      allergyenteredoffset: int32
+      allergynotetype: category
+      specialtytype: category
+      usertype: category
+      rxincluded: category
+      writtenineicu: category
+      drugname: category
+      allergytype: category
+      allergyname: category
+      drughiclseqno: Int32
+
+apacheapsvar:
+  <<: *eicu_csv
+  filepath: ${location}/apacheApsVar.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      apacheapsvarid: Int32
+      patientunitstayid: Int32
+      intubated: Int16
+      vent: Int16
+      dialysis: Int16
+      eyes: Int16
+      motor: Int16
+      verbal: Int16
+      meds: Int16
+      urine: float64
+      wbc: float64
+      temperature: float64
+      respiratoryrate: float64
+      sodium: float64
+      heartrate: float64
+      meanbp: float64
+      ph: float64
+      hematocrit: float64
+      creatinine: float64
+      albumin: float64
+      pao2: float64
+      pco2: float64
+      bun: float64
+      glucose: float64
+      bilirubin: float64
+      fio2: float64
+
+apachepatientresult:
+  <<: *eicu_csv
+  filepath: ${location}/apachePatientResult.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      apachepatientresultsid: int32
+      patientunitstayid: int32
+      physicianspeciality: category
+      physicianinterventioncategory: category
+      acutephysiologyscore: Int32
+      apachescore: Int32
+      apacheversion: category
+      predictedicumortality: category
+      actualicumortality: category
+      predictediculos: float64
+      actualiculos: float64
+      predictedhospitalmortality: category
+      actualhospitalmortality: category
+      predictedhospitallos: float64
+      actualhospitallos: float64
+      preopmi: Int32
+      preopcardiaccath: Int32
+      ptcawithin24h: Int32
+      unabridgedunitlos: float64
+      unabridgedhosplos: float64
+      actualventdays: float64
+      predventdays: float64
+      unabridgedactualventdays: float64
+
+apachepredvar:
+  <<: *eicu_csv
+  filepath: ${location}/apachePredVar.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      apachepredvarid: Int32
+      patientunitstayid: Int32
+      sicuday: Int16
+      saps3day1: Int16
+      saps3today: Int16
+      saps3yesterday: Int16
+      gender: Int16
+      teachtype: Int16
+      region: Int16
+      bedcount: Int16
+      admitsource: Int16
+      graftcount: Int16
+      meds: Int16
+      verbal: Int16
+      motor: Int16
+      eyes: Int16
+      age: Int16
+      admitdiagnosis: category
+      thrombolytics: Int16
+      diedinhospital: Int16
+      aids: Int16
+      hepaticfailure: Int16
+      lymphoma: Int16
+      metastaticcancer: Int16
+      leukemia: Int16
+      immunosuppression: Int16
+      cirrhosis: Int16
+      electivesurgery: Int16
+      activetx: Int16
+      readmit: Int16
+      ima: Int16
+      midur: Int16
+      ventday1: Int16
+      oobventday1: Int16
+      oobintubday1: Int16
+      diabetes: Int16
+      managementsystem: Int16
+      var03hspxlos: float64
+      pao2: float64
+      fio2: float64
+      ejectfx: float64
+      creatinine: float64
+      dischargelocation: Int16
+      visitnumber: Int16
+      amilocation: Int16
+      day1meds: Int16
+      day1verbal: Int16
+      day1motor: Int16
+      day1eyes: Int16
+      day1pao2: float64
+      day1fio2: float64
+
+careplancareprovider:
+  <<: *eicu_csv
+  filepath: ${location}/carePlanCareProvider.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      cplcareprovderid: int32
+      patientunitstayid: int32
+      careprovidersaveoffset: int32
+      providertype: category
+      specialty: category
+      interventioncategory: category
+      managingphysician: category
+      activeupondischarge: category
+
+careplaneol:
+  <<: *eicu_csv
+  filepath: ${location}/carePlanEOL.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      cpleolid: int32
+      patientunitstayid: int32
+      cpleolsaveoffset: int32
+      cpleoldiscussionoffset: Int32
+      activeupondischarge: category
+
+careplangeneral:
+  <<: *eicu_csv
+  filepath: ${location}/carePlanGeneral.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      cplgeneralid: int32
+      patientunitstayid: int32
+      activeupondischarge: category
+      cplitemoffset: int32
+      cplgroup: category
+      cplitemvalue: object
+
+careplangoal:
+  <<: *eicu_csv
+  filepath: ${location}/carePlanGoal.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      cplgoalid: int32
+      patientunitstayid: int32
+      cplgoaloffset: int32
+      cplgoalcategory: category
+      cplgoalvalue: object
+      cplgoalstatus: category
+      activeupondischarge: category
+
+careplaninfectiousdisease:
+  <<: *eicu_csv
+  filepath: ${location}/carePlanInfectiousDisease.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      cplinfectid: int32
+      patientunitstayid: int32
+      activeupondischarge: category
+      cplinfectdiseaseoffset: int32
+      infectdiseasesite: category
+      infectdiseaseassessment: category
+      responsetotherapy: category
+      treatment: category
+
+customlab:
+  <<: *eicu_csv
+  filepath: ${location}/customLab.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      customlabid: int32
+      patientunitstayid: int32
+      labotheroffset: int32
+      labothertypeid: int32
+      labothername: category
+      labotherresult: category
+      labothervaluetext: category
+
+diagnosis:
+  <<: *eicu_csv
+  filepath: ${location}/diagnosis.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      diagnosisid: int32
+      patientunitstayid: int32
+      activeupondischarge: category
+      diagnosisoffset: int32
+      diagnosisstring: category
+      icd9code: category
+      diagnosispriority: category
+
+hospital:
+  <<: *eicu_csv
+  filepath: ${location}/hospital.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    true_values: ["t", "T", "true", "True", "1", "yes", "Yes", "y", "Y"]
+    false_values: ["f", "F", "false", "False", "0", "no", "No", "n", "N"]
+    dtype:
+      hospitalid: int32
+      numbedscategory: category
+      teachingstatus: boolean
+      region: category
+
+infusiondrug:
+  <<: *eicu_csv
+  filepath: ${location}/infusionDrug.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      infusiondrugid: int32
+      patientunitstayid: int32
+      infusionoffset: int32
+      drugname: category
+      drugrate: category
+      infusionrate: category
+      drugamount: category
+      volumeoffluid: category
+      patientweight: category
+
+intakeoutput:
+  <<: *eicu_csv
+  filepath: ${location}/intakeOutput.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      intakeoutputid: int32
+      patientunitstayid: int32
+      intakeoutputoffset: int32
+      intaketotal: float32
+      outputtotal: float32
+      dialysistotal: float32
+      nettotal: float32
+      intakeoutputentryoffset: int32
+      cellpath: object
+      celllabel: category
+      cellvaluenumeric: float32
+      cellvaluetext: category
+
+lab:
+  <<: *eicu_csv
+  filepath: ${location}/lab.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      labid: int32
+      patientunitstayid: int32
+      labresultoffset: int32
+      labtypeid: int16
+      labname: category
+      labresult: float32
+      labresulttext: category
+      labmeasurenamesystem: category
+      labmeasurenameinterface: category
+      labresultrevisedoffset: Int32
+
+medication:
+  <<: *eicu_csv
+  filepath: ${location}/medication.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      medicationid: int32
+      patientunitstayid: int32
+      drugorderoffset: int32
+      drugstartoffset: int32
+      drugivadmixture: category
+      drugordercancelled: category
+      drugname: category
+      drughiclseqno: Int32
+      dosage: category
+      routeadmin: category
+      frequency: category
+      loadingdose: string
+      prn: category
+      drugstopoffset: int32
+      gtc: int32
+
+microlab:
+  <<: *eicu_csv
+  filepath: ${location}/microLab.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      microlabid: int32
+      patientunitstayid: int32
+      culturetakenoffset: int32
+      culturesite: category
+      organism: category
+      antibiotic: category
+      sensitivitylevel: category
+
+note:
+  <<: *eicu_csv
+  filepath: ${location}/note.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      noteid: int32
+      patientunitstayid: int32
+      noteoffset: int32
+      noteenteredoffset: int32
+      notetype: category
+      notepath: category
+      notevalue: category
+      notetext: object
+
+nurseassessment:
+  <<: *eicu_csv
+  filepath: ${location}/nurseAssessment.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      nurseassessid: int32
+      patientunitstayid: int32
+      nurseassessoffset: int32
+      nurseassessentryoffset: int32
+      cellattributepath: category
+      celllabel: category
+      cellattribute: category
+      cellattributevalue: object
+
+nursecare:
+  <<: *eicu_csv
+  filepath: ${location}/nurseCare.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      nursecareid: int32
+      patientunitstayid: int32
+      celllabel: category
+      nursecareoffset: int32
+      nursecareentryoffset: int32
+      cellattributepath: category
+      cellattribute: category
+      cellattributevalue: object
+
+nursecharting:
+  <<: *eicu_csv
+  filepath: ${location}/nurseCharting.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      nursingchartid: int64
+      patientunitstayid: int32
+      nursingchartoffset: int32
+      nursingchartentryoffset: int32
+      nursingchartcelltypecat: category
+      nursingchartcelltypevallabel: category
+      nursingchartcelltypevalname: category
+      nursingchartvalue: category
+
+pasthistory:
+  <<: *eicu_csv
+  filepath: ${location}/pastHistory.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      pasthistoryid: int32
+      patientunitstayid: int32
+      pasthistoryoffset: int32
+      pasthistoryenteredoffset: int32
+      pasthistorynotetype: category
+      pasthistorypath: category
+      pasthistoryvalue: category
+      pasthistoryvaluetext: category
+
+patient:
+  <<: *eicu_csv
+  filepath: ${location}/patient.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    index_col: patientunitstayid
+    dtype:
+      patientunitstayid: int32
+      patienthealthsystemstayid: Int32
+      gender: category
+      age: category
+      ethnicity: category
+      hospitalid: Int32
+      wardid: Int32
+      apacheadmissiondx: object
+      admissionheight: float32
+      hospitaladmittime24: category
+      hospitaladmitoffset: Int32
+      hospitaladmitsource: category
+      hospitaldischargeyear: Int16
+      hospitaldischargetime24: category
+      hospitaldischargeoffset: Int32
+      hospitaldischargelocation: category
+      hospitaldischargestatus: category
+      unittype: category
+      unitadmittime24: category
+      unitadmitsource: category
+      unitvisitnumber: Int32
+      unitstaytype: category
+      admissionweight: float32
+      dischargeweight: float32
+      unitdischargetime24: category
+      unitdischargeoffset: Int32
+      unitdischargelocation: category
+      unitdischargestatus: category
+      uniquepid: category
+
+physicalexam:
+  <<: *eicu_csv
+  filepath: ${location}/physicalExam.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      physicalexamid: Int32
+      patientunitstayid: int32
+      physicalexamoffset: int32
+      physicalexampath: category
+      physicalexamvalue: category
+      physicalexamtext: object
+
+respiratorycare:
+  <<: *eicu_csv
+  filepath: ${location}/respiratoryCare.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      respcareid: Int32
+      patientunitstayid: Int32
+      respcarestatusoffset: Int32
+      currenthistoryseqnum: Int32
+      airwaytype: category
+      airwaysize: category
+      airwayposition: category
+      cuffpressure: float32
+      ventstartoffset: Int32
+      ventendoffset: Int32
+      priorventstartoffset: Int32
+      priorventendoffset: Int32
+      apneaparms: string
+      lowexhmvlimit: float32
+      hiexhmvlimit: float32
+      lowexhtvlimit: float32
+      hipeakpreslimit: float32
+      lowpeakpreslimit: float32
+      hirespratelimit: float32
+      lowrespratelimit: float32
+      sighpreslimit: float32
+      lowironoxlimit: float32
+      highironoxlimit: float32
+      meanairwaypreslimit: float32
+      peeplimit: float32
+      cpaplimit: float32
+      setapneainterval: category
+      setapneatv: category
+      setapneaippeephigh: category
+      setapnearr: category
+      setapneapeakflow: category
+      setapneainsptime: category
+      setapneaie: category
+      setapneafio2: category
+
+respiratorycharting:
+  <<: *eicu_csv
+  filepath: ${location}/respiratoryCharting.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      respchartid: Int32
+      patientunitstayid: Int32
+      respchartoffset: Int32
+      respchartentryoffset: Int32
+      respcharttypecat: category
+      respchartvaluelabel: category
+      respchartvalue: object
+
+treatment:
+  <<: *eicu_csv
+  filepath: ${location}/treatment.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      treatmentid: Int32
+      patientunitstayid: Int32
+      treatmentoffset: Int32
+      treatmentstring: category
+      activeupondischarge: category
+
+vitalaperiodic:
+  <<: *eicu_csv
+  filepath: ${location}/vitalAperiodic.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      vitalaperiodicid: int32
+      patientunitstayid: int32
+      observationoffset: int32
+      noninvasivesystolic: float64
+      noninvasivediastolic: float64
+      noninvasivemean: float64
+      paop: float64
+      cardiacoutput: float64
+      cardiacinput: float64
+      svr: float64
+      svri: float64
+      pvr: float64
+      pvri: float64
+
+vitalperiodic:
+  <<: *eicu_csv
+  filepath: ${location}/vitalPeriodic.csv.gz
+  load_args:
+    <<: *eicu_csv_load
+    dtype:
+      vitalperiodicid: Int64
+      patientunitstayid: Int32
+      observationoffset: Int32
+      temperature: float32
+      sao2: Int32
+      heartrate: Int32
+      respiration: Int32
+      cvp: Int32
+      etco2: Int32
+      systemicsystolic: Int32
+      systemicdiastolic: Int32
+      systemicmean: Int32
+      pasystolic: Int32
+      padiastolic: Int32
+      pamean: Int32
+      st1: float64
+      st2: float64
+      st3: float64
+      icp: Int32

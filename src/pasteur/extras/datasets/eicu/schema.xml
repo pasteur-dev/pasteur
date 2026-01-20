@@ -1,0 +1,550 @@
+This XML file does not appear to have any style information associated with it. The document tree is shown below.
+<database name="eicu" schema="eicu_crd" type="PostgreSQL - 10.9 (Ubuntu 10.9-1.pgdg16.04+1)">
+<tables>
+<table name="admissiondrug" numRows="874920" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="admissiondrugid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="admissiondrug_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="drugoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="drugenteredoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="drugnotetype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="specialtytype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="usertype" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="rxincluded" nullable="true" remarks="" size="5" type="varchar"/>
+<column autoUpdated="false" digits="0" id="8" name="writtenineicu" nullable="true" remarks="" size="5" type="varchar"/>
+<column autoUpdated="false" digits="0" id="9" name="drugname" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="4" id="10" name="drugdosage" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="0" id="11" name="drugunit" nullable="true" remarks="" size="1000" type="varchar"/>
+<column autoUpdated="false" digits="0" id="12" name="drugadmitfrequency" nullable="false" remarks="" size="1000" type="varchar"/>
+<column autoUpdated="false" digits="0" id="13" name="drughiclseqno" nullable="true" remarks="" size="10" type="int4"/>
+</table>
+<table name="admissiondx" numRows="626858" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="admissiondxid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="admissiondx_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="admitdxenteredoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="admitdxpath" nullable="false" remarks="" size="500" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="admitdxname" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="admitdxtext" nullable="true" remarks="" size="255" type="varchar"/>
+</table>
+<table name="allergy" numRows="251949" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="allergyid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="allergy_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="allergyoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="allergyenteredoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="allergynotetype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="specialtytype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="usertype" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="rxincluded" nullable="true" remarks="" size="5" type="varchar"/>
+<column autoUpdated="false" digits="0" id="8" name="writtenineicu" nullable="true" remarks="" size="5" type="varchar"/>
+<column autoUpdated="false" digits="0" id="9" name="drugname" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="10" name="allergytype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="11" name="allergyname" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="12" name="drughiclseqno" nullable="true" remarks="" size="10" type="int4"/>
+</table>
+<table name="apacheapsvar" numRows="171177" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="apacheapsvarid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="apacheapsvar_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="intubated" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="3" name="vent" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="4" name="dialysis" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="5" name="eyes" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="6" name="motor" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="7" name="verbal" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="8" name="meds" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="17" id="9" name="urine" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="10" name="wbc" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="11" name="temperature" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="12" name="respiratoryrate" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="13" name="sodium" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="14" name="heartrate" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="15" name="meanbp" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="16" name="ph" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="17" name="hematocrit" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="18" name="creatinine" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="19" name="albumin" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="20" name="pao2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="21" name="pco2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="22" name="bun" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="23" name="glucose" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="24" name="bilirubin" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="25" name="fio2" nullable="true" remarks="" size="17" type="float8"/>
+</table>
+<table name="apachepatientresult" numRows="297064" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="apachepatientresultsid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="apachepatientresult_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="physicianspeciality" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="physicianinterventioncategory" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="acutephysiologyscore" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="5" name="apachescore" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="6" name="apacheversion" nullable="false" remarks="" size="5" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="predictedicumortality" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="8" name="actualicumortality" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="17" id="9" name="predictediculos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="10" name="actualiculos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="0" id="11" name="predictedhospitalmortality" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="12" name="actualhospitalmortality" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="17" id="13" name="predictedhospitallos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="14" name="actualhospitallos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="0" id="15" name="preopmi" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="16" name="preopcardiaccath" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="17" name="ptcawithin24h" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="17" id="18" name="unabridgedunitlos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="19" name="unabridgedhosplos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="20" name="actualventdays" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="21" name="predventdays" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="22" name="unabridgedactualventdays" nullable="true" remarks="" size="17" type="float8"/>
+</table>
+<table name="apachepredvar" numRows="171177" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="apachepredvarid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="apachepredvar_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="sicuday" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="3" name="saps3day1" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="4" name="saps3today" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="5" name="saps3yesterday" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="6" name="gender" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="7" name="teachtype" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="8" name="region" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="9" name="bedcount" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="10" name="admitsource" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="11" name="graftcount" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="12" name="meds" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="13" name="verbal" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="14" name="motor" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="15" name="eyes" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="16" name="age" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="17" name="admitdiagnosis" nullable="true" remarks="" size="11" type="varchar"/>
+<column autoUpdated="false" digits="0" id="18" name="thrombolytics" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="19" name="diedinhospital" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="20" name="aids" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="21" name="hepaticfailure" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="22" name="lymphoma" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="23" name="metastaticcancer" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="24" name="leukemia" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="25" name="immunosuppression" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="26" name="cirrhosis" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="27" name="electivesurgery" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="28" name="activetx" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="29" name="readmit" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="30" name="ima" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="31" name="midur" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="32" name="ventday1" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="33" name="oobventday1" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="34" name="oobintubday1" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="35" name="diabetes" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="36" name="managementsystem" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="17" id="37" name="var03hspxlos" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="38" name="pao2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="39" name="fio2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="40" name="ejectfx" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="41" name="creatinine" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="0" id="42" name="dischargelocation" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="43" name="visitnumber" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="44" name="amilocation" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="45" name="day1meds" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="46" name="day1verbal" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="47" name="day1motor" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="48" name="day1eyes" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="17" id="49" name="day1pao2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="50" name="day1fio2" nullable="true" remarks="" size="17" type="float8"/>
+</table>
+<table name="careplancareprovider" numRows="502765" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="cplcareprovderid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="careplancareprovider_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="careprovidersaveoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="providertype" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="specialty" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="interventioncategory" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="managingphysician" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="activeupondischarge" nullable="false" remarks="" size="10" type="varchar"/>
+</table>
+<table name="careplaneol" numRows="1433" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="cpleolid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="careplaneol_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="cpleolsaveoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="cpleoldiscussionoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="activeupondischarge" nullable="true" remarks="" size="10" type="varchar"/>
+</table>
+<table name="careplangeneral" numRows="3115018" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="cplgeneralid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="careplangeneral_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="activeupondischarge" nullable="false" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="cplitemoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="cplgroup" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="cplitemvalue" nullable="true" remarks="" size="1024" type="varchar"/>
+</table>
+<table name="careplangoal" numRows="504139" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="cplgoalid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="careplangoal_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="cplgoaloffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="cplgoalcategory" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="cplgoalvalue" nullable="true" remarks="" size="1000" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="cplgoalstatus" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="activeupondischarge" nullable="false" remarks="" size="10" type="varchar"/>
+</table>
+<table name="careplaninfectiousdisease" numRows="8056" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="cplinfectid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="careplaninfectiousdisease_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="activeupondischarge" nullable="false" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="cplinfectdiseaseoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="infectdiseasesite" nullable="true" remarks="" size="64" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="infectdiseaseassessment" nullable="true" remarks="" size="64" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="responsetotherapy" nullable="true" remarks="" size="32" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="treatment" nullable="true" remarks="" size="32" type="varchar"/>
+</table>
+<table name="customlab" numRows="1082" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="customlabid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="customlab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="labotheroffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="labothertypeid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="labothername" nullable="true" remarks="" size="64" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="labotherresult" nullable="true" remarks="" size="64" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="labothervaluetext" nullable="true" remarks="" size="128" type="varchar"/>
+</table>
+<table name="diagnosis" numRows="2710672" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="diagnosisid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="diagnosis_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="activeupondischarge" nullable="true" remarks="" size="64" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="diagnosisoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="diagnosisstring" nullable="false" remarks="" size="200" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="icd9code" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="diagnosispriority" nullable="false" remarks="" size="10" type="varchar"/>
+</table>
+<table name="hospital" numRows="208" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="hospitalid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="numbedscategory" nullable="true" remarks="" size="32" type="varchar"/>
+<column autoUpdated="false" digits="0" id="2" name="teachingstatus" nullable="true" remarks="" size="1" type="bool"/>
+<column autoUpdated="false" digits="0" id="3" name="region" nullable="true" remarks="" size="64" type="varchar"/>
+</table>
+<table name="infusiondrug" numRows="4803719" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="infusiondrugid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="infusiondrug_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="infusionoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="drugname" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="drugrate" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="infusionrate" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="drugamount" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="volumeoffluid" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="8" name="patientweight" nullable="true" remarks="" size="255" type="varchar"/>
+</table>
+<table name="intakeoutput" numRows="12030289" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="intakeoutputid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="intakeoutput_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="intakeoutputoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="4" id="3" name="intaketotal" nullable="true" remarks="" size="12" type="numeric"/>
+<column autoUpdated="false" digits="4" id="4" name="outputtotal" nullable="true" remarks="" size="12" type="numeric"/>
+<column autoUpdated="false" digits="4" id="5" name="dialysistotal" nullable="true" remarks="" size="12" type="numeric"/>
+<column autoUpdated="false" digits="4" id="6" name="nettotal" nullable="true" remarks="" size="12" type="numeric"/>
+<column autoUpdated="false" digits="0" id="7" name="intakeoutputentryoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="8" name="cellpath" nullable="true" remarks="" size="500" type="varchar"/>
+<column autoUpdated="false" digits="0" id="9" name="celllabel" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="4" id="10" name="cellvaluenumeric" nullable="false" remarks="" size="12" type="numeric"/>
+<column autoUpdated="false" digits="0" id="11" name="cellvaluetext" nullable="false" remarks="" size="255" type="varchar"/>
+</table>
+<table name="lab" numRows="39132531" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="labid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="lab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="labresultoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="labtypeid" nullable="false" remarks="" size="3" type="numeric"/>
+<column autoUpdated="false" digits="0" id="4" name="labname" nullable="true" remarks="" size="256" type="varchar"/>
+<column autoUpdated="false" digits="4" id="5" name="labresult" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="0" id="6" name="labresulttext" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="labmeasurenamesystem" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="8" name="labmeasurenameinterface" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="9" name="labresultrevisedoffset" nullable="true" remarks="" size="10" type="int4"/>
+</table>
+<table name="medication" numRows="7301853" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="medicationid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="medication_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="drugorderoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="drugstartoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="drugivadmixture" nullable="false" remarks="" size="6" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="drugordercancelled" nullable="false" remarks="" size="6" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="drugname" nullable="true" remarks="" size="220" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="drughiclseqno" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="8" name="dosage" nullable="true" remarks="" size="60" type="varchar"/>
+<column autoUpdated="false" digits="0" id="9" name="routeadmin" nullable="true" remarks="" size="120" type="varchar"/>
+<column autoUpdated="false" digits="0" id="10" name="frequency" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="11" name="loadingdose" nullable="false" remarks="" size="120" type="varchar"/>
+<column autoUpdated="false" digits="0" id="12" name="prn" nullable="false" remarks="" size="6" type="varchar"/>
+<column autoUpdated="false" digits="0" id="13" name="drugstopoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="14" name="gtc" nullable="false" remarks="" size="10" type="int4"/>
+</table>
+<table name="microlab" numRows="16996" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="microlabid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="microlab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="culturetakenoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="culturesite" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="organism" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="antibiotic" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="sensitivitylevel" nullable="true" remarks="" size="255" type="varchar"/>
+</table>
+<table name="note" numRows="2254179" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="noteid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="note_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="noteoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="noteenteredoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="notetype" nullable="false" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="notepath" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="notevalue" nullable="true" remarks="" size="150" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="notetext" nullable="true" remarks="" size="500" type="varchar"/>
+</table>
+<table name="nurseassessment" numRows="15602498" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="nurseassessid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="nurseassessment_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="nurseassessoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="nurseassessentryoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="cellattributepath" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="celllabel" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="cellattribute" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="cellattributevalue" nullable="true" remarks="" size="4000" type="varchar"/>
+</table>
+<table name="nursecare" numRows="8311132" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="nursecareid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="nursecare_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="celllabel" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="nursecareoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="nursecareentryoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="5" name="cellattributepath" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="cellattribute" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="cellattributevalue" nullable="true" remarks="" size="4000" type="varchar"/>
+</table>
+<table name="nursecharting" numRows="151604232" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="nursingchartid" nullable="false" remarks="" size="19" type="int8"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="nursecharting_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="nursingchartoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="nursingchartentryoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="nursingchartcelltypecat" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="nursingchartcelltypevallabel" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="nursingchartcelltypevalname" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="nursingchartvalue" nullable="true" remarks="" size="255" type="varchar"/>
+</table>
+<table name="pasthistory" numRows="1149180" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="pasthistoryid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="pasthistory_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="pasthistoryoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="pasthistoryenteredoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="pasthistorynotetype" nullable="true" remarks="" size="40" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="pasthistorypath" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="pasthistoryvalue" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="7" name="pasthistoryvaluetext" nullable="true" remarks="" size="255" type="varchar"/>
+</table>
+<table name="patient" numRows="200859" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<child column="patientunitstayid" foreignKey="admissiondrug_fk_ptunit_id" implied="false" onDeleteCascade="false" table="admissiondrug"/>
+<child column="patientunitstayid" foreignKey="admissiondx_fk_ptunit_id" implied="false" onDeleteCascade="false" table="admissiondx"/>
+<child column="patientunitstayid" foreignKey="allergy_fk_ptunit_id" implied="false" onDeleteCascade="false" table="allergy"/>
+<child column="patientunitstayid" foreignKey="apacheapsvar_fk_ptunit_id" implied="false" onDeleteCascade="false" table="apacheapsvar"/>
+<child column="patientunitstayid" foreignKey="apachepatientresult_fk_ptunit_id" implied="false" onDeleteCascade="false" table="apachepatientresult"/>
+<child column="patientunitstayid" foreignKey="apachepredvar_fk_ptunit_id" implied="false" onDeleteCascade="false" table="apachepredvar"/>
+<child column="patientunitstayid" foreignKey="careplancareprovider_fk_ptunit_id" implied="false" onDeleteCascade="false" table="careplancareprovider"/>
+<child column="patientunitstayid" foreignKey="careplaneol_fk_ptunit_id" implied="false" onDeleteCascade="false" table="careplaneol"/>
+<child column="patientunitstayid" foreignKey="careplangeneral_fk_ptunit_id" implied="false" onDeleteCascade="false" table="careplangeneral"/>
+<child column="patientunitstayid" foreignKey="careplangoal_fk_ptunit_id" implied="false" onDeleteCascade="false" table="careplangoal"/>
+<child column="patientunitstayid" foreignKey="careplaninfectiousdisease_fk_ptunit_id" implied="false" onDeleteCascade="false" table="careplaninfectiousdisease"/>
+<child column="patientunitstayid" foreignKey="customlab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="customlab"/>
+<child column="patientunitstayid" foreignKey="diagnosis_fk_ptunit_id" implied="false" onDeleteCascade="false" table="diagnosis"/>
+<child column="patientunitstayid" foreignKey="infusiondrug_fk_ptunit_id" implied="false" onDeleteCascade="false" table="infusiondrug"/>
+<child column="patientunitstayid" foreignKey="intakeoutput_fk_ptunit_id" implied="false" onDeleteCascade="false" table="intakeoutput"/>
+<child column="patientunitstayid" foreignKey="lab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="lab"/>
+<child column="patientunitstayid" foreignKey="medication_fk_ptunit_id" implied="false" onDeleteCascade="false" table="medication"/>
+<child column="patientunitstayid" foreignKey="microlab_fk_ptunit_id" implied="false" onDeleteCascade="false" table="microlab"/>
+<child column="patientunitstayid" foreignKey="note_fk_ptunit_id" implied="false" onDeleteCascade="false" table="note"/>
+<child column="patientunitstayid" foreignKey="nurseassessment_fk_ptunit_id" implied="false" onDeleteCascade="false" table="nurseassessment"/>
+<child column="patientunitstayid" foreignKey="nursecare_fk_ptunit_id" implied="false" onDeleteCascade="false" table="nursecare"/>
+<child column="patientunitstayid" foreignKey="nursecharting_fk_ptunit_id" implied="false" onDeleteCascade="false" table="nursecharting"/>
+<child column="patientunitstayid" foreignKey="pasthistory_fk_ptunit_id" implied="false" onDeleteCascade="false" table="pasthistory"/>
+<child column="patientunitstayid" foreignKey="physicalexam_fk_ptunit_id" implied="false" onDeleteCascade="false" table="physicalexam"/>
+<child column="patientunitstayid" foreignKey="respiratorycare_fk_ptunit_id" implied="false" onDeleteCascade="false" table="respiratorycare"/>
+<child column="patientunitstayid" foreignKey="respiratorycharting_fk_ptunit_id" implied="false" onDeleteCascade="false" table="respiratorycharting"/>
+<child column="patientunitstayid" foreignKey="treatment_fk_ptunit_id" implied="false" onDeleteCascade="false" table="treatment"/>
+<child column="patientunitstayid" foreignKey="vitalaperiodic_fk_ptunit_id" implied="false" onDeleteCascade="false" table="vitalaperiodic"/>
+<child column="patientunitstayid" foreignKey="vitalperiodic_fk_ptunit_id" implied="false" onDeleteCascade="false" table="vitalperiodic"/>
+</column>
+<column autoUpdated="false" digits="0" id="1" name="patienthealthsystemstayid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="2" name="gender" nullable="true" remarks="" size="25" type="varchar"/>
+<column autoUpdated="false" digits="0" id="3" name="age" nullable="true" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="ethnicity" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="hospitalid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="6" name="wardid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="7" name="apacheadmissiondx" nullable="true" remarks="" size="1000" type="varchar"/>
+<column autoUpdated="false" digits="2" id="8" name="admissionheight" nullable="true" remarks="" size="10" type="numeric"/>
+<column autoUpdated="false" digits="0" id="9" name="hospitaladmittime24" nullable="true" remarks="" size="8" type="varchar"/>
+<column autoUpdated="false" digits="0" id="10" name="hospitaladmitoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="11" name="hospitaladmitsource" nullable="true" remarks="" size="30" type="varchar"/>
+<column autoUpdated="false" digits="0" id="12" name="hospitaldischargeyear" nullable="true" remarks="" size="5" type="int2"/>
+<column autoUpdated="false" digits="0" id="13" name="hospitaldischargetime24" nullable="true" remarks="" size="8" type="varchar"/>
+<column autoUpdated="false" digits="0" id="14" name="hospitaldischargeoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="15" name="hospitaldischargelocation" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="16" name="hospitaldischargestatus" nullable="true" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="17" name="unittype" nullable="true" remarks="" size="50" type="varchar"/>
+<column autoUpdated="false" digits="0" id="18" name="unitadmittime24" nullable="true" remarks="" size="8" type="varchar"/>
+<column autoUpdated="false" digits="0" id="19" name="unitadmitsource" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="20" name="unitvisitnumber" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="21" name="unitstaytype" nullable="true" remarks="" size="15" type="varchar"/>
+<column autoUpdated="false" digits="2" id="22" name="admissionweight" nullable="true" remarks="" size="10" type="numeric"/>
+<column autoUpdated="false" digits="2" id="23" name="dischargeweight" nullable="true" remarks="" size="10" type="numeric"/>
+<column autoUpdated="false" digits="0" id="24" name="unitdischargetime24" nullable="true" remarks="" size="8" type="varchar"/>
+<column autoUpdated="false" digits="0" id="25" name="unitdischargeoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="26" name="unitdischargelocation" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="27" name="unitdischargestatus" nullable="true" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="28" name="uniquepid" nullable="true" remarks="" size="10" type="varchar"/>
+<primaryKey column="patientunitstayid" sequenceNumberInPK="1"/>
+<index name="patient_pk_ptunit_id" unique="true">
+<column ascending="true" name="patientunitstayid"/>
+</index>
+</table>
+<table name="physicalexam" numRows="9212316" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="physicalexamid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="physicalexam_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="physicalexamoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="physicalexampath" nullable="false" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="physicalexamvalue" nullable="true" remarks="" size="100" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="physicalexamtext" nullable="true" remarks="" size="500" type="varchar"/>
+</table>
+<table name="respiratorycare" numRows="865381" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="respcareid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="respiratorycare_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="respcarestatusoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="currenthistoryseqnum" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="airwaytype" nullable="true" remarks="" size="30" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="airwaysize" nullable="true" remarks="" size="10" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="airwayposition" nullable="true" remarks="" size="32" type="varchar"/>
+<column autoUpdated="false" digits="1" id="7" name="cuffpressure" nullable="true" remarks="" size="5" type="numeric"/>
+<column autoUpdated="false" digits="0" id="8" name="ventstartoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="9" name="ventendoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="10" name="priorventstartoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="11" name="priorventendoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="12" name="apneaparams" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="4" id="13" name="lowexhmvlimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="14" name="hiexhmvlimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="15" name="lowexhtvlimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="16" name="hipeakpreslimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="17" name="lowpeakpreslimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="18" name="hirespratelimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="19" name="lowrespratelimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="20" name="sighpreslimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="21" name="lowironoxlimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="22" name="highironoxlimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="23" name="meanairwaypreslimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="24" name="peeplimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="4" id="25" name="cpaplimit" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="0" id="26" name="setapneainterval" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="27" name="setapneatv" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="28" name="setapneaippeephigh" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="29" name="setapnearr" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="30" name="setapneapeakflow" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="31" name="setapneainsptime" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="32" name="setapneaie" nullable="true" remarks="" size="80" type="varchar"/>
+<column autoUpdated="false" digits="0" id="33" name="setapneafio2" nullable="true" remarks="" size="80" type="varchar"/>
+</table>
+<table name="respiratorycharting" numRows="20168176" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="respchartid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="respiratorycharting_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="respchartoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="respchartentryoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="4" name="respcharttypecat" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="5" name="respchartvaluelabel" nullable="true" remarks="" size="255" type="varchar"/>
+<column autoUpdated="false" digits="0" id="6" name="respchartvalue" nullable="true" remarks="" size="1000" type="varchar"/>
+</table>
+<table name="treatment" numRows="3688745" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="treatmentid" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="treatment_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="treatmentoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="3" name="treatmentstring" nullable="true" remarks="" size="200" type="varchar"/>
+<column autoUpdated="false" digits="0" id="4" name="activeupondischarge" nullable="true" remarks="" size="10" type="varchar"/>
+</table>
+<table name="vitalaperiodic" numRows="25075074" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="vitalaperiodicid" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="false" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="vitalaperiodic_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="observationoffset" nullable="false" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="17" id="3" name="noninvasivesystolic" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="4" name="noninvasivediastolic" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="5" name="noninvasivemean" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="6" name="paop" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="7" name="cardiacoutput" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="8" name="cardiacinput" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="9" name="svr" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="10" name="svri" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="11" name="pvr" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="12" name="pvri" nullable="true" remarks="" size="17" type="float8"/>
+</table>
+<table name="vitalperiodic" numRows="146671642" remarks="" schema="eicu_crd" type="TABLE">
+<column autoUpdated="false" digits="0" id="0" name="vitalperiodicid" nullable="true" remarks="" size="19" type="int8"/>
+<column autoUpdated="false" digits="0" id="1" name="patientunitstayid" nullable="true" remarks="" size="10" type="int4">
+<parent column="patientunitstayid" foreignKey="vitalperiodic_fk_ptunit_id" implied="false" onDeleteCascade="false" table="patient"/>
+</column>
+<column autoUpdated="false" digits="0" id="2" name="observationoffset" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="4" id="3" name="temperature" nullable="true" remarks="" size="11" type="numeric"/>
+<column autoUpdated="false" digits="0" id="4" name="sao2" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="5" name="heartrate" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="6" name="respiration" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="7" name="cvp" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="8" name="etco2" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="9" name="systemicsystolic" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="10" name="systemicdiastolic" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="11" name="systemicmean" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="12" name="pasystolic" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="13" name="padiastolic" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="0" id="14" name="pamean" nullable="true" remarks="" size="10" type="int4"/>
+<column autoUpdated="false" digits="17" id="15" name="st1" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="16" name="st2" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="17" id="17" name="st3" nullable="true" remarks="" size="17" type="float8"/>
+<column autoUpdated="false" digits="0" id="18" name="icp" nullable="true" remarks="" size="10" type="int4"/>
+</table>
+</tables>
+</database>
