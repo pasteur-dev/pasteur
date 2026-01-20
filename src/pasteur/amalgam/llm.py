@@ -1,7 +1,7 @@
 import logging
 import threading
 import time
-from typing import Any, Literal, Mapping, Type, TypedDict
+from typing import Any, Literal, Mapping, Type, TypedDict, Optional
 
 import numpy as np
 import pandas as pd
@@ -78,6 +78,7 @@ class AmalgamHFParams(TypedDict):
     n_ctx: int
     n_gpu_layers: int
     workers: int
+    max_tokens: Optional[int]
 
 
 class AmalgamORParams(TypedDict):
@@ -135,6 +136,7 @@ def _load_llm_model(params: AmalgamHFParams | AmalgamORParams, output_type) -> A
         "llm": llm,
         "generator": generator,
         "generator_thought": generator_thought,
+        "max_tokens": params.get("max_tokens", None),
     }
 
 
@@ -364,6 +366,7 @@ def _worker(
     think,
     print,
     task,
+    max_tokens,
 ):
     import queue
 
@@ -395,7 +398,7 @@ def _worker(
         try:
             if think:
                 full_prompt = prompt + "\\think<think>"
-                for j in generator_thought.stream(full_prompt, max_tokens=None, stop="</think>"):  # type: ignore
+                for j in generator_thought.stream(full_prompt, max_tokens=max_tokens, stop="</think>"):  # type: ignore
                     if ttft_thought is None:
                         ttft_thought = time.perf_counter()
                     if stop.is_set():
@@ -404,7 +407,7 @@ def _worker(
                     pq.put(("thought", j))
                     data.append(("thought", j))
 
-            for j in generator.stream(full_prompt, max_tokens=None):  # type: ignore
+            for j in generator.stream(full_prompt, max_tokens=max_tokens):  # type: ignore
                 if ttft is None:
                     ttft = time.perf_counter()
                 if stop.is_set():
@@ -553,6 +556,7 @@ def _sample(
                 THINK,
                 i == 0,
                 "Sampling Entity",
+                llm.get("max_tokens", None),
             ),
             daemon=True,
         )
@@ -854,6 +858,7 @@ def _evaluate(
                 False,
                 i == 0,
                 f"Evaluating {split} Entity",
+                None,
             ),
             daemon=True,
         )
