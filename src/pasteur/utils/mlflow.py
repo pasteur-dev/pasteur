@@ -356,6 +356,10 @@ def mlflow_log_perf(**runs: dict[str, float]):
     )
     perf_df = pd.concat([node_df, time_df], axis=1).set_index(
         ["node", "view", "package", "fun"]
+    ).pivot_table(
+        index=["node", "fun"],
+        values=list(runs.keys()),
+        aggfunc="first",
     )
 
     mlflow.log_text(gen_html_table(perf_df), "perf.html")
