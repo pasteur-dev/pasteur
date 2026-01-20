@@ -8,7 +8,12 @@ from kedro.pipeline import Pipeline, transcoding
 from rich import get_console
 
 from ...utils.perf import PerformanceTracker
-from ...utils.progress import RICH_TRACEBACK_ARGS, process_in_parallel, set_node_name
+from ...utils.progress import (
+    RICH_TRACEBACK_ARGS,
+    process_in_parallel,
+    set_node_name,
+    IS_AGENT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -124,19 +129,34 @@ def run_expanded_node(
         is_async = False
 
         additional_inputs = _collect_inputs_from_hook(
-            node, catalog, inputs, is_async, hook_manager, session_id=session_id, run_id=run_id
+            node,
+            catalog,
+            inputs,
+            is_async,
+            hook_manager,
+            session_id=session_id,
+            run_id=run_id,
         )
         inputs.update(additional_inputs)
 
         outputs = _call_node_run(
-            node, catalog, inputs, is_async, hook_manager, session_id=session_id, run_id=run_id
+            node,
+            catalog,
+            inputs,
+            is_async,
+            hook_manager,
+            session_id=session_id,
+            run_id=run_id,
         )
     except Exception as e:
-        if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
-            # Prevent printing traceback for subprocesses that crash
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+        print_exc = not (isinstance(e, RuntimeError) and str(e) == "subprocess failed")
+        if print_exc:
+            if not IS_AGENT:
+                # Prevent printing traceback for subprocesses that crash
+                get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
-                f'Node "{node_name}" failed with error:\n{type(e).__name__}: {e}'
+                f'Saving "{node_name}" failed with error:\n{type(e).__name__}: {e}',
+                exc_info=IS_AGENT,
             )
         logger.info(
             f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
@@ -171,11 +191,15 @@ def run_expanded_node(
                 catalog.save(name, data)
                 hook_manager.hook.after_dataset_saved(node=node, dataset_name=name, data=data)  # type: ignore
         except Exception as e:
-            if not (isinstance(e, RuntimeError) and str(e) == "subprocess failed"):
+            print_exc = not (
+                isinstance(e, RuntimeError) and str(e) == "subprocess failed"
+            )
+            if print_exc and not IS_AGENT:
                 # Prevent printing traceback for subprocesses that crash
                 get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
-                f'Saving "{node_name}" failed with error:\n{type(e).__name__}: {e}'
+                f'Saving "{node_name}" failed with error:\n{type(e).__name__}: {e}',
+                exc_info=print_exc and IS_AGENT,
             )
             # TODO: Handle dataset errors better
     for name in node.confirms:

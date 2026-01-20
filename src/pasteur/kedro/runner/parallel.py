@@ -10,7 +10,6 @@ from kedro.pipeline import Pipeline
 from kedro.pipeline.node import Node
 from kedro.runner.parallel_runner import ParallelRunner
 from pluggy import PluginManager
-from rich import get_console
 
 from ...utils.progress import (
     MULTIPROCESS_ENABLE,

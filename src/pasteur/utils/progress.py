@@ -161,9 +161,10 @@ def _wrap_exceptions(
             _first_error = False
             if DEBUG:
                 raise e
-            get_console().print_exception(**RICH_TRACEBACK_ARGS)
+            if not IS_AGENT:
+                get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
-                f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}', exc_info=IS_AGENT
             )
         raise RuntimeError("subprocess failed") from e
 
@@ -195,9 +196,10 @@ def _calc_worker(args):
                 if first_error:
                     if DEBUG:
                         raise e
-                    get_console().print_exception(**RICH_TRACEBACK_ARGS)
+                    if not IS_AGENT:
+                        get_console().print_exception(**RICH_TRACEBACK_ARGS)
                     logger.error(
-                        f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}: {e}'
+                        f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}', exc_info=IS_AGENT
                     )
                 raise RuntimeError("subprocess failed") from e
 
