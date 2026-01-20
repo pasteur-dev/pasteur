@@ -35,9 +35,7 @@ def _split_table(
             pass
 
         c = chunk[col.isin(key_index)]
-
-        if c.shape[0] > 0:
-            yield c
+        yield c
 
 
 def _partition_table(
@@ -54,7 +52,7 @@ def _partition_table(
 
 
 class EicuDataset(Dataset):
-    def __init__(self, n_partitions: int = 5, **_) -> None:
+    def __init__(self, n_partitions: int = 60, **_) -> None:
         super().__init__(**_)
         self._n_partitions = n_partitions
 
@@ -94,7 +92,7 @@ class EicuDataset(Dataset):
         "diagnosis": 2_000_000,
         "note": 2_000_000,
     }
-    _n_partitions = 5
+    _n_partitions = 60
 
     name = "eicu"
     deps = {

@@ -55,6 +55,10 @@ def _reduce_inner(
     a: dict[str | tuple[str, ...], A],
     b: dict[str | tuple[str, ...], A],
 ):
+    if not a:
+        return b
+    if not b:
+        return a
     for key in a.keys():
         a[key].reduce(b[key])
     return a
@@ -273,12 +277,16 @@ class TableTransformer:
 
         transformers = {}
 
+        # Skip fitting empty partitions
+        if table.empty:
+            return {}
+
         if loaded_ids is not None and len(
             table.index.symmetric_difference(loaded_ids.index)
         ):
             old_len = len(table)
             table = table.reindex(loaded_ids.index)
-            logger.warn(
+            logger.warning(
                 f"There are missing ids for rows in {self.name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
             )
 

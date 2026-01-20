@@ -93,7 +93,7 @@ def _save_worker(
         # Grab first chunk with content
         p0 = None
         try:
-            while p0 is None or len(p0) == 0:
+            while p0 is None:
                 p0 = next(chunk)
         except:
             logger.info(f"Generator {chunk} returned no data.\n{pid}:'{path}'")
@@ -128,6 +128,8 @@ def _save_worker(
                 match (dtypes[field.name].name):
                     case "int64":
                         pa_type = pa.int64()
+                    case "object":
+                        pa_type = pa.string()
                     case other:
                         logger.warning(
                             f"Could not infer type for empty column `{field.name}`"

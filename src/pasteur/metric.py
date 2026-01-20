@@ -264,7 +264,7 @@ def _fit_column_metrics(
         if len(table.index.symmetric_difference(ids.index)):
             old_len = len(table)
             table = table.reindex(ids.index)
-            logger.warn(
+            logger.warning(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table)}/{old_len} rows with missing ids."
             )
 
@@ -273,6 +273,10 @@ def _fit_column_metrics(
             seq = _get_sequence(name, meta, trn, ids, table, get_table)
     else:
         ids = None
+    
+    # Avoid crashing if table is empty
+    if table.empty:
+        return {}
 
     out: dict[str | tuple[str, ...], list[AbstractColumnMetric]] = defaultdict(list)
     for col_name, col in meta[name].cols.items():
@@ -336,13 +340,13 @@ def _preprocess_metrics(
         if len(table_wrk.index.symmetric_difference(ids_wrk.index)):
             old_len = len(table_wrk)
             table_wrk = table_wrk.reindex(ids_wrk.index)
-            logger.warn(
+            logger.warning(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table_wrk)}/{old_len} rows with missing ids."
             )
         if len(table_ref.index.symmetric_difference(ids_ref.index)):
             old_len = len(table_ref)
             table_ref = table_ref.reindex(ids_ref.index)
-            logger.warn(
+            logger.warning(
                 f"There are missing ids for rows in {name}, dropping {old_len-len(table_ref)}/{old_len} rows with missing ids."
             )
 
@@ -625,7 +629,8 @@ class ColumnMetricHolder(
 
         metrics = defaultdict(list)
         for chunk_metrics, table in zip(out, per_call_meta):
-            metrics[table].append(chunk_metrics)
+            if chunk_metrics:
+                metrics[table].append(chunk_metrics)
 
         self.metrics = {}
         for name in piter(
