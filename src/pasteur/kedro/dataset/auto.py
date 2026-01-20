@@ -20,7 +20,13 @@ from kedro.io.core import (
 )
 
 from ...utils import LazyDataset, LazyFrame, LazyPartition
-from ...utils.progress import get_node_name, process, process_in_parallel, DEBUG
+from ...utils.progress import (
+    DEBUG,
+    IS_AGENT,
+    get_node_name,
+    process,
+    process_in_parallel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +39,11 @@ def _wrap_retry(f):
     @wraps(f)
     def _wrap(*args, **kwargs):
         ex = None
+
+        if IS_AGENT:
+            # No retrying on agent mode, it confuses the agent
+            return f(*args, **kwargs)
+
         for i in range(3):
             try:
                 return f(*args, **kwargs)
