@@ -598,6 +598,8 @@ def logging_redirect_pbar():
                 rm_suffix = ""
 
             if ":ephemeral:" in text:
+                if IS_AGENT:
+                    return # Don't print ephemeral logs in agent mode
                 # Derive from external_write_mode
                 with tqdm.get_lock():
                     min_pbar = -1
