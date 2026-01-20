@@ -872,7 +872,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for x, y in enumerate(split_scores_per_table.values()):
                         ax.bar(
                             x,
-                            np.mean([np.mean(v) for v in y.values()]),
+                            np.nanmean([np.nanmean(v) for v in y.values() if len(v)]),
                         )
                 else:
                     for i, (stype, split_scores) in enumerate(lines.items()):
