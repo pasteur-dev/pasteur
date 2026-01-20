@@ -8,7 +8,7 @@ import mlflow
 from mlflow.entities import Run
 from mlflow.environment_variables import MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT
 
-from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf
+from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf, mlflow_log_energy
 from .base import get_git_suffix, get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,10 @@ def get_run_artifacts(run: Run):
             with open(fn, "rb") as f:
                 if fn.endswith(".json"):
                     art = json.load(f)
+                elif fn.endswith(".csv"):
+                    import pandas as pd
+
+                    art = pd.read_csv(f)
                 elif fn.endswith(".pkl"):
                     art = pickle.load(f)
                 else:
@@ -179,11 +183,20 @@ def log_parent_run(
         ref_artifacts = next(iter(artifacts.values()))
         # meta = ref_artifacts["meta"]
 
-        perfs = {pretty[n]: a["perf"] for n, a in artifacts.items() if "perf" in a}
+        # Log time metrics in nodes
         try:
+            perfs = {pretty[n]: a["perf"] for n, a in artifacts.items() if "perf" in a}
             mlflow_log_perf(**perfs)
         except Exception:
             logger.error(f"Error logging performance.", exc_info=True)
+
+        # Log energy
+        try:
+            energy = {pretty[n]: a["energy"] for n, a in artifacts.items() if "energy" in a}
+            if energy:
+                mlflow_log_energy(**energy)
+        except Exception:
+            logger.error(f"Error logging energy info.", exc_info=True)
 
         for name, folder in ref_artifacts["metrics"].items():
             if not "metric" in folder:

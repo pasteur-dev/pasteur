@@ -363,3 +363,78 @@ def mlflow_log_perf(**runs: dict[str, float]):
     )
 
     mlflow.log_text(gen_html_table(perf_df), "perf.html")
+
+def mlflow_log_energy(**runs: dict[str, pd.DataFrame]):
+    import mlflow
+    import matplotlib.pyplot as plt
+    from pasteur.utils.styles import use_style
+
+    use_style("mlflow")
+    plt.rcParams["font.family"] = "monospace"
+    
+    def compute_energy_kwh(df):
+        df_sorted = df.sort_values("timestamp").copy()
+        df_sorted["timestamp"] = pd.to_datetime(df_sorted["timestamp"])
+        
+        power_w = pd.to_numeric(df_sorted["power.draw.average [W]"], errors="coerce")
+        dt_seconds = df_sorted["timestamp"].diff().dt.total_seconds()
+        default_interval = dt_seconds.median()
+        if pd.isna(default_interval):
+            default_interval = 0
+        dt_hours = dt_seconds.fillna(default_interval) / 3600.0
+        energy_kwh = (power_w * dt_hours).sum() / 1000.0
+        energy_avg = energy_kwh / (dt_hours.sum())
+
+        power_w_smoothed = power_w.copy()
+        power_w_smoothed.index = df_sorted["timestamp"]
+        power_w = power_w_smoothed.rolling("10s", min_periods=1).mean().reset_index(drop=True)
+
+        util = pd.to_numeric(df_sorted["utilization.gpu [%]"], errors="coerce")
+        util_smoothed = util.copy()
+        util_smoothed.index = df_sorted["timestamp"]
+        util_rolling = util_smoothed.rolling("10s", min_periods=1).mean().reset_index(drop=True)
+        util_avg = util.mean()
+
+        return df_sorted["timestamp"], power_w, energy_kwh, util_rolling, util_avg, energy_avg
+
+    # Plot with separate subplots for clarity
+    fig, (ax, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+    start = -1
+    end = -1
+    for pretty, data in runs.items():
+        for dtype, samp in data.items():
+            r_start = samp["timestamp"].min()
+            if start == -1 or r_start < start:
+                start = r_start
+            r_end = samp["timestamp"].max()
+            if end == -1 or r_end > end:
+                end = r_end
+    
+    use_hours = (pd.Timestamp(end) - pd.Timestamp(start)).total_seconds() / 3600.0 > 2.0
+    
+    max_len = max(map(len, ["real data", *runs.keys()]))
+
+    for pretty, data in runs.items():
+        for dtype, samp in data.items():
+            is_ref = "ref" in dtype.lower()
+            is_eval = "gpu_eval" in dtype.lower()
+            
+            ts, power, kwh, util, util_avg, energy_avg = compute_energy_kwh(samp)
+            wall = (ts - pd.to_datetime(start)).dt.total_seconds() / (3600.0 if use_hours else 60.0)
+
+            name = f"{'real data' if is_ref else pretty:>{max_len}s} { 'Eval.' if is_eval else " Gen."}"
+            ax.plot(wall, util, label=f"{name} Util. (avg. {util_avg:.1f}%)")
+            ax2.plot(wall, power, label=f"{name} Power (avg. {1000*energy_avg:.0f}W, {kwh:.2f} kWh)")
+    
+    ax.set_ylabel("GPU Utilization (%)")
+    ax.legend(loc="lower center")
+    ax.grid(True, linestyle="--", alpha=0.5)
+
+    ax2.set_ylabel("Power draw (W)")
+    ax2.set_xlabel("Wall Time (hours)" if use_hours else "Wall Time (minutes)")
+    ax2.legend(loc="lower center")
+    ax2.grid(True, linestyle="--", alpha=0.5)
+
+    fig.tight_layout()
+    mlflow_log_figures("energy_usage", fig)
