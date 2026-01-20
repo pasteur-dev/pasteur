@@ -51,7 +51,6 @@ class EicuRelational(View):
             case "patient":
                 return tables["patient"](
                     [
-                        "patientunitstayid",
                         "gender",
                         "age",
                         "ethnicity",

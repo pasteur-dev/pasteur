@@ -89,7 +89,7 @@ class MimicDataset(Dataset):
 
     name = "mimic"
     deps = {
-        **{t: [t] for t in _mimic_tables_single},
+        **{t: [t, "patients"] for t in _mimic_tables_single},
         **{t: [t, "patients"] for t in _mimic_tables_partitioned},
     }
     key_deps = ["patients"]
@@ -99,7 +99,13 @@ class MimicDataset(Dataset):
 
     def ingest(self, name, **tables: LazyFrame | Callable[[], TextFileReader]):
         if name in self._mimic_tables_single:
-            return cast("LazyFrame", tables[name])
+            return _partition_table(
+                name,
+                cast("Callable[[], TextFileReader]", tables[name]),
+                cast("LazyFrame", tables["patients"]),
+                self._n_partitions,
+                1_000_000,
+            )
         if name in self._mimic_tables_partitioned:
             chunksize = self._mimic_tables_partitioned[name]
             return _partition_table(

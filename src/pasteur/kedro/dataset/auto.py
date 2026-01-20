@@ -95,7 +95,7 @@ def _save_worker(
         try:
             while p0 is None:
                 p0 = next(chunk)
-        except:
+        except StopIteration:
             logger.info(f"Generator {chunk} returned no data.\n{pid}:'{path}'")
             return
 

@@ -22,10 +22,17 @@ def _split_table(
     name: str, chunksize: int, keys: np.ndarray, table: "Callable[..., TextFileReader]"
 ):
     key_index = pd.Index(keys)
-    del keys
 
     for chunk in table(chunksize=chunksize):
+        if chunk.index.name == "patientunitstayid":
+            pd_keys = pd.DataFrame(index=key_index)
+            c = chunk.join(pd_keys, how="inner")
+            c.index.name = "patientunitstayid"
+            yield c
+            continue
+
         if "patientunitstayid" not in chunk.columns:
+            yield chunk.iloc[0:0]
             continue
 
         col = chunk["patientunitstayid"]
@@ -52,7 +59,7 @@ def _partition_table(
 
 
 class EicuDataset(Dataset):
-    def __init__(self, n_partitions: int = 60, **_) -> None:
+    def __init__(self, n_partitions: int = 25, **_) -> None:
         super().__init__(**_)
         self._n_partitions = n_partitions
 
@@ -92,11 +99,10 @@ class EicuDataset(Dataset):
         "diagnosis": 2_000_000,
         "note": 2_000_000,
     }
-    _n_partitions = 60
 
     name = "eicu"
     deps = {
-        **{t: [t] for t in _eicu_tables_single},
+        **{t: [t, "patient"] for t in _eicu_tables_single},
         **{t: [t, "patient"] for t in _eicu_tables_partitioned},
     }
     key_deps = ["patient"]
@@ -106,7 +112,13 @@ class EicuDataset(Dataset):
 
     def ingest(self, name, **tables: LazyFrame | Callable[[], TextFileReader]):
         if name in self._eicu_tables_single:
-            return cast("LazyFrame", tables[name])
+            return _partition_table(
+                name,
+                cast("Callable[[], TextFileReader]", tables[name]),
+                cast("LazyFrame", tables["patient"]),
+                self._n_partitions,
+                1_000_000,
+            )
         if name in self._eicu_tables_partitioned:
             chunksize = self._eicu_tables_partitioned[name]
             return _partition_table(

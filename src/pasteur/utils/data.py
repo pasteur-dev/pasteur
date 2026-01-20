@@ -283,11 +283,16 @@ class LazyDataset(Generic[A], LazyPartition[A]):
 
         partitions = _extract_lazy(positional) + _extract_lazy(keyword)
 
+        for partition in partitions:
+            if partition.partitioned:
+                break
+        else:
+            return False
+
         # Check keys are correct
         keys = None
         for partition in partitions:
-            if not partition.partitioned:
-                continue
+            assert partition.partitioned, f"All datasets must be partitioned if one is."
 
             if keys == None:
                 keys = set(partition.keys())
@@ -417,6 +422,7 @@ class LazyDataset(Generic[A], LazyPartition[A]):
         """Extracts the partition with id `pid` from all LazyDatasets in the provided
         arguments. If a LazyDataset does not contain the provided partition, an empty
         chunk of type `_cls` is returned instead."""
+
         def _extract(d):
             if isinstance(d, tuple):
                 return tuple([_extract(v) for v in d])
