@@ -378,8 +378,6 @@ medication:
     dtype:
       medicationid: int32
       patientunitstayid: int32
-      drugorderoffset: int32
-      drugstartoffset: int32
       drugivadmixture: category
       drugordercancelled: category
       drugname: category

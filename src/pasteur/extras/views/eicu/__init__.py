@@ -29,19 +29,15 @@ class EicuRelational(View):
     deps = {
         "patient": ["patient"],
         "admissiondx": ["admissiondx"],
-        "diagnosis": ["diagnosis"],
         "lab": ["lab"],
         "vitalaperiodic": ["vitalaperiodic"],
         "medication": ["medication"],
-        "treatment": ["treatment"],
     }
     trn_deps = {
         "admissiondx": ["patient"],
-        "diagnosis": ["patient"],
         "lab": ["patient"],
         "vitalaperiodic": ["patient"],
         "medication": ["patient"],
-        "treatment": ["patient"],
     }
     parameters = get_relative_fn("parameters_relational.yml")
 
@@ -55,14 +51,11 @@ class EicuRelational(View):
                         "age",
                         "ethnicity",
                         "hospitalid",
-                        "hospitaladmitoffset",
                         "hospitaladmitsource",
-                        "hospitaldischargeoffset",
                         "hospitaldischargestatus",
                         "unittype",
                         "unitstaytype",
                         "unitvisitnumber",
-                        "unitdischargeoffset",
                         "unitdischargestatus",
                         "admissionheight",
                         "admissionweight",
@@ -73,14 +66,15 @@ class EicuRelational(View):
                 return tables["admissiondx"](
                     [
                         "patientunitstayid",
-                        "admitdxenteredoffset",
+                        "admitdxpath",
+                        "admitdxname",
                     ]
                 )
             case "diagnosis":
                 return tables["diagnosis"](
                     [
                         "patientunitstayid",
-                        "diagnosisoffset",
+                        "diagnosisstring",
                         "diagnosispriority",
                     ]
                 )
@@ -88,7 +82,7 @@ class EicuRelational(View):
                 return tables["lab"](
                     [
                         "patientunitstayid",
-                        "labresultoffset",
+                        "labname",
                         "labresult",
                     ]
                 )
@@ -96,7 +90,6 @@ class EicuRelational(View):
                 return tables["vitalaperiodic"](
                     [
                         "patientunitstayid",
-                        "observationoffset",
                         "noninvasivesystolic",
                         "noninvasivediastolic",
                         "noninvasivemean",
@@ -106,16 +99,17 @@ class EicuRelational(View):
                 return tables["medication"](
                     [
                         "patientunitstayid",
-                        "drugorderoffset",
-                        "drugstartoffset",
-                        "drugstopoffset",
+                        "drugname",
+                        "dosage",
+                        "routeadmin",
+                        "frequency",
                     ]
                 )
             case "treatment":
                 return tables["treatment"](
                     [
                         "patientunitstayid",
-                        "treatmentoffset",
+                        "treatmentstring",
                         "activeupondischarge",
                     ]
                 )

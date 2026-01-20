@@ -7,14 +7,11 @@ tables:
       age: categorical?|UKN
       ethnicity: categorical?|UKN
       hospitalid: categorical?|UKN
-      hospitaladmitoffset: numerical?
       hospitaladmitsource: categorical?|UKN
-      hospitaldischargeoffset: numerical?
       hospitaldischargestatus: categorical?|UKN
       unittype: categorical?|UKN
       unitstaytype: categorical?|UKN
       unitvisitnumber: numerical?
-      unitdischargeoffset: numerical?
       unitdischargestatus: categorical?|UKN
       admissionheight: numerical?
       admissionweight: numerical?
@@ -25,22 +22,15 @@ tables:
     fields:
       admissiondxid: id
       patientunitstayid: id:patient.patientunitstayid
-      admitdxenteredoffset: numerical?
-
-  diagnosis:
-    primary_key: diagnosisid
-    fields:
-      diagnosisid: id
-      patientunitstayid: id:patient.patientunitstayid
-      diagnosisoffset: numerical?
-      diagnosispriority: categorical?|UKN
+      # admitdxpath: categorical?|UKN
+      admitdxname: categorical?|UKN
 
   lab:
     primary_key: labid
     fields:
       labid: id
       patientunitstayid: id:patient.patientunitstayid
-      labresultoffset: numerical?
+      labname: categorical?|UKN
       labresult: numerical?
 
   vitalaperiodic:
@@ -48,7 +38,6 @@ tables:
     fields:
       vitalaperiodicid: id
       patientunitstayid: id:patient.patientunitstayid
-      observationoffset: numerical?
       noninvasivesystolic: numerical?
       noninvasivediastolic: numerical?
       noninvasivemean: numerical?
@@ -58,14 +47,7 @@ tables:
     fields:
       medicationid: id
       patientunitstayid: id:patient.patientunitstayid
-      drugorderoffset: numerical?
-      drugstartoffset: numerical?
-      drugstopoffset: numerical?
-
-  treatment:
-    primary_key: treatmentid
-    fields:
-      treatmentid: id
-      patientunitstayid: id:patient.patientunitstayid
-      treatmentoffset: numerical?
-      activeupondischarge: categorical?|UKN
+      drugname: categorical?|UKN
+      # dosage: categorical?|UKN
+      routeadmin: categorical?|UKN
+      frequency: categorical?|UKN
