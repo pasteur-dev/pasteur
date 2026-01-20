@@ -64,7 +64,7 @@ def get_parent_name(
         algs_str = " -a [" + ", ".join(algs) + "]"
     hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
     iter_str = "".join(map(lambda x: f" -i {x}", iterators))
-    param_str = "".join(map(lambda x: f" {x}", params))
+    param_str = "".join(map(lambda x: f" {x}", filter(lambda x: not x.startswith("_"), params)))
     return f"{pipeline}{algs_str}{hyper_str}{iter_str}{param_str}"
 
 
