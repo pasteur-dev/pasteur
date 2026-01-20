@@ -207,7 +207,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
 
         plt.tight_layout()
 
-        mlflow_log_figures("llm_eval/score_distribution", fig)
+        mlflow_log_figures("llm_scores", fig)
         mlflow.log_dict(raw_data, "_raw/llmeval.json")
 
         logger.info(
