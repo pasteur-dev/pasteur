@@ -18,7 +18,9 @@ logging.captureWarnings(True)
 # remove handlers added by the default config
 logging.getLogger("kedro").handlers = []
 logging.root.handlers = []
-install(**RICH_TRACEBACK_ARGS)
+
+if not bool(int(os.environ.get("AGENT", 0))):
+    install(**RICH_TRACEBACK_ARGS)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 

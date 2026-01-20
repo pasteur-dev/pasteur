@@ -55,6 +55,7 @@ IS_SUBPROCESS = False
 
 CHECK_LEAKS = False
 
+IS_AGENT = bool(int(environ.get("AGENT", 0)))
 
 def _is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
@@ -88,7 +89,7 @@ def is_jupyter() -> bool:
 
 
 def get_tqdm_args():
-    if IS_SUBPROCESS:
+    if IS_SUBPROCESS or IS_AGENT:
         """Disable subprocess pbars until a better solution."""
         disable = True
     else:

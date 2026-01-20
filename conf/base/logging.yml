@@ -6,7 +6,8 @@ formatters:
 
 handlers:
     rich:
-        class: rich.logging.RichHandler
+        # Is normal handler if AGENT=1
+        class: pasteur.log_handler
         # enable_link_path: False
         log_time_format: "[%X]"
         level: INFO
