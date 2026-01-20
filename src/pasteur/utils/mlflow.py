@@ -413,7 +413,7 @@ def mlflow_log_energy(**runs: dict[str, pd.DataFrame]):
     
     use_hours = (pd.Timestamp(end) - pd.Timestamp(start)).total_seconds() / 3600.0 > 2.0
     
-    max_len = max(map(len, ["real data", *runs.keys()]))
+    max_len = max(map(len, ["ref", *runs.keys()]))
 
     for pretty, data in runs.items():
         for dtype, samp in data.items():
