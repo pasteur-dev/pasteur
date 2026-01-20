@@ -25,9 +25,6 @@ from pasteur.utils import (
     LazyChunk,
     LazyDataset,
     LazyFrame,
-    LazyPartition,
-    data_to_tables,
-    gen_closure,
     get_relationships,
 )
 
@@ -590,8 +587,6 @@ def process_entity(
 def _get_partition_keys(
     ids: dict[str, LazyChunk],
     relationships: dict[str, list[str]],
-    /,
-    single_partition: bool = False,
 ):
     top_table = get_top_table(relationships)
     return sorted(set(ids[top_table]().index))
@@ -789,19 +784,17 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
         if LazyDataset.are_partitioned(tables, ctx, ids):
             pids = []
             per_call = []
-            # This path is not tested
 
             for pid, vals in LazyDataset.zip(
-                tables=tables,
-                ctx=ctx,
-                ids=ids,
+                ids,
             ).items():  # type: ignore
                 pids.append(pid)
-                per_call.append(vals)
+                per_call.append({"ids": vals})
 
             key_sets = process_in_parallel(
                 _get_partition_keys,
                 per_call,
+                base_args={"relationships": self.relationships},
                 desc="Finding partition keys",
             )
             keys = {k: v for k, v in zip(pids, key_sets)}
@@ -821,9 +814,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 for p in pids:
                     per_call.append(
                         {
-                            "tables": tables[pid],
-                            "ctx": {k: v[pid] for k, v in ctx.items()},
-                            "ids": ids[pid],
+                            **LazyFrame.get_by_pid(pid,tables=tables,ctx=ctx,ids=ids),
                             "nrange": p,
                         }
                     )
@@ -832,7 +823,6 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 _get_partition_keys,
                 ids,  # type: ignore
                 self.relationships,
-                single_partition=True,
             )
 
             # Partition into MAX_WORKERS*WORKER_MULTIPLIER chunks

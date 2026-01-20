@@ -93,6 +93,11 @@ class LazyPartition(Generic[A]):
         return self().shape  # type: ignore
 
 
+class EmptyChunk(LazyPartition["pd.DataFrame"]):
+    def __init__(self) -> None:
+        super().__init__(lambda: pd.DataFrame(), lambda: (0, 0))
+
+
 LazyChunk = LazyPartition["pd.DataFrame"]
 
 
@@ -405,6 +410,32 @@ class LazyDataset(Generic[A], LazyPartition[A]):
             return _cache_partitions(positional, cls)
         elif keyword:
             return _cache_partitions(keyword, cls)
+        return None
+
+    @staticmethod
+    def get_by_pid(pid, *positional, _cls=EmptyChunk, **keyword) -> Any:
+        """Extracts the partition with id `pid` from all LazyDatasets in the provided
+        arguments. If a LazyDataset does not contain the provided partition, an empty
+        chunk of type `_cls` is returned instead."""
+        def _extract(d):
+            if isinstance(d, tuple):
+                return tuple([_extract(v) for v in d])
+            if isinstance(d, list):
+                return [_extract(v) for v in d]
+            if isinstance(d, dict):
+                return {k: _extract(v) for k, v in d.items()}
+            if isinstance(d, LazyDataset):
+                return d[pid] if pid in d.keys() else _cls()
+            return d
+
+        if positional and keyword:
+            return _extract((positional, keyword))
+        elif positional and len(positional) == 1:
+            return _extract(positional[0])
+        elif positional:
+            return _extract(positional)
+        elif keyword:
+            return _extract(keyword)
         return None
 
 

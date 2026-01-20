@@ -221,8 +221,11 @@ def _load_merged_worker(
 
         categorical = []
         for field in json.loads(table.schema.metadata[b"pandas"])["columns"]:
+            name = field["name"]
+            if columns and name not in columns:
+                continue
             if (field["pandas_type"]) == "categorical":
-                categorical.append(field["name"])
+                categorical.append(name)
 
         dtypes = {name: "category" for name in categorical}
     except:
