@@ -81,7 +81,7 @@ class AmalgamSynth(Synth):
         marginal: AmalgamMarginalParams = MARGINAL_PARAMS_DEFAULT,
         prompt: str = "",
         model: AmalgamHFParams | AmalgamORParams = MODEL_PARAMS_QWEN3,
-        rebalance: RebalanceParams | Literal[False] = REBALANCE_DEFAULT,
+        rebalance: RebalanceParams | Literal[False] | None = REBALANCE_DEFAULT,
         samples: int | None = None,
         **kwargs,
     ) -> None:
@@ -112,7 +112,7 @@ class AmalgamSynth(Synth):
             max_worker_mult=self.marginal["worker_mult"],
         ) as o:
             self.counts = o.get_counts(desc="Calculating counts for column rebalancing")
-            if self.rebalance != False:
+            if self.rebalance:
                 self.attrs = rebalance_attributes(
                     self.counts[None],
                     attrs,

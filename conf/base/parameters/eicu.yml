@@ -35,9 +35,6 @@ eicu_r1:
       #   type: or
       #   model: meta-llama/llama-4-scout-17b-16e-instruct
       rebalance:
-        unbounded_dp: True
-        fixed: [4, 9, 18, 32]
-        u: 7
       pgm:
         etotal: 2
   metrics:
