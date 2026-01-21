@@ -654,9 +654,9 @@ def get_gen_values(max_len: int, gen_len: int | None = None) -> list[int]:
     if gen_len:
         chld = [0]
 
-        step = max_len ** (1 / gen_len)
         val = 0
-        for _ in range(gen_len-1):
+        for i in range(gen_len-1):
+            step = (max_len / max(val, 1)) ** (1 / (gen_len - i))
             val = max(int(round(val**step)), val+1)
             if val > max_len:
                 if chld and chld[-1] < max_len:
