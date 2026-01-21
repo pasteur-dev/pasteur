@@ -29,6 +29,7 @@ MODEL_PARAMS_QWEN3: AmalgamHFParams = {
     "n_ctx": 40960,
     "n_gpu_layers": -1,
     "workers": 1,
+    "max_tokens": 10_000, # prevent spiraling
 }
 
 
