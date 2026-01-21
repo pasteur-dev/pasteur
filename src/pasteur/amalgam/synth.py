@@ -39,7 +39,7 @@ class AmalgamMarginalParams(TypedDict):
 
 
 MARGINAL_PARAMS_DEFAULT: AmalgamMarginalParams = {
-    "mode": "inmemory",
+    "mode": "inmemory_shared",
     "worker_mult": 1,
     "min_chunk": 100,
 }

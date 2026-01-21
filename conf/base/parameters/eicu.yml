@@ -10,7 +10,7 @@ eicu_r1:
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
-      marginal_mode: inmemory
+      marginal_mode: inmemory_shared
     amalgam:
       prompt: |
         You are a doctor working at a hospital.
