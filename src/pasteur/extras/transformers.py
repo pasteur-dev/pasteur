@@ -776,7 +776,8 @@ class DatetimeTransformer(RefTransformer):
                 "hour": time_dec.dt.hour,
                 "minute": time_dec.dt.minute,
                 "second": time_dec.dt.second,
-            }
+            },
+            errors="coerce",
         )
         out.name = self.col
 
