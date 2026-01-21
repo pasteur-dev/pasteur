@@ -25,13 +25,13 @@ tables:
       # admitdxpath: categorical?|UKN
       admitdxname: categorical?|UKN
 
-  lab:
-    primary_key: labid
-    fields:
-      labid: id
-      patientunitstayid: id:patient.patientunitstayid
-      labname: categorical?|UKN
-      labresult: numerical?
+  # lab:
+  #   primary_key: labid
+  #   fields:
+  #     labid: id
+  #     patientunitstayid: id:patient.patientunitstayid
+  #     labname: categorical?|UKN
+  #     labresult: numerical?
 
   vitalaperiodic:
     primary_key: vitalaperiodicid

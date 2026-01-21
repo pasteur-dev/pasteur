@@ -6,21 +6,6 @@ from ....utils import LazyChunk, get_relative_fn, to_chunked
 from ....view import View
 
 
-def _limit_per_patient(
-    table: pd.DataFrame,
-    key: str,
-    max_rows: int,
-    order_col: str | None = None,
-) -> pd.DataFrame:
-    if key not in table.columns:
-        return table
-
-    if order_col and order_col in table.columns:
-        table = table.sort_values([key, order_col])
-
-    return table.groupby(key, sort=False).head(max_rows)
-
-
 class EicuRelational(View):
     """Relational eICU view with patient as parent table."""
 
@@ -29,13 +14,13 @@ class EicuRelational(View):
     deps = {
         "patient": ["patient"],
         "admissiondx": ["admissiondx"],
-        "lab": ["lab"],
+        # "lab": ["lab"],
         "vitalaperiodic": ["vitalaperiodic"],
         "medication": ["medication"],
     }
     trn_deps = {
         "admissiondx": ["patient"],
-        "lab": ["patient"],
+        # "lab": ["patient"],
         "vitalaperiodic": ["patient"],
         "medication": ["patient"],
     }
@@ -78,14 +63,14 @@ class EicuRelational(View):
                         "diagnosispriority",
                     ]
                 )
-            case "lab":
-                return tables["lab"](
-                    [
-                        "patientunitstayid",
-                        "labname",
-                        "labresult",
-                    ]
-                )
+            # case "lab":
+            #     return tables["lab"](
+            #         [
+            #             "patientunitstayid",
+            #             "labname",
+            #             "labresult",
+            #         ]
+            #     )
             case "vitalaperiodic":
                 return tables["vitalaperiodic"](
                     [
