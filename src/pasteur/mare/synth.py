@@ -476,6 +476,12 @@ def sample_model(
             else:
                 table = table.drop(columns=PARENT_KEY)
 
+            # Reverse transformation for generation value
+            vn = f"{ver.ver.name}_n"
+            if vn in attrs[None]:
+                gen = attrs[None][vn].vals[vn]
+                table[vn] = np.array(gen.gen_vals)[table[vn].to_numpy()].astype(get_dtype(gen.max_len)) # type: ignore
+
             return pids, table
         else:
             # TODO: Fix id for multiple relations
@@ -518,6 +524,12 @@ def sample_model(
                     pids.reset_index(names=PARENT_KEY), on=ppname
                 )[[PARENT_KEY]]
                 table = midx.merge(table, left_on=PARENT_KEY, right_index=True)
+
+            # Reverse transformation for generation value
+            vn = f"{ver.ver.name}_n"
+            if vn in attrs[None]:
+                gen = attrs[None][vn].vals[vn] # type: ignore
+                table[vn] = np.array(gen.gen_vals)[table[vn].to_numpy()].astype(get_dtype(gen.max_len)) # type: ignore
 
             return og_ids, table
     else:
