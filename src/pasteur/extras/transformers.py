@@ -533,10 +533,16 @@ class DateTransformer(RefTransformer):
                 )  # type: ignore
             case "day":
                 # TODO: fix negative spans
-                out = rf_dt.normalize() + pd.to_timedelta(
+                base = rf_dt.normalize().to_numpy("datetime64[ns]")
+                out = base + pd.to_timedelta(
                     (np.round(vals[f"{col}_day"]) - rf_day + 1).astype("int32"),
                     unit="days",
-                )
+                ).to_numpy(
+                    "timedelta64[ns]"
+                )  # type: ignore
+
+                out = np.where(np.isnan(out), base, out)
+                out = pd.Series(out, index=vals.index)
             case _:
                 assert False, f"Unsupported span {self.span}"
 
