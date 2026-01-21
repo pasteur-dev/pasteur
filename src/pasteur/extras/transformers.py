@@ -385,10 +385,17 @@ class DateTransformer(RefTransformer):
     @staticmethod
     def iso_to_gregorian(iso_year, iso_week, iso_day):
         "Gregorian calendar date for the given ISO year, week and day"
-        year_start = DateTransformer.iso_year_start(iso_year)
-        return year_start + pd.to_timedelta(
-            (iso_week - 1) * 7 + iso_day - 1, unit="day"
-        )
+        year_start = DateTransformer.iso_year_start(iso_year).to_numpy("datetime64[ns]")
+
+        offset = pd.to_timedelta(
+            (iso_week - 1) * 7 + iso_day - 1,
+            unit="day",
+        ).to_numpy("timedelta64[ns]")
+
+        result = year_start + offset
+        result = np.where(np.isnan(result), year_start, result)
+
+        return pd.Series(result, index=iso_year.index)
 
     def transform(self, data: pd.Series, ref: pd.Series | None = None) -> pd.DataFrame:
         out = pd.DataFrame()
