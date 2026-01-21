@@ -213,6 +213,19 @@ class MareSynth(Synth):
                 #         )
 
                 model = self.model_cls(**kwargs)
+                
+                if ver.ctx:
+                    # Use biggest parent instead
+                    n = -1
+                    for p in ver.ver.parents:
+                        if isinstance(p, TablePartition):
+                            p = p.table
+                        if p.rows > n:
+                            n = p.rows
+                    assert n != -1, f"No parents found for context model {ver.ver.name}"
+                else:
+                    n = ver.ver.rows
+                
                 model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model
 
