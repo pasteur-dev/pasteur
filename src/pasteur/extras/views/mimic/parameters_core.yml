@@ -34,7 +34,7 @@ tables:
         seq:
           type: datetime
           span: year.hour
-          bins: 32
+          bins: 95
           year_name: years_passed
         # seq:
         #   type: datetime
