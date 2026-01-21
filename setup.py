@@ -21,6 +21,10 @@ setup(
             get_c_files("src/pasteur/marginal/native/"),
             include_dirs=[np.get_include()],
             extra_compile_args=["-O3", "-march=native"],
+            # For debugging:
+            # extra_compile_args=["-O0", "-g", "-march=native"],
+            # Run with AGENT=1 _MULTIPROCESS=0 gdb --args python -m pasteur...
+            # Then, `run` and `bt full` on crash.
         )
     ],
 )
