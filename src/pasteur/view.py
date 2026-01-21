@@ -1,5 +1,5 @@
-""" This module holds the definitions for the View module, which appropriately
-preprocesses Datasets in Pasteur. """
+"""This module holds the definitions for the View module, which appropriately
+preprocesses Datasets in Pasteur."""
 
 from __future__ import annotations
 
@@ -73,7 +73,18 @@ def split_keys(
         return {name: out_splits[name] for name in req_splits}
     return out_splits
 
-split_keys_chunked = to_chunked(split_keys)
+
+@to_chunked
+def split_keys_chunked(
+    key_chunk: LazyChunk,
+    req_splits: list[str] | None,
+    splits: dict[str, float],
+    random_state: int | None = None,
+):
+    return split_keys(
+        key_chunk, req_splits, splits, random_state=random_state
+    )  # type: ignore
+
 
 @to_chunked
 def filter_by_keys(
@@ -95,7 +106,7 @@ def filter_by_keys(
             return table.loc[keys.index]
         except KeyError:
             # Gracefull fallback if a part of a dataset was pruned
-            return keys.join(table, how='inner')
+            return keys.join(table, how="inner")
     else:
         mask = table[col].isin(keys.index)
         del keys
@@ -166,7 +177,7 @@ class View(Module):
     """
     trn_deps: dict[str, list[str]] = {}
     parameters: dict[str, Any] | str | None = None
-    
+
     """ If true, transformers and encoders for this view will be fit on the global
     dataset. Resolves encoding errors that stem from sampling the partial view.
     When true, subsampling the view is not possible during transformation and 
