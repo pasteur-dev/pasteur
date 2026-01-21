@@ -66,6 +66,7 @@ class MareSynth(Synth):
         no_seq: bool = False,
         no_hist: bool = False,
         max_sens: int | None = None,
+        gen_len: int | None = None,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -78,6 +79,7 @@ class MareSynth(Synth):
         self.no_seq = no_seq
         self.no_hist = no_hist
         self.max_sens = max_sens
+        self.gen_len = gen_len
 
         self.model_cls = model_cls
 
@@ -123,7 +125,7 @@ class MareSynth(Synth):
                             setattr(val, "order", 0)
 
         self.versions = calculate_model_versions(
-            new_meta, data, self.max_vers, no_hist=self.no_hist
+            new_meta, data, self.max_vers, no_hist=self.no_hist, gen_len=self.gen_len
         )
         # TODO: Find better sampling strategy. Pick a top level table and
         # use its stats for now.

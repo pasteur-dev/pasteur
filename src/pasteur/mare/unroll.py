@@ -12,6 +12,7 @@ from ..attribute import (
     CommonValue,
     DatasetAttributes,
     GenAttribute,
+    get_gen_values,
     Grouping,
     SeqAttribute,
     SeqAttributes,
@@ -439,7 +440,11 @@ def gen_history_attributes(
 
 
 def generate_fit_attrs(
-    ver: TableVersion, attrs: dict[str, Attributes], ctx: bool, no_hist: bool = False
+    ver: TableVersion,
+    attrs: dict[str, Attributes],
+    ctx: bool,
+    no_hist: bool = False,
+    gen_len: int | None = None,
 ) -> DatasetAttributes | None:
     # Don't generate context tables for top level tables
     if not ver.parents and ctx:
@@ -487,7 +492,9 @@ def generate_fit_attrs(
         assert ver.children is not None
         hist[None] = {
             f"{ver.name}_n": GenAttribute(
-                f"{ver.name}_n", seq.max if seq and seq.max else ver.children
+                f"{ver.name}_n",
+                seq.max if seq and seq.max else ver.children,
+                gen_len=gen_len,
             )
         }
     elif seq:
@@ -537,6 +544,7 @@ def generate_fit_tables(
     attrs: dict[str, Attributes],
     ver: TableVersion,
     ctx: bool,
+    new_attrs: DatasetAttributes,
 ) -> dict[TableSelector, pd.DataFrame]:
     ids, tables = data_to_tables(data)
 
@@ -624,10 +632,16 @@ def generate_fit_tables(
             synth = table.drop(columns=unroll_cols)
     elif sequence:
         if ctx:
-            lens = sid.groupby(SID_NAME).size().rename(f"{ver.name}_n")
-            if max_len is not None:
+            lens = sid.groupby(SID_NAME).size()
+            vn = f"{ver.name}_n"
+            gen_val = new_attrs[None][vn].vals[vn]  # type: ignore
+            if hasattr(gen_val, "gen_vals") and getattr(gen_val, "gen_vals"):
+                vals = np.array(getattr(gen_val, "gen_vals"))
+                lens = pd.Series(np.abs(lens.to_numpy()[:, None] - vals).argmin(axis=1),
+                                 index=lens.index)
+            elif max_len is not None:
                 lens = lens.clip(upper=max_len)
-            synth = pd.DataFrame(lens)
+            synth = pd.DataFrame(lens.rename(vn))
         else:
             assert order is not None
 
@@ -638,7 +652,15 @@ def generate_fit_tables(
             synth = table
     else:
         if ctx:
-            synth = pd.DataFrame(sid.groupby(SID_NAME).size().rename(f"{ver.name}_n"))
+            lens = sid.groupby(SID_NAME).size()
+            vn = f"{ver.name}_n"
+            gen_val = new_attrs[None][vn].vals[vn]  # type: ignore
+            if hasattr(gen_val, "gen_vals") and getattr(gen_val, "gen_vals"):
+                vals = np.array(getattr(gen_val, "gen_vals"))
+                lens = pd.Series(np.abs(lens.to_numpy()[:, None] - vals).argmin(axis=1),
+                                 index=lens.index)
+
+            synth = pd.DataFrame(lens.rename(vn))
         else:
             synth = table
 
@@ -687,6 +709,7 @@ def calculate_model_versions(
     data: Mapping[str, LazyDataset],
     max_vers: int,
     no_hist: bool = False,
+    gen_len: int | None = None,
 ) -> dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]]:
     ids, tables = data_to_tables(data)
     chains = calculate_table_chains(attrs, ids, tables)
@@ -711,28 +734,50 @@ def calculate_model_versions(
                 new_vers = vers
 
             for ver in new_vers:
-                new_attrs = generate_fit_attrs(ver, attrs, True, no_hist=no_hist)
+                new_attrs = generate_fit_attrs(
+                    ver, attrs, True, no_hist=no_hist, gen_len=gen_len
+                )
                 assert new_attrs is not None
 
-                load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=True)
+                load_fn = partial(
+                    generate_fit_tables,
+                    attrs=attrs,
+                    ver=ver,
+                    ctx=True,
+                    new_attrs=new_attrs,
+                )
                 out[ModelVersion(ver, True)] = new_attrs, load_fn
 
             # Unroll series model
             ver = merge_versions(vers)
-            new_attrs = generate_fit_attrs(ver, attrs, False, no_hist=no_hist)
+            new_attrs = generate_fit_attrs(
+                ver, attrs, False, no_hist=no_hist, gen_len=gen_len
+            )
             assert new_attrs is not None
 
-            load_fn = partial(generate_fit_tables, attrs=attrs, ver=ver, ctx=False)
+            load_fn = partial(
+                generate_fit_tables,
+                attrs=attrs,
+                ver=ver,
+                ctx=False,
+                new_attrs=new_attrs,
+            )
             out[ModelVersion(ver, False)] = new_attrs, load_fn
         else:
             # Apart from unroll, create one ctx model and one series model
             # for each table
             ver = merge_versions(vers)
             for ctx in (True, False):
-                new_attrs = generate_fit_attrs(ver, attrs, ctx, no_hist=no_hist)
+                new_attrs = generate_fit_attrs(
+                    ver, attrs, ctx, no_hist=no_hist, gen_len=gen_len
+                )
                 if new_attrs is not None:
                     load_fn = partial(
-                        generate_fit_tables, attrs=attrs, ver=ver, ctx=ctx
+                        generate_fit_tables,
+                        attrs=attrs,
+                        ver=ver,
+                        ctx=ctx,
+                        new_attrs=new_attrs,
                     )
                     out[ModelVersion(ver, ctx)] = new_attrs, load_fn
 

@@ -650,13 +650,32 @@ class StratifiedValue(CatValue):
     def get_human_readable(self) -> list[str]:
         return self.head.get_human_values()
 
+def get_gen_values(max_len: int, gen_len: int | None = None) -> list[int]:
+    if gen_len:
+        chld = [0]
+
+        step = max_len ** (1 / gen_len)
+        val = 0
+        for _ in range(gen_len-1):
+            val = max(int(round(val**step)), val+1)
+            if val > max_len:
+                if chld and chld[-1] < max_len:
+                    chld.append(int(max_len))
+                break
+            chld.append(val)
+    else:
+        chld = list(range(max_len + 1))
+
+    return chld
 
 class GenerationValue(StratifiedValue):
     max_len: int
 
-    def __init__(self, name: str, max_len: int) -> None:
+    def __init__(self, name: str, max_len: int, gen_len: int | None = None) -> None:
         self.max_len = max_len
-        super().__init__(name, Grouping("ord", list(range(max_len + 1))))
+        self.gen_vals = get_gen_values(max_len, gen_len)
+
+        super().__init__(name, Grouping("ord", self.gen_vals))
 
 
 def _create_strat_value_cat(
@@ -1030,9 +1049,9 @@ def SeqAttribute(
     return Attribute(name, [SeqValue(name, table, order, max)])
 
 
-def GenAttribute(name: str, max_len: int):
+def GenAttribute(name: str, max_len: int, gen_len: int | None = None):
     """Returns an Attribute holding a single GenerationValue with the provided data."""
-    return Attribute(name, [GenerationValue(name, max_len)])
+    return Attribute(name, [GenerationValue(name, max_len, gen_len=gen_len)])
 
 
 __all__ = [
