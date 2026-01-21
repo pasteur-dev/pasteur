@@ -224,7 +224,7 @@ pharmacy:
   filepath: ${location}/hosp/pharmacy.csv.gz
   load_args:
     <<: *mimic_csv_load
-    parse_dates: [starttime, stoptime, entertime, verifiedtime, expirationdate]
+    parse_dates: [starttime, stoptime, entertime, verifiedtime] # expirationdate
     # invalid rows
     # 1763663: starttime (year 5181)
     # 10689872: expirationdate (year 2341)
@@ -233,7 +233,7 @@ pharmacy:
       subject_id: int32
       hadm_id: int32
       pharmacy_id: int32
-      poe_id: object
+      # poe_id: object
       medication: category
       proc_type: category
       status: category

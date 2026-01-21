@@ -27,10 +27,10 @@ def _split_table(
     for chunk in table(chunksize=chunksize):
         c = chunk.join(pd_keys, on="subject_id", how="inner")
 
-        # Fix poe id
-        if name == 'hosp_pharmacy':
-            c['poe_seq'] = c['poe_id'].str[1].astype('Int16')
-            c = c.drop(columns=['poe_id'])
+        # # Fix poe id
+        # if name == 'pharmacy':
+        #     c['poe_seq'] = c['poe_id'].str[1].astype('Int16')
+        #     c = c.drop(columns=['poe_id'])
 
         yield c
 
@@ -53,15 +53,20 @@ class MimicDataset(Dataset):
         super().__init__(**_)
         self._n_partitions = n_partitions
 
+    # These tables do not have a subject_id, they are taken as is
+    _mimic_tables_unpartitioned = [
+        "d_hcpcs",
+        "d_icd_diagnoses",
+        "d_icd_procedures",
+        "d_labitems",
+        "icu_d_items",
+    ]
+
     _mimic_tables_single = [
         "patients",
         "transfers",
         "admissions",
-        "d_hcpcs",
         "diagnoses_icd",
-        "d_icd_diagnoses",
-        "d_icd_procedures",
-        "d_labitems",
         "drgcodes",
         "hcpcsevents",
         "microbiologyevents",
@@ -69,7 +74,6 @@ class MimicDataset(Dataset):
         "procedures_icd",
         "services",
         "icu_datetimeevents",
-        "icu_d_items",
         "icu_icustays",
         "icu_outputevents",
         "icu_procedureevents",
@@ -89,6 +93,7 @@ class MimicDataset(Dataset):
 
     name = "mimic"
     deps = {
+        **{t: [t] for t in _mimic_tables_unpartitioned},
         **{t: [t, "patients"] for t in _mimic_tables_single},
         **{t: [t, "patients"] for t in _mimic_tables_partitioned},
     }
@@ -98,6 +103,8 @@ class MimicDataset(Dataset):
     catalog = get_relative_fn("catalog.yml")
 
     def ingest(self, name, **tables: LazyFrame | Callable[[], TextFileReader]):
+        if name in self._mimic_tables_unpartitioned:
+            return cast("LazyFrame", tables[name])
         if name in self._mimic_tables_single:
             return _partition_table(
                 name,
