@@ -12,7 +12,6 @@ from .utils import LazyChunk, LazyFrame, to_chunked
 from .utils.progress import process_in_parallel
 
 
-@to_chunked
 def split_keys(
     key_chunk: LazyChunk,
     req_splits: list[str] | None,
@@ -74,6 +73,7 @@ def split_keys(
         return {name: out_splits[name] for name in req_splits}
     return out_splits
 
+split_keys_chunked = to_chunked(split_keys)
 
 @to_chunked
 def filter_by_keys(
@@ -173,8 +173,8 @@ class View(Module):
     encoding, which may add significant overhead."""
     fit_global: bool = False
 
-    def __init__(self, **_) -> None:
-        pass
+    def __init__(self, unpartition: bool = False, **_) -> None:
+        self.unpartition = unpartition
 
     @property
     def dataset_tables(self):
@@ -208,7 +208,7 @@ class View(Module):
         Should produce the same results each run regardless of the value of `split`,
         because it will be ran once per split."""
         ...
-        return split_keys(keys, req_splits, splits, random_state)  # type: ignore
+        return (split_keys if self.unpartition else split_keys_chunked)(keys, req_splits, splits, random_state)  # type: ignore
 
     def filter_table(self, name: str, keys: LazyFrame, **tables: LazyFrame):
         """Filters the table using the keys provided."""

@@ -18,7 +18,7 @@ def tab_join_tables(patients: pd.DataFrame, admissions: pd.DataFrame) -> pd.Data
     return admissions.join(patients_new, on="subject_id")
 
 
-def mm_core_transform_patients(patients: pd.DataFrame):
+def mm_core_transform_patients(patients: pd.DataFrame, filter_table: pd.DataFrame = None) -> pd.DataFrame:
     # # Calculate rel patient date
     birth_year = patients["anchor_year"] - patients["anchor_age"]
     birth_year_date = pd.to_datetime(birth_year, format="%Y")
@@ -26,6 +26,10 @@ def mm_core_transform_patients(patients: pd.DataFrame):
     patients_new = patients.drop(labels=["anchor_year", "anchor_age"], axis=1)
     patients_new.rename(columns={"anchor_year_group": "year_group"}, inplace=True)
     patients_new["birth_year"] = birth_year_date
+
+    if filter_table is not None:
+        kept = filter_table["subject_id"].unique()
+        patients_new = patients_new[patients_new.index.isin(kept)]
 
     return patients_new
 
@@ -36,7 +40,7 @@ class MimicCore(View):
     name = "mimic_core"
     dataset = "mimic"
     deps: dict[str, list[str]] = {
-        "patients": ["patients"],
+        "patients": ["patients", "admissions"],
         "admissions": ["admissions"],
         "transfers": ["transfers"],
     }
@@ -46,11 +50,14 @@ class MimicCore(View):
     }
     parameters = get_relative_fn("parameters_core.yml")
 
-    @to_chunked
+    def __init__(self, **_) -> None:
+        super().__init__(unpartition=True, **_)
+
+    # @to_chunked # use a single partition
     def ingest(self, name, **tables: LazyChunk):
         match name:
             case "patients":
-                return mm_core_transform_patients(tables["patients"]())
+                return mm_core_transform_patients(tables["patients"](), tables["admissions"](["subject_id"]))
             case "admissions":
                 return tables["admissions"]()
             case "transfers":
@@ -210,7 +217,7 @@ class MimicIcu(View):
     name = "mimic_icu"
     dataset = "mimic"
     deps = {
-        "patients": ["patients"],
+        "patients": ["patients", "icu_icustays"],
         "stays": ["icu_icustays"],
         "events": ["icu_chartevents"],
     }
@@ -223,7 +230,7 @@ class MimicIcu(View):
     def ingest(self, name, **tables: LazyFrame):
         match name:
             case "patients":
-                return mm_core_transform_patients(tables["patients"]())
+                return mm_core_transform_patients(tables["patients"](), tables["icu_icustays"](["subject_id"]))
             case "stays":
                 return tables["icu_icustays"]().dropna(subset=["hadm_id"])
             case "events":
