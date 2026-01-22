@@ -24,7 +24,7 @@ mimic_core:
     mare:
       etotal: 2
       theta: 5
-      rebalance: True
+      rebalance: False
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
@@ -53,9 +53,9 @@ mimic_core:
       #   type: or
       #   model: meta-llama/llama-4-scout-17b-16e-instruct
       rebalance:
-        unbounded_dp: True
-        fixed: [4, 9, 18, 32]
-        u: 7
+        # unbounded_dp: True
+        # fixed: [4, 9, 18, 32]
+        # u: 7
       pgm:
         etotal: 2
   metrics:

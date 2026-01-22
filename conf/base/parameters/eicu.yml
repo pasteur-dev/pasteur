@@ -6,7 +6,7 @@ eicu_r1:
     mare:
       etotal: 2
       theta: 5
-      rebalance: True
+      rebalance: False
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
@@ -27,7 +27,7 @@ eicu_r1:
           - for provided ranges use a random value that is within the range
           - Reason about the key events in this patient's admission; they should make sense
           - If a value would cause an unrealistic patient, adjust it slightly for realism
-      samples: &samples 2000
+      samples: &samples 100
       model: &model # "hf:Qwen/Qwen3-8B-GGUF#Qwen3-8B-Q4_K_M.gguf"
         type: hf
         repo_id: Qwen/Qwen3-8B-GGUF
