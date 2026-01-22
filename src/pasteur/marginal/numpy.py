@@ -244,7 +244,7 @@ def calc_marginal(
 
     # Find integer dtype based on domain
     dom = 1
-    for (table, attr, sel) in x:
+    for table, attr, sel in x:
         if isinstance(sel, dict):
             common = info.common[(table, attr)]
             l_dom = 1
@@ -256,12 +256,14 @@ def calc_marginal(
 
     dtype = get_dtype(dom)
 
-    n = len(next(iter(data.values()))[0])
+    ref_table, *_ = next(iter(x))
+    n = len(next(iter(d for k, d in data.items() if k[0] == ref_table))[0])
+
     _sum_nd = np.zeros((n,), dtype=dtype)
     _tmp_nd = np.empty((n,), dtype=dtype)
 
     mul = 1
-    for (table, attr, sel) in reversed(x):
+    for table, attr, sel in reversed(x):
         common = info.common[(table, attr)]
         if isinstance(sel, dict):
             l_mul = 1
