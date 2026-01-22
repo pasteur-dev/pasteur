@@ -41,7 +41,15 @@ from .numpy import (
 logger = logging.getLogger(__name__)
 
 try:
-    from .native_py import calc_marginal
+    from .native_py import has_simd
+
+    if has_simd():
+        from .native_py import calc_marginal
+    else:
+        logger.warning(
+            "Native marginal implementation does not support SIMD on this platform, using numpy instead (2-8x slower)."
+        )
+        from .numpy import calc_marginal
 except Exception as e:
     logger.error(
         f"Failed importing native marginal implementation, using numpy instead (2-8x slower). Error:\n{e}"

@@ -1,5 +1,6 @@
 #define PY_SSIZE_T_CLEAN /* Make "s#" use Py_ssize_t rather than int. */
 #include <Python.h>
+#include <stdint.h>
 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 #include <numpy/ndarraytypes.h>
@@ -69,7 +70,7 @@ static PyObject *sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
         case NPY_UINT32:
             mul_u32[n_u32] = mul;
             arr_u32[n_u32] = (uint32_t *)PyArray_DATA(arr);
-            n_u8 += 1;
+            n_u32 += 1;
             break;
         default:
             PyErr_SetString(PyExc_TypeError, "Uknown Type passed in ops, only uint 8, 16, 32 supported");
@@ -91,6 +92,15 @@ static PyObject *sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
     Py_RETURN_NONE;
 }
 
+static PyObject *has_simd(PyObject *self, PyObject *args)
+{
+#ifdef __AVX2__
+    Py_RETURN_TRUE;
+#else
+    Py_RETURN_FALSE;
+#endif
+}
+
 static PyMethodDef methods[] = {
     /* The cast of the function is necessary since PyCFunction values
      * only take two PyObject* parameters, and native_parrot() takes
@@ -98,6 +108,8 @@ static PyMethodDef methods[] = {
      */
     {"marginal", (PyCFunction)(void (*)(void))sum_wrapper, METH_VARARGS | METH_KEYWORDS,
      "Calculates the marginal of the provided columns"},
+    {"has_simd", (PyCFunction)(void (*)(void))has_simd, METH_NOARGS,
+     "Returns whether the current platform supports SIMD via AVX2."},
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 

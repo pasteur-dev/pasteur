@@ -1,6 +1,6 @@
 import numpy as np
 
-from .native import marginal
+from .native import marginal, has_simd
 from .numpy import AttrSelectors, CalculationData, CalculationInfo
 
 Op = tuple[int, np.ndarray]
@@ -43,3 +43,5 @@ def calc_marginal(
     marginal(out, ops, simd)
 
     return out
+
+__all__ = ["calc_marginal", "has_simd"]
