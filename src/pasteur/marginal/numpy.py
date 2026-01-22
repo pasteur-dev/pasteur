@@ -270,14 +270,14 @@ def calc_marginal(
             for i, (n, h) in enumerate(reversed(sel.items())):
                 if common == 0 or i == 0:
                     np.multiply(
-                        data[(table, n, False)][h],
+                        data[(table, n, False)][h].reshape(-1),
                         mul * l_mul,
                         out=_tmp_nd,
                         dtype=dtype,
                     )
                 else:
                     np.multiply(
-                        data[(table, n, True)][h],
+                        data[(table, n, True)][h].reshape(-1),
                         mul * l_mul,
                         out=_tmp_nd,
                         dtype=dtype,
@@ -288,7 +288,7 @@ def calc_marginal(
             mul *= l_mul + common
         else:
             np.multiply(
-                data[(table, info.common_names[(table, attr)], False)][sel],
+                data[(table, info.common_names[(table, attr)], False)][sel].reshape(-1),
                 mul,
                 out=_tmp_nd,
                 dtype=dtype,
