@@ -46,14 +46,8 @@ try:
     if has_simd():
         from .native_py import calc_marginal
     else:
-        logger.warning(
-            "Native marginal implementation does not support SIMD on this platform, using numpy instead (2-8x slower)."
-        )
         from .numpy import calc_marginal
 except Exception as e:
-    logger.error(
-        f"Failed importing native marginal implementation, using numpy instead (2-8x slower). Error:\n{e}"
-    )
     from .numpy import calc_marginal
 
 A = TypeVar("A", covariant=True)
