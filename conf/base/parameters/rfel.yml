@@ -52,10 +52,16 @@ rfel_ce:
 
 rfel_sl:
   algs:
-    mare: *mare
+    mare:
+      <<: *mare
+      rebalance: True
     amalgam:
       <<: *amalgam
       samples: null
+      rebalance:
+        unbounded_dp: True
+        fixed: [4, 9, 18, 32]
+        u: 7
       prompt: |
         You are a school administrator.
 
