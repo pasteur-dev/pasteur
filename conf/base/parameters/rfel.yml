@@ -3,7 +3,7 @@ rfel_ce:
     mare: &mare
       etotal: 2
       theta: 5
-      rebalance: False
+      rebalance: True
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
@@ -32,9 +32,9 @@ rfel_ce:
       #   type: or
       #   model: meta-llama/llama-4-scout-17b-16e-instruct
       rebalance:
-        # unbounded_dp: True
-        # fixed: [4, 9, 18, 32]
-        # u: 7
+        unbounded_dp: True
+        fixed: [4, 9, 18, 32]
+        u: 7
       pgm:
         etotal: 2
   metrics:
