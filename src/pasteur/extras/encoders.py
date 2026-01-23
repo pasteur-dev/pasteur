@@ -908,27 +908,17 @@ def _flatten_load(
                 .groupby([top_table])
                 .first()
             )
-        out = out.join(
-            (t_data.add_prefix(f"{t}_") + 1).reindex(out.index, fill_value=0),
-            how="inner",
-        )
+        out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
 
     for creator, ctx_tables in ctx.items():
         for t, table in ctx_tables.items():
             if t == top_table:
                 t_data = table.add_prefix(f"{top_table}#{creator}_")
-                out = out.join(
-                    (t_data + 1).reindex(out.index, fill_value=0), how="inner"
-                )
+                out = out.join(t_data, how="inner")
             else:
                 t_ids = ids[t][[top_table]]
                 t_data = t_ids.join(table).groupby(top_table).first()
-                out = out.join(
-                    (t_data.add_prefix(f"{t}#{creator}_") + 1).reindex(
-                        out.index, fill_value=0
-                    ),
-                    how="inner",
-                )
+                out = out.join(t_data.add_prefix(f"{t}#{creator}_"), how="inner")
 
     return {"table": out}
 
@@ -959,16 +949,12 @@ def _flatten_meta(
         tmp = {}
         for name, attr in table_attrs.items():
             new_vals = [
-                v.make_missable().prefix_rename(f"{table}_")
+                v.prefix_rename(f"{table}_")
                 for v in attr.vals.values()
                 if not isinstance(v, SeqValue)
             ]
 
-            new_common = (
-                attr.common.make_missable().prefix_rename(f"{table}_")
-                if attr.common
-                else None
-            )
+            new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
             tmp[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
 
@@ -991,14 +977,11 @@ def _flatten_meta(
 
             for name, attr in table_attrs.items():
                 new_vals = [
-                    v.make_missable().prefix_rename(f"{table}#{ctx}_")
-                    for k, v in attr.vals.items()
+                    v.prefix_rename(f"{table}#{ctx}_") for k, v in attr.vals.items()
                 ]
 
-                # FIXME: We should create a synthetic common if
-                # len(attr.vals) > 1 but we do not
                 new_common = (
-                    attr.common.make_missable().prefix_rename(f"{table}#{ctx}_")
+                    attr.common.prefix_rename(f"{table}#{ctx}_")
                     if attr.common
                     else None
                 )
