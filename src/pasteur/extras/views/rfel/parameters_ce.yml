@@ -35,5 +35,5 @@ tables:
       month: categorical
       product_code: categorical
       cost: numerical
-      is_training: categorical
+      # is_training: categorical
       
