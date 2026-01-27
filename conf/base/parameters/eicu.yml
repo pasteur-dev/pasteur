@@ -9,9 +9,9 @@ eicu_r1:
       rebalance: True
       fixed: [4, 9, 18, 32]
       u: 7
-      max_sens: 20
+      max_sens: 1000
       marginal_mode: inmemory_shared
-      gen_len: 20
+      # gen_len: 20
     amalgam:
       prompt: |
         You are a doctor working at a hospital.
