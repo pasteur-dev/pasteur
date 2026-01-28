@@ -653,7 +653,7 @@ def _json_decode_entity(
         for key, v in mapping.items():
             if isinstance(v, NumMapping):
                 lt = (table, v.table) if v.table else table
-                out[lt][cid][v.name] = float(current[v.name])
+                out[lt][cid][v.name] = float(current[v.name] if current[key] is not None else 0)
             elif isinstance(v, CatMapping):
                 lt = (table, v.table) if v.table else table
                 out[lt][cid][v.name] = int(v.mapping.index(current[key]))

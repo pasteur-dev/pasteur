@@ -539,7 +539,7 @@ def _process_marginals_chunk(
         for j, col_j in enumerate(table_domain):
             two_way[(col_i, col_j)] = calc_marginal_1way(table, domain_arr, [i, j], 0)
 
-    # Two way accross parents
+    # Two way across parents
     for p in parents[name]:
         p_table = (
             tids[[p]]
