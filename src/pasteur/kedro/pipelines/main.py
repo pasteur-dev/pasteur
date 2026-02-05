@@ -82,7 +82,7 @@ def get_view_names(modules: list[Module]):
 
 
 def generate_pipelines(
-    modules: list[Module], params: dict, locations: dict[str, str]
+    all_modules: list[Module], params: dict, locations: dict[str, str]
 ) -> tuple[
     dict[str, Pipeline],
     list[DatasetMeta],
@@ -93,19 +93,13 @@ def generate_pipelines(
 
     If None is passed, all registered classes are included."""
 
-    datasets = get_module_dict(Dataset, modules)
-    views = get_module_dict(View, modules)
-    algs = get_module_dict(SynthFactory, modules)
+    datasets = get_module_dict(Dataset, all_modules)
+    views = get_module_dict(View, all_modules)
+    all_algs = get_module_dict(SynthFactory, all_modules)
 
     # Filter views and datasets
     datasets = {k: d for k, d in datasets.items() if _is_downloaded(d, locations)}
     views = {k: v for k, v in views.items() if _has_dataset(v, datasets)}
-
-    # Wrk, ref splits are transformed to all types
-    # Synthetic data is transformed only to syn_types (as required by metrics currently)
-    alg_types = _get_alg_types(algs)
-    msr_types = get_metrics_types(modules)
-    all_types = list_unique(alg_types, msr_types)
 
     wrk_split = WRK_SPLIT
     ref_split = REF_SPLIT
@@ -121,6 +115,30 @@ def generate_pipelines(
         extr_pipes[f"{name}.ingest"] = extr_pipes[f"ingest_dataset.{name}"]
 
     for name, view in views.items():
+        # Wrk, ref splits are transformed to all types
+        # Synthetic data is transformed only to syn_types (as required by metrics currently)
+
+        tabular = view.tabular
+        # Filter algs and modules by tabular property
+        if tabular is not None:
+            algs = {
+                k: v
+                for k, v in all_algs.items()
+                if not hasattr(v, "tabular") or getattr(v, "tabular") in (None, tabular)
+            }
+            modules = [
+                m
+                for m in all_modules
+                if not hasattr(m, "tabular") or getattr(m, "tabular") in (None, tabular)
+            ]
+        else:
+            algs = all_algs
+            modules = all_modules
+
+        alg_types = _get_alg_types(algs)
+        msr_types = get_metrics_types(modules)
+        all_types = list_unique(alg_types, msr_types)
+
         # Create view transform pipeline that can run as part of ingest
         if view.fit_global:
             fit_split = "view"

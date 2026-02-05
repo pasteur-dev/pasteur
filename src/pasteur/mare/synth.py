@@ -53,6 +53,7 @@ class MareModel:
 class MareSynth(Synth):
     name = "mare"
     type = "idx"
+    tabular = False
 
     def __init__(
         self,

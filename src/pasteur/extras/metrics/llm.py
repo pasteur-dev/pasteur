@@ -38,6 +38,7 @@ Then, you are asked to comment on how real the following sample is and give it a
 class LlmEvaluatorMetric(Metric[None, None | list[int]]):
     name = "llmeval"
     encodings = ["json", "flat"]
+    tabular = False
 
     def __init__(
         self,

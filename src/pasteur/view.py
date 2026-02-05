@@ -184,6 +184,8 @@ class View(Module):
     encoding, which may add significant overhead."""
     fit_global: bool = False
 
+    tabular: bool = False
+
     def __init__(self, unpartition: bool = False, **_) -> None:
         self.unpartition = unpartition
 
@@ -234,6 +236,7 @@ class TabularView(View):
     Has one table, named `table`, which is a copy of the table `table` of its
     Dataset."""
 
+    tabular = True
     deps = {"table": ["table"]}
 
     @to_chunked

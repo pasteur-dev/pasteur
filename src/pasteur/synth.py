@@ -85,6 +85,8 @@ class Synth(ModuleClass, Generic[META]):
     # Fill in for `sample` function to work
     _partitions: int | None = None
 
+    tabular: bool | None = None
+
     def preprocess(
         self,
         meta: META,

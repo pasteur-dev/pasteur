@@ -62,6 +62,7 @@ class Metric(ModuleClass, Generic[_INGEST, _SUMMARY]):
 
     _factory = MetricFactory
     encodings: str | list[str] = "raw"
+    tabular: bool | None = None
 
     def fit(
         self,

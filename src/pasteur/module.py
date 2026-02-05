@@ -57,6 +57,8 @@ class ModuleFactory(Module, Generic[A]):
 
     def __init__(self, cls: type[A], *args, name: str | None = None, **kwargs) -> None:
         self._cls = cls
+        if hasattr(self._cls, "tabular"):
+            self.tabular = getattr(self._cls, "tabular")
         self.name = name or cls.name
         self.args = args
         self.kwargs = kwargs

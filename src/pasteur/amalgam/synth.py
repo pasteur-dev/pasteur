@@ -74,6 +74,7 @@ class AmalgamSynth(Synth):
     in_sample = True
     type = "json"
     partitions = 1
+    tabular = False
 
     def __init__(
         self,
