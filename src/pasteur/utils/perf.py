@@ -171,4 +171,14 @@ class PerformanceTracker:
         file_txt = "\n".join(f"{k:65s} | {v}" for k, v in file_perfs.items())
         # FIXME: hardcoded var, should point to metrics dir
         mlflow.log_dict(json_perfs, "_raw/perf.json")
+
+        try:
+            from pasteur.utils.progress import IS_AGENT
+
+            if IS_AGENT:
+                print("Runtime data per node:")
+                print(file_txt)
+        except ImportError:
+            pass
+
         mlflow_log_as_str("perf", file_txt)
