@@ -341,7 +341,11 @@ class NumEncoder(AttributeEncoder[Attribute]):
         assert False, "Not Implemented"
 
 
-def get_top_table(relationships: dict[str, list[str]]):
+def get_top_table(relationships: dict[str, list[str]], ids: dict[str, Any] | None = None):
+    if ids and len(ids) == 1:
+        top_table = next(iter(ids))
+        return top_table
+    
     seen = set()
     for r in relationships.values():
         seen.update(r)
@@ -588,7 +592,7 @@ def _get_partition_keys(
     ids: dict[str, LazyChunk],
     relationships: dict[str, list[str]],
 ):
-    top_table = get_top_table(relationships)
+    top_table = get_top_table(relationships, ids)
     return sorted(set(ids[top_table]().index))
 
 
@@ -609,7 +613,7 @@ def _json_encode(
     l_ctx = {k: {kk: vv() for kk, vv in v.items()} for k, v in ctx.items()}
     l_ids = {k: v() for k, v in ids.items()}
 
-    top_table = get_top_table(relationships)
+    top_table = get_top_table(relationships, ids)
 
     mapping = create_table_mapping(top_table, relationships, attrs, ctx_attrs)
     out = []
