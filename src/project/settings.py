@@ -8,7 +8,7 @@ import warnings
 
 import os
 
-os.environ["MLFLOW_DISABLE_TELEMETRY"] = 'true'
+os.environ["MLFLOW_DISABLE_TELEMETRY"] = "true"
 
 from rich.traceback import install
 from pasteur.utils.progress import RICH_TRACEBACK_ARGS
@@ -61,9 +61,11 @@ from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
+
 # from pasteur.synth import IdentSynth
 from pasteur.mare.synth import MareSynth
 from pasteur.extras.synth.privbayes import PrivBayesMare
+
 # from pasteur.extras.metrics.syntheval import SynthEvalMetric
 from pasteur.amalgam import AmalgamSynth
 from pasteur.extras.metrics.llm import LlmEvaluatorMetric
@@ -71,6 +73,8 @@ from pasteur.extras.metrics.llm import LlmEvaluatorMetric
 # class MareSynth(IdentSynth):
 #     name = "ident_mare"
 #     type = "mare"
+
+from pasteur import IS_AGENT
 
 
 PASTEUR_MODULES = get_recommended_modules() + [
@@ -84,5 +88,8 @@ PASTEUR_MODULES = get_recommended_modules() + [
     JsonEncoder.get_factory(),
     AmalgamSynth.get_factory(PrivBayesMare),
     FlatEncoder.get_factory(),
-    LlmEvaluatorMetric.get_factory(),
 ]
+
+if not IS_AGENT:
+    # LLM Evaluator takes 10-30 minutes to run, not needed when benching with LLMs
+    PASTEUR_MODULES.append(LlmEvaluatorMetric.get_factory())
