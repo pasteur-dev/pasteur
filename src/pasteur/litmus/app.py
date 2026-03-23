@@ -316,22 +316,41 @@ def _run_detail(run: Run, exp: Experiment | None) -> dict:
 
 
 def _pretty_source_name(exp: Experiment, source: str) -> str:
-    """Convert raw source key to pretty display name."""
+    """Convert raw source key to pretty display name (Title Case)."""
     if source == "real":
         return "Real Data"
     for m in exp.models:
         raw = f"{m.algorithm}_{m.timestamp or 'latest'}"
         if raw == source:
-            parts = [m.algorithm]
+            parts = [m.algorithm.title()]
             for k, v in m.overrides.items():
                 parts.append(f"{k}={v}")
             return " ".join(parts)
-    return source
+    return source.title()
+
+
+def _dist_entry(pretty_name: str, dist: dict[int, int]) -> dict:
+    total = sum(dist.values())
+    mean = sum(k * v for k, v in dist.items()) / total if total else 0
+    return {
+        "pretty_name": pretty_name,
+        "count": total,
+        "mean": mean,
+        "distribution": dist,
+    }
 
 
 def _compute_results(exp: Experiment, generator=None) -> dict:
     from collections import defaultdict
 
+    # Build ordered source keys: models first, then real
+    source_order = []
+    for m in exp.models:
+        source_order.append(f"{m.algorithm}_{m.timestamp or 'latest'}")
+    if exp.include_real:
+        source_order.append("real")
+
+    # Collect human ratings
     by_source: dict[str, list[int]] = defaultdict(list)
     for run in exp.runs:
         if run.tutorial:
@@ -340,40 +359,47 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
             if not r.skipped and r.score is not None:
                 by_source[r.source].append(r.score)
 
-    results = {}
-    for source, scores in by_source.items():
+    # Build human results in source order
+    human_results = []
+    for source in source_order:
+        scores = by_source.get(source, [])
+        if not scores:
+            continue
         dist = {i: scores.count(i) for i in range(1, 6)}
-        results[source] = {
-            "pretty_name": _pretty_source_name(exp, source),
-            "count": len(scores),
-            "mean": sum(scores) / len(scores) if scores else 0,
-            "distribution": dist,
-        }
+        human_results.append({
+            "source": source,
+            **_dist_entry(_pretty_source_name(exp, source), dist),
+        })
 
-    # Load LLM evaluator scores for each model
-    llm_results = {}
+    # Load LLM evaluator scores in same source order
+    llm_results = []
+    llm_ref_dist = None
     if generator:
         for m in exp.models:
             source_key = f"{m.algorithm}_{m.timestamp or 'latest'}"
             try:
-                llm_dist = generator.load_llm_scores(
+                syn_dist, ref_dist = generator.load_llm_scores(
                     exp.view, m.algorithm, m.timestamp
                 )
-                if llm_dist:
-                    total = sum(llm_dist.values())
-                    mean = (
-                        sum(k * v for k, v in llm_dist.items()) / total
-                        if total
-                        else 0
-                    )
-                    llm_results[source_key] = {
-                        "pretty_name": _pretty_source_name(exp, source_key),
-                        "count": total,
-                        "mean": mean,
-                        "distribution": llm_dist,
-                    }
+                if syn_dist:
+                    llm_results.append({
+                        "source": source_key,
+                        **_dist_entry(
+                            _pretty_source_name(exp, source_key), syn_dist
+                        ),
+                    })
+                # Keep ref scores (same across models)
+                if ref_dist and llm_ref_dist is None:
+                    llm_ref_dist = ref_dist
             except Exception:
                 pass
+
+        # Add real data row to LLM results
+        if exp.include_real and llm_ref_dist:
+            llm_results.append({
+                "source": "real",
+                **_dist_entry("Real Data", llm_ref_dist),
+            })
 
     total_rated = sum(
         1 for run in exp.runs if not run.tutorial
@@ -391,6 +417,6 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         "num_runs": len([r for r in exp.runs if not r.tutorial]),
         "total_rated": total_rated,
         "total_skipped": total_skipped,
-        "by_source": results,
+        "by_source": human_results,
         "llm_scores": llm_results,
     }

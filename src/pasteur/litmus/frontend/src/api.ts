@@ -73,8 +73,8 @@ export interface ExperimentResults {
   num_runs: number;
   total_rated: number;
   total_skipped: number;
-  by_source: Record<string, SourceResults>;
-  llm_scores: Record<string, SourceResults>;
+  by_source: SourceResults[];
+  llm_scores: SourceResults[];
 }
 
 // --- Views ---

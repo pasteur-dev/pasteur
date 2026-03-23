@@ -23,7 +23,10 @@ export default function ResultsPanel({ experimentId }: Props) {
 
   if (!results) return <div className="card">Loading results...</div>;
 
-  if (results.total_rated === 0 && Object.keys(results.llm_scores).length === 0) {
+  if (
+    results.total_rated === 0 &&
+    results.llm_scores.length === 0
+  ) {
     return (
       <div className="card">
         <h2>Results</h2>
@@ -31,9 +34,6 @@ export default function ResultsPanel({ experimentId }: Props) {
       </div>
     );
   }
-
-  const humanSources = Object.entries(results.by_source);
-  const llmSources = Object.entries(results.llm_scores);
 
   return (
     <div className="card results-panel">
@@ -44,30 +44,26 @@ export default function ResultsPanel({ experimentId }: Props) {
         {results.total_rated} rated, {results.total_skipped} skipped
       </p>
 
-      {humanSources.length > 0 && (
+      {results.by_source.length > 0 && (
         <>
           <h3>Human Rating Distribution</h3>
-          <RatingHeatmap sources={humanSources} />
+          <RatingHeatmap sources={results.by_source} />
         </>
       )}
 
-      {llmSources.length > 0 && (
+      {results.llm_scores.length > 0 && (
         <>
           <h3>LLM Rating Distribution</h3>
-          <RatingHeatmap sources={llmSources} />
+          <RatingHeatmap sources={results.llm_scores} />
         </>
       )}
     </div>
   );
 }
 
-function RatingHeatmap({
-  sources,
-}: {
-  sources: [string, SourceResults][];
-}) {
+function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
   let maxCount = 1;
-  for (const [, data] of sources) {
+  for (const data of sources) {
     for (const s of [1, 2, 3, 4, 5]) {
       maxCount = Math.max(maxCount, data.distribution[s] || 0);
     }
@@ -88,7 +84,7 @@ function RatingHeatmap({
         </tr>
       </thead>
       <tbody>
-        {sources.map(([, data]) => (
+        {sources.map((data) => (
           <tr key={data.pretty_name}>
             <td className="heatmap-label">{data.pretty_name}</td>
             {[1, 2, 3, 4, 5].map((s) => {
