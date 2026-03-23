@@ -1,6 +1,9 @@
 """Flask application factory for LITMUS."""
 
+import json
 import logging
+import random
+import uuid
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -16,12 +19,17 @@ from .store import (
 logger = logging.getLogger(__name__)
 
 
-def create_app(data_dir: str | Path, catalog_info: dict | None = None) -> Flask:
+def create_app(
+    data_dir: str | Path,
+    catalog_info: dict | None = None,
+    generator=None,
+) -> Flask:
     """Create the LITMUS Flask application.
 
     Args:
         data_dir: Path to Kedro data directory for experiment persistence.
-        catalog_info: Dict with available views and models from the Kedro catalog.
+        catalog_info: Dict with available views and models from filesystem scan.
+        generator: EntityGenerator instance for generating entities.
     """
     static_dir = Path(__file__).parent / "static"
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
@@ -29,6 +37,7 @@ def create_app(data_dir: str | Path, catalog_info: dict | None = None) -> Flask:
     store = ExperimentStore(data_dir)
     app.config["store"] = store
     app.config["catalog_info"] = catalog_info or {}
+    app.config["generator"] = generator
 
     _register_routes(app)
     return app
@@ -163,11 +172,73 @@ def _register_routes(app: Flask):
             return jsonify({"error": "Experiment not found"}), 404
         return jsonify(_compute_results(exp))
 
-    # TODO: Phase 4 - SSE streaming endpoint
-    # @app.route("/api/experiments/<experiment_id>/next")
+    # --- Entity Generation ---
 
+    @app.route("/api/experiments/<experiment_id>/next")
+    def next_entity(experiment_id: str):
+        """Generate the next entity for an experiment.
+
+        Picks a source (model or real) based on the experiment config,
+        generates the entity, and returns it as SSE stream or JSON.
+
+        For now, returns JSON directly. SSE streaming with blinding
+        will be added in Phase 4.
+        """
+        store = _get_store(app)
+        generator = app.config.get("generator")
+        exp = store.get(experiment_id)
+
+        if not exp:
+            return jsonify({"error": "Experiment not found"}), 404
+        if not exp.started:
+            return jsonify({"error": "Experiment not started"}), 400
+        if exp.finished:
+            return jsonify({"error": "Experiment already finished"}), 400
+        if not generator:
+            return jsonify({"error": "No generator available"}), 500
+
+        # Pick next source: round-robin across splits
+        splits = []
+        for m in exp.models:
+            splits.append(("model", m.algorithm, m.timestamp))
+        if exp.include_real:
+            splits.append(("real", None, None))
+
+        if not splits:
+            return jsonify({"error": "No splits configured"}), 400
+
+        # Round-robin based on progress
+        split_idx = exp.progress % len(splits)
+        # Shuffle within each full round
+        if exp.progress % len(splits) == 0:
+            random.shuffle(splits)
+        source_type, alg, version = splits[split_idx]
+
+        entity_id = str(uuid.uuid4())
+        try:
+            if source_type == "real":
+                entity = generator.generate_entity_from_real(exp.view)
+                source = "real"
+            else:
+                entity = generator.generate_entity_from_model(
+                    exp.view, alg, version
+                )
+                source = f"{alg}_{version or 'latest'}"
+        except Exception:
+            logger.exception("Entity generation failed")
+            return jsonify({"error": "Entity generation failed"}), 500
+
+        entity_json = json.dumps(entity, indent=2)
+
+        return jsonify({
+            "entity_id": entity_id,
+            "source": source,
+            "entity": entity,
+            "entity_json": entity_json,
+        })
+
+    # TODO: Phase 4 - SSE streaming version of next_entity
     # TODO: Phase 4 - Profiling endpoint
-    # @app.route("/api/experiments/<experiment_id>/profile", methods=["POST"])
 
 
 def _experiment_summary(exp: Experiment) -> dict:
