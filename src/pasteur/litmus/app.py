@@ -29,7 +29,7 @@ def create_app(
         generator: EntityGenerator instance for generating entities.
     """
     static_dir = Path(__file__).parent / "static"
-    app = Flask(__name__, static_folder=str(static_dir), static_url_path="/static")
+    app = Flask(__name__, static_folder=str(static_dir), static_url_path="")
 
     store = ExperimentStore(data_dir)
     app.config["store"] = store
