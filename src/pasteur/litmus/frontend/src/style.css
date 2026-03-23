@@ -821,50 +821,6 @@ input[type="number"] {
   min-height: 300px;
 }
 
-.bar-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.bar-label {
-  width: 130px;
-  font-size: 0.8rem;
-  text-align: right;
-  font-family: var(--mono);
-  color: var(--text-muted);
-}
-
-.bar-track {
-  flex: 1;
-  height: 18px;
-  background: var(--bg-input);
-  border-radius: 3px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-}
-
-.bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.3s;
-  box-shadow: 0 0 8px currentColor;
-}
-
-.bar-value {
-  width: 45px;
-  font-size: 0.8rem;
-  font-family: var(--mono);
-  font-weight: 700;
-  color: var(--gold);
-}
-
 /* Rating distribution heatmap */
 .results-summary {
   color: var(--text-muted);
@@ -909,8 +865,19 @@ input[type="number"] {
   font-weight: 600;
   font-size: 0.85rem;
   border-radius: 3px;
-  min-width: 2.5rem;
+  min-width: 4.5rem;
   transition: background-color 0.2s;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap-count {
+  margin-right: 0.15rem;
+}
+
+.heatmap-pct {
+  font-size: 0.65rem;
+  font-weight: 400;
+  opacity: 0.8;
 }
 
 .heatmap-n {

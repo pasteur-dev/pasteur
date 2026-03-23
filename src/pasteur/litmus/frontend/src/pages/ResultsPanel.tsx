@@ -51,27 +51,6 @@ export default function ResultsPanel({ experimentId }: Props) {
         {results.total_rated} rated, {results.total_skipped} skipped
       </p>
 
-      {/* Mean scores bar chart */}
-      <h3>Mean Realism Score</h3>
-      <div className="bar-chart">
-        {sources.map(([source, data]) => (
-          <div key={source} className="bar-row">
-            <span className="bar-label">{source}</span>
-            <div className="bar-track">
-              <div
-                className="bar-fill"
-                style={{
-                  width: `${(data.mean / 5) * 100}%`,
-                  backgroundColor:
-                    source === "real" ? "#00dd77" : "var(--gold)",
-                }}
-              />
-            </div>
-            <span className="bar-value">{data.mean.toFixed(2)}</span>
-          </div>
-        ))}
-      </div>
-
       {/* Rating distribution heatmap */}
       <h3>Rating Distribution</h3>
       <table className="heatmap-table">
@@ -93,6 +72,7 @@ export default function ResultsPanel({ experimentId }: Props) {
               <td className="heatmap-label">{source}</td>
               {[1, 2, 3, 4, 5].map((s) => {
                 const count = data.distribution[s] || 0;
+                const pct = data.count > 0 ? (count / data.count) * 100 : 0;
                 const intensity = count / maxCount;
                 return (
                   <td
@@ -103,7 +83,14 @@ export default function ResultsPanel({ experimentId }: Props) {
                       color: intensity > 0.4 ? "white" : "var(--text-muted)",
                     }}
                   >
-                    {count || ""}
+                    {count > 0 && (
+                      <>
+                        <span className="heatmap-count">{count}</span>
+                        <span className="heatmap-pct">
+                          ({Math.min(99, Math.round(pct))}%)
+                        </span>
+                      </>
+                    )}
                   </td>
                 );
               })}
