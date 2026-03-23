@@ -216,6 +216,8 @@ function formatKey(key: string): string {
 function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return "-";
   if (typeof value === "boolean") return value ? "✅" : "❌";
+  if (value === "True" || value === "true") return "✅";
+  if (value === "False" || value === "false") return "❌";
   if (typeof value === "number") {
     if (Number.isInteger(value)) return String(value);
     return value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
