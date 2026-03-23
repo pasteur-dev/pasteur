@@ -39,7 +39,7 @@ export interface ExperimentSummary {
   view: string;
   num_models: number;
   include_real: boolean;
-
+  blind: boolean;
   samples_per_split: number;
   total_samples: number;
   num_runs: number;
@@ -104,7 +104,7 @@ export async function createExperiment(data: {
   view: string;
   models: ModelRef[];
   include_real: boolean;
-
+  blind: boolean;
   samples_per_split: number;
 }): Promise<ExperimentDetail> {
   const res = await fetch(`${BASE}/experiments`, {

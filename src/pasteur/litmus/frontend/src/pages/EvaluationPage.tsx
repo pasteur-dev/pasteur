@@ -141,6 +141,9 @@ export default function EvaluationPage({
       </header>
 
       <div className="entity-container">
+        {!experiment.blind && source && (
+          <div className="entity-source-header">{source}</div>
+        )}
         {entity ? (
           <EntityCard data={entity} streaming={loading} />
         ) : (

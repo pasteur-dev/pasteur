@@ -30,6 +30,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
   const [selectedModels, setSelectedModels] = useState<SelectedModel[]>([]);
   const [expandedAlgs, setExpandedAlgs] = useState<Set<string>>(new Set());
   const [includeReal, setIncludeReal] = useState(true);
+  const [blind, setBlind] = useState(true);
   const [samplesPerSplit, setSamplesPerSplit] = useState(20);
   const [expName, setExpName] = useState("");
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
@@ -79,6 +80,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
       view: selectedView,
       models: modelRefs,
       include_real: includeReal,
+      blind,
       samples_per_split: samplesPerSplit,
     });
     onSelectExperiment(exp);
@@ -188,10 +190,18 @@ export default function SetupPage({ onSelectExperiment }: Props) {
               <label className="checkbox-label">
                 <input
                   type="checkbox"
+                  checked={blind}
+                  onChange={(e) => setBlind(e.target.checked)}
+                />
+                Blinded (hide source during evaluation)
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
                   checked={includeReal}
                   onChange={(e) => setIncludeReal(e.target.checked)}
                 />
-                Include real data
+                Include real data split
               </label>
             </div>
 
@@ -211,7 +221,8 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                 />
               </label>
               <label>
-                Total samples
+                Total samples ({numSplits} split
+                {numSplits !== 1 ? "s" : ""})
                 <input
                   type="number"
                   min={numSplits}
@@ -224,9 +235,6 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                   }}
                 />
               </label>
-              <span className="split-info">
-                {numSplits} split{numSplits !== 1 ? "s" : ""}
-              </span>
             </div>
 
             <button

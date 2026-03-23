@@ -53,6 +53,7 @@ class Experiment:
     view: str
     models: list[ModelRef]
     include_real: bool
+    blind: bool
     samples_per_split: int
     name: str = ""
     created_at: str = ""
@@ -80,7 +81,7 @@ def _experiment_from_dict(d: dict) -> Experiment:
         runs.append(Run(ratings=ratings, **r))
     # Drop legacy fields
     d.pop("timing_params", None)
-    d.pop("blind", None)
+    d.setdefault("blind", True)
     return Experiment(
         models=models,
         runs=runs,
@@ -124,6 +125,7 @@ class ExperimentStore:
         view: str,
         models: list[ModelRef],
         include_real: bool,
+        blind: bool,
         samples_per_split: int,
     ) -> Experiment:
         with self._lock:
@@ -133,6 +135,7 @@ class ExperimentStore:
                 view=view,
                 models=models,
                 include_real=include_real,
+                blind=blind,
                 samples_per_split=samples_per_split,
                 created_at=datetime.now().isoformat(),
             )

@@ -24,7 +24,6 @@ export default function ExperimentPage({
 }: Props) {
   const [exp, setExp] = useState(initialExp);
   const [runName, setRunName] = useState(generateRunName);
-  const [tutorial, setTutorial] = useState(false);
 
   // Refresh experiment data
   const refresh = async () => {
@@ -37,7 +36,7 @@ export default function ExperimentPage({
   }, [exp.id]);
 
   const handleNewRun = async () => {
-    const run = await createRun(exp.id, runName, tutorial);
+    const run = await createRun(exp.id, runName, false);
     const updated = await fetchExperiment(exp.id);
     onStartRun(updated, run);
   };
@@ -100,16 +99,6 @@ export default function ExperimentPage({
                 onChange={(e) => setRunName(e.target.value)}
                 placeholder="Reviewing Medical Patients (John Doe)"
               />
-            </label>
-
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={tutorial}
-                onChange={(e) => setTutorial(e.target.checked)}
-              />
-              Tutorial first (2 samples per model, unblinded, results
-              discarded)
             </label>
 
             <button className="btn btn-primary" onClick={handleNewRun}>

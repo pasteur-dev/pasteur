@@ -81,6 +81,7 @@ def _register_routes(app: Flask):
             view=data["view"],
             models=models,
             include_real=data.get("include_real", True),
+            blind=data.get("blind", True),
             samples_per_split=data.get("samples_per_split", 20),
         )
         return jsonify(_exp_detail(exp)), 201
@@ -261,6 +262,7 @@ def _exp_summary(exp: Experiment) -> dict:
         "view": exp.view,
         "num_models": len(exp.models),
         "include_real": exp.include_real,
+        "blind": exp.blind,
         "samples_per_split": exp.samples_per_split,
         "total_samples": exp.total_samples,
         "num_runs": len(exp.runs),
