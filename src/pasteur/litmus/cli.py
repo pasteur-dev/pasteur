@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--host", "-h", type=str, default="127.0.0.1", help="Host to bind to."
 )
-def litmus(port: int, host: str):
+@click.option(
+    "--hotreload",
+    is_flag=True,
+    help="Enable Flask hot-reload (watches for code changes).",
+)
+def litmus(port: int, host: str, hotreload: bool):
     """Start the LITMUS evaluation server for blinded human evaluation of synthetic data."""
     from kedro.framework.session import KedroSession
 
@@ -48,4 +53,9 @@ def litmus(port: int, host: str):
         )
 
         logger.info(f"Starting LITMUS server on http://{host}:{port}")
-        app.run(host=host, port=port, debug=True, use_reloader=False)
+        app.run(
+            host=host,
+            port=port,
+            debug=True,
+            use_reloader=hotreload,
+        )

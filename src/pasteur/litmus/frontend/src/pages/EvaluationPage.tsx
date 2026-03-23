@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rateEntity, skipEntity, endRun } from "../api";
 import type { ExperimentDetail, SSEEvent } from "../api";
+import EntityCard from "../components/EntityCard";
 
 interface Props {
   experiment: ExperimentDetail;
@@ -29,23 +30,23 @@ export default function EvaluationPage({
   runId,
   onFinished,
 }: Props) {
-  const [prettyJson, setPrettyJson] = useState("");
+  const [entity, setEntity] = useState<Record<string, unknown> | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [progress, setProgress] = useState(0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
-  const [streamProgress, setStreamProgress] = useState(0);
   const streamCompleteTime = useRef(0);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const accumulatedRef = useRef("");
 
   const total = experiment.total_samples;
 
   const startStreaming = useCallback(() => {
-    setPrettyJson("");
+    setEntity(null);
     setStreaming(true);
-    setStreamProgress(0);
     setEntityId("");
     setSource("");
+    accumulatedRef.current = "";
 
     const es = new EventSource(
       `/api/experiments/${experiment.id}/runs/${runId}/next`
@@ -60,10 +61,14 @@ export default function EvaluationPage({
           setEntityId(data.entity_id);
           break;
         case "token":
+          // Try to parse the accumulated JSON for progressive rendering
           if (data.pretty) {
-            setPrettyJson(data.pretty);
+            try {
+              setEntity(JSON.parse(data.pretty));
+            } catch {
+              // partial parse failed, keep previous state
+            }
           }
-          setStreamProgress(data.progress);
           break;
         case "done":
           setSource(data.source);
@@ -145,12 +150,6 @@ export default function EvaluationPage({
           <span className="progress-text">
             {progress + 1} / {total}
           </span>
-          <div className="progress-bar">
-            <div
-              className="progress-fill"
-              style={{ width: `${(progress / total) * 100}%` }}
-            />
-          </div>
         </div>
         <div className="header-right">
           <button
@@ -167,15 +166,11 @@ export default function EvaluationPage({
       </header>
 
       <div className="entity-container">
-        {streaming && (
-          <div className="stream-indicator">
-            <div
-              className="stream-bar"
-              style={{ width: `${streamProgress * 100}%` }}
-            />
-          </div>
+        {entity ? (
+          <EntityCard data={entity} streaming={streaming} />
+        ) : (
+          <div className="entity-loading">Generating entity...</div>
         )}
-        <pre className="entity-json">{prettyJson || "Loading..."}</pre>
       </div>
 
       <div className="rating-bar">

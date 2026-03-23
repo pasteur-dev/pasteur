@@ -5,6 +5,7 @@ import {
   fetchExperiment,
 } from "../api";
 import type { ExperimentDetail, RunSummary } from "../api";
+import ModelLabel from "../components/ModelLabel";
 import ResultsPanel from "./ResultsPanel";
 
 interface Props {
@@ -21,7 +22,7 @@ export default function ExperimentPage({
   onBack,
 }: Props) {
   const [exp, setExp] = useState(initialExp);
-  const [runName, setRunName] = useState("");
+  const [runName, setRunName] = useState(generateRunName);
   const [tutorial, setTutorial] = useState(false);
 
   // Refresh experiment data
@@ -77,12 +78,7 @@ export default function ExperimentPage({
 
             <div className="exp-models">
               {exp.models.map((m, i) => (
-                <span key={i} className="model-tag">
-                  {m.algorithm}
-                  <span className="model-tag-version">
-                    {formatTimestamp(m.timestamp)}
-                  </span>
-                </span>
+                <ModelLabel key={i} model={m} showTimestamp />
               ))}
               {exp.include_real && (
                 <span className="model-tag model-tag-real">real</span>
@@ -181,9 +177,18 @@ export default function ExperimentPage({
   );
 }
 
-function formatTimestamp(ts: string): string {
-  return ts
-    .replace(/T/, " ")
-    .replace(/\.\d+Z$/, "")
-    .replace(/\./g, ":");
+const ADJECTIVES = [
+  "swift", "keen", "bold", "calm", "fair", "wise", "warm", "cool",
+  "bright", "sharp", "clear", "quick", "steady", "gentle", "vivid",
+];
+const NOUNS = [
+  "falcon", "cedar", "prism", "atlas", "helix", "quartz", "lotus",
+  "cipher", "drift", "nexus", "pulse", "spark", "orbit", "slate",
+];
+
+function generateRunName(): string {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  const num = Math.floor(Math.random() * 100);
+  return `${adj}-${noun}-${num}`;
 }

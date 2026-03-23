@@ -311,7 +311,7 @@ input[type="number"] {
 .model-tag {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   padding: 0.25rem 0.6rem;
   background: var(--bg-input);
   border: 1px solid var(--border);
@@ -321,9 +321,21 @@ input[type="number"] {
   color: var(--text-muted);
 }
 
-.model-tag-version {
-  color: var(--text-dim);
+.model-tag-alg {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.model-tag-override {
+  color: var(--gold);
   font-size: 0.7rem;
+}
+
+.model-tag-ts {
+  color: var(--text-dim);
+  font-size: 0.65rem;
+  opacity: 0.6;
+  margin-left: 0.2rem;
 }
 
 .model-tag-real {
@@ -552,34 +564,112 @@ input[type="number"] {
   overflow-y: auto;
 }
 
-.stream-indicator {
-  height: 2px;
-  background: var(--border);
-  border-radius: 1px;
-  margin-bottom: 1rem;
-  overflow: hidden;
-}
-
-.stream-bar {
-  height: 100%;
-  background: linear-gradient(90deg, var(--gold-dim), var(--gold-bright));
-  transition: width 0.1s;
-  box-shadow: 0 0 6px var(--gold-glow);
-}
-
-.entity-json {
+.entity-loading {
+  color: var(--text-dim);
   font-family: var(--mono);
-  font-size: 0.8rem;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--bg);
+  font-size: 0.85rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+/* Entity cards */
+.entity-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.entity-streaming {
+  opacity: 0.7;
+}
+
+.entity-card {
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 1.5rem;
-  min-height: 200px;
+  padding: 1rem 1.25rem;
+  min-width: 250px;
+  flex: 1 1 300px;
+}
+
+.entity-card-wide {
+  flex: 1 1 100%;
+}
+
+.entity-card-title {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.entity-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 1rem;
+  align-items: baseline;
+}
+
+.entity-field {
+  display: contents;
+}
+
+.field-key {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.field-value {
+  font-family: var(--mono);
+  font-size: 0.85rem;
   color: var(--cream);
-  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.3);
+  word-break: break-word;
+}
+
+/* Entity table (for child arrays) */
+.entity-table-wrap {
+  overflow-x: auto;
+}
+
+.entity-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.entity-table th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  background: var(--bg-input);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.entity-table td {
+  padding: 0.35rem 0.6rem;
+  color: var(--cream);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.entity-table tr:hover td {
+  background: var(--bg-card-hover);
 }
 
 /* Rating bar */
