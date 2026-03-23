@@ -153,32 +153,10 @@ class EntityGenerator:
         """
         self.ctx = ctx
         self.catalog = ctx.catalog
-        self._model_cache: dict[str, Any] = {}
+        self._data_cache: dict[str, Any] = {}
         self._encoder_cache: dict[str, Any] = {}
         self._mapping_cache: dict[str, Any] = {}
         self._real_data_cache: dict[str, dict] = {}
-
-    def _load_model(self, view: str, alg: str, version: str | None = None):
-        """Load a synth model from catalog, with caching."""
-        cache_key = f"{view}.{alg}.{version or 'latest'}"
-        if cache_key in self._model_cache:
-            return self._model_cache[cache_key]
-
-        dataset_name = f"{view}.{alg}.model"
-        logger.info(f"Loading model: {dataset_name}")
-
-        # If a specific version is requested, set it on the dataset
-        if version:
-            ds = self.catalog._datasets.get(dataset_name)
-            if ds and hasattr(ds, "_version"):
-                from kedro.io.core import Version
-
-                ds._version = Version(load=version, save=None)
-                ds._version_cache.clear()
-
-        model = self.catalog.load(dataset_name)
-        self._model_cache[cache_key] = model
-        return model
 
     def _load_json_encoder(self, view: str):
         """Load the JSON encoder for a view, with caching."""
@@ -276,58 +254,106 @@ class EntityGenerator:
         }
         return self._real_data_cache[view]
 
+    def _load_synth_data(self, view: str, alg: str, version: str | None = None):
+        """Load pre-generated synthetic data (reverse-transformed tables + ids).
+
+        Uses the same approach as real data: load bst, ctx, ids tables
+        from the catalog for the given view.alg combination.
+        """
+        cache_key = f"{view}.{alg}.{version or 'latest'}"
+        if cache_key in self._data_cache:
+            return self._data_cache[cache_key]
+
+        mapping_info = self._get_mapping(view)
+        relationships = mapping_info["relationships"]
+        all_tables = set(relationships.keys())
+        for children in relationships.values():
+            all_tables.update(children)
+
+        # Pin version on all datasets we'll load
+        if version:
+            from kedro.io.core import Version
+
+            for t in all_tables:
+                for prefix in [f"{view}.{alg}.bst_", f"{view}.{alg}.ids_", f"{view}.{alg}.ctx_"]:
+                    ds_name = f"{prefix}{t}"
+                    ds = self.catalog._datasets.get(ds_name)
+                    if ds and hasattr(ds, "_version"):
+                        ds._version = Version(load=version, save=None)
+                        ds._version_cache.clear()
+
+        tables = {}
+        ids = {}
+        ctx: dict[str, dict] = {}
+
+        for t in all_tables:
+            try:
+                data = self.catalog.load(f"{view}.{alg}.bst_{t}")
+                if callable(data):
+                    data = data()
+                tables[t] = data
+            except Exception:
+                logger.debug(f"Could not load synth bst for {t}", exc_info=True)
+                tables[t] = __import__("pandas").DataFrame()
+
+            try:
+                data = self.catalog.load(f"{view}.{alg}.ids_{t}")
+                if callable(data):
+                    data = data()
+                ids[t] = data
+            except Exception:
+                logger.debug(f"Could not load synth ids for {t}", exc_info=True)
+
+        for ctx_name in mapping_info["ctx_attrs"]:
+            ctx[ctx_name] = {}
+            for t in all_tables:
+                try:
+                    data = self.catalog.load(f"{view}.{alg}.ctx_{t}")
+                    if callable(data):
+                        data = data()
+                    if isinstance(data, dict) and t in data:
+                        ctx[ctx_name][t] = data[t]
+                    elif not isinstance(data, dict):
+                        ctx[ctx_name][t] = data
+                except Exception:
+                    logger.debug(f"Could not load synth ctx {ctx_name}/{t}", exc_info=True)
+
+        result = {"tables": tables, "ids": ids, "ctx": ctx}
+        self._data_cache[cache_key] = result
+        return result
+
     def generate_entity_from_model(
         self, view: str, alg: str, version: str | None = None
     ) -> dict:
-        """Generate a single entity from a synth model.
+        """Generate a single entity from pre-computed synthetic data.
 
-        Returns a dict representing the entity in human-readable form.
+        Loads reverse-transformed synthetic tables from the catalog and
+        picks a random entity using process_entity.
         """
-        model = self._load_model(view, alg, version)
+        from pasteur.extras.encoders import process_entity
 
-        # Generate one entity
-        raw_output = model.sample_partition(n=1, i=random.randint(0, 10000))
+        mapping_info = self._get_mapping(view)
+        synth_data = self._load_synth_data(view, alg, version)
 
-        # raw_output is dict[str, DataFrame] for simple models
-        # or dict[str, dict[str, DataFrame]] for multi-type models
-        # We need to decode it through the encoder
-        return self._decode_synth_output(view, raw_output)
+        top_table = mapping_info["top_table"]
+        ids = synth_data["ids"]
+        tables = synth_data["tables"]
+        ctx = synth_data["ctx"]
 
-    def _decode_synth_output(self, view: str, raw_output: dict) -> dict:
-        """Decode raw synth output into a human-readable entity dict."""
-        from pasteur.extras.encoders import (
-            create_table_mapping,
-            get_top_table,
-            process_entity,
+        if top_table not in ids or len(ids[top_table]) == 0:
+            return {"error": "No synthetic data available"}
+
+        all_ids = list(ids[top_table].index)
+        entity_id = random.choice(all_ids)
+
+        return process_entity(
+            top_table,
+            entity_id,
+            mapping_info["mapping"],
+            tables,
+            ctx,
+            ids,
         )
-
-        encoder = self._load_json_encoder(view)
-
-        # Decode through the encoder
-        decoded = encoder.decode(raw_output)
-
-        # decoded is a set of closures; materialize them
-        # Each closure returns {"ids": {...}, "data": {...}}
-        all_data = {}
-        for closure in decoded:
-            result = closure()
-            for key, partitions in result.items():
-                if key not in all_data:
-                    all_data[key] = {}
-                all_data[key].update(partitions)
-
-        # The "data" partitions contain the JSON-encoded entities
-        # Each partition value is a DataFrame with stringified dicts
-        # Parse the first entity
-        if "data" in all_data:
-            for _pid, df in all_data["data"].items():
-                if len(df) > 0:
-                    entity_str = df.iloc[0, 0]
-                    if isinstance(entity_str, str):
-                        return json.loads(entity_str.replace("'", '"'))
-                    return dict(entity_str)
-
-        return {"error": "No entity generated"}
 
     def generate_entity_from_real(self, view: str) -> dict:
         """Sample a random real entity from the working split.
