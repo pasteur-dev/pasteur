@@ -98,7 +98,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
   return (
     <div className="page setup-page">
       <header className="header">
-        <a href="/" className="header-brand">
+        <a href="#/" className="header-brand">
           <img src="/logo.svg" alt="Pasteur" className="header-logo" />
           <h1>LITMUS</h1>
         </a>

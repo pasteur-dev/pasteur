@@ -115,7 +115,7 @@ export default function EvaluationPage({
     <div className="page eval-page">
       <header className="header">
         <div className="header-left">
-          <a href="/" className="header-brand">
+          <a href="#/" className="header-brand">
             <img src="/logo.svg" alt="Pasteur" className="header-logo" />
             <h1>LITMUS</h1>
           </a>
