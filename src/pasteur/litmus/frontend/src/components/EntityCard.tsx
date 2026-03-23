@@ -95,7 +95,6 @@ export default function EntityCard({
                   <EntityCard
                     key={i}
                     data={item}
-                    title={`${formatKey(entry.key)} ${i + 1}`}
                     depth={depth + 1}
                   />
                 ))}
