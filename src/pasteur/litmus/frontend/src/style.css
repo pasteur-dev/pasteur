@@ -312,18 +312,18 @@ input[type="number"] {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.25rem 0.6rem;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  padding: 0.3rem 0.7rem;
+  background: rgba(168, 154, 5, 0.08);
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
   font-family: var(--mono);
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text);
 }
 
 .model-tag-alg {
-  color: var(--text);
-  font-weight: 600;
+  color: var(--gold-bright);
+  font-weight: 700;
 }
 
 .model-tag-override {
@@ -332,15 +332,16 @@ input[type="number"] {
 }
 
 .model-tag-ts {
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.65rem;
-  opacity: 0.6;
   margin-left: 0.2rem;
 }
 
 .model-tag-real {
+  background: rgba(0, 221, 119, 0.08);
   border-color: var(--success);
   color: var(--success);
+  font-weight: 700;
 }
 
 /* Setup page */
