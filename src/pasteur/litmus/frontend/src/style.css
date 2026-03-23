@@ -300,6 +300,37 @@ input[type="number"] {
   text-shadow: 0 0 8px var(--gold-glow);
 }
 
+/* Model tags */
+.exp-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.model-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.model-tag-version {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+}
+
+.model-tag-real {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 /* Setup page */
 .setup-layout {
   display: flex;

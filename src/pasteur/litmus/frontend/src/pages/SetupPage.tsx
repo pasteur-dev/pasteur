@@ -13,11 +13,9 @@ import type {
   ExperimentSummary,
   ModelRef,
 } from "../api";
-import ResultsPanel from "./ResultsPanel";
 
 interface Props {
-  onExperimentCreated: (exp: ExperimentDetail) => void;
-  onResumeExperiment: (exp: ExperimentDetail) => void;
+  onSelectExperiment: (exp: ExperimentDetail) => void;
 }
 
 interface SelectedModel {
@@ -25,10 +23,7 @@ interface SelectedModel {
   version: string;
 }
 
-export default function SetupPage({
-  onExperimentCreated,
-  onResumeExperiment,
-}: Props) {
+export default function SetupPage({ onSelectExperiment }: Props) {
   const [views, setViews] = useState<string[]>([]);
   const [selectedView, setSelectedView] = useState("");
   const [models, setModels] = useState<ViewModels>({});
@@ -37,16 +32,14 @@ export default function SetupPage({
   const [includeReal, setIncludeReal] = useState(true);
   const [blind, setBlind] = useState(true);
   const [samplesPerSplit, setSamplesPerSplit] = useState(20);
+  const [expName, setExpName] = useState("");
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
-  const [selectedExpId, setSelectedExpId] = useState<string | null>(null);
 
-  // Load views on mount
   useEffect(() => {
     fetchViews().then(setViews);
     fetchExperiments().then(setExperiments);
   }, []);
 
-  // Load models when view changes
   useEffect(() => {
     if (selectedView) {
       fetchModels(selectedView).then(setModels);
@@ -54,8 +47,7 @@ export default function SetupPage({
     }
   }, [selectedView]);
 
-  const numSplits =
-    selectedModels.length + (includeReal ? 1 : 0);
+  const numSplits = selectedModels.length + (includeReal ? 1 : 0);
   const totalSamples = numSplits * samplesPerSplit;
 
   const toggleModel = (alg: string, version: string) => {
@@ -79,24 +71,25 @@ export default function SetupPage({
       overrides: {},
     }));
     const exp = await createExperiment({
+      name: expName || `${selectedView} experiment`,
       view: selectedView,
       models: modelRefs,
       include_real: includeReal,
       blind,
       samples_per_split: samplesPerSplit,
     });
-    onExperimentCreated(exp);
+    onSelectExperiment(exp);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
     await deleteExperiment(id);
-    setExperiments((prev) => prev.filter((e) => e.id !== id));
-    if (selectedExpId === id) setSelectedExpId(null);
+    setExperiments((prev) => prev.filter((exp) => exp.id !== id));
   };
 
-  const handleResume = async (id: string) => {
+  const handleSelect = async (id: string) => {
     const exp = await fetchExperiment(id);
-    onResumeExperiment(exp);
+    onSelectExperiment(exp);
   };
 
   return (
@@ -109,12 +102,21 @@ export default function SetupPage({
       </header>
 
       <div className="setup-layout">
-        {/* Left panel: New experiment + history */}
+        {/* Left: create new experiment */}
         <div className="setup-left">
           <section className="card">
             <h2>New Experiment</h2>
 
-            {/* View selector */}
+            <label>
+              Experiment name
+              <input
+                type="text"
+                value={expName}
+                onChange={(e) => setExpName(e.target.value)}
+                placeholder="e.g. MIMIC realism study"
+              />
+            </label>
+
             <label>
               View
               <select
@@ -130,7 +132,6 @@ export default function SetupPage({
               </select>
             </label>
 
-            {/* Model list */}
             {selectedView && (
               <div className="model-list">
                 <h3>Models</h3>
@@ -138,15 +139,11 @@ export default function SetupPage({
                   <div key={alg} className="model-group">
                     <h4>{alg}</h4>
                     {versions
-                      .slice(
-                        0,
-                        expandedAlgs.has(alg) ? undefined : 5
-                      )
+                      .slice(0, expandedAlgs.has(alg) ? undefined : 5)
                       .map((v) => {
                         const isSelected = selectedModels.some(
                           (m) =>
-                            m.algorithm === alg &&
-                            m.version === v.version
+                            m.algorithm === alg && m.version === v.version
                         );
                         return (
                           <label
@@ -156,9 +153,7 @@ export default function SetupPage({
                             <input
                               type="checkbox"
                               checked={isSelected}
-                              onChange={() =>
-                                toggleModel(alg, v.version)
-                              }
+                              onChange={() => toggleModel(alg, v.version)}
                             />
                             <span className="version">
                               {formatTimestamp(v.version)}
@@ -166,25 +161,21 @@ export default function SetupPage({
                           </label>
                         );
                       })}
-                    {versions.length > 5 &&
-                      !expandedAlgs.has(alg) && (
-                        <button
-                          className="btn-link"
-                          onClick={() =>
-                            setExpandedAlgs(
-                              (s) => new Set([...s, alg])
-                            )
-                          }
-                        >
-                          Show {versions.length - 5} more...
-                        </button>
-                      )}
+                    {versions.length > 5 && !expandedAlgs.has(alg) && (
+                      <button
+                        className="btn-link"
+                        onClick={() =>
+                          setExpandedAlgs((s) => new Set([...s, alg]))
+                        }
+                      >
+                        Show {versions.length - 5} more...
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Options */}
             <div className="options">
               <label className="checkbox-label">
                 <input
@@ -204,7 +195,6 @@ export default function SetupPage({
               </label>
             </div>
 
-            {/* Sample counts */}
             <div className="sample-counts">
               <label>
                 Samples per split
@@ -229,10 +219,7 @@ export default function SetupPage({
                   onChange={(e) => {
                     const total = parseInt(e.target.value) || numSplits;
                     setSamplesPerSplit(
-                      Math.max(
-                        1,
-                        Math.round(total / Math.max(1, numSplits))
-                      )
+                      Math.max(1, Math.round(total / Math.max(1, numSplits)))
                     );
                   }}
                 />
@@ -247,11 +234,13 @@ export default function SetupPage({
               disabled={selectedModels.length === 0}
               onClick={handleCreate}
             >
-              Next
+              Create Experiment
             </button>
           </section>
+        </div>
 
-          {/* Historical experiments */}
+        {/* Right: existing experiments */}
+        <div className="setup-right">
           {experiments.length > 0 && (
             <section className="card">
               <h2>Experiments</h2>
@@ -259,37 +248,22 @@ export default function SetupPage({
                 {experiments.map((exp) => (
                   <div
                     key={exp.id}
-                    className={`experiment-item ${selectedExpId === exp.id ? "selected" : ""}`}
-                    onClick={() => setSelectedExpId(exp.id)}
+                    className="experiment-item"
+                    onClick={() => handleSelect(exp.id)}
                   >
                     <div className="exp-info">
-                      <strong>
-                        {exp.name || "Unnamed"}
-                      </strong>
+                      <strong>{exp.name || "Unnamed"}</strong>
                       <span>
-                        {exp.view} &middot;{" "}
-                        {exp.progress}/{exp.total_samples}
-                        {exp.finished ? " (done)" : ""}
+                        {exp.view} &middot; {exp.num_models} model
+                        {exp.num_models !== 1 ? "s" : ""}
+                        {exp.include_real ? " + real" : ""} &middot;{" "}
+                        {exp.num_runs} run{exp.num_runs !== 1 ? "s" : ""}
                       </span>
                     </div>
                     <div className="exp-actions">
-                      {exp.started && !exp.finished && (
-                        <button
-                          className="btn btn-small"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleResume(exp.id);
-                          }}
-                        >
-                          Resume
-                        </button>
-                      )}
                       <button
                         className="btn btn-small btn-danger"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(exp.id);
-                        }}
+                        onClick={(e) => handleDelete(exp.id, e)}
                         title="Delete"
                       >
                         &#128465;
@@ -301,18 +275,12 @@ export default function SetupPage({
             </section>
           )}
         </div>
-
-        {/* Right panel: Results dashboard */}
-        <div className="setup-right">
-          {selectedExpId && <ResultsPanel experimentId={selectedExpId} />}
-        </div>
       </div>
     </div>
   );
 }
 
 function formatTimestamp(ts: string): string {
-  // Convert "2026-01-22T09.23.40.216Z" to readable format
   return ts
     .replace(/T/, " ")
     .replace(/\.\d+Z$/, "")

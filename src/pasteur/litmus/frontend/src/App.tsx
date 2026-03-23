@@ -1,13 +1,13 @@
 import { useState } from "react";
 import type { ExperimentDetail } from "./api";
 import SetupPage from "./pages/SetupPage";
-import ExperimentStartPage from "./pages/ExperimentStartPage";
+import ExperimentPage from "./pages/ExperimentPage";
 import EvaluationPage from "./pages/EvaluationPage";
 
 type Page =
   | { type: "setup" }
-  | { type: "start"; experiment: ExperimentDetail }
-  | { type: "evaluate"; experiment: ExperimentDetail };
+  | { type: "experiment"; experiment: ExperimentDetail }
+  | { type: "evaluate"; experiment: ExperimentDetail; runId: string };
 
 export default function App() {
   const [page, setPage] = useState<Page>({ type: "setup" });
@@ -16,19 +16,21 @@ export default function App() {
     case "setup":
       return (
         <SetupPage
-          onExperimentCreated={(exp) =>
-            setPage({ type: "start", experiment: exp })
-          }
-          onResumeExperiment={(exp) =>
-            setPage({ type: "evaluate", experiment: exp })
+          onSelectExperiment={(exp) =>
+            setPage({ type: "experiment", experiment: exp })
           }
         />
       );
-    case "start":
+    case "experiment":
       return (
-        <ExperimentStartPage
+        <ExperimentPage
           experiment={page.experiment}
-          onStarted={(exp) => setPage({ type: "evaluate", experiment: exp })}
+          onStartRun={(exp, run) =>
+            setPage({ type: "evaluate", experiment: exp, runId: run.id })
+          }
+          onResumeRun={(exp, run) =>
+            setPage({ type: "evaluate", experiment: exp, runId: run.id })
+          }
           onBack={() => setPage({ type: "setup" })}
         />
       );
@@ -36,7 +38,10 @@ export default function App() {
       return (
         <EvaluationPage
           experiment={page.experiment}
-          onFinished={() => setPage({ type: "setup" })}
+          runId={page.runId}
+          onFinished={() =>
+            setPage({ type: "experiment", experiment: page.experiment })
+          }
         />
       );
   }

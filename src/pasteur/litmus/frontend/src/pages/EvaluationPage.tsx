@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  rateEntity,
-  skipEntity,
-  endExperiment,
-} from "../api";
+import { rateEntity, skipEntity, endRun } from "../api";
 import type { ExperimentDetail, SSEEvent } from "../api";
 
 interface Props {
   experiment: ExperimentDetail;
+  runId: string;
   onFinished: () => void;
 }
 
@@ -27,10 +24,14 @@ const LIKERT_COLORS = [
   "#00dd77",
 ];
 
-export default function EvaluationPage({ experiment, onFinished }: Props) {
+export default function EvaluationPage({
+  experiment,
+  runId,
+  onFinished,
+}: Props) {
   const [prettyJson, setPrettyJson] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [progress, setProgress] = useState(experiment.progress);
+  const [progress, setProgress] = useState(0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
   const [streamProgress, setStreamProgress] = useState(0);
@@ -47,7 +48,7 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
     setSource("");
 
     const es = new EventSource(
-      `/api/experiments/${experiment.id}/next`
+      `/api/experiments/${experiment.id}/runs/${runId}/next`
     );
     eventSourceRef.current = es;
 
@@ -79,9 +80,8 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [experiment.id]);
+  }, [experiment.id, runId]);
 
-  // Start streaming first entity on mount
   useEffect(() => {
     startStreaming();
     return () => {
@@ -95,15 +95,17 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
     );
     await rateEntity(
       experiment.id,
+      runId,
       entityId,
       source,
       score,
       responseTimeMs
     );
-    setProgress((p) => p + 1);
+    const newProgress = progress + 1;
+    setProgress(newProgress);
 
-    if (progress + 1 >= total) {
-      await endExperiment(experiment.id);
+    if (newProgress >= total) {
+      await endRun(experiment.id, runId);
       onFinished();
     } else {
       startStreaming();
@@ -111,11 +113,12 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
   };
 
   const handleSkip = async () => {
-    await skipEntity(experiment.id, entityId, source);
-    setProgress((p) => p + 1);
+    await skipEntity(experiment.id, runId, entityId, source);
+    const newProgress = progress + 1;
+    setProgress(newProgress);
 
-    if (progress + 1 >= total) {
-      await endExperiment(experiment.id);
+    if (newProgress >= total) {
+      await endRun(experiment.id, runId);
       onFinished();
     } else {
       startStreaming();
@@ -124,7 +127,7 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
 
   const handleEnd = async () => {
     eventSourceRef.current?.close();
-    await endExperiment(experiment.id);
+    await endRun(experiment.id, runId);
     onFinished();
   };
 
@@ -163,7 +166,6 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
         </div>
       </header>
 
-      {/* Entity display */}
       <div className="entity-container">
         {streaming && (
           <div className="stream-indicator">
@@ -176,7 +178,6 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
         <pre className="entity-json">{prettyJson || "Loading..."}</pre>
       </div>
 
-      {/* Likert rating bar */}
       <div className="rating-bar">
         {LIKERT_LABELS.map((label, i) => {
           const score = i + 1;
@@ -185,9 +186,7 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
               key={score}
               className="rating-btn"
               style={{
-                backgroundColor: streaming
-                  ? "#ccc"
-                  : LIKERT_COLORS[i],
+                backgroundColor: streaming ? "#1a1a2e" : LIKERT_COLORS[i],
               }}
               disabled={streaming}
               onClick={() => handleRate(score)}

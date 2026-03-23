@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request
@@ -11,6 +12,7 @@ from .store import (
     ExperimentStore,
     ModelRef,
     Rating,
+    Run,
 )
 
 logger = logging.getLogger(__name__)
@@ -21,13 +23,6 @@ def create_app(
     catalog_info: dict | None = None,
     generator=None,
 ) -> Flask:
-    """Create the LITMUS Flask application.
-
-    Args:
-        data_dir: Path to Kedro data directory for experiment persistence.
-        catalog_info: Dict with available views and models from filesystem scan.
-        generator: EntityGenerator instance for generating entities.
-    """
     static_dir = Path(__file__).parent / "static"
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="")
 
@@ -68,8 +63,7 @@ def _register_routes(app: Flask):
     @app.route("/api/experiments", methods=["GET"])
     def list_experiments():
         store = _get_store(app)
-        experiments = store.list_all()
-        return jsonify([_experiment_summary(e) for e in experiments])
+        return jsonify([_exp_summary(e) for e in store.list_experiments()])
 
     @app.route("/api/experiments", methods=["POST"])
     def create_experiment():
@@ -82,42 +76,64 @@ def _register_routes(app: Flask):
         if not models:
             return jsonify({"error": "At least one model required"}), 400
 
-        exp = store.create(
+        exp = store.create_experiment(
+            name=data.get("name", ""),
             view=data["view"],
             models=models,
             include_real=data.get("include_real", True),
             blind=data.get("blind", True),
             samples_per_split=data.get("samples_per_split", 20),
         )
-        return jsonify(_experiment_detail(exp)), 201
+        return jsonify(_exp_detail(exp)), 201
 
-    @app.route("/api/experiments/<experiment_id>")
-    def get_experiment(experiment_id: str):
+    @app.route("/api/experiments/<eid>")
+    def get_experiment(eid: str):
         store = _get_store(app)
-        exp = store.get(experiment_id)
+        exp = store.get_experiment(eid)
         if not exp:
             return jsonify({"error": "Experiment not found"}), 404
-        return jsonify(_experiment_detail(exp))
+        return jsonify(_exp_detail(exp))
 
-    @app.route("/api/experiments/<experiment_id>", methods=["DELETE"])
-    def delete_experiment(experiment_id: str):
+    @app.route("/api/experiments/<eid>", methods=["DELETE"])
+    def delete_experiment(eid: str):
         store = _get_store(app)
-        if store.delete(experiment_id):
+        if store.delete_experiment(eid):
             return jsonify({"ok": True})
         return jsonify({"error": "Experiment not found"}), 404
 
-    @app.route("/api/experiments/<experiment_id>/start", methods=["POST"])
-    def start_experiment(experiment_id: str):
+    # --- Runs ---
+
+    @app.route("/api/experiments/<eid>/runs", methods=["POST"])
+    def create_run(eid: str):
         store = _get_store(app)
         data = request.json or {}
-        name = data.get("name", "")
-        tutorial = data.get("tutorial", False)
-        if store.start_experiment(experiment_id, name, tutorial):
-            return jsonify({"ok": True})
-        return jsonify({"error": "Experiment not found"}), 404
+        run = store.create_run(
+            eid,
+            name=data.get("name", ""),
+            tutorial=data.get("tutorial", False),
+        )
+        if not run:
+            return jsonify({"error": "Experiment not found"}), 404
+        return jsonify(_run_detail(run, store.get_experiment(eid))), 201
 
-    @app.route("/api/experiments/<experiment_id>/rate", methods=["POST"])
-    def rate_entity(experiment_id: str):
+    @app.route("/api/experiments/<eid>/runs/<rid>")
+    def get_run(eid: str, rid: str):
+        store = _get_store(app)
+        result = store.get_run(eid, rid)
+        if not result:
+            return jsonify({"error": "Run not found"}), 404
+        exp, run = result
+        return jsonify(_run_detail(run, exp))
+
+    @app.route("/api/experiments/<eid>/runs/<rid>", methods=["DELETE"])
+    def delete_run(eid: str, rid: str):
+        store = _get_store(app)
+        if store.delete_run(eid, rid):
+            return jsonify({"ok": True})
+        return jsonify({"error": "Run not found"}), 404
+
+    @app.route("/api/experiments/<eid>/runs/<rid>/rate", methods=["POST"])
+    def rate_entity(eid: str, rid: str):
         store = _get_store(app)
         data = request.json
         if not data:
@@ -130,17 +146,18 @@ def _register_routes(app: Flask):
             response_time_ms=data.get("response_time_ms"),
             skipped=data.get("skipped", False),
         )
-        if store.add_rating(experiment_id, rating):
-            exp = store.get(experiment_id)
+        if store.add_rating(eid, rid, rating):
+            result = store.get_run(eid, rid)
+            exp, run = result if result else (None, None)
             return jsonify({
                 "ok": True,
-                "progress": exp.progress if exp else 0,
+                "progress": run.progress if run else 0,
                 "total": exp.total_samples if exp else 0,
             })
         return jsonify({"error": "Cannot add rating"}), 400
 
-    @app.route("/api/experiments/<experiment_id>/skip", methods=["POST"])
-    def skip_entity(experiment_id: str):
+    @app.route("/api/experiments/<eid>/runs/<rid>/skip", methods=["POST"])
+    def skip_entity(eid: str, rid: str):
         store = _get_store(app)
         data = request.json or {}
         rating = Rating(
@@ -150,43 +167,39 @@ def _register_routes(app: Flask):
             response_time_ms=None,
             skipped=True,
         )
-        if store.add_rating(experiment_id, rating):
+        if store.add_rating(eid, rid, rating):
             return jsonify({"ok": True})
         return jsonify({"error": "Cannot skip"}), 400
 
-    @app.route("/api/experiments/<experiment_id>/end", methods=["POST"])
-    def end_experiment(experiment_id: str):
+    @app.route("/api/experiments/<eid>/runs/<rid>/end", methods=["POST"])
+    def end_run(eid: str, rid: str):
         store = _get_store(app)
-        if store.finish_experiment(experiment_id):
+        if store.finish_run(eid, rid):
             return jsonify({"ok": True})
-        return jsonify({"error": "Experiment not found"}), 404
+        return jsonify({"error": "Run not found"}), 404
 
-    @app.route("/api/experiments/<experiment_id>/results")
-    def get_results(experiment_id: str):
+    @app.route("/api/experiments/<eid>/results")
+    def get_experiment_results(eid: str):
         store = _get_store(app)
-        exp = store.get(experiment_id)
+        exp = store.get_experiment(eid)
         if not exp:
             return jsonify({"error": "Experiment not found"}), 404
         return jsonify(_compute_results(exp))
 
     # --- Entity Generation ---
 
-    def _pick_source(exp):
-        """Pick the next source for entity generation (round-robin across splits)."""
+    def _pick_source(exp, run):
         splits = []
         for m in exp.models:
             splits.append(("model", m.algorithm, m.timestamp))
         if exp.include_real:
             splits.append(("real", None, None))
-
         if not splits:
             return None, None, None
-
-        split_idx = exp.progress % len(splits)
+        split_idx = run.progress % len(splits)
         return splits[split_idx]
 
     def _generate_entity(generator, exp, source_type, alg, version):
-        """Generate an entity from the given source."""
         if source_type == "real":
             entity = generator.generate_entity_from_real(exp.view)
             source = "real"
@@ -197,30 +210,25 @@ def _register_routes(app: Flask):
             source = f"{alg}_{version or 'latest'}"
         return entity, source
 
-    @app.route("/api/experiments/<experiment_id>/next")
-    def next_entity(experiment_id: str):
-        """Generate the next entity and stream it via SSE.
-
-        If the experiment has blind=True, tokens are delivered on a
-        blinded schedule (Algorithm 1). Otherwise, the full entity
-        is sent in a single event.
-        """
+    @app.route("/api/experiments/<eid>/runs/<rid>/next")
+    def next_entity(eid: str, rid: str):
         from .streaming import StreamingParams, generate_sse_stream
 
         store = _get_store(app)
         generator = app.config.get("generator")
-        exp = store.get(experiment_id)
+        result = store.get_run(eid, rid)
 
-        if not exp:
-            return jsonify({"error": "Experiment not found"}), 404
-        if not exp.started:
-            return jsonify({"error": "Experiment not started"}), 400
-        if exp.finished:
-            return jsonify({"error": "Experiment already finished"}), 400
+        if not result:
+            return jsonify({"error": "Run not found"}), 404
+        exp, run = result
+        if not run.started:
+            return jsonify({"error": "Run not started"}), 400
+        if run.finished:
+            return jsonify({"error": "Run already finished"}), 400
         if not generator:
             return jsonify({"error": "No generator available"}), 500
 
-        source_type, alg, version = _pick_source(exp)
+        source_type, alg, version = _pick_source(exp, run)
         if source_type is None:
             return jsonify({"error": "No splits configured"}), 400
 
@@ -233,7 +241,6 @@ def _register_routes(app: Flask):
             logger.exception("Entity generation failed")
             return jsonify({"error": "Entity generation failed"}), 500
 
-        # Build streaming params from experiment timing profile
         if exp.timing_params and exp.blind:
             params = StreamingParams(
                 tps_0=exp.timing_params.tps_0,
@@ -259,7 +266,9 @@ def _register_routes(app: Flask):
         )
 
 
-def _experiment_summary(exp: Experiment) -> dict:
+# --- Serialization helpers ---
+
+def _exp_summary(exp: Experiment) -> dict:
     return {
         "id": exp.id,
         "name": exp.name,
@@ -269,33 +278,51 @@ def _experiment_summary(exp: Experiment) -> dict:
         "blind": exp.blind,
         "samples_per_split": exp.samples_per_split,
         "total_samples": exp.total_samples,
-        "progress": exp.progress,
-        "finished": exp.finished,
-        "started": exp.started,
+        "num_runs": len(exp.runs),
         "created_at": exp.created_at,
     }
 
 
-def _experiment_detail(exp: Experiment) -> dict:
-    from dataclasses import asdict
-
+def _exp_detail(exp: Experiment) -> dict:
     return {
-        **_experiment_summary(exp),
+        **_exp_summary(exp),
         "models": [asdict(m) for m in exp.models],
         "timing_params": asdict(exp.timing_params) if exp.timing_params else None,
-        "tutorial": exp.tutorial,
-        "ratings": [asdict(r) for r in exp.ratings],
+        "runs": [_run_summary(r, exp) for r in exp.runs],
+    }
+
+
+def _run_summary(run: Run, exp: Experiment) -> dict:
+    return {
+        "id": run.id,
+        "name": run.name,
+        "tutorial": run.tutorial,
+        "started": run.started,
+        "finished": run.finished,
+        "progress": run.progress,
+        "total_samples": exp.total_samples,
+        "created_at": run.created_at,
+    }
+
+
+def _run_detail(run: Run, exp: Experiment | None) -> dict:
+    base = _run_summary(run, exp) if exp else {"id": run.id}
+    return {
+        **base,
+        "ratings": [asdict(r) for r in run.ratings],
     }
 
 
 def _compute_results(exp: Experiment) -> dict:
-    """Compute aggregated results for an experiment."""
     from collections import defaultdict
 
     by_source: dict[str, list[int]] = defaultdict(list)
-    for r in exp.ratings:
-        if not r.skipped and r.score is not None:
-            by_source[r.source].append(r.score)
+    for run in exp.runs:
+        if run.tutorial:
+            continue
+        for r in run.ratings:
+            if not r.skipped and r.score is not None:
+                by_source[r.source].append(r.score)
 
     results = {}
     for source, scores in by_source.items():
@@ -306,11 +333,21 @@ def _compute_results(exp: Experiment) -> dict:
             "distribution": dist,
         }
 
+    total_rated = sum(
+        1 for run in exp.runs if not run.tutorial
+        for r in run.ratings if not r.skipped
+    )
+    total_skipped = sum(
+        1 for run in exp.runs if not run.tutorial
+        for r in run.ratings if r.skipped
+    )
+
     return {
         "experiment_id": exp.id,
         "name": exp.name,
         "view": exp.view,
-        "total_rated": sum(1 for r in exp.ratings if not r.skipped),
-        "total_skipped": sum(1 for r in exp.ratings if r.skipped),
+        "num_runs": len([r for r in exp.runs if not r.tutorial]),
+        "total_rated": total_rated,
+        "total_skipped": total_skipped,
         "by_source": results,
     }

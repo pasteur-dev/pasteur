@@ -1,4 +1,4 @@
-"""JSON-backed persistence for LITMUS experiments and ratings."""
+"""JSON-backed persistence for LITMUS experiments and runs."""
 
 import json
 import logging
@@ -36,7 +36,26 @@ class TimingParams:
 
 
 @dataclass
+class Run:
+    """A single participant session within an experiment."""
+
+    id: str
+    name: str  # participant/session name
+    tutorial: bool = False
+    started: bool = False
+    finished: bool = False
+    created_at: str = ""
+    ratings: list[Rating] = field(default_factory=list)
+
+    @property
+    def progress(self) -> int:
+        return len(self.ratings)
+
+
+@dataclass
 class Experiment:
+    """Top-level experiment configuration. Contains multiple runs."""
+
     id: str
     view: str
     models: list[ModelRef]
@@ -45,11 +64,8 @@ class Experiment:
     samples_per_split: int
     name: str = ""
     timing_params: TimingParams | None = None
-    tutorial: bool = False
     created_at: str = ""
-    finished: bool = False
-    started: bool = False
-    ratings: list[Rating] = field(default_factory=list)
+    runs: list[Run] = field(default_factory=list)
 
     @property
     def num_splits(self) -> int:
@@ -59,24 +75,23 @@ class Experiment:
     def total_samples(self) -> int:
         return self.num_splits * self.samples_per_split
 
-    @property
-    def progress(self) -> int:
-        return len(self.ratings)
-
 
 def _experiment_to_dict(exp: Experiment) -> dict:
-    d = asdict(exp)
-    return d
+    return asdict(exp)
 
 
 def _experiment_from_dict(d: dict) -> Experiment:
     models = [ModelRef(**m) for m in d.pop("models", [])]
-    ratings = [Rating(**r) for r in d.pop("ratings", [])]
+    raw_runs = d.pop("runs", [])
+    runs = []
+    for r in raw_runs:
+        ratings = [Rating(**rt) for rt in r.pop("ratings", [])]
+        runs.append(Run(ratings=ratings, **r))
     tp = d.pop("timing_params", None)
     timing_params = TimingParams(**tp) if tp else None
     return Experiment(
         models=models,
-        ratings=ratings,
+        runs=runs,
         timing_params=timing_params,
         **d,
     )
@@ -110,8 +125,11 @@ class ExperimentStore:
         with open(self._path(exp.id), "w") as f:
             json.dump(_experiment_to_dict(exp), f, indent=2)
 
-    def create(
+    # --- Experiment CRUD ---
+
+    def create_experiment(
         self,
+        name: str,
         view: str,
         models: list[ModelRef],
         include_real: bool,
@@ -121,6 +139,7 @@ class ExperimentStore:
         with self._lock:
             exp = Experiment(
                 id=str(uuid.uuid4()),
+                name=name,
                 view=view,
                 models=models,
                 include_real=include_real,
@@ -130,25 +149,25 @@ class ExperimentStore:
             )
             self._experiments[exp.id] = exp
             self._save(exp)
-            logger.info(f"Created experiment {exp.id}")
+            logger.info(f"Created experiment {exp.id}: {name}")
             return exp
 
-    def get(self, experiment_id: str) -> Experiment | None:
+    def get_experiment(self, experiment_id: str) -> Experiment | None:
         return self._experiments.get(experiment_id)
 
-    def list_all(self) -> list[Experiment]:
+    def list_experiments(self) -> list[Experiment]:
         return sorted(
             self._experiments.values(),
             key=lambda e: e.created_at,
             reverse=True,
         )
 
-    def update(self, exp: Experiment):
+    def update_experiment(self, exp: Experiment):
         with self._lock:
             self._experiments[exp.id] = exp
             self._save(exp)
 
-    def delete(self, experiment_id: str) -> bool:
+    def delete_experiment(self, experiment_id: str) -> bool:
         with self._lock:
             if experiment_id not in self._experiments:
                 return False
@@ -159,34 +178,68 @@ class ExperimentStore:
             logger.info(f"Deleted experiment {experiment_id}")
             return True
 
-    def add_rating(self, experiment_id: str, rating: Rating) -> bool:
-        with self._lock:
-            exp = self._experiments.get(experiment_id)
-            if not exp or exp.finished:
-                return False
-            exp.ratings.append(rating)
-            self._save(exp)
-            return True
+    # --- Run CRUD ---
 
-    def start_experiment(
+    def create_run(
         self, experiment_id: str, name: str, tutorial: bool
-    ) -> bool:
+    ) -> Run | None:
         with self._lock:
             exp = self._experiments.get(experiment_id)
             if not exp:
-                return False
-            exp.name = name
-            exp.tutorial = tutorial
-            exp.started = True
+                return None
+            run = Run(
+                id=str(uuid.uuid4()),
+                name=name,
+                tutorial=tutorial,
+                started=True,
+                created_at=datetime.now().isoformat(),
+            )
+            exp.runs.append(run)
             self._save(exp)
-            return True
+            logger.info(f"Created run {run.id} in experiment {experiment_id}")
+            return run
 
-    def finish_experiment(self, experiment_id: str) -> bool:
+    def get_run(self, experiment_id: str, run_id: str) -> tuple[Experiment, Run] | None:
+        exp = self._experiments.get(experiment_id)
+        if not exp:
+            return None
+        for run in exp.runs:
+            if run.id == run_id:
+                return exp, run
+        return None
+
+    def add_rating(self, experiment_id: str, run_id: str, rating: Rating) -> bool:
         with self._lock:
             exp = self._experiments.get(experiment_id)
             if not exp:
                 return False
-            exp.finished = True
+            for run in exp.runs:
+                if run.id == run_id:
+                    if run.finished:
+                        return False
+                    run.ratings.append(rating)
+                    self._save(exp)
+                    return True
+            return False
+
+    def finish_run(self, experiment_id: str, run_id: str) -> bool:
+        with self._lock:
+            exp = self._experiments.get(experiment_id)
+            if not exp:
+                return False
+            for run in exp.runs:
+                if run.id == run_id:
+                    run.finished = True
+                    self._save(exp)
+                    return True
+            return False
+
+    def delete_run(self, experiment_id: str, run_id: str) -> bool:
+        with self._lock:
+            exp = self._experiments.get(experiment_id)
+            if not exp:
+                return False
+            exp.runs = [r for r in exp.runs if r.id != run_id]
             self._save(exp)
             return True
 
