@@ -3,6 +3,7 @@ import {
   createRun,
   deleteRun,
   fetchExperiment,
+  resumeRun,
 } from "../api";
 import type { ExperimentDetail, RunSummary } from "../api";
 import ModelLabel from "../components/ModelLabel";
@@ -47,8 +48,12 @@ export default function ExperimentPage({
     refresh();
   };
 
-  const handleResumeRun = (run: RunSummary) => {
-    onResumeRun(exp, run);
+  const handleResumeRun = async (run: RunSummary) => {
+    if (run.finished) {
+      await resumeRun(exp.id, run.id);
+    }
+    const updated = await fetchExperiment(exp.id);
+    onResumeRun(updated, run);
   };
 
   return (
@@ -122,11 +127,12 @@ export default function ExperimentPage({
                   <div
                     key={run.id}
                     className="experiment-item"
-                    onClick={() =>
-                      !run.finished && handleResumeRun(run)
-                    }
+                    onClick={() => {
+                      const canResume = !run.finished || run.progress < run.total_samples;
+                      if (canResume) handleResumeRun(run);
+                    }}
                     style={{
-                      cursor: run.finished ? "default" : "pointer",
+                      cursor: (!run.finished || run.progress < run.total_samples) ? "pointer" : "default",
                     }}
                   >
                     <div className="exp-info">
@@ -142,7 +148,7 @@ export default function ExperimentPage({
                       </span>
                     </div>
                     <div className="exp-actions">
-                      {run.started && !run.finished && (
+                      {run.started && (!run.finished || run.progress < run.total_samples) && (
                         <button
                           className="btn btn-small btn-primary"
                           onClick={(e) => {

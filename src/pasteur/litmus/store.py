@@ -234,6 +234,18 @@ class ExperimentStore:
                     return True
             return False
 
+    def resume_run(self, experiment_id: str, run_id: str) -> bool:
+        with self._lock:
+            exp = self._experiments.get(experiment_id)
+            if not exp:
+                return False
+            for run in exp.runs:
+                if run.id == run_id:
+                    run.finished = False
+                    self._save(exp)
+                    return True
+            return False
+
     def delete_run(self, experiment_id: str, run_id: str) -> bool:
         with self._lock:
             exp = self._experiments.get(experiment_id)

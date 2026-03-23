@@ -32,7 +32,8 @@ export default function EvaluationPage({
 }: Props) {
   const [entity, setEntity] = useState<Record<string, unknown> | null>(null);
   const [streaming, setStreaming] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const currentRun = experiment.runs?.find((r) => r.id === runId);
+  const [progress, setProgress] = useState(currentRun?.progress ?? 0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
   const streamCompleteTime = useRef(0);

@@ -178,6 +178,13 @@ def _register_routes(app: Flask):
             return jsonify({"ok": True})
         return jsonify({"error": "Run not found"}), 404
 
+    @app.route("/api/experiments/<eid>/runs/<rid>/resume", methods=["POST"])
+    def resume_run(eid: str, rid: str):
+        store = _get_store(app)
+        if store.resume_run(eid, rid):
+            return jsonify({"ok": True})
+        return jsonify({"error": "Run not found"}), 404
+
     @app.route("/api/experiments/<eid>/results")
     def get_experiment_results(eid: str):
         store = _get_store(app)

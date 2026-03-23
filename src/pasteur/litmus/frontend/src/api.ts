@@ -192,6 +192,16 @@ export async function endRun(
   );
 }
 
+export async function resumeRun(
+  experimentId: string,
+  runId: string
+): Promise<void> {
+  await fetch(
+    `${BASE}/experiments/${experimentId}/runs/${runId}/resume`,
+    { method: "POST" }
+  );
+}
+
 export async function fetchResults(id: string): Promise<ExperimentResults> {
   const res = await fetch(`${BASE}/experiments/${id}/results`);
   return res.json();
