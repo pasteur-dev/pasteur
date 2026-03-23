@@ -32,21 +32,24 @@ export default function EvaluationPage({
 }: Props) {
   const [entity, setEntity] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showSpinner, setShowSpinner] = useState(false);
   const currentRun = experiment.runs?.find((r) => r.id === runId);
   const [progress, setProgress] = useState(currentRun?.progress ?? 0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
   const [sourcePretty, setSourcePretty] = useState("");
   const loadCompleteTime = useRef(0);
+  const spinnerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const total = experiment.total_samples;
 
   const fetchNext = useCallback(async () => {
-    setEntity(null);
     setLoading(true);
-    setEntityId("");
-    setSource("");
-    setSourcePretty("");
+    setShowSpinner(false);
+
+    // Show spinner only if load takes > 300ms
+    if (spinnerTimeout.current) clearTimeout(spinnerTimeout.current);
+    spinnerTimeout.current = setTimeout(() => setShowSpinner(true), 300);
 
     try {
       const res = await fetch(
@@ -64,6 +67,8 @@ export default function EvaluationPage({
     } catch (err) {
       console.error("Failed to fetch entity:", err);
     } finally {
+      if (spinnerTimeout.current) clearTimeout(spinnerTimeout.current);
+      setShowSpinner(false);
       setLoading(false);
       loadCompleteTime.current = performance.now();
     }
@@ -149,8 +154,11 @@ export default function EvaluationPage({
         )}
         {entity ? (
           <EntityCard data={entity} streaming={loading} />
-        ) : (
-          <div className="entity-loading">Generating entity...</div>
+        ) : null}
+        {showSpinner && (
+          <div className="entity-spinner-overlay">
+            <div className="entity-spinner" />
+          </div>
         )}
       </div>
 

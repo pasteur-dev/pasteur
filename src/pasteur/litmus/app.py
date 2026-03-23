@@ -103,6 +103,28 @@ def _register_routes(app: Flask):
 
     # --- Runs ---
 
+    def _preload_experiment_data(exp):
+        """Preload entity data for all models in an experiment (background)."""
+        generator = app.config.get("generator")
+        if not generator:
+            return
+        import threading
+
+        def _load():
+            for m in exp.models:
+                try:
+                    generator._load_synth_data(exp.view, m.algorithm, m.timestamp)
+                except Exception:
+                    pass
+            if exp.include_real:
+                try:
+                    generator._load_real_data(exp.view)
+                except Exception:
+                    pass
+            logger.info(f"Preloaded data for experiment {exp.id}")
+
+        threading.Thread(target=_load, daemon=True).start()
+
     @app.route("/api/experiments/<eid>/runs", methods=["POST"])
     def create_run(eid: str):
         store = _get_store(app)
@@ -114,7 +136,9 @@ def _register_routes(app: Flask):
         )
         if not run:
             return jsonify({"error": "Experiment not found"}), 404
-        return jsonify(_run_detail(run, store.get_experiment(eid))), 201
+        exp = store.get_experiment(eid)
+        _preload_experiment_data(exp)
+        return jsonify(_run_detail(run, exp)), 201
 
     @app.route("/api/experiments/<eid>/runs/<rid>")
     def get_run(eid: str, rid: str):

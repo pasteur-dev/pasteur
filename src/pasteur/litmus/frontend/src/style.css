@@ -575,6 +575,7 @@ input[type="number"] {
   padding: 1.5rem;
   padding-bottom: 6rem;
   overflow-y: auto;
+  position: relative;
 }
 
 .entity-source-header {
@@ -595,12 +596,28 @@ input[type="number"] {
   margin-right: auto;
 }
 
-.entity-loading {
-  color: var(--text-dim);
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  padding: 2rem;
-  text-align: center;
+.entity-spinner-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 15, 0.5);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.entity-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Entity cards */
