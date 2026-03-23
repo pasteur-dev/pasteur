@@ -3,6 +3,7 @@
  *
  * Inline fields (scalars, small objects) render in a table grid.
  * Nested fields (arrays of objects, large objects) render below as sub-cards.
+ * Compact entities (few short scalar fields, no nesting) render as a single line.
  */
 
 interface Props {
@@ -57,6 +58,29 @@ function classifyEntries(data: Record<string, unknown>) {
   return { inline, nested };
 }
 
+/** Check if an entity is compact enough to render in one line. */
+function isCompact(
+  inline: InlineEntry[],
+  nested: NestedEntry[]
+): boolean {
+  if (nested.length > 0) return false;
+  if (inline.length > 4) return false;
+  // Check total character length of keys+values
+  let total = 0;
+  for (const { key, value } of inline) {
+    total += key.length;
+    if (value === null || value === undefined) {
+      total += 1;
+    } else if (typeof value === "object" && !Array.isArray(value)) {
+      // Multi-value objects are too wide for compact
+      return false;
+    } else {
+      total += String(value).length;
+    }
+  }
+  return total < 60;
+}
+
 export default function EntityCard({
   data,
   streaming,
@@ -64,6 +88,25 @@ export default function EntityCard({
   depth = 0,
 }: Props) {
   const { inline, nested } = classifyEntries(data);
+  const compact = depth > 0 && isCompact(inline, nested);
+
+  if (compact) {
+    return (
+      <div
+        className={`entity-compact ${streaming ? "entity-streaming" : ""}`}
+      >
+        {inline.map(({ key, value }, i) => (
+          <span key={key} className="compact-field">
+            {i > 0 && <span className="compact-sep">&middot;</span>}
+            <span className="field-key">{formatKey(key)}:</span>{" "}
+            <span className="field-value">
+              {formatScalar(value as string | number | null)}
+            </span>
+          </span>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div

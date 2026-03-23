@@ -579,6 +579,7 @@ input[type="number"] {
 .entity-container {
   flex: 1;
   padding: 1.5rem;
+  padding-bottom: 6rem;
   overflow-y: auto;
 }
 
@@ -606,7 +607,6 @@ input[type="number"] {
 .entity-card-root {
   max-width: 700px;
   margin: 0 auto;
-  padding-bottom: 5rem; /* space for floating rating bar */
 }
 
 .entity-card .entity-card {
@@ -668,10 +668,8 @@ input[type="number"] {
   color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding-bottom: 0.35rem;
-  margin-top: 0.25rem;
-  margin-bottom: 0.35rem;
-  border-bottom: 1px solid var(--border);
+  margin-top: 0.4rem;
+  margin-bottom: 0.25rem;
 }
 
 .field-value {
@@ -696,6 +694,35 @@ input[type="number"] {
   flex-direction: column;
   gap: 0.15rem;
   padding-left: 0.25rem;
+}
+
+/* Compact single-line entities */
+.entity-compact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.4rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.entity-card .entity-compact {
+  background: var(--bg-input);
+}
+
+.compact-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.compact-sep {
+  color: var(--text-dim);
+  font-size: 0.6rem;
 }
 
 /* Rating bar — sticky bottom, floating dock on wide screens */
@@ -765,6 +792,10 @@ input[type="number"] {
 
 /* Wide layout: floating centered dock */
 @media (min-width: 900px) {
+  .entity-container {
+    padding-bottom: 8rem;
+  }
+
   .rating-bar {
     left: 50%;
     transform: translateX(-50%);
@@ -834,43 +865,64 @@ input[type="number"] {
   color: var(--gold);
 }
 
-/* Distribution table */
-.dist-table {
+/* Rating distribution heatmap */
+.results-summary {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.heatmap-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8rem;
   margin-top: 0.5rem;
 }
 
-.dist-table th,
-.dist-table td {
-  padding: 0.5rem 0.75rem;
+.heatmap-table th,
+.heatmap-table td {
+  padding: 0.5rem 0.6rem;
   text-align: center;
-  border-bottom: 1px solid var(--border);
-}
-
-.dist-table th {
   font-family: var(--mono);
-  font-weight: 600;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  background: var(--bg-input);
 }
 
-.dist-table td {
-  font-family: var(--mono);
-  color: var(--text-muted);
+.heatmap-table th {
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding-bottom: 0.6rem;
 }
 
-.dist-table td:first-child,
-.dist-table th:first-child {
+.heatmap-table th:first-child {
   text-align: left;
 }
 
-.dist-table tr:hover td {
-  background: var(--bg-card-hover);
+.heatmap-label {
+  text-align: left !important;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding-right: 1rem !important;
+}
+
+.heatmap-cell {
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-radius: 3px;
+  min-width: 2.5rem;
+  transition: background-color 0.2s;
+}
+
+.heatmap-n {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  border-left: 1px solid var(--border);
+}
+
+.heatmap-mean {
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 0.85rem;
 }
 
 /* Responsive */
