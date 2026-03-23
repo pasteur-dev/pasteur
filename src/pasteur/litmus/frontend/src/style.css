@@ -847,13 +847,21 @@ input[type="number"] {
   border-spacing: 2px;
   font-size: 0.8rem;
   margin-top: 0.5rem;
+  table-layout: fixed;
 }
+
+.heatmap-table col.heatmap-col-label { width: 120px; }
+.heatmap-table col.heatmap-col-score { width: 1fr; }
+.heatmap-table col.heatmap-col-n { width: 50px; }
+.heatmap-table col.heatmap-col-mean { width: 55px; }
 
 .heatmap-table th,
 .heatmap-table td {
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 0.4rem;
   text-align: center;
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .heatmap-table th {
@@ -871,14 +879,12 @@ input[type="number"] {
   font-size: 0.75rem;
   color: var(--text-muted);
   white-space: nowrap;
-  padding-right: 1rem !important;
 }
 
 .heatmap-cell {
   font-weight: 600;
   font-size: 0.85rem;
   border-radius: 3px;
-  min-width: 4.5rem;
   transition: background-color 0.2s;
   font-variant-numeric: tabular-nums;
 }

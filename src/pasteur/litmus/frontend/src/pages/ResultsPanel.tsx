@@ -71,6 +71,16 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
 
   return (
     <table className="heatmap-table">
+      <colgroup>
+        <col className="heatmap-col-label" />
+        <col className="heatmap-col-score" />
+        <col className="heatmap-col-score" />
+        <col className="heatmap-col-score" />
+        <col className="heatmap-col-score" />
+        <col className="heatmap-col-score" />
+        <col className="heatmap-col-n" />
+        <col className="heatmap-col-mean" />
+      </colgroup>
       <thead>
         <tr>
           <th></th>
