@@ -21,6 +21,8 @@ dependencies = [
   "pydantic", # required by mlflow config structure
   "pyarrow",
   "tqdm",
+  # Web (LITMUS)
+  "flask",
   # Comp. Libs
   "numpy",
   "pandas",
