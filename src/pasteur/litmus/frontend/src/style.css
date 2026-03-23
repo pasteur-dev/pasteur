@@ -601,7 +601,6 @@ input[type="number"] {
   border-radius: 6px;
   padding: 0.75rem 1rem;
   margin-bottom: 0.25rem;
-  max-width: 600px;
 }
 
 .entity-card-root {
@@ -613,7 +612,6 @@ input[type="number"] {
 .entity-card .entity-card {
   background: var(--bg-elevated);
   border-color: var(--border);
-  margin-left: 0;
 }
 
 .entity-card .entity-card .entity-card {
@@ -628,7 +626,7 @@ input[type="number"] {
   letter-spacing: 0.06em;
   color: var(--gold);
   margin-bottom: 0.5rem;
-  padding-bottom: 0.3rem;
+  padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -670,8 +668,9 @@ input[type="number"] {
   color: var(--gold);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  padding-bottom: 0.25rem;
-  margin-bottom: 0.25rem;
+  padding-bottom: 0.35rem;
+  margin-top: 0.25rem;
+  margin-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
 }
 
