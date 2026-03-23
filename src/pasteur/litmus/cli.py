@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.command()
-@click.option("--port", "-p", type=int, default=5000, help="Port to serve on.")
+@click.option("--port", "-p", type=int, default=5555, help="Port to serve on.")
 @click.option(
     "--host", "-h", type=str, default="127.0.0.1", help="Host to bind to."
 )
