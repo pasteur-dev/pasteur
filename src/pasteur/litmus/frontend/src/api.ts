@@ -4,6 +4,8 @@ const BASE = "/api";
 
 export interface ModelVersion {
   version: string;
+  name: string;
+  overrides: Record<string, unknown>;
 }
 
 export interface ViewModels {

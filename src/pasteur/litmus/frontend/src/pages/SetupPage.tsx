@@ -65,11 +65,16 @@ export default function SetupPage({ onSelectExperiment }: Props) {
   };
 
   const handleCreate = async () => {
-    const modelRefs: ModelRef[] = selectedModels.map((m) => ({
-      algorithm: m.algorithm,
-      timestamp: m.version,
-      overrides: {},
-    }));
+    const modelRefs: ModelRef[] = selectedModels.map((m) => {
+      // Find the overrides from the discovered model data
+      const versions = models[m.algorithm] || [];
+      const found = versions.find((v) => v.version === m.version);
+      return {
+        algorithm: m.algorithm,
+        timestamp: m.version,
+        overrides: found?.overrides || {},
+      };
+    });
     const exp = await createExperiment({
       name: expName || `${selectedView} experiment`,
       view: selectedView,
@@ -155,9 +160,14 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                               checked={isSelected}
                               onChange={() => toggleModel(alg, v.version)}
                             />
-                            <span className="version">
-                              {formatTimestamp(v.version)}
-                            </span>
+                            {v.name ? (
+                              <span className="model-item-name">
+                                <span className="model-item-overrides">{v.name}</span>
+                                <span className="model-item-ts">{formatTimestamp(v.version)}</span>
+                              </span>
+                            ) : (
+                              <span className="model-item-ts">{formatTimestamp(v.version)}</span>
+                            )}
                           </label>
                         );
                       })}

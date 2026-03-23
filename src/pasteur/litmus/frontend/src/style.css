@@ -400,14 +400,32 @@ input[type="number"] {
   padding-left: calc(0.5rem - 2px);
 }
 
-.model-item .version {
-  font-family: var(--mono);
-  font-size: 0.8rem;
-  color: var(--text-muted);
+.model-item-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
-.model-item.selected .version {
-  color: var(--cream);
+.model-item-overrides {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.model-item-ts {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.model-item.selected .model-item-overrides {
+  color: var(--gold-bright);
+}
+
+.model-item.selected .model-item-ts {
+  opacity: 0.8;
 }
 
 /* Options & sample counts */

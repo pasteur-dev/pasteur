@@ -13,25 +13,91 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _load_metadata_params(
+    data_dir: Path, view: str, alg: str, version: str
+) -> dict:
+    """Load algorithm params from the metadata pickle for a given version."""
+    meta_path = data_dir / "view" / view / "metadata.pkl" / version / "metadata.pkl"
+    if not meta_path.exists():
+        return {}
+    try:
+        import pickle
+
+        with open(meta_path, "rb") as f:
+            meta = pickle.load(f)
+        # Merge base alg params with overrides
+        params = dict(meta.algs.get(alg, {}))
+        params.update(meta.alg_override)
+        return params
+    except Exception:
+        logger.debug(f"Could not load metadata for {view}/{alg}/{version}", exc_info=True)
+        return {}
+
+
+def _prettify_model_versions(
+    data_dir: Path, view: str, alg: str, versions: list[str]
+) -> list[dict]:
+    """Build display names for model versions using differing params.
+
+    Uses the same logic as MLflow's prettify_run_names: only show
+    params that differ between versions. Params are shown as
+    key=value pairs. Nested dicts are flattened.
+    """
+    from pasteur.utils.parser import dict_to_flat_params
+
+    if not versions:
+        return []
+
+    # Load params for each version
+    all_params = {}
+    for v in versions:
+        raw = _load_metadata_params(data_dir, view, alg, v)
+        all_params[v] = dict_to_flat_params(raw)
+
+    # Find params that differ across versions
+    ref = all_params[versions[0]]
+    differing_keys = set()
+    for v in versions[1:]:
+        for k in set(list(ref.keys()) + list(all_params[v].keys())):
+            if ref.get(k) != all_params[v].get(k):
+                differing_keys.add(k)
+
+    result = []
+    for v in versions:
+        params = all_params[v]
+        # Build display parts from differing params only
+        parts = []
+        for k in sorted(differing_keys):
+            val = params.get(k)
+            if val is None:
+                continue
+            # Use short key (last segment after .)
+            short_key = k.split(".")[-1] if "." in k else k
+            parts.append(f"{short_key}={val}")
+
+        name = " ".join(parts) if parts else ""
+        overrides = {
+            k.split(".")[-1] if "." in k else k: params[k]
+            for k in sorted(differing_keys)
+            if k in params
+        }
+        result.append({
+            "version": v,
+            "name": name,
+            "overrides": overrides,
+        })
+
+    return result
+
+
 def discover_models(data_dir: str | Path) -> dict:
     """Scan the synth data directory for available view/algorithm/version combos.
 
-    Returns a dict structured as:
-    {
-        "views": {
-            "rfel_sl": {
-                "models": {
-                    "mare": [
-                        {"version": "2026-01-22T09.23.40.216Z"},
-                        {"version": "2026-01-21T20.16.57.883Z"},
-                    ],
-                    "amalgam": [...],
-                }
-            }
-        }
-    }
+    Each model version includes a prettified name derived from params
+    that differ between versions (matching MLflow naming logic).
     """
-    synth_dir = Path(data_dir) / "synth"
+    data_dir = Path(data_dir)
+    synth_dir = data_dir / "synth"
     result: dict = {"views": {}}
 
     if not synth_dir.exists():
@@ -56,18 +122,19 @@ def discover_models(data_dir: str | Path) -> dict:
                 continue
 
             # List version directories (timestamps)
-            versions = []
+            raw_versions = []
             for version_dir in sorted(
                 model_pkl_dir.iterdir(), reverse=True
             ):
                 if not version_dir.is_dir():
                     continue
-                # Verify model.pkl exists in this version
                 if (version_dir / "model.pkl").exists():
-                    versions.append({"version": version_dir.name})
+                    raw_versions.append(version_dir.name)
 
-            if versions:
-                view_info["models"][alg_name] = versions
+            if raw_versions:
+                view_info["models"][alg_name] = _prettify_model_versions(
+                    data_dir, view_name, alg_name, raw_versions
+                )
 
         if view_info["models"]:
             result["views"][view_name] = view_info
