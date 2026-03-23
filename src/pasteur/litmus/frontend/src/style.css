@@ -130,6 +130,7 @@ body::after {
   color: var(--gold-bright);
   text-shadow: 0 0 12px var(--gold-glow);
   text-transform: uppercase;
+  line-height: 1;
 }
 
 
