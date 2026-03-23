@@ -631,21 +631,26 @@ input[type="number"] {
   border-bottom: 1px solid var(--border);
 }
 
-.entity-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
+/* Inline fields table */
+.entity-field-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.25rem;
 }
 
-.entity-field {
-  display: flex;
-  gap: 0.75rem;
-  align-items: baseline;
-  padding: 0.15rem 0;
+.entity-field-table td {
+  padding: 0.2rem 0;
+  vertical-align: baseline;
+}
+
+.entity-field-table td:first-child {
+  padding-right: 1rem;
+  width: 1%;
+  white-space: nowrap;
 }
 
 .entity-field-nested {
-  padding-top: 0.25rem;
+  padding-top: 0.4rem;
 }
 
 .field-key {
@@ -655,13 +660,15 @@ input[type="number"] {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   white-space: nowrap;
-  min-width: 100px;
 }
 
 .field-key-section {
+  font-family: var(--mono);
   font-size: 0.75rem;
   font-weight: 700;
   color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   padding-bottom: 0.25rem;
   margin-bottom: 0.25rem;
   border-bottom: 1px solid var(--border);
