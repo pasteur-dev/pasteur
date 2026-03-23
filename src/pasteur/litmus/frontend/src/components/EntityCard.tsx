@@ -1,101 +1,133 @@
 /**
- * Renders an entity dict as structured cards.
+ * Recursively renders entity data as nested cards.
  *
- * Top-level scalar fields render as a key-value card.
- * Top-level object fields render as their own card.
- * Top-level arrays of objects render as a table card.
+ * Scalars and small objects (multi-value fields like dates) render inline.
+ * Arrays of objects render as sub-cards.
+ * Deep nesting is handled recursively.
  */
 
 interface Props {
   data: Record<string, unknown>;
   streaming?: boolean;
+  title?: string;
+  depth?: number;
 }
 
-export default function EntityCard({ data, streaming }: Props) {
-  // Separate scalars, objects, and arrays
-  const scalars: [string, string | number][] = [];
-  const objects: [string, Record<string, unknown>][] = [];
-  const arrays: [string, Record<string, unknown>[]][] = [];
-
-  for (const [key, value] of Object.entries(data)) {
-    if (value === null || value === undefined) {
-      scalars.push([key, "-"]);
-    } else if (Array.isArray(value)) {
-      if (value.length > 0 && typeof value[0] === "object") {
-        arrays.push([key, value as Record<string, unknown>[]]);
-      } else {
-        scalars.push([key, String(value)]);
-      }
-    } else if (typeof value === "object") {
-      objects.push([key, value as Record<string, unknown>]);
-    } else {
-      scalars.push([key, value as string | number]);
-    }
-  }
+export default function EntityCard({
+  data,
+  streaming,
+  title,
+  depth = 0,
+}: Props) {
+  const entries = Object.entries(data);
 
   return (
-    <div className={`entity-cards ${streaming ? "entity-streaming" : ""}`}>
-      {/* Main scalar fields */}
-      {scalars.length > 0 && (
-        <div className="entity-card">
-          <div className="entity-fields">
-            {scalars.map(([key, value]) => (
-              <div key={key} className="entity-field">
-                <span className="field-key">{formatKey(key)}</span>
-                <span className="field-value">{formatValue(value)}</span>
-              </div>
+    <div
+      className={`entity-card ${depth === 0 ? "entity-card-root" : ""} ${streaming ? "entity-streaming" : ""}`}
+    >
+      {title && <div className="entity-card-title">{formatKey(title)}</div>}
+      <div className="entity-fields">
+        {entries.map(([key, value]) => (
+          <FieldRenderer key={key} fieldKey={key} value={value} depth={depth} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FieldRenderer({
+  fieldKey,
+  value,
+  depth,
+}: {
+  fieldKey: string;
+  value: unknown;
+  depth: number;
+}) {
+  // null / undefined
+  if (value === null || value === undefined) {
+    return (
+      <div className="entity-field">
+        <span className="field-key">{formatKey(fieldKey)}</span>
+        <span className="field-value field-null">-</span>
+      </div>
+    );
+  }
+
+  // Array of objects → render as list of sub-cards
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return (
+        <div className="entity-field">
+          <span className="field-key">{formatKey(fieldKey)}</span>
+          <span className="field-value field-null">(empty)</span>
+        </div>
+      );
+    }
+    if (typeof value[0] === "object" && value[0] !== null) {
+      return (
+        <div className="entity-field-nested">
+          <div className="field-key field-key-section">
+            {formatKey(fieldKey)} ({value.length})
+          </div>
+          <div className="entity-subcard-list">
+            {value.map((item, i) => (
+              <EntityCard
+                key={i}
+                data={item as Record<string, unknown>}
+                title={`${formatKey(fieldKey)} ${i + 1}`}
+                depth={depth + 1}
+              />
             ))}
           </div>
         </div>
-      )}
+      );
+    }
+    // Array of scalars
+    return (
+      <div className="entity-field">
+        <span className="field-key">{formatKey(fieldKey)}</span>
+        <span className="field-value">{value.map(String).join(", ")}</span>
+      </div>
+    );
+  }
 
-      {/* Nested object fields as separate cards */}
-      {objects.map(([key, obj]) => (
-        <div key={key} className="entity-card">
-          <div className="entity-card-title">{formatKey(key)}</div>
-          <div className="entity-fields">
-            {Object.entries(obj).map(([k, v]) => (
-              <div key={k} className="entity-field">
-                <span className="field-key">{formatKey(k)}</span>
-                <span className="field-value">
-                  {formatValue(v as string | number | null)}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+  // Object — check if it's a "small" multi-value field (like a date/time)
+  // or a larger nested structure
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const objEntries = Object.entries(obj);
 
-      {/* Array fields as table cards */}
-      {arrays.map(([key, rows]) => (
-        <div key={key} className="entity-card entity-card-wide">
-          <div className="entity-card-title">{formatKey(key)}</div>
-          <div className="entity-table-wrap">
-            <table className="entity-table">
-              <thead>
-                <tr>
-                  {Object.keys(rows[0]).map((col) => (
-                    <th key={col}>{formatKey(col)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr key={i}>
-                    {Object.values(row).map((val, j) => (
-                      <td key={j}>
-                        {typeof val === "object" && val !== null
-                          ? JSON.stringify(val)
-                          : formatValue(val as string | number | null)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+    // Small object (all scalar values, ≤5 fields): render inline
+    const allScalar = objEntries.every(
+      ([, v]) => v === null || typeof v !== "object"
+    );
+    if (allScalar && objEntries.length <= 5) {
+      const parts = objEntries
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => `${formatKey(k)}: ${formatScalar(v)}`)
+        .join(", ");
+      return (
+        <div className="entity-field">
+          <span className="field-key">{formatKey(fieldKey)}</span>
+          <span className="field-value field-multivalue">{parts || "-"}</span>
         </div>
-      ))}
+      );
+    }
+
+    // Larger nested object → sub-card
+    return (
+      <div className="entity-field-nested">
+        <EntityCard data={obj} title={fieldKey} depth={depth + 1} />
+      </div>
+    );
+  }
+
+  // Scalar
+  return (
+    <div className="entity-field">
+      <span className="field-key">{formatKey(fieldKey)}</span>
+      <span className="field-value">{formatScalar(value)}</span>
     </div>
   );
 }
@@ -104,7 +136,7 @@ function formatKey(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatValue(value: string | number | null | undefined): string {
+function formatScalar(value: unknown): string {
   if (value === null || value === undefined) return "-";
   if (typeof value === "number") {
     if (Number.isInteger(value)) return String(value);
