@@ -1,19 +1,16 @@
 """Flask application factory for LITMUS."""
 
-import json
 import logging
-import random
 import uuid
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 from .store import (
     Experiment,
     ExperimentStore,
     ModelRef,
     Rating,
-    TimingParams,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,16 +171,42 @@ def _register_routes(app: Flask):
 
     # --- Entity Generation ---
 
+    def _pick_source(exp):
+        """Pick the next source for entity generation (round-robin across splits)."""
+        splits = []
+        for m in exp.models:
+            splits.append(("model", m.algorithm, m.timestamp))
+        if exp.include_real:
+            splits.append(("real", None, None))
+
+        if not splits:
+            return None, None, None
+
+        split_idx = exp.progress % len(splits)
+        return splits[split_idx]
+
+    def _generate_entity(generator, exp, source_type, alg, version):
+        """Generate an entity from the given source."""
+        if source_type == "real":
+            entity = generator.generate_entity_from_real(exp.view)
+            source = "real"
+        else:
+            entity = generator.generate_entity_from_model(
+                exp.view, alg, version
+            )
+            source = f"{alg}_{version or 'latest'}"
+        return entity, source
+
     @app.route("/api/experiments/<experiment_id>/next")
     def next_entity(experiment_id: str):
-        """Generate the next entity for an experiment.
+        """Generate the next entity and stream it via SSE.
 
-        Picks a source (model or real) based on the experiment config,
-        generates the entity, and returns it as SSE stream or JSON.
-
-        For now, returns JSON directly. SSE streaming with blinding
-        will be added in Phase 4.
+        If the experiment has blind=True, tokens are delivered on a
+        blinded schedule (Algorithm 1). Otherwise, the full entity
+        is sent in a single event.
         """
+        from .streaming import StreamingParams, generate_sse_stream
+
         store = _get_store(app)
         generator = app.config.get("generator")
         exp = store.get(experiment_id)
@@ -197,48 +220,43 @@ def _register_routes(app: Flask):
         if not generator:
             return jsonify({"error": "No generator available"}), 500
 
-        # Pick next source: round-robin across splits
-        splits = []
-        for m in exp.models:
-            splits.append(("model", m.algorithm, m.timestamp))
-        if exp.include_real:
-            splits.append(("real", None, None))
-
-        if not splits:
+        source_type, alg, version = _pick_source(exp)
+        if source_type is None:
             return jsonify({"error": "No splits configured"}), 400
-
-        # Round-robin based on progress
-        split_idx = exp.progress % len(splits)
-        # Shuffle within each full round
-        if exp.progress % len(splits) == 0:
-            random.shuffle(splits)
-        source_type, alg, version = splits[split_idx]
 
         entity_id = str(uuid.uuid4())
         try:
-            if source_type == "real":
-                entity = generator.generate_entity_from_real(exp.view)
-                source = "real"
-            else:
-                entity = generator.generate_entity_from_model(
-                    exp.view, alg, version
-                )
-                source = f"{alg}_{version or 'latest'}"
+            entity, source = _generate_entity(
+                generator, exp, source_type, alg, version
+            )
         except Exception:
             logger.exception("Entity generation failed")
             return jsonify({"error": "Entity generation failed"}), 500
 
-        entity_json = json.dumps(entity, indent=2)
+        # Build streaming params from experiment timing profile
+        if exp.timing_params and exp.blind:
+            params = StreamingParams(
+                tps_0=exp.timing_params.tps_0,
+                gamma=exp.timing_params.gamma,
+                t_wait=exp.timing_params.t_mare,
+            )
+        else:
+            params = StreamingParams.default()
 
-        return jsonify({
-            "entity_id": entity_id,
-            "source": source,
-            "entity": entity,
-            "entity_json": entity_json,
-        })
-
-    # TODO: Phase 4 - SSE streaming version of next_entity
-    # TODO: Phase 4 - Profiling endpoint
+        return Response(
+            generate_sse_stream(
+                entity=entity,
+                entity_id=entity_id,
+                source=source,
+                params=params,
+                blind=exp.blind,
+            ),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
 
 def _experiment_summary(exp: Experiment) -> dict:
