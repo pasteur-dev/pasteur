@@ -118,7 +118,7 @@ export default function ExperimentPage({
           </section>
 
           {/* Run history */}
-          {exp.runs.length > 0 && (
+          {exp.runs && exp.runs.length > 0 && (
             <section className="card">
               <h2>Runs ({exp.runs.length})</h2>
               <div className="experiment-list">
