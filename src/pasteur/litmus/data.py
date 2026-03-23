@@ -409,3 +409,44 @@ class EntityGenerator:
 
         json_str = json.dumps(entity, indent=2)
         return entity, json_str, source
+
+    def load_llm_scores(
+        self, view: str, alg: str, version: str | None = None
+    ) -> dict[int, int] | None:
+        """Load LLM evaluator scores for a model version.
+
+        Returns a distribution dict {1: count, 2: count, ...} or None if unavailable.
+        """
+        import pickle
+        from pathlib import Path
+
+        # LLM scores are at data/synth/{view}/{alg}/msr/llmeval/pre.pkl/{version}/pre.pkl
+        data_dir = Path(self.ctx.config_loader.get("locations").get("base", "data"))
+        llm_dir = data_dir / "synth" / view / alg / "msr" / "llmeval" / "pre.pkl"
+
+        if not llm_dir.exists():
+            return None
+
+        # Find the right version
+        if version:
+            pkl_path = llm_dir / version / "pre.pkl"
+        else:
+            # Use latest
+            versions = sorted(llm_dir.iterdir(), reverse=True)
+            if not versions:
+                return None
+            pkl_path = versions[0] / "pre.pkl"
+
+        if not pkl_path.exists():
+            return None
+
+        try:
+            with open(pkl_path, "rb") as f:
+                data = pickle.load(f)
+            # data.syn is a list of 5 ints: [count_score_1, ..., count_score_5]
+            if data.syn is not None:
+                return {i + 1: int(data.syn[i]) for i in range(5)}
+        except Exception:
+            logger.debug(f"Could not load LLM scores for {view}/{alg}/{version}", exc_info=True)
+
+        return None

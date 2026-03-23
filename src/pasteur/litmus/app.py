@@ -188,10 +188,11 @@ def _register_routes(app: Flask):
     @app.route("/api/experiments/<eid>/results")
     def get_experiment_results(eid: str):
         store = _get_store(app)
+        generator = app.config.get("generator")
         exp = store.get_experiment(eid)
         if not exp:
             return jsonify({"error": "Experiment not found"}), 404
-        return jsonify(_compute_results(exp))
+        return jsonify(_compute_results(exp, generator))
 
     # --- Entity Generation ---
 
@@ -314,7 +315,21 @@ def _run_detail(run: Run, exp: Experiment | None) -> dict:
     }
 
 
-def _compute_results(exp: Experiment) -> dict:
+def _pretty_source_name(exp: Experiment, source: str) -> str:
+    """Convert raw source key to pretty display name."""
+    if source == "real":
+        return "Real Data"
+    for m in exp.models:
+        raw = f"{m.algorithm}_{m.timestamp or 'latest'}"
+        if raw == source:
+            parts = [m.algorithm]
+            for k, v in m.overrides.items():
+                parts.append(f"{k}={v}")
+            return " ".join(parts)
+    return source
+
+
+def _compute_results(exp: Experiment, generator=None) -> dict:
     from collections import defaultdict
 
     by_source: dict[str, list[int]] = defaultdict(list)
@@ -329,10 +344,36 @@ def _compute_results(exp: Experiment) -> dict:
     for source, scores in by_source.items():
         dist = {i: scores.count(i) for i in range(1, 6)}
         results[source] = {
+            "pretty_name": _pretty_source_name(exp, source),
             "count": len(scores),
             "mean": sum(scores) / len(scores) if scores else 0,
             "distribution": dist,
         }
+
+    # Load LLM evaluator scores for each model
+    llm_results = {}
+    if generator:
+        for m in exp.models:
+            source_key = f"{m.algorithm}_{m.timestamp or 'latest'}"
+            try:
+                llm_dist = generator.load_llm_scores(
+                    exp.view, m.algorithm, m.timestamp
+                )
+                if llm_dist:
+                    total = sum(llm_dist.values())
+                    mean = (
+                        sum(k * v for k, v in llm_dist.items()) / total
+                        if total
+                        else 0
+                    )
+                    llm_results[source_key] = {
+                        "pretty_name": _pretty_source_name(exp, source_key),
+                        "count": total,
+                        "mean": mean,
+                        "distribution": llm_dist,
+                    }
+            except Exception:
+                pass
 
     total_rated = sum(
         1 for run in exp.runs if not run.tutorial
@@ -351,4 +392,5 @@ def _compute_results(exp: Experiment) -> dict:
         "total_rated": total_rated,
         "total_skipped": total_skipped,
         "by_source": results,
+        "llm_scores": llm_results,
     }

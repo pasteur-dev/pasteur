@@ -60,6 +60,7 @@ export interface Rating {
 }
 
 export interface SourceResults {
+  pretty_name: string;
   count: number;
   mean: number;
   distribution: Record<number, number>;
@@ -73,6 +74,7 @@ export interface ExperimentResults {
   total_rated: number;
   total_skipped: number;
   by_source: Record<string, SourceResults>;
+  llm_scores: Record<string, SourceResults>;
 }
 
 // --- Views ---
