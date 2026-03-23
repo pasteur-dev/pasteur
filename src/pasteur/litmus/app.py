@@ -206,16 +206,30 @@ def _register_routes(app: Flask):
         split_idx = run.progress % len(splits)
         return splits[split_idx]
 
+    def _pretty_source(exp, alg, version):
+        """Build a display name for a source from the experiment's model list."""
+        if alg is None:
+            return "Real Data"
+        for m in exp.models:
+            if m.algorithm == alg and m.timestamp == version:
+                parts = [m.algorithm]
+                for k, v in m.overrides.items():
+                    parts.append(f"{k}={v}")
+                return " ".join(parts)
+        return f"{alg}"
+
     def _generate_entity(generator, exp, source_type, alg, version):
         if source_type == "real":
             entity = generator.generate_entity_from_real(exp.view)
             source = "real"
+            source_pretty = "Real Data"
         else:
             entity = generator.generate_entity_from_model(
                 exp.view, alg, version
             )
             source = f"{alg}_{version or 'latest'}"
-        return entity, source
+            source_pretty = _pretty_source(exp, alg, version)
+        return entity, source, source_pretty
 
     @app.route("/api/experiments/<eid>/runs/<rid>/next")
     def next_entity(eid: str, rid: str):
@@ -239,7 +253,7 @@ def _register_routes(app: Flask):
 
         entity_id = str(uuid.uuid4())
         try:
-            entity, source = _generate_entity(
+            entity, source, source_pretty = _generate_entity(
                 generator, exp, source_type, alg, version
             )
         except Exception:
@@ -249,6 +263,7 @@ def _register_routes(app: Flask):
         return jsonify({
             "entity_id": entity_id,
             "source": source,
+            "source_pretty": source_pretty,
             "entity": entity,
         })
 

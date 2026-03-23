@@ -36,6 +36,7 @@ export default function EvaluationPage({
   const [progress, setProgress] = useState(currentRun?.progress ?? 0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
+  const [sourcePretty, setSourcePretty] = useState("");
   const loadCompleteTime = useRef(0);
 
   const total = experiment.total_samples;
@@ -45,6 +46,7 @@ export default function EvaluationPage({
     setLoading(true);
     setEntityId("");
     setSource("");
+    setSourcePretty("");
 
     try {
       const res = await fetch(
@@ -57,6 +59,7 @@ export default function EvaluationPage({
       }
       setEntityId(data.entity_id);
       setSource(data.source);
+      setSourcePretty(data.source_pretty || data.source);
       setEntity(data.entity);
     } catch (err) {
       console.error("Failed to fetch entity:", err);
@@ -141,8 +144,8 @@ export default function EvaluationPage({
       </header>
 
       <div className="entity-container">
-        {!experiment.blind && source && (
-          <div className="entity-source-header">{source}</div>
+        {!experiment.blind && sourcePretty && (
+          <div className="entity-source-header">{sourcePretty}</div>
         )}
         {entity ? (
           <EntityCard data={entity} streaming={loading} />
