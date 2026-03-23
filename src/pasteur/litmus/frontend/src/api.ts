@@ -37,6 +37,7 @@ export interface ExperimentSummary {
   id: string;
   name: string;
   view: string;
+  models: ModelRef[];
   num_models: number;
   include_real: boolean;
   blind: boolean;
@@ -47,7 +48,6 @@ export interface ExperimentSummary {
 }
 
 export interface ExperimentDetail extends ExperimentSummary {
-  models: ModelRef[];
   runs: RunSummary[];
 }
 

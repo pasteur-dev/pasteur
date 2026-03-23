@@ -473,6 +473,18 @@ input[type="number"] {
   box-shadow: var(--glow-sm);
 }
 
+.experiment-item-rich {
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.exp-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  width: 100%;
+}
+
 .exp-info {
   display: flex;
   flex-direction: column;
@@ -490,9 +502,25 @@ input[type="number"] {
   color: var(--text-dim);
 }
 
+.exp-meta {
+  font-size: 0.7rem !important;
+}
+
+.exp-item-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.exp-item-models .model-tag {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.45rem;
+}
+
 .exp-actions {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 /* Start page */

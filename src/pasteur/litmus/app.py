@@ -309,6 +309,7 @@ def _exp_summary(exp: Experiment) -> dict:
         "id": exp.id,
         "name": exp.name,
         "view": exp.view,
+        "models": [asdict(m) for m in exp.models],
         "num_models": len(exp.models),
         "include_real": exp.include_real,
         "blind": exp.blind,

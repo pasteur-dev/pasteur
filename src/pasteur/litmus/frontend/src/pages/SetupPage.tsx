@@ -13,6 +13,7 @@ import type {
   ExperimentSummary,
   ModelRef,
 } from "../api";
+import ModelLabel from "../components/ModelLabel";
 
 interface Props {
   onSelectExperiment: (exp: ExperimentDetail) => void;
@@ -256,26 +257,38 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                 {experiments.map((exp) => (
                   <div
                     key={exp.id}
-                    className="experiment-item"
+                    className="experiment-item experiment-item-rich"
                     onClick={() => handleSelect(exp.id)}
                   >
-                    <div className="exp-info">
-                      <strong>{exp.name || "Unnamed"}</strong>
-                      <span>
-                        {exp.view} &middot; {exp.num_models} model
-                        {exp.num_models !== 1 ? "s" : ""}
-                        {exp.include_real ? " + real" : ""} &middot;{" "}
-                        {exp.num_runs} run{exp.num_runs !== 1 ? "s" : ""}
-                      </span>
+                    <div className="exp-item-top">
+                      <div className="exp-info">
+                        <strong>{exp.name || "Unnamed"}</strong>
+                        <span className="exp-meta">
+                          {exp.view} &middot;{" "}
+                          {exp.samples_per_split}/split &middot;{" "}
+                          {exp.total_samples} total &middot;{" "}
+                          {exp.num_runs} run
+                          {exp.num_runs !== 1 ? "s" : ""}
+                          {exp.blind ? " &middot; blinded" : ""}
+                        </span>
+                      </div>
+                      <div className="exp-actions">
+                        <button
+                          className="btn btn-small btn-danger"
+                          onClick={(e) => handleDelete(exp.id, e)}
+                          title="Delete"
+                        >
+                          &#128465;
+                        </button>
+                      </div>
                     </div>
-                    <div className="exp-actions">
-                      <button
-                        className="btn btn-small btn-danger"
-                        onClick={(e) => handleDelete(exp.id, e)}
-                        title="Delete"
-                      >
-                        &#128465;
-                      </button>
+                    <div className="exp-item-models">
+                      {exp.models.map((m, i) => (
+                        <ModelLabel key={i} model={m} />
+                      ))}
+                      {exp.include_real && (
+                        <span className="model-tag model-tag-real">real</span>
+                      )}
                     </div>
                   </div>
                 ))}
