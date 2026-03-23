@@ -1,0 +1,4 @@
+# Vite build output - run `npm run build` in frontend/ to generate
+*
+!.gitignore
+!index.html
