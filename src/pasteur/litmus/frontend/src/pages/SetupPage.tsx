@@ -102,11 +102,10 @@ export default function SetupPage({
   return (
     <div className="page setup-page">
       <header className="header">
-        <img src="/logo.svg" alt="Pasteur" className="header-logo" />
-        <h1>LITMUS</h1>
-        <span className="subtitle">
-          Live Interactive Tool for Measuring User-perceived Synthesis quality
-        </span>
+        <a href="/" className="header-brand">
+          <img src="/logo.svg" alt="Pasteur" className="header-logo" />
+          <h1>LITMUS</h1>
+        </a>
       </header>
 
       <div className="setup-layout">

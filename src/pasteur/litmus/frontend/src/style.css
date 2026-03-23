@@ -108,6 +108,14 @@ body::after {
   box-shadow: 0 1px 0 var(--border-glow);
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+  color: inherit;
+}
+
 .header-logo {
   height: 32px;
   width: auto;
@@ -124,11 +132,6 @@ body::after {
   text-transform: uppercase;
 }
 
-.header .subtitle {
-  color: var(--text-dim);
-  font-size: 0.8rem;
-  letter-spacing: 0.02em;
-}
 
 /* Cards */
 .card {

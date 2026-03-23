@@ -132,8 +132,10 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
     <div className="page eval-page">
       <header className="header">
         <div className="header-left">
-          <img src="/logo.svg" alt="Pasteur" className="header-logo" />
-          <h1>LITMUS</h1>
+          <a href="/" className="header-brand">
+            <img src="/logo.svg" alt="Pasteur" className="header-logo" />
+            <h1>LITMUS</h1>
+          </a>
           <span className="exp-name">{experiment.name}</span>
         </div>
         <div className="header-center">

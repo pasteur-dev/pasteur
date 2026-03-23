@@ -25,8 +25,10 @@ export default function ExperimentStartPage({
   return (
     <div className="page start-page">
       <header className="header">
-        <img src="/logo.svg" alt="Pasteur" className="header-logo" />
-        <h1>LITMUS</h1>
+        <a href="/" className="header-brand">
+          <img src="/logo.svg" alt="Pasteur" className="header-logo" />
+          <h1>LITMUS</h1>
+        </a>
         <button className="btn btn-small" onClick={onBack}>
           Back
         </button>
