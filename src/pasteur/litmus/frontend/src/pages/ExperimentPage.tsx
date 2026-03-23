@@ -3,10 +3,12 @@ import {
   createRun,
   deleteRun,
   fetchExperiment,
+  fetchRunResults,
   resumeRun,
 } from "../api";
-import type { ExperimentDetail, RunSummary } from "../api";
+import type { ExperimentDetail, RunSummary, RunResults } from "../api";
 import ModelLabel from "../components/ModelLabel";
+import RunResultsModal from "../components/RunResultsModal";
 import ResultsPanel from "./ResultsPanel";
 
 interface Props {
@@ -24,6 +26,7 @@ export default function ExperimentPage({
 }: Props) {
   const [exp, setExp] = useState(initialExp);
   const [runName, setRunName] = useState(generateRunName);
+  const [runResults, setRunResults] = useState<RunResults | null>(null);
 
   // Refresh experiment data
   const refresh = async () => {
@@ -45,6 +48,12 @@ export default function ExperimentPage({
     e.stopPropagation();
     await deleteRun(exp.id, runId);
     refresh();
+  };
+
+  const handleRunInfo = async (runId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const results = await fetchRunResults(exp.id, runId);
+    setRunResults(results);
   };
 
   const handleResumeRun = async (run: RunSummary) => {
@@ -136,6 +145,15 @@ export default function ExperimentPage({
                       </span>
                     </div>
                     <div className="exp-actions">
+                      {run.progress > 0 && (
+                        <button
+                          className="btn btn-small"
+                          onClick={(e) => handleRunInfo(run.id, e)}
+                          title="View results"
+                        >
+                          &#9432;
+                        </button>
+                      )}
                       {run.started && (!run.finished || run.progress < run.total_samples) && (
                         <button
                           className="btn btn-small btn-primary"
@@ -167,6 +185,13 @@ export default function ExperimentPage({
           <ResultsPanel experimentId={exp.id} />
         </div>
       </div>
+
+      {runResults && (
+        <RunResultsModal
+          results={runResults}
+          onClose={() => setRunResults(null)}
+        />
+      )}
     </div>
   );
 }

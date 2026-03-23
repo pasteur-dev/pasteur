@@ -194,6 +194,15 @@ def _register_routes(app: Flask):
             return jsonify({"error": "Experiment not found"}), 404
         return jsonify(_compute_results(exp, generator))
 
+    @app.route("/api/experiments/<eid>/runs/<rid>/results")
+    def get_run_results(eid: str, rid: str):
+        store = _get_store(app)
+        result = store.get_run(eid, rid)
+        if not result:
+            return jsonify({"error": "Run not found"}), 404
+        exp, run = result
+        return jsonify(_compute_run_results(exp, run))
+
     # --- Entity Generation ---
 
     def _pick_source(exp, run):
@@ -419,4 +428,42 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         "total_skipped": total_skipped,
         "by_source": human_results,
         "llm_scores": llm_results,
+    }
+
+
+def _compute_run_results(exp: Experiment, run: Run) -> dict:
+    from collections import defaultdict
+
+    # Build ordered source keys
+    source_order = []
+    for m in exp.models:
+        source_order.append(f"{m.algorithm}_{m.timestamp or 'latest'}")
+    if exp.include_real:
+        source_order.append("real")
+
+    by_source: dict[str, list[int]] = defaultdict(list)
+    for r in run.ratings:
+        if not r.skipped and r.score is not None:
+            by_source[r.source].append(r.score)
+
+    results = []
+    for source in source_order:
+        scores = by_source.get(source, [])
+        if not scores:
+            continue
+        dist = {i: scores.count(i) for i in range(1, 6)}
+        results.append({
+            "source": source,
+            **_dist_entry(_pretty_source_name(exp, source), dist),
+        })
+
+    total_rated = sum(1 for r in run.ratings if not r.skipped)
+    total_skipped = sum(1 for r in run.ratings if r.skipped)
+
+    return {
+        "run_id": run.id,
+        "name": run.name,
+        "total_rated": total_rated,
+        "total_skipped": total_skipped,
+        "by_source": results,
     }

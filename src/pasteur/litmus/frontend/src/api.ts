@@ -209,3 +209,21 @@ export async function fetchResults(id: string): Promise<ExperimentResults> {
   const res = await fetch(`${BASE}/experiments/${id}/results`);
   return res.json();
 }
+
+export interface RunResults {
+  run_id: string;
+  name: string;
+  total_rated: number;
+  total_skipped: number;
+  by_source: SourceResults[];
+}
+
+export async function fetchRunResults(
+  experimentId: string,
+  runId: string
+): Promise<RunResults> {
+  const res = await fetch(
+    `${BASE}/experiments/${experimentId}/runs/${runId}/results`
+  );
+  return res.json();
+}
