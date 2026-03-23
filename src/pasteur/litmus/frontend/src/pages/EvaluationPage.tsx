@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rateEntity, skipEntity, endRun } from "../api";
-import type { ExperimentDetail, SSEEvent } from "../api";
+import type { ExperimentDetail } from "../api";
 import EntityCard from "../components/EntityCard";
 
 interface Props {
@@ -31,73 +31,48 @@ export default function EvaluationPage({
   onFinished,
 }: Props) {
   const [entity, setEntity] = useState<Record<string, unknown> | null>(null);
-  const [streaming, setStreaming] = useState(false);
+  const [loading, setLoading] = useState(false);
   const currentRun = experiment.runs?.find((r) => r.id === runId);
   const [progress, setProgress] = useState(currentRun?.progress ?? 0);
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
-  const streamCompleteTime = useRef(0);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const accumulatedRef = useRef("");
+  const loadCompleteTime = useRef(0);
 
   const total = experiment.total_samples;
 
-  const startStreaming = useCallback(() => {
+  const fetchNext = useCallback(async () => {
     setEntity(null);
-    setStreaming(true);
+    setLoading(true);
     setEntityId("");
     setSource("");
-    accumulatedRef.current = "";
 
-    const es = new EventSource(
-      `/api/experiments/${experiment.id}/runs/${runId}/next`
-    );
-    eventSourceRef.current = es;
-
-    es.onmessage = (event) => {
-      const data: SSEEvent = JSON.parse(event.data);
-
-      switch (data.type) {
-        case "start":
-          setEntityId(data.entity_id);
-          break;
-        case "token":
-          // Try to parse the accumulated JSON for progressive rendering
-          if (data.pretty) {
-            try {
-              setEntity(JSON.parse(data.pretty));
-            } catch {
-              // partial parse failed, keep previous state
-            }
-          }
-          break;
-        case "done":
-          setSource(data.source);
-          setStreaming(false);
-          streamCompleteTime.current = performance.now();
-          es.close();
-          eventSourceRef.current = null;
-          break;
+    try {
+      const res = await fetch(
+        `/api/experiments/${experiment.id}/runs/${runId}/next`
+      );
+      const data = await res.json();
+      if (data.error) {
+        console.error("Entity generation error:", data.error);
+        return;
       }
-    };
-
-    es.onerror = () => {
-      setStreaming(false);
-      es.close();
-      eventSourceRef.current = null;
-    };
+      setEntityId(data.entity_id);
+      setSource(data.source);
+      setEntity(data.entity);
+    } catch (err) {
+      console.error("Failed to fetch entity:", err);
+    } finally {
+      setLoading(false);
+      loadCompleteTime.current = performance.now();
+    }
   }, [experiment.id, runId]);
 
   useEffect(() => {
-    startStreaming();
-    return () => {
-      eventSourceRef.current?.close();
-    };
-  }, [startStreaming]);
+    fetchNext();
+  }, [fetchNext]);
 
   const handleRate = async (score: number) => {
     const responseTimeMs = Math.round(
-      performance.now() - streamCompleteTime.current
+      performance.now() - loadCompleteTime.current
     );
     await rateEntity(
       experiment.id,
@@ -114,7 +89,7 @@ export default function EvaluationPage({
       await endRun(experiment.id, runId);
       onFinished();
     } else {
-      startStreaming();
+      fetchNext();
     }
   };
 
@@ -127,12 +102,11 @@ export default function EvaluationPage({
       await endRun(experiment.id, runId);
       onFinished();
     } else {
-      startStreaming();
+      fetchNext();
     }
   };
 
   const handleEnd = async () => {
-    eventSourceRef.current?.close();
     await endRun(experiment.id, runId);
     onFinished();
   };
@@ -156,7 +130,7 @@ export default function EvaluationPage({
           <button
             className="btn btn-small"
             onClick={handleSkip}
-            disabled={streaming}
+            disabled={loading}
           >
             Skip
           </button>
@@ -168,7 +142,7 @@ export default function EvaluationPage({
 
       <div className="entity-container">
         {entity ? (
-          <EntityCard data={entity} streaming={streaming} />
+          <EntityCard data={entity} streaming={loading} />
         ) : (
           <div className="entity-loading">Generating entity...</div>
         )}
@@ -182,9 +156,9 @@ export default function EvaluationPage({
               key={score}
               className="rating-btn"
               style={{
-                backgroundColor: streaming ? "#1a1a2e" : LIKERT_COLORS[i],
+                backgroundColor: loading ? "#1a1a2e" : LIKERT_COLORS[i],
               }}
-              disabled={streaming}
+              disabled={loading}
               onClick={() => handleRate(score)}
               title={label}
             >

@@ -29,13 +29,6 @@ class ModelRef:
 
 
 @dataclass
-class TimingParams:
-    t_mare: float = 0.0
-    tps_0: float = 0.0
-    gamma: float = 0.0
-
-
-@dataclass
 class Run:
     """A single participant session within an experiment."""
 
@@ -60,10 +53,8 @@ class Experiment:
     view: str
     models: list[ModelRef]
     include_real: bool
-    blind: bool
     samples_per_split: int
     name: str = ""
-    timing_params: TimingParams | None = None
     created_at: str = ""
     runs: list[Run] = field(default_factory=list)
 
@@ -87,12 +78,12 @@ def _experiment_from_dict(d: dict) -> Experiment:
     for r in raw_runs:
         ratings = [Rating(**rt) for rt in r.pop("ratings", [])]
         runs.append(Run(ratings=ratings, **r))
-    tp = d.pop("timing_params", None)
-    timing_params = TimingParams(**tp) if tp else None
+    # Drop legacy fields
+    d.pop("timing_params", None)
+    d.pop("blind", None)
     return Experiment(
         models=models,
         runs=runs,
-        timing_params=timing_params,
         **d,
     )
 
@@ -133,7 +124,6 @@ class ExperimentStore:
         view: str,
         models: list[ModelRef],
         include_real: bool,
-        blind: bool,
         samples_per_split: int,
     ) -> Experiment:
         with self._lock:
@@ -143,7 +133,6 @@ class ExperimentStore:
                 view=view,
                 models=models,
                 include_real=include_real,
-                blind=blind,
                 samples_per_split=samples_per_split,
                 created_at=datetime.now().isoformat(),
             )
@@ -255,13 +244,3 @@ class ExperimentStore:
             self._save(exp)
             return True
 
-    def set_timing_params(
-        self, experiment_id: str, params: TimingParams
-    ) -> bool:
-        with self._lock:
-            exp = self._experiments.get(experiment_id)
-            if not exp:
-                return False
-            exp.timing_params = params
-            self._save(exp)
-            return True

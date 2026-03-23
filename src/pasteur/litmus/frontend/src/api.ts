@@ -39,7 +39,7 @@ export interface ExperimentSummary {
   view: string;
   num_models: number;
   include_real: boolean;
-  blind: boolean;
+
   samples_per_split: number;
   total_samples: number;
   num_runs: number;
@@ -48,7 +48,6 @@ export interface ExperimentSummary {
 
 export interface ExperimentDetail extends ExperimentSummary {
   models: ModelRef[];
-  timing_params: { t_mare: number; tps_0: number; gamma: number } | null;
   runs: RunSummary[];
 }
 
@@ -105,7 +104,7 @@ export async function createExperiment(data: {
   view: string;
   models: ModelRef[];
   include_real: boolean;
-  blind: boolean;
+
   samples_per_split: number;
 }): Promise<ExperimentDetail> {
   const res = await fetch(`${BASE}/experiments`, {
@@ -208,26 +207,3 @@ export async function fetchResults(id: string): Promise<ExperimentResults> {
   const res = await fetch(`${BASE}/experiments/${id}/results`);
   return res.json();
 }
-
-// --- SSE types ---
-
-export interface SSEStartEvent {
-  type: "start";
-  entity_id: string;
-}
-
-export interface SSETokenEvent {
-  type: "token";
-  fragment: string;
-  accumulated: string;
-  pretty: string | null;
-  progress: number;
-}
-
-export interface SSEDoneEvent {
-  type: "done";
-  entity_id: string;
-  source: string;
-}
-
-export type SSEEvent = SSEStartEvent | SSETokenEvent | SSEDoneEvent;

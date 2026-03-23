@@ -5,7 +5,7 @@ import uuid
 from dataclasses import asdict
 from pathlib import Path
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, jsonify, request
 
 from .store import (
     Experiment,
@@ -81,7 +81,6 @@ def _register_routes(app: Flask):
             view=data["view"],
             models=models,
             include_real=data.get("include_real", True),
-            blind=data.get("blind", True),
             samples_per_split=data.get("samples_per_split", 20),
         )
         return jsonify(_exp_detail(exp)), 201
@@ -219,8 +218,6 @@ def _register_routes(app: Flask):
 
     @app.route("/api/experiments/<eid>/runs/<rid>/next")
     def next_entity(eid: str, rid: str):
-        from .streaming import StreamingParams, generate_sse_stream
-
         store = _get_store(app)
         generator = app.config.get("generator")
         result = store.get_run(eid, rid)
@@ -248,29 +245,11 @@ def _register_routes(app: Flask):
             logger.exception("Entity generation failed")
             return jsonify({"error": "Entity generation failed"}), 500
 
-        if exp.timing_params and exp.blind:
-            params = StreamingParams(
-                tps_0=exp.timing_params.tps_0,
-                gamma=exp.timing_params.gamma,
-                t_wait=exp.timing_params.t_mare,
-            )
-        else:
-            params = StreamingParams.default()
-
-        return Response(
-            generate_sse_stream(
-                entity=entity,
-                entity_id=entity_id,
-                source=source,
-                params=params,
-                blind=exp.blind,
-            ),
-            mimetype="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        return jsonify({
+            "entity_id": entity_id,
+            "source": source,
+            "entity": entity,
+        })
 
 
 # --- Serialization helpers ---
@@ -282,7 +261,6 @@ def _exp_summary(exp: Experiment) -> dict:
         "view": exp.view,
         "num_models": len(exp.models),
         "include_real": exp.include_real,
-        "blind": exp.blind,
         "samples_per_split": exp.samples_per_split,
         "total_samples": exp.total_samples,
         "num_runs": len(exp.runs),
@@ -294,7 +272,6 @@ def _exp_detail(exp: Experiment) -> dict:
     return {
         **_exp_summary(exp),
         "models": [asdict(m) for m in exp.models],
-        "timing_params": asdict(exp.timing_params) if exp.timing_params else None,
         "runs": [_run_summary(r, exp) for r in exp.runs],
     }
 

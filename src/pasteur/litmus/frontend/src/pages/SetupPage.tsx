@@ -30,7 +30,6 @@ export default function SetupPage({ onSelectExperiment }: Props) {
   const [selectedModels, setSelectedModels] = useState<SelectedModel[]>([]);
   const [expandedAlgs, setExpandedAlgs] = useState<Set<string>>(new Set());
   const [includeReal, setIncludeReal] = useState(true);
-  const [blind, setBlind] = useState(true);
   const [samplesPerSplit, setSamplesPerSplit] = useState(20);
   const [expName, setExpName] = useState("");
   const [experiments, setExperiments] = useState<ExperimentSummary[]>([]);
@@ -80,7 +79,6 @@ export default function SetupPage({ onSelectExperiment }: Props) {
       view: selectedView,
       models: modelRefs,
       include_real: includeReal,
-      blind,
       samples_per_split: samplesPerSplit,
     });
     onSelectExperiment(exp);
@@ -187,14 +185,6 @@ export default function SetupPage({ onSelectExperiment }: Props) {
             )}
 
             <div className="options">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={blind}
-                  onChange={(e) => setBlind(e.target.checked)}
-                />
-                Enable blind generation
-              </label>
               <label className="checkbox-label">
                 <input
                   type="checkbox"

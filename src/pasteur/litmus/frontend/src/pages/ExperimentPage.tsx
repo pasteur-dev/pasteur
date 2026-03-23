@@ -78,7 +78,6 @@ export default function ExperimentPage({
               {exp.num_models} model{exp.num_models !== 1 ? "s" : ""}
               {exp.include_real ? " + real data" : ""} &middot;{" "}
               {exp.total_samples} samples per run
-              {exp.blind ? " (blinded)" : ""}
             </div>
 
             <div className="exp-models">
