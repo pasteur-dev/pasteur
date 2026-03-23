@@ -25,6 +25,7 @@ export default function ExperimentStartPage({
   return (
     <div className="page start-page">
       <header className="header">
+        <img src="/logo.svg" alt="Pasteur" className="header-logo" />
         <h1>LITMUS</h1>
         <button className="btn btn-small" onClick={onBack}>
           Back
@@ -32,6 +33,7 @@ export default function ExperimentStartPage({
       </header>
 
       <section className="card start-card">
+        <img src="/logo-text.svg" alt="Pasteur" className="logo-centered" />
         <h2>Start Experiment</h2>
 
         <p className="exp-summary">

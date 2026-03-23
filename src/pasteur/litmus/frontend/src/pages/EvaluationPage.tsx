@@ -20,11 +20,11 @@ const LIKERT_LABELS = [
 ];
 
 const LIKERT_COLORS = [
-  "#dc3545",
-  "#e8724a",
-  "#ffc107",
-  "#7bc47f",
-  "#28a745",
+  "#ff2244",
+  "#ff6633",
+  "#cc9900",
+  "#44bb55",
+  "#00dd77",
 ];
 
 export default function EvaluationPage({ experiment, onFinished }: Props) {
@@ -132,6 +132,7 @@ export default function EvaluationPage({ experiment, onFinished }: Props) {
     <div className="page eval-page">
       <header className="header">
         <div className="header-left">
+          <img src="/logo.svg" alt="Pasteur" className="header-logo" />
           <h1>LITMUS</h1>
           <span className="exp-name">{experiment.name}</span>
         </div>
