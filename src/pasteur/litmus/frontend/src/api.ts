@@ -1,0 +1,180 @@
+/** API client for LITMUS backend */
+
+const BASE = "/api";
+
+export interface ModelVersion {
+  version: string;
+}
+
+export interface ViewModels {
+  [algorithm: string]: ModelVersion[];
+}
+
+export interface ExperimentSummary {
+  id: string;
+  name: string;
+  view: string;
+  num_models: number;
+  include_real: boolean;
+  blind: boolean;
+  samples_per_split: number;
+  total_samples: number;
+  progress: number;
+  finished: boolean;
+  started: boolean;
+  created_at: string;
+}
+
+export interface ModelRef {
+  algorithm: string;
+  timestamp: string;
+  overrides: Record<string, unknown>;
+}
+
+export interface ExperimentDetail extends ExperimentSummary {
+  models: ModelRef[];
+  timing_params: { t_mare: number; tps_0: number; gamma: number } | null;
+  tutorial: boolean;
+  ratings: Rating[];
+}
+
+export interface Rating {
+  entity_id: string;
+  source: string;
+  score: number | null;
+  response_time_ms: number | null;
+  skipped: boolean;
+}
+
+export interface SourceResults {
+  count: number;
+  mean: number;
+  distribution: Record<number, number>;
+}
+
+export interface ExperimentResults {
+  experiment_id: string;
+  name: string;
+  view: string;
+  total_rated: number;
+  total_skipped: number;
+  by_source: Record<string, SourceResults>;
+}
+
+export async function fetchViews(): Promise<string[]> {
+  const res = await fetch(`${BASE}/views`);
+  return res.json();
+}
+
+export async function fetchModels(view: string): Promise<ViewModels> {
+  const res = await fetch(`${BASE}/views/${view}/models`);
+  return res.json();
+}
+
+export async function fetchExperiments(): Promise<ExperimentSummary[]> {
+  const res = await fetch(`${BASE}/experiments`);
+  return res.json();
+}
+
+export async function fetchExperiment(
+  id: string
+): Promise<ExperimentDetail> {
+  const res = await fetch(`${BASE}/experiments/${id}`);
+  return res.json();
+}
+
+export async function createExperiment(data: {
+  view: string;
+  models: ModelRef[];
+  include_real: boolean;
+  blind: boolean;
+  samples_per_split: number;
+}): Promise<ExperimentDetail> {
+  const res = await fetch(`${BASE}/experiments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function deleteExperiment(id: string): Promise<void> {
+  await fetch(`${BASE}/experiments/${id}`, { method: "DELETE" });
+}
+
+export async function startExperiment(
+  id: string,
+  name: string,
+  tutorial: boolean
+): Promise<void> {
+  await fetch(`${BASE}/experiments/${id}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, tutorial }),
+  });
+}
+
+export async function rateEntity(
+  experimentId: string,
+  entityId: string,
+  source: string,
+  score: number,
+  responseTimeMs: number
+): Promise<{ ok: boolean; progress: number; total: number }> {
+  const res = await fetch(`${BASE}/experiments/${experimentId}/rate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      entity_id: entityId,
+      source,
+      score,
+      response_time_ms: responseTimeMs,
+    }),
+  });
+  return res.json();
+}
+
+export async function skipEntity(
+  experimentId: string,
+  entityId: string,
+  source: string
+): Promise<void> {
+  await fetch(`${BASE}/experiments/${experimentId}/skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity_id: entityId, source }),
+  });
+}
+
+export async function endExperiment(id: string): Promise<void> {
+  await fetch(`${BASE}/experiments/${id}/end`, { method: "POST" });
+}
+
+export async function fetchResults(
+  id: string
+): Promise<ExperimentResults> {
+  const res = await fetch(`${BASE}/experiments/${id}/results`);
+  return res.json();
+}
+
+/** SSE event types from /api/experiments/<id>/next */
+export interface SSEStartEvent {
+  type: "start";
+  entity_id: string;
+}
+
+export interface SSETokenEvent {
+  type: "token";
+  fragment: string;
+  accumulated: string;
+  pretty: string | null;
+  progress: number;
+}
+
+export interface SSEDoneEvent {
+  type: "done";
+  entity_id: string;
+  source: string;
+}
+
+export type SSEEvent = SSEStartEvent | SSETokenEvent | SSEDoneEvent;

@@ -7,19 +7,16 @@
 </head>
 <body>
     <h1>LITMUS</h1>
-    <p>Live Interactive Tool for Measuring User-perceived Synthesis quality</p>
-    <p>React frontend will be built here.</p>
-    <script>
-        fetch('/api/views')
-            .then(r => r.json())
-            .then(views => {
-                document.body.innerHTML += '<h2>Available Views</h2><pre>' + JSON.stringify(views, null, 2) + '</pre>';
-            });
-        fetch('/api/experiments')
-            .then(r => r.json())
-            .then(exps => {
-                document.body.innerHTML += '<h2>Experiments</h2><pre>' + JSON.stringify(exps, null, 2) + '</pre>';
-            });
-    </script>
+    <p>Frontend not built yet. Run:</p>
+    <pre>
+cd src/pasteur/litmus/frontend
+npm install
+npm run build
+    </pre>
+    <p>Or for development with hot reload:</p>
+    <pre>
+npm run dev
+    </pre>
+    <p>Then access the Vite dev server (default: http://localhost:5173)</p>
 </body>
 </html>
