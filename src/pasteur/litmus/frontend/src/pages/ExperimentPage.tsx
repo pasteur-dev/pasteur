@@ -25,7 +25,7 @@ export default function ExperimentPage({
   onBack,
 }: Props) {
   const [exp, setExp] = useState(initialExp);
-  const [runName, setRunName] = useState(generateRunName);
+  const [runName, setRunName] = useState("");
   const [runResults, setRunResults] = useState<RunResults | null>(null);
 
   // Refresh experiment data
@@ -39,7 +39,8 @@ export default function ExperimentPage({
   }, [exp.id]);
 
   const handleNewRun = async () => {
-    const run = await createRun(exp.id, runName, false);
+    const name = runName || generateRunName();
+    const run = await createRun(exp.id, name, false);
     const updated = await fetchExperiment(exp.id);
     onStartRun(updated, run);
   };

@@ -77,7 +77,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
       };
     });
     const exp = await createExperiment({
-      name: expName || `${selectedView} experiment`,
+      name: expName || `${selectedView} experiment (${randomTag()})`,
       view: selectedView,
       models: modelRefs,
       include_real: includeReal,
@@ -303,4 +303,16 @@ function formatTimestamp(ts: string): string {
     .replace(/T/, " ")
     .replace(/\.\d+Z$/, "")
     .replace(/\./g, ":");
+}
+
+const TAGS = [
+  "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+  "iota", "kappa", "lambda", "sigma", "omega", "nova", "flux", "pulse",
+  "spark", "drift", "nexus", "prism", "helix", "vortex", "cipher", "quasar",
+];
+
+function randomTag(): string {
+  const tag = TAGS[Math.floor(Math.random() * TAGS.length)];
+  const num = Math.floor(Math.random() * 100);
+  return `${tag}-${num}`;
 }
