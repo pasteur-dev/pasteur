@@ -139,6 +139,7 @@ class FinancialClientView(RfelView):
             **kwargs,
         )
         self.trn_deps = {
+            "client_district": ["client"],
             "account": ["client"],
             "card": ["account"],
             "loan": ["account"],
@@ -177,8 +178,12 @@ class FinancialClientView(RfelView):
                 )
                 df = df.drop(columns=["district_id"])
                 df.index = df.index.astype(pd.Int64Dtype())
-                df.index.name = "client_id"
-                return df.sort_index()
+                # Use a synthetic primary key; client_id becomes a FK column
+                df["client_id"] = df.index.astype(pd.Int64Dtype())
+                df = df.reset_index(drop=True)
+                df.index = df.index.astype(pd.Int64Dtype())
+                df.index.name = "client_district_id"
+                return df.sort_values("client_id")
 
             case "account":
                 disp = tables["disp"]()

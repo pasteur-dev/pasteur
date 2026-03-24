@@ -7,9 +7,10 @@ tables:
       birth_date: date
 
   client_district:
-    primary_key: client_id
+    primary_key: client_district_id
     fields:
-      client_id: id
+      client_district_id: id
+      client_id: id:client.client_id
       a2: categorical
       a3: categorical
       a4: numerical
