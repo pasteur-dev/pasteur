@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createRun,
   deleteRun,
   fetchExperiment,
   fetchRunResults,
+  pollChanges,
   resumeRun,
   updateExperiment,
 } from "../api";
@@ -34,14 +35,44 @@ export default function ExperimentPage({
   const [settingsSamples, setSettingsSamples] = useState(initialExp.samples_per_split);
   const [settingsBlind, setSettingsBlind] = useState(initialExp.blind);
 
+  const versionRef = useRef(0);
+
   // Refresh experiment data
   const refresh = async () => {
     const updated = await fetchExperiment(exp.id);
     setExp(updated);
+    setResultsKey((k) => k + 1);
   };
 
   useEffect(() => {
     refresh();
+  }, [exp.id]);
+
+  // Long-poll for live updates (runs list + results)
+  useEffect(() => {
+    let active = true;
+
+    const poll = async () => {
+      while (active) {
+        try {
+          const newVersion = await pollChanges(versionRef.current);
+          if (!active) break;
+          if (newVersion !== versionRef.current) {
+            versionRef.current = newVersion;
+            const updated = await fetchExperiment(exp.id);
+            if (active) {
+              setExp(updated);
+              setResultsKey((k) => k + 1);
+            }
+          }
+        } catch {
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+      }
+    };
+
+    poll();
+    return () => { active = false; };
   }, [exp.id]);
 
   const handleNewRun = async (e: React.MouseEvent) => {

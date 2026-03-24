@@ -268,7 +268,7 @@ def _register_routes(app: Flask):
         """
         store = _get_store(app)
         known = request.args.get("version", 0, type=int)
-        new_version = store.wait_for_change(known, timeout=10.0)
+        new_version = store.wait_for_change(known, timeout=30.0)
         return jsonify({"version": new_version})
 
     # --- Entity Generation ---

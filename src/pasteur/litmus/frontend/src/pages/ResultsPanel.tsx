@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { fetchResults, pollChanges } from "../api";
+import { useEffect, useState } from "react";
+import { fetchResults } from "../api";
 import type {
   ExperimentResults,
   SourceResults,
@@ -33,36 +33,10 @@ const BAR_COLORS = [
 
 export default function ResultsPanel({ experimentId, refreshKey }: Props) {
   const [results, setResults] = useState<ExperimentResults | null>(null);
-  const versionRef = useRef(0);
 
   useEffect(() => {
     fetchResults(experimentId).then(setResults);
   }, [experimentId, refreshKey]);
-
-  // Long-poll for live updates
-  useEffect(() => {
-    let active = true;
-
-    const poll = async () => {
-      while (active) {
-        try {
-          const newVersion = await pollChanges(versionRef.current);
-          if (!active) break;
-          if (newVersion !== versionRef.current) {
-            versionRef.current = newVersion;
-            const data = await fetchResults(experimentId);
-            if (active) setResults(data);
-          }
-        } catch {
-          // Network error, retry after a delay
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    poll();
-    return () => { active = false; };
-  }, [experimentId]);
 
   if (!results) return <div className="card">Loading results...</div>;
 
