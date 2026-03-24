@@ -48,12 +48,21 @@ export function ModelTable({
         {models.map((m, i) => {
           const overrides = Object.entries(m.overrides || {});
           const key = `${m.algorithm}_${m.timestamp || "latest"}`;
-          const name = prettyNames?.[key] || m.algorithm;
+          const rawName = prettyNames?.[key] || m.algorithm;
+          // Split trailing (N) suffix from name into overrides
+          const suffixMatch = rawName.match(/^(.+?)\s+\((\d+)\)$/);
+          const name = suffixMatch ? suffixMatch[1] : rawName;
+          const suffix = suffixMatch ? suffixMatch[2] : null;
           return (
             <tr key={i}>
               <td className="model-table-alg">{name}</td>
               <td className="model-table-ts">{formatTimestamp(m.timestamp)}</td>
               <td className="model-table-overrides">
+                {suffix && (
+                  <span className="model-table-param model-table-suffix">
+                    #{suffix}
+                  </span>
+                )}
                 {overrides.map(([k, v]) => (
                   <span key={k} className="model-table-param">
                     {k}={String(v)}

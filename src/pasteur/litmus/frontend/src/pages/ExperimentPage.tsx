@@ -7,7 +7,7 @@ import {
   resumeRun,
 } from "../api";
 import type { ExperimentDetail, RunSummary, RunResults } from "../api";
-import ModelLabel from "../components/ModelLabel";
+import { ModelTable } from "../components/ModelLabel";
 import RunResultsModal from "../components/RunResultsModal";
 import ResultsPanel from "./ResultsPanel";
 
@@ -90,12 +90,11 @@ export default function ExperimentPage({
             </div>
 
             <div className="exp-models">
-              {exp.models.map((m, i) => (
-                <ModelLabel key={i} model={m} showTimestamp />
-              ))}
-              {exp.include_real && (
-                <span className="model-tag model-tag-real">real</span>
-              )}
+              <ModelTable
+                models={exp.models}
+                prettyNames={exp.pretty_names}
+                includeReal={exp.include_real}
+              />
             </div>
           </section>
 

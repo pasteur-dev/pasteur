@@ -413,8 +413,8 @@ function ComparisonPanel({ data }: { data: HumanLLMComparison }) {
         </div>
         <p className="stat-verdict" style={{ color: data.rank_match ? "#00dd77" : "#cc9900" }}>
           {data.rank_match
-            ? "Human and LLM rankings match."
-            : "Human and LLM rankings differ."}
+            ? "Human and LLM rankings match"
+            : "\u26A0 Human and LLM rankings differ"}
         </p>
       </div>
     </div>
