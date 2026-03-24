@@ -753,10 +753,30 @@ def _compute_run_results(exp: Experiment, run: Run) -> dict:
     total_rated = sum(1 for r in run.ratings if not r.skipped)
     total_skipped = sum(1 for r in run.ratings if r.skipped)
 
+    # Response times per source
+    response_times: dict[str, list[float]] = defaultdict(list)
+    for r in run.ratings:
+        if not r.skipped and r.response_time_ms is not None:
+            response_times[r.source].append(r.response_time_ms / 1000.0)
+
+    response_time_stats = []
+    for source in source_order:
+        times = response_times.get(source, [])
+        if not times:
+            continue
+        response_time_stats.append({
+            "source": source,
+            "pretty_name": pretty_names.get(source, source),
+            "mean": round(sum(times) / len(times), 2),
+            "count": len(times),
+            "times": [round(t, 2) for t in times],
+        })
+
     return {
         "run_id": run.id,
         "name": run.name,
         "total_rated": total_rated,
         "total_skipped": total_skipped,
         "by_source": results,
+        "response_times": response_time_stats,
     }

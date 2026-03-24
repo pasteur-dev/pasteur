@@ -261,6 +261,7 @@ export interface RunResults {
   total_rated: number;
   total_skipped: number;
   by_source: SourceResults[];
+  response_times: ResponseTimeStats[];
 }
 
 export async function fetchRunResults(

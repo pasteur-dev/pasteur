@@ -1,4 +1,4 @@
-import type { RunResults, SourceResults } from "../api";
+import type { RunResults, SourceResults, ResponseTimeStats } from "../api";
 
 const HEATMAP_COLORS = [
   "#ff2244",
@@ -6,6 +6,16 @@ const HEATMAP_COLORS = [
   "#cc9900",
   "#44bb55",
   "#00dd77",
+];
+
+const BAR_COLORS = [
+  "#ff2244",
+  "#ff6633",
+  "#cc9900",
+  "#44bb55",
+  "#00dd77",
+  "#6699dd",
+  "#aa66cc",
 ];
 
 interface Props {
@@ -44,7 +54,9 @@ export default function RunResultsModal({ results, onClose }: Props) {
               <col className="heatmap-col-score" />
               <col className="heatmap-col-score" />
               <col className="heatmap-col-n" />
-              <col className="heatmap-col-mean" />
+              <col className="heatmap-col-stat" />
+              <col className="heatmap-col-stat" />
+              <col className="heatmap-col-stat" />
             </colgroup>
             <thead>
               <tr>
@@ -56,6 +68,8 @@ export default function RunResultsModal({ results, onClose }: Props) {
                 ))}
                 <th>N</th>
                 <th>Mean</th>
+                <th>Std</th>
+                <th>Med</th>
               </tr>
             </thead>
             <tbody>
@@ -70,6 +84,14 @@ export default function RunResultsModal({ results, onClose }: Props) {
           </table>
         ) : (
           <p>No ratings in this run.</p>
+        )}
+
+        {results.response_times && results.response_times.length > 0 && (
+          <>
+            <hr className="results-divider" />
+            <h3>Response Time</h3>
+            <ResponseTimeChart data={results.response_times} />
+          </>
         )}
       </div>
     </div>
@@ -112,7 +134,82 @@ function HeatmapRow({
       })}
       <td className="heatmap-n">{data.count}</td>
       <td className="heatmap-mean">{data.mean.toFixed(2)}</td>
+      <td className="heatmap-stat">{data.std.toFixed(2)}</td>
+      <td className="heatmap-stat">{data.median.toFixed(1)}</td>
     </tr>
+  );
+}
+
+function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
+  const allTimes = data.flatMap((d) => d.times);
+  if (allTimes.length === 0) return null;
+
+  const sorted = [...allTimes].sort((a, b) => a - b);
+  const p95Idx = Math.floor(sorted.length * 0.95);
+  const maxTime = sorted[Math.max(p95Idx - 1, 0)];
+  const NUM_BINS = 20;
+  const binWidth = maxTime / NUM_BINS;
+
+  const histograms = data.map((d) => {
+    const bins = new Array(NUM_BINS).fill(0);
+    for (const t of d.times) {
+      if (t > maxTime) continue;
+      const idx = Math.min(Math.floor(t / binWidth), NUM_BINS - 1);
+      bins[idx]++;
+    }
+    return bins;
+  });
+
+  const maxBin = Math.max(...histograms.flat(), 1);
+
+  return (
+    <div className="rt-chart">
+      {data.map((d, i) => {
+        const color = BAR_COLORS[i % BAR_COLORS.length];
+        const bins = histograms[i];
+        const meanPct = Math.min((d.mean / maxTime) * 100, 100);
+        const std = d.times.length > 1
+          ? Math.sqrt(d.times.reduce((acc, t) => acc + (t - d.mean) ** 2, 0) / d.times.length)
+          : 0;
+
+        return (
+          <div key={d.source} className="rt-row">
+            <span className="rt-label">{d.pretty_name}</span>
+            <div className="rt-bar-container">
+              {bins.map((count, bi) => (
+                <div
+                  key={bi}
+                  className="rt-hist-bin"
+                  style={{
+                    left: `${(bi / NUM_BINS) * 100}%`,
+                    width: `${100 / NUM_BINS}%`,
+                    height: `${(count / maxBin) * 100}%`,
+                    backgroundColor: color,
+                    opacity: 0.4,
+                  }}
+                />
+              ))}
+              <div
+                className="rt-mean-line"
+                style={{
+                  left: `${meanPct}%`,
+                  backgroundColor: color,
+                }}
+              />
+            </div>
+            <span className="rt-value">
+              {d.mean.toFixed(1)}s
+              <span className="rt-std"> ±{std.toFixed(1)}</span>
+            </span>
+          </div>
+        );
+      })}
+      <div className="rt-axis">
+        <span>0s</span>
+        <span>{(maxTime / 2).toFixed(0)}s</span>
+        <span>{maxTime.toFixed(0)}s</span>
+      </div>
+    </div>
   );
 }
 
