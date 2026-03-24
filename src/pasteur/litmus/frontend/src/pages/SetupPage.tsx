@@ -264,12 +264,10 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                       <div className="exp-info">
                         <strong>{exp.name || "Unnamed"}</strong>
                         <span className="exp-meta">
-                          {exp.view} &middot;{" "}
-                          {exp.samples_per_split}/split &middot;{" "}
-                          {exp.total_samples} total &middot;{" "}
-                          {exp.num_runs} run
-                          {exp.num_runs !== 1 ? "s" : ""}
-                          {exp.blind ? " &middot; blinded" : ""}
+                          {exp.view} · {exp.samples_per_split}/split ·{" "}
+                          {exp.total_samples} total · {exp.num_runs} run
+                          {exp.num_runs !== 1 ? "s" : ""} ·{" "}
+                          {exp.blind ? "blinded" : "not blinded"}
                         </span>
                       </div>
                       <div className="exp-actions">
