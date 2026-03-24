@@ -393,12 +393,218 @@ def _compute_pretty_names(exp: Experiment) -> dict[str, str]:
 
 def _dist_entry(pretty_name: str, dist: dict[int, int]) -> dict:
     total = sum(dist.values())
-    mean = sum(k * v for k, v in dist.items()) / total if total else 0
+    if total == 0:
+        return {
+            "pretty_name": pretty_name,
+            "count": 0,
+            "mean": 0,
+            "std": 0,
+            "median": 0,
+            "distribution": dist,
+        }
+    # Expand distribution to list of scores
+    scores = []
+    for k, v in dist.items():
+        scores.extend([k] * v)
+    mean = sum(scores) / len(scores)
+    variance = sum((s - mean) ** 2 for s in scores) / len(scores)
+    std = variance**0.5
+    sorted_scores = sorted(scores)
+    n = len(sorted_scores)
+    median = (
+        sorted_scores[n // 2]
+        if n % 2 == 1
+        else (sorted_scores[n // 2 - 1] + sorted_scores[n // 2]) / 2
+    )
     return {
         "pretty_name": pretty_name,
         "count": total,
-        "mean": mean,
+        "mean": round(mean, 2),
+        "std": round(std, 2),
+        "median": median,
         "distribution": dist,
+    }
+
+
+def _compute_inter_rater(exp, source_order, pretty_names) -> dict | None:
+    """Compute Krippendorff's alpha for inter-rater agreement.
+
+    Uses ordinal metric. Requires >=2 non-tutorial runs.
+    Returns per-source and overall alpha, or None if insufficient data.
+    """
+    from collections import defaultdict
+
+    non_tutorial_runs = [r for r in exp.runs if not r.tutorial and r.ratings]
+    if len(non_tutorial_runs) < 2:
+        return None
+
+    # Build reliability matrix: rows=raters, cols=items
+    # Items are identified by their index within each run
+    # For per-source alpha, group by source
+    per_source = {}
+
+    for source in source_order:
+        # For each run, collect ratings for this source in order
+        source_ratings: list[list[int]] = []
+        for run in non_tutorial_runs:
+            run_source_scores = [
+                r.score
+                for r in run.ratings
+                if r.source == source and not r.skipped and r.score is not None
+            ]
+            source_ratings.append(run_source_scores)
+
+        # Need same number of items per rater for simple alpha
+        min_items = min(len(sr) for sr in source_ratings) if source_ratings else 0
+        if min_items < 2:
+            continue
+
+        # Truncate to min_items
+        truncated = [sr[:min_items] for sr in source_ratings]
+        alpha = _krippendorff_alpha_ordinal(truncated)
+        if alpha is not None:
+            per_source[source] = {
+                "pretty_name": pretty_names.get(source, source),
+                "alpha": round(alpha, 3),
+                "n_raters": len(non_tutorial_runs),
+                "n_items": min_items,
+            }
+
+    # Overall alpha across all sources
+    all_truncated = []
+    for run in non_tutorial_runs:
+        run_scores = [
+            r.score
+            for r in run.ratings
+            if not r.skipped and r.score is not None
+        ]
+        all_truncated.append(run_scores)
+
+    min_all = min(len(rs) for rs in all_truncated) if all_truncated else 0
+    overall_alpha = None
+    if min_all >= 2:
+        truncated_all = [rs[:min_all] for rs in all_truncated]
+        overall_alpha = _krippendorff_alpha_ordinal(truncated_all)
+
+    return {
+        "overall": round(overall_alpha, 3) if overall_alpha is not None else None,
+        "n_raters": len(non_tutorial_runs),
+        "per_source": list(per_source.values()),
+    }
+
+
+def _krippendorff_alpha_ordinal(data: list[list[int]]) -> float | None:
+    """Compute Krippendorff's alpha with ordinal metric.
+
+    data: list of rater scores, each a list of scores for items.
+    All sublists must be the same length.
+    """
+    n_raters = len(data)
+    n_items = len(data[0]) if data else 0
+    if n_raters < 2 or n_items < 2:
+        return None
+
+    # Collect all values
+    all_values = sorted(set(v for row in data for v in row))
+    if len(all_values) < 2:
+        return 1.0  # Perfect agreement if only one value
+
+    # Ordinal distance: squared cumulative-proportion distance
+    val_to_idx = {v: i for i, v in enumerate(all_values)}
+    n_vals = len(all_values)
+
+    # Frequency of each value
+    freq = [0] * n_vals
+    for row in data:
+        for v in row:
+            freq[val_to_idx[v]] += 1
+    total_n = sum(freq)
+
+    # Ordinal metric: d(c,k) = sum_{g=c}^{k} (f_g) - (f_c + f_k)/2
+    def ordinal_dist_sq(c_idx, k_idx):
+        if c_idx == k_idx:
+            return 0.0
+        lo, hi = min(c_idx, k_idx), max(c_idx, k_idx)
+        s = sum(freq[g] for g in range(lo, hi + 1)) - (freq[lo] + freq[hi]) / 2
+        return s * s
+
+    # Observed disagreement
+    Do = 0.0
+    for item in range(n_items):
+        item_vals = [data[r][item] for r in range(n_raters)]
+        for i in range(n_raters):
+            for j in range(i + 1, n_raters):
+                Do += ordinal_dist_sq(
+                    val_to_idx[item_vals[i]], val_to_idx[item_vals[j]]
+                )
+    n_pairs_per_item = n_raters * (n_raters - 1) / 2
+    Do /= n_items * n_pairs_per_item
+
+    # Expected disagreement
+    De = 0.0
+    for c in range(n_vals):
+        for k in range(c + 1, n_vals):
+            De += freq[c] * freq[k] * ordinal_dist_sq(c, k)
+    De *= 2.0 / (total_n * (total_n - 1))
+
+    if De == 0:
+        return 1.0
+    return 1.0 - Do / De
+
+
+def _compute_human_llm_correlation(
+    human_results, llm_results, source_order, pretty_names
+) -> dict | None:
+    """Compute Spearman rank correlation between human and LLM mean scores."""
+    if not human_results or not llm_results:
+        return None
+
+    # Match sources present in both
+    human_means = {r["source"]: r["mean"] for r in human_results}
+    llm_means = {r["source"]: r["mean"] for r in llm_results}
+
+    common = [s for s in source_order if s in human_means and s in llm_means]
+    if len(common) < 2:
+        return None
+
+    human_vals = [human_means[s] for s in common]
+    llm_vals = [llm_means[s] for s in common]
+
+    # Spearman: rank correlation
+    def _rank(vals):
+        indexed = sorted(enumerate(vals), key=lambda x: x[1])
+        ranks = [0.0] * len(vals)
+        i = 0
+        while i < len(indexed):
+            j = i
+            while j < len(indexed) and indexed[j][1] == indexed[i][1]:
+                j += 1
+            avg_rank = (i + j - 1) / 2 + 1
+            for k in range(i, j):
+                ranks[indexed[k][0]] = avg_rank
+            i = j
+        return ranks
+
+    hr = _rank(human_vals)
+    lr = _rank(llm_vals)
+
+    n = len(common)
+    d_sq = sum((hr[i] - lr[i]) ** 2 for i in range(n))
+    rho = 1 - (6 * d_sq) / (n * (n * n - 1))
+
+    # Also compute Pearson for comparison
+    h_mean = sum(human_vals) / n
+    l_mean = sum(llm_vals) / n
+    cov = sum((human_vals[i] - h_mean) * (llm_vals[i] - l_mean) for i in range(n))
+    h_std = (sum((v - h_mean) ** 2 for v in human_vals)) ** 0.5
+    l_std = (sum((v - l_mean) ** 2 for v in llm_vals)) ** 0.5
+    pearson = cov / (h_std * l_std) if h_std > 0 and l_std > 0 else None
+
+    return {
+        "spearman_rho": round(rho, 3),
+        "pearson_r": round(pearson, 3) if pearson is not None else None,
+        "n_sources": n,
+        "sources": [pretty_names.get(s, s) for s in common],
     }
 
 
@@ -472,6 +678,36 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         for r in run.ratings if r.skipped
     )
 
+    # Response times per source (ms -> seconds)
+    response_times: dict[str, list[float]] = defaultdict(list)
+    for run in exp.runs:
+        if run.tutorial:
+            continue
+        for r in run.ratings:
+            if not r.skipped and r.response_time_ms is not None:
+                response_times[r.source].append(r.response_time_ms / 1000.0)
+
+    response_time_stats = []
+    for source in source_order:
+        times = response_times.get(source, [])
+        if not times:
+            continue
+        response_time_stats.append({
+            "source": source,
+            "pretty_name": pretty_names.get(source, source),
+            "mean": round(sum(times) / len(times), 2),
+            "count": len(times),
+            "times": [round(t, 2) for t in times],
+        })
+
+    # Inter-rater agreement (Krippendorff's alpha, ordinal)
+    inter_rater = _compute_inter_rater(exp, source_order, pretty_names)
+
+    # Human vs LLM correlation (Spearman)
+    human_llm_corr = _compute_human_llm_correlation(
+        human_results, llm_results, source_order, pretty_names
+    )
+
     return {
         "experiment_id": exp.id,
         "name": exp.name,
@@ -481,6 +717,9 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         "total_skipped": total_skipped,
         "by_source": human_results,
         "llm_scores": llm_results,
+        "response_times": response_time_stats,
+        "inter_rater": inter_rater,
+        "human_llm_correlation": human_llm_corr,
     }
 
 

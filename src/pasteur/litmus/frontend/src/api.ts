@@ -64,7 +64,37 @@ export interface SourceResults {
   pretty_name: string;
   count: number;
   mean: number;
+  std: number;
+  median: number;
   distribution: Record<number, number>;
+}
+
+export interface ResponseTimeStats {
+  source: string;
+  pretty_name: string;
+  mean: number;
+  count: number;
+  times: number[];
+}
+
+export interface InterRaterSource {
+  pretty_name: string;
+  alpha: number;
+  n_raters: number;
+  n_items: number;
+}
+
+export interface InterRaterResult {
+  overall: number | null;
+  n_raters: number;
+  per_source: InterRaterSource[];
+}
+
+export interface HumanLLMCorrelation {
+  spearman_rho: number;
+  pearson_r: number | null;
+  n_sources: number;
+  sources: string[];
 }
 
 export interface ExperimentResults {
@@ -76,6 +106,9 @@ export interface ExperimentResults {
   total_skipped: number;
   by_source: SourceResults[];
   llm_scores: SourceResults[];
+  response_times: ResponseTimeStats[];
+  inter_rater: InterRaterResult | null;
+  human_llm_correlation: HumanLLMCorrelation | null;
 }
 
 // --- Views ---

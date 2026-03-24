@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { fetchResults } from "../api";
-import type { ExperimentResults, SourceResults } from "../api";
+import type {
+  ExperimentResults,
+  SourceResults,
+  ResponseTimeStats,
+  InterRaterResult,
+  HumanLLMCorrelation,
+} from "../api";
 
 interface Props {
   experimentId: string;
@@ -12,6 +18,16 @@ const HEATMAP_COLORS = [
   "#cc9900",
   "#44bb55",
   "#00dd77",
+];
+
+const BAR_COLORS = [
+  "#ff2244",
+  "#ff6633",
+  "#cc9900",
+  "#44bb55",
+  "#00dd77",
+  "#6699dd",
+  "#aa66cc",
 ];
 
 export default function ResultsPanel({ experimentId }: Props) {
@@ -57,6 +73,31 @@ export default function ResultsPanel({ experimentId }: Props) {
           <RatingHeatmap sources={results.llm_scores} />
         </>
       )}
+
+      {/* Response Times */}
+      {results.response_times && results.response_times.length > 0 && (
+        <>
+          <hr className="results-divider" />
+          <h3>Response Time</h3>
+          <ResponseTimeChart data={results.response_times} />
+        </>
+      )}
+
+      {/* Inter-rater Agreement & Correlation */}
+      {(results.inter_rater || results.human_llm_correlation) && (
+        <>
+          <hr className="results-divider" />
+          <h3>Statistical Analysis</h3>
+          <div className="stats-grid">
+            {results.inter_rater && (
+              <InterRaterPanel data={results.inter_rater} />
+            )}
+            {results.human_llm_correlation && (
+              <CorrelationPanel data={results.human_llm_correlation} />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -79,7 +120,9 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
         <col className="heatmap-col-score" />
         <col className="heatmap-col-score" />
         <col className="heatmap-col-n" />
-        <col className="heatmap-col-mean" />
+        <col className="heatmap-col-stat" />
+        <col className="heatmap-col-stat" />
+        <col className="heatmap-col-stat" />
       </colgroup>
       <thead>
         <tr>
@@ -91,6 +134,8 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
           ))}
           <th>N</th>
           <th>Mean</th>
+          <th>Std</th>
+          <th>Med</th>
         </tr>
       </thead>
       <tbody>
@@ -125,10 +170,126 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
             })}
             <td className="heatmap-n">{data.count}</td>
             <td className="heatmap-mean">{data.mean.toFixed(2)}</td>
+            <td className="heatmap-stat">{data.std.toFixed(2)}</td>
+            <td className="heatmap-stat">{data.median.toFixed(1)}</td>
           </tr>
         ))}
       </tbody>
     </table>
+  );
+}
+
+function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
+  const maxMean = Math.max(...data.map((d) => d.mean), 1);
+
+  return (
+    <div className="rt-chart">
+      {data.map((d, i) => {
+        const pct = (d.mean / maxMean) * 100;
+        const color = BAR_COLORS[i % BAR_COLORS.length];
+        return (
+          <div key={d.source} className="rt-row">
+            <span className="rt-label">{d.pretty_name}</span>
+            <div className="rt-bar-container">
+              <div
+                className="rt-bar"
+                style={{
+                  width: `${pct}%`,
+                  backgroundColor: color,
+                }}
+              />
+            </div>
+            <span className="rt-value">{d.mean.toFixed(1)}s</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function InterRaterPanel({ data }: { data: InterRaterResult }) {
+  const interpretAlpha = (a: number | null) => {
+    if (a === null) return { label: "N/A", color: "var(--text-dim)" };
+    if (a >= 0.8) return { label: "Excellent", color: "#00dd77" };
+    if (a >= 0.67) return { label: "Good", color: "#44bb55" };
+    if (a >= 0.33) return { label: "Fair", color: "#cc9900" };
+    return { label: "Poor", color: "#ff2244" };
+  };
+
+  const overall = interpretAlpha(data.overall);
+
+  return (
+    <div className="stat-card">
+      <h4>Inter-Rater Agreement</h4>
+      <p className="stat-subtitle">
+        Krippendorff's &alpha; (ordinal) &middot; {data.n_raters} raters
+      </p>
+      <div className="stat-main">
+        <span className="stat-value" style={{ color: overall.color }}>
+          {data.overall !== null ? data.overall.toFixed(3) : "—"}
+        </span>
+        <span className="stat-interpretation" style={{ color: overall.color }}>
+          {overall.label}
+        </span>
+      </div>
+      {data.per_source.length > 0 && (
+        <table className="stat-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>&alpha;</th>
+              <th>Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.per_source.map((s) => {
+              const interp = interpretAlpha(s.alpha);
+              return (
+                <tr key={s.pretty_name}>
+                  <td>{s.pretty_name}</td>
+                  <td style={{ color: interp.color }}>{s.alpha.toFixed(3)}</td>
+                  <td>{s.n_items}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function CorrelationPanel({ data }: { data: HumanLLMCorrelation }) {
+  const interpretCorr = (r: number) => {
+    const abs = Math.abs(r);
+    if (abs >= 0.8) return { label: "Strong", color: "#00dd77" };
+    if (abs >= 0.5) return { label: "Moderate", color: "#44bb55" };
+    if (abs >= 0.3) return { label: "Weak", color: "#cc9900" };
+    return { label: "Negligible", color: "#ff6633" };
+  };
+
+  const spearman = interpretCorr(data.spearman_rho);
+
+  return (
+    <div className="stat-card">
+      <h4>Human vs LLM Correlation</h4>
+      <p className="stat-subtitle">
+        {data.n_sources} sources compared
+      </p>
+      <div className="stat-main">
+        <span className="stat-value" style={{ color: spearman.color }}>
+          &rho; = {data.spearman_rho.toFixed(3)}
+        </span>
+        <span className="stat-interpretation" style={{ color: spearman.color }}>
+          {spearman.label}
+        </span>
+      </div>
+      {data.pearson_r !== null && (
+        <div className="stat-secondary">
+          Pearson r = {data.pearson_r.toFixed(3)}
+        </div>
+      )}
+    </div>
   );
 }
 
