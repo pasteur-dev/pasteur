@@ -476,6 +476,48 @@ class EntityGenerator:
             return random.choice(pool)
         return self._generate_one(mapping_info, real_data)
 
+    def generate_entity_by_index(
+        self, view: str, alg: str | None, version: str | None, index: int
+    ) -> dict:
+        """Get a specific entity by index. Deterministic across calls.
+
+        Uses the precomputed pool (waits if still building). The index
+        is modulo'd by pool size so any large index works.
+        """
+        if alg is None:
+            # Real data
+            mapping_info = self._get_mapping(view)
+            data = self._load_real_data(view)
+            cache_key = f"real.{view}"
+        else:
+            mapping_info = self._get_mapping(view)
+            data = self._load_synth_data(view, alg, version)
+            cache_key = f"synth.{view}.{alg}.{version or 'latest'}"
+
+        # Start precompute (no-op if already running/done)
+        self._start_precompute(cache_key, mapping_info, data)
+
+        # Try to serve from pool
+        pool = self._get_entity_pool(cache_key)
+        if pool:
+            return pool[index % len(pool)]
+
+        # Pool not ready yet — generate on demand using the index to pick a
+        # specific entity ID (deterministic)
+        from pasteur.extras.encoders import process_entity
+
+        top_table = mapping_info["top_table"]
+        ids = data["ids"]
+        if top_table not in ids or len(ids[top_table]) == 0:
+            return {"error": "No data available"}
+
+        all_ids = list(ids[top_table].index)
+        eid = all_ids[index % len(all_ids)]
+        return process_entity(
+            top_table, eid, mapping_info["mapping"],
+            data["tables"], data["ctx"], ids,
+        )
+
     def generate_entity_json(
         self, view: str, alg: str | None = None, version: str | None = None
     ) -> tuple[dict, str]:

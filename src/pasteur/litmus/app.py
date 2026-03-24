@@ -114,6 +114,7 @@ def _register_routes(app: Flask):
             if val < 1:
                 return jsonify({"error": "samples_per_split must be >= 1"}), 400
             exp.samples_per_split = val
+            exp.generate_schedule()
         if "blind" in data:
             exp.blind = bool(data["blind"])
 
@@ -272,30 +273,34 @@ def _register_routes(app: Flask):
 
     # --- Entity Generation ---
 
-    def _pick_source(exp, run):
-        splits = []
+    def _source_key_to_parts(exp, source_key):
+        """Convert a source key back to (source_type, alg, version)."""
+        if source_key == "real":
+            return "real", None, None
         for m in exp.models:
-            splits.append(("model", m.algorithm, m.timestamp))
-        if exp.include_real:
-            splits.append(("real", None, None))
-        if not splits:
-            return None, None, None
-        split_idx = run.progress % len(splits)
-        return splits[split_idx]
+            key = f"{m.algorithm}_{m.timestamp or 'latest'}"
+            if key == source_key:
+                return "model", m.algorithm, m.timestamp
+        return None, None, None
 
-    def _generate_entity(generator, exp, source_type, alg, version):
+    def _generate_entity(generator, exp, source_key, entity_index):
+        """Generate a specific entity by source key and index into the pool."""
         pretty_names = _compute_pretty_names(exp)
+        source_type, alg, version = _source_key_to_parts(exp, source_key)
+
         if source_type == "real":
-            entity = generator.generate_entity_from_real(exp.view)
-            source = "real"
-            source_pretty = pretty_names.get("real", "Real Data")
-        else:
-            entity = generator.generate_entity_from_model(
-                exp.view, alg, version
+            entity = generator.generate_entity_by_index(
+                exp.view, None, None, entity_index
             )
-            source = f"{alg}_{version or 'latest'}"
-            source_pretty = pretty_names.get(source, alg or "")
-        return entity, source, source_pretty
+            source_pretty = pretty_names.get("real", "Real Data")
+        elif source_type == "model":
+            entity = generator.generate_entity_by_index(
+                exp.view, alg, version, entity_index
+            )
+            source_pretty = pretty_names.get(source_key, alg or "")
+        else:
+            raise ValueError(f"Unknown source key: {source_key}")
+        return entity, source_key, source_pretty
 
     @app.route("/api/experiments/<eid>/runs/<rid>/next")
     def next_entity(eid: str, rid: str):
@@ -313,14 +318,16 @@ def _register_routes(app: Flask):
         if not generator:
             return jsonify({"error": "No generator available"}), 500
 
-        source_type, alg, version = _pick_source(exp, run)
-        if source_type is None:
-            return jsonify({"error": "No splits configured"}), 400
+        # Look up the predetermined schedule entry for this progress index
+        if not exp.schedule or run.progress >= len(exp.schedule):
+            return jsonify({"error": "Schedule exhausted"}), 400
+
+        source_key, entity_index = exp.schedule[run.progress]
 
         entity_id = str(uuid.uuid4())
         try:
             entity, source, source_pretty = _generate_entity(
-                generator, exp, source_type, alg, version
+                generator, exp, source_key, entity_index
             )
         except Exception:
             logger.exception("Entity generation failed")

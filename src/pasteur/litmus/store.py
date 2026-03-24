@@ -58,6 +58,9 @@ class Experiment:
     name: str = ""
     created_at: str = ""
     runs: list[Run] = field(default_factory=list)
+    schedule: list[list] = field(default_factory=list)
+    """Pre-determined sample order: list of [source_key, entity_index].
+    Generated once at experiment creation, shared across all runs."""
 
     @property
     def num_splits(self) -> int:
@@ -66,6 +69,38 @@ class Experiment:
     @property
     def total_samples(self) -> int:
         return self.num_splits * self.samples_per_split
+
+    def generate_schedule(self):
+        """Generate a deterministic schedule seeded by experiment ID.
+
+        Creates a shuffled sequence of (source_key, entity_index) pairs.
+        Each source gets exactly samples_per_split entries.
+        Entity indices are stable — they index into the entity pool for
+        that source.
+        """
+        import hashlib
+        import random as _random
+
+        seed = int(hashlib.sha256(self.id.encode()).hexdigest(), 16) % (2**32)
+        rng = _random.Random(seed)
+
+        # Build source keys
+        sources = []
+        for m in self.models:
+            sources.append(f"{m.algorithm}_{m.timestamp or 'latest'}")
+        if self.include_real:
+            sources.append("real")
+
+        # For each source, assign entity indices (large range, will be modulo'd by pool size)
+        schedule = []
+        for source in sources:
+            indices = rng.sample(range(100_000), self.samples_per_split)
+            for idx in indices:
+                schedule.append([source, idx])
+
+        # Shuffle the full schedule deterministically
+        rng.shuffle(schedule)
+        self.schedule = schedule
 
 
 def _experiment_to_dict(exp: Experiment) -> dict:
@@ -84,11 +119,16 @@ def _experiment_from_dict(d: dict) -> Experiment:
     d.pop("tutorial", None)
     d.pop("finished", None)
     d.setdefault("blind", True)
-    return Experiment(
+    d.setdefault("schedule", [])
+    exp = Experiment(
         models=models,
         runs=runs,
         **d,
     )
+    # Auto-generate schedule for legacy experiments
+    if not exp.schedule:
+        exp.generate_schedule()
+    return exp
 
 
 class ExperimentStore:
@@ -161,6 +201,7 @@ class ExperimentStore:
                 samples_per_split=samples_per_split,
                 created_at=datetime.now().isoformat(),
             )
+            exp.generate_schedule()
             self._experiments[exp.id] = exp
             self._save(exp)
             logger.info(f"Created experiment {exp.id}: {name}")
