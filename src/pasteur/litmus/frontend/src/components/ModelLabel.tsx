@@ -1,29 +1,52 @@
 /**
  * Displays a model reference.
  *
- * On ExperimentPage (showTimestamp=true): overrides first, timestamp as dim tag.
- * Elsewhere (showTimestamp=false): just algorithm + overrides, no timestamp.
+ * - Default: short label using prettyName (context-aware, only differing params)
+ * - verbose: full overrides, one per line, with timestamp
  */
 import type { ModelRef } from "../api";
 
 interface Props {
   model: ModelRef;
+  /** Context-aware short name (only params differing within experiment) */
+  prettyName?: string;
+  /** Show full overrides, one per line, with timestamp */
+  verbose?: boolean;
   showTimestamp?: boolean;
 }
 
-export default function ModelLabel({ model, showTimestamp = false }: Props) {
+export default function ModelLabel({
+  model,
+  prettyName,
+  verbose = false,
+  showTimestamp = false,
+}: Props) {
   const overrides = Object.entries(model.overrides || {});
-  const hasOverrides = overrides.length > 0;
+
+  if (verbose) {
+    return (
+      <div className="model-tag model-tag-verbose">
+        <span className="model-tag-alg">{model.algorithm}</span>
+        {overrides.length > 0 && (
+          <div className="model-tag-overrides-list">
+            {overrides.map(([k, v]) => (
+              <span key={k} className="model-tag-override-line">
+                {k}={String(v)}
+              </span>
+            ))}
+          </div>
+        )}
+        <span className="model-tag-ts">{formatTimestamp(model.timestamp)}</span>
+      </div>
+    );
+  }
+
+  // Short mode: use prettyName if available
+  const label = prettyName || model.algorithm;
 
   return (
     <span className="model-tag">
-      <span className="model-tag-alg">{model.algorithm}</span>
-      {hasOverrides &&
-        overrides.map(([k, v]) => (
-          <span key={k} className="model-tag-override">
-            {k}={String(v)}
-          </span>
-        ))}
+      <span className="model-tag-alg">{label}</span>
       {showTimestamp && (
         <span className="model-tag-ts">{formatTimestamp(model.timestamp)}</span>
       )}

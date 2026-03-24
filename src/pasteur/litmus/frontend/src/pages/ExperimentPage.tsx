@@ -90,7 +90,7 @@ export default function ExperimentPage({
 
             <div className="exp-models">
               {exp.models.map((m, i) => (
-                <ModelLabel key={i} model={m} showTimestamp />
+                <ModelLabel key={i} model={m} verbose />
               ))}
               {exp.include_real && (
                 <span className="model-tag model-tag-real">real</span>

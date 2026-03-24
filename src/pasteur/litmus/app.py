@@ -240,29 +240,18 @@ def _register_routes(app: Flask):
         split_idx = run.progress % len(splits)
         return splits[split_idx]
 
-    def _pretty_source(exp, alg, version):
-        """Build a display name for a source from the experiment's model list."""
-        if alg is None:
-            return "Real Data"
-        for m in exp.models:
-            if m.algorithm == alg and m.timestamp == version:
-                parts = [m.algorithm]
-                for k, v in m.overrides.items():
-                    parts.append(f"{k}={v}")
-                return " ".join(parts)
-        return f"{alg}"
-
     def _generate_entity(generator, exp, source_type, alg, version):
+        pretty_names = _compute_pretty_names(exp)
         if source_type == "real":
             entity = generator.generate_entity_from_real(exp.view)
             source = "real"
-            source_pretty = "Real Data"
+            source_pretty = pretty_names.get("real", "Real Data")
         else:
             entity = generator.generate_entity_from_model(
                 exp.view, alg, version
             )
             source = f"{alg}_{version or 'latest'}"
-            source_pretty = _pretty_source(exp, alg, version)
+            source_pretty = pretty_names.get(source, alg or "")
         return entity, source, source_pretty
 
     @app.route("/api/experiments/<eid>/runs/<rid>/next")
@@ -305,6 +294,7 @@ def _register_routes(app: Flask):
 # --- Serialization helpers ---
 
 def _exp_summary(exp: Experiment) -> dict:
+    pretty_names = _compute_pretty_names(exp)
     return {
         "id": exp.id,
         "name": exp.name,
@@ -317,6 +307,7 @@ def _exp_summary(exp: Experiment) -> dict:
         "total_samples": exp.total_samples,
         "num_runs": len(exp.runs),
         "created_at": exp.created_at,
+        "pretty_names": pretty_names,
     }
 
 
@@ -349,18 +340,45 @@ def _run_detail(run: Run, exp: Experiment | None) -> dict:
     }
 
 
-def _pretty_source_name(exp: Experiment, source: str) -> str:
-    """Convert raw source key to pretty display name (Title Case)."""
-    if source == "real":
-        return "Real Data"
+def _compute_pretty_names(exp: Experiment) -> dict[str, str]:
+    """Compute display names for all sources in an experiment.
+
+    Only shows override params that differ between selected models
+    of the same algorithm. If only one version of an algorithm is
+    selected, just shows the algorithm name.
+    """
+    from collections import defaultdict
+
+    # Group models by algorithm
+    by_alg: dict[str, list[ModelRef]] = defaultdict(list)
     for m in exp.models:
-        raw = f"{m.algorithm}_{m.timestamp or 'latest'}"
-        if raw == source:
-            parts = [m.algorithm.title()]
-            for k, v in m.overrides.items():
-                parts.append(f"{k}={v}")
-            return " ".join(parts)
-    return source.title()
+        by_alg[m.algorithm].append(m)
+
+    names = {}
+    for alg, models in by_alg.items():
+        if len(models) == 1:
+            # Single model of this algorithm — just the name
+            key = f"{alg}_{models[0].timestamp or 'latest'}"
+            names[key] = alg.title()
+        else:
+            # Multiple models — find differing params
+            ref = models[0].overrides
+            differing = set()
+            for m in models[1:]:
+                for k in set(list(ref.keys()) + list(m.overrides.keys())):
+                    if ref.get(k) != m.overrides.get(k):
+                        differing.add(k)
+
+            for m in models:
+                key = f"{alg}_{m.timestamp or 'latest'}"
+                parts = [alg.title()]
+                for k in sorted(differing):
+                    if k in m.overrides:
+                        parts.append(f"{k}={m.overrides[k]}")
+                names[key] = " ".join(parts)
+
+    names["real"] = "Real Data"
+    return names
 
 
 def _dist_entry(pretty_name: str, dist: dict[int, int]) -> dict:
@@ -376,6 +394,8 @@ def _dist_entry(pretty_name: str, dist: dict[int, int]) -> dict:
 
 def _compute_results(exp: Experiment, generator=None) -> dict:
     from collections import defaultdict
+
+    pretty_names = _compute_pretty_names(exp)
 
     # Build ordered source keys: models first, then real
     source_order = []
@@ -402,7 +422,7 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         dist = {i: scores.count(i) for i in range(1, 6)}
         human_results.append({
             "source": source,
-            **_dist_entry(_pretty_source_name(exp, source), dist),
+            **_dist_entry(pretty_names.get(source) or source, dist),
         })
 
     # Load LLM evaluator scores in same source order
@@ -419,20 +439,18 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
                     llm_results.append({
                         "source": source_key,
                         **_dist_entry(
-                            _pretty_source_name(exp, source_key), syn_dist
+                            pretty_names.get(source_key, source_key), syn_dist
                         ),
                     })
-                # Keep ref scores (same across models)
                 if ref_dist and llm_ref_dist is None:
                     llm_ref_dist = ref_dist
             except Exception:
                 pass
 
-        # Add real data row to LLM results
         if exp.include_real and llm_ref_dist:
             llm_results.append({
                 "source": "real",
-                **_dist_entry("Real Data", llm_ref_dist),
+                **_dist_entry(pretty_names.get("real", "Real Data"), llm_ref_dist),
             })
 
     total_rated = sum(
@@ -459,7 +477,8 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
 def _compute_run_results(exp: Experiment, run: Run) -> dict:
     from collections import defaultdict
 
-    # Build ordered source keys
+    pretty_names = _compute_pretty_names(exp)
+
     source_order = []
     for m in exp.models:
         source_order.append(f"{m.algorithm}_{m.timestamp or 'latest'}")
@@ -479,7 +498,7 @@ def _compute_run_results(exp: Experiment, run: Run) -> dict:
         dist = {i: scores.count(i) for i in range(1, 6)}
         results.append({
             "source": source,
-            **_dist_entry(_pretty_source_name(exp, source), dist),
+            **_dist_entry(pretty_names.get(source) or source, dist),
         })
 
     total_rated = sum(1 for r in run.ratings if not r.skipped)

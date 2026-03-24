@@ -45,6 +45,7 @@ export interface ExperimentSummary {
   total_samples: number;
   num_runs: number;
   created_at: string;
+  pretty_names: Record<string, string>;
 }
 
 export interface ExperimentDetail extends ExperimentSummary {

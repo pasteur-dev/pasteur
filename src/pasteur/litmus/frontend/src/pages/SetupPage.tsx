@@ -283,9 +283,16 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                       </div>
                     </div>
                     <div className="exp-item-models">
-                      {exp.models.map((m, i) => (
-                        <ModelLabel key={i} model={m} />
-                      ))}
+                      {exp.models.map((m, i) => {
+                        const key = `${m.algorithm}_${m.timestamp || "latest"}`;
+                        return (
+                          <ModelLabel
+                            key={i}
+                            model={m}
+                            prettyName={exp.pretty_names?.[key]}
+                          />
+                        );
+                      })}
                       {exp.include_real && (
                         <span className="model-tag model-tag-real">real</span>
                       )}

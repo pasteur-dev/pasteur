@@ -337,6 +337,25 @@ input[type="number"] {
   margin-left: 0.2rem;
 }
 
+.model-tag-verbose {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.model-tag-overrides-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-left: 0.25rem;
+}
+
+.model-tag-override-line {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--gold);
+}
+
 .model-tag-real {
   background: rgba(0, 221, 119, 0.08);
   border-color: var(--success);
