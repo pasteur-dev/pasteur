@@ -163,3 +163,50 @@ class StudentLoanDataset(RfelDataset):
                 .astype(pd.Int64Dtype())
             )
         )
+
+
+class FinancialDataset(RfelDataset):
+    def __init__(self, **kwargs) -> None:
+        tables = {
+            k.lower(): [k]
+            for k in [
+                "account",
+                "card",
+                "client",
+                "disp",
+                "district",
+                "loan",
+                "order",
+                "trans",
+            ]
+        }
+        keys = {
+            "account": "account_id",
+            "card": "card_id",
+            "client": "client_id",
+            "disp": "disp_id",
+            "district": "district_id",
+            "loan": "loan_id",
+            "order": "order_id",
+            "trans": "trans_id",
+        }
+        super().__init__(
+            short_name="fn",
+            name="financial",
+            db="financial",
+            keys=keys,
+            tables=tables,
+            **kwargs,
+        )
+
+    def keys(self, **tables: LazyChunk) -> "pd.DataFrame":
+        import pandas as pd
+
+        return pd.DataFrame(
+            index=(
+                tables["account"]()
+                .index
+                .unique()
+                .astype(pd.Int64Dtype())
+            )
+        )
