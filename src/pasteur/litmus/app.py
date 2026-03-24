@@ -366,26 +366,40 @@ def _compute_pretty_names(exp: Experiment) -> dict[str, str]:
 
     names = {}
     for alg, models in by_alg.items():
-        if len(models) == 1:
-            # Single model of this algorithm — just the name
-            key = f"{alg}_{models[0].timestamp or 'latest'}"
+        # Sort by timestamp (older first) for consistent numbering
+        sorted_models = sorted(models, key=lambda m: m.timestamp or "")
+
+        if len(sorted_models) == 1:
+            key = f"{alg}_{sorted_models[0].timestamp or 'latest'}"
             names[key] = alg.title()
         else:
             # Multiple models — find differing params
-            ref = models[0].overrides
+            ref = sorted_models[0].overrides
             differing = set()
-            for m in models[1:]:
+            for m in sorted_models[1:]:
                 for k in set(list(ref.keys()) + list(m.overrides.keys())):
                     if ref.get(k) != m.overrides.get(k):
                         differing.add(k)
 
-            for m in models:
+            alg_names: dict[str, str] = {}
+            for m in sorted_models:
                 key = f"{alg}_{m.timestamp or 'latest'}"
                 parts = [alg.title()]
                 for k in sorted(differing):
                     if k in m.overrides:
                         parts.append(f"{k}={m.overrides[k]}")
-                names[key] = " ".join(parts)
+                alg_names[key] = " ".join(parts)
+
+            # Deduplicate: if names collide, suffix with (1), (2), ...
+            name_to_keys: dict[str, list[str]] = defaultdict(list)
+            for key, name in alg_names.items():
+                name_to_keys[name].append(key)
+            for name, keys in name_to_keys.items():
+                if len(keys) > 1:
+                    for i, key in enumerate(keys):
+                        alg_names[key] = f"{name} ({i + 1})"
+
+            names.update(alg_names)
 
     names["real"] = "Real Data"
     return names
