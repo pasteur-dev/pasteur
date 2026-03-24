@@ -82,6 +82,7 @@ def _experiment_from_dict(d: dict) -> Experiment:
     # Drop legacy fields
     d.pop("timing_params", None)
     d.pop("tutorial", None)
+    d.pop("finished", None)
     d.setdefault("blind", True)
     return Experiment(
         models=models,
