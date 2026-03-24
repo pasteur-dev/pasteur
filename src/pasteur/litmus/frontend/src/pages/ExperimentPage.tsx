@@ -30,6 +30,7 @@ export default function ExperimentPage({
   const [runName, setRunName] = useState("");
   const [runResults, setRunResults] = useState<RunResults | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [resultsKey, setResultsKey] = useState(0);
   const [settingsSamples, setSettingsSamples] = useState(initialExp.samples_per_split);
   const [settingsBlind, setSettingsBlind] = useState(initialExp.blind);
 
@@ -43,17 +44,24 @@ export default function ExperimentPage({
     refresh();
   }, [exp.id]);
 
-  const handleNewRun = async () => {
+  const handleNewRun = async (e: React.MouseEvent) => {
     const name = runName || generateRunName();
     const run = await createRun(exp.id, name, false);
-    const updated = await fetchExperiment(exp.id);
-    onStartRun(updated, run);
+    const newTab = e.ctrlKey || e.metaKey || e.button === 1;
+    if (newTab) {
+      window.open(`#/experiment/${exp.id}/run/${run.id}`, "_blank");
+      refresh();
+    } else {
+      const updated = await fetchExperiment(exp.id);
+      onStartRun(updated, run);
+    }
   };
 
   const handleDeleteRun = async (runId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     await deleteRun(exp.id, runId);
     refresh();
+    setResultsKey((k) => k + 1);
   };
 
   const handleRunInfo = async (runId: string, e: React.MouseEvent) => {
@@ -213,7 +221,7 @@ export default function ExperimentPage({
 
         {/* Right: results */}
         <div className="setup-right">
-          <ResultsPanel experimentId={exp.id} />
+          <ResultsPanel experimentId={exp.id} refreshKey={resultsKey} />
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import type {
 
 interface Props {
   experimentId: string;
+  refreshKey?: number;
 }
 
 const HEATMAP_COLORS = [
@@ -30,12 +31,12 @@ const BAR_COLORS = [
   "#aa66cc",
 ];
 
-export default function ResultsPanel({ experimentId }: Props) {
+export default function ResultsPanel({ experimentId, refreshKey }: Props) {
   const [results, setResults] = useState<ExperimentResults | null>(null);
 
   useEffect(() => {
     fetchResults(experimentId).then(setResults);
-  }, [experimentId]);
+  }, [experimentId, refreshKey]);
 
   if (!results) return <div className="card">Loading results...</div>;
 
