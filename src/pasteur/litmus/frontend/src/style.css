@@ -225,60 +225,49 @@ input[type="number"]::-webkit-outer-spin-button {
 /* Custom number input wrapper with styled arrows */
 .number-input {
   position: relative;
-  display: inline-flex;
-  align-items: center;
   width: 120px;
+  margin-top: 0.25rem;
 }
 
 .number-input input[type="number"] {
   width: 100%;
-  padding-right: 2rem;
 }
 
 .number-input-arrows {
   position: absolute;
-  right: 1px;
-  top: 1px;
-  bottom: 1px;
+  right: 0.3rem;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
+  gap: 1px;
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.number-input:hover .number-input-arrows,
-.number-input:focus-within .number-input-arrows {
+.number-input:hover .number-input-arrows {
   opacity: 1;
 }
 
 .number-input-arrows button {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg-elevated);
-  border: none;
+  border: 1px solid var(--border);
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0 0.3rem;
-  font-size: 0.4rem;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.35rem;
   line-height: 1;
+  border-radius: 3px;
   transition: background 0.15s, color 0.15s;
 }
 
 .number-input-arrows button:hover {
   background: var(--gold-dim);
+  border-color: var(--gold);
   color: var(--cream);
-}
-
-.number-input-arrows button:first-child {
-  border-bottom: 1px solid var(--border);
-  border-radius: 0 3px 0 0;
-}
-
-.number-input-arrows button:last-child {
-  border-radius: 0 0 3px 0;
 }
 
 .checkbox-label {
@@ -425,8 +414,13 @@ input[type="number"]::-webkit-outer-spin-button {
   margin-top: 0.5rem;
 }
 
+.modal.card {
+  padding: 1rem 1.25rem;
+}
+
 .modal.card h3 {
   margin-top: 0;
+  margin-bottom: 0.75rem;
 }
 
 .btn-small {
@@ -675,9 +669,13 @@ input[type="number"]::-webkit-outer-spin-button {
 
 .sample-counts {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
   align-items: flex-end;
   margin-bottom: 1.25rem;
+}
+
+.sample-counts label {
+  flex: 0 0 auto;
 }
 
 /* Experiment list */
