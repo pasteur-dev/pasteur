@@ -7,6 +7,7 @@ generating entities from synth models or real data.
 import json
 import logging
 import random
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -157,6 +158,10 @@ class EntityGenerator:
         self._encoder_cache: dict[str, Any] = {}
         self._mapping_cache: dict[str, Any] = {}
         self._real_data_cache: dict[str, dict] = {}
+        # Background entity precomputation
+        self._entity_pools: dict[str, list[dict]] = {}
+        self._precompute_started: set[str] = set()
+        self._precompute_lock = threading.Lock()
 
     def _load_json_encoder(self, view: str):
         """Load the JSON encoder for a view, with caching."""
@@ -322,70 +327,113 @@ class EntityGenerator:
         self._data_cache[cache_key] = result
         return result
 
+    def _get_entity_pool(self, cache_key: str) -> list[dict] | None:
+        """Return precomputed entity pool if ready, else None."""
+        return self._entity_pools.get(cache_key)
+
+    def _start_precompute(
+        self, cache_key: str, mapping_info: dict, data: dict
+    ):
+        """Start background precomputation of all entities for a dataset.
+
+        No-op if already started or finished for this cache_key.
+        Thread-safe: uses a per-key lock to prevent duplicate work.
+        """
+        # Fast path: already done
+        if cache_key in self._entity_pools:
+            return
+
+        # Acquire the startup lock to check/set the "in progress" flag
+        with self._precompute_lock:
+            if cache_key in self._entity_pools or cache_key in self._precompute_started:
+                return
+            self._precompute_started.add(cache_key)
+
+        def _worker():
+            import time
+
+            from pasteur.extras.encoders import process_entity
+
+            t0 = time.perf_counter()
+            top_table = mapping_info["top_table"]
+            ids = data["ids"]
+            tables = data["tables"]
+            ctx = data["ctx"]
+
+            if top_table not in ids or len(ids[top_table]) == 0:
+                self._entity_pools[cache_key] = []
+                return
+
+            all_ids = list(ids[top_table].index)
+            mapping = mapping_info["mapping"]
+            pool = []
+            for eid in all_ids:
+                try:
+                    pool.append(
+                        process_entity(top_table, eid, mapping, tables, ctx, ids)
+                    )
+                except Exception:
+                    logger.debug(f"Failed to process entity {eid}", exc_info=True)
+
+            elapsed = time.perf_counter() - t0
+            logger.info(
+                f"Precomputed {len(pool)} entities for {cache_key} in {elapsed:.2f}s"
+            )
+            self._entity_pools[cache_key] = pool
+
+        thread = threading.Thread(target=_worker, daemon=True)
+        thread.start()
+
+    def _generate_one(self, mapping_info: dict, data: dict) -> dict:
+        """Generate a single entity on-demand (fallback while pool builds)."""
+        from pasteur.extras.encoders import process_entity
+
+        top_table = mapping_info["top_table"]
+        ids = data["ids"]
+        if top_table not in ids or len(ids[top_table]) == 0:
+            return {"error": "No data available"}
+
+        all_ids = list(ids[top_table].index)
+        return process_entity(
+            top_table,
+            random.choice(all_ids),
+            mapping_info["mapping"],
+            data["tables"],
+            data["ctx"],
+            ids,
+        )
+
     def generate_entity_from_model(
         self, view: str, alg: str, version: str | None = None
     ) -> dict:
-        """Generate a single entity from pre-computed synthetic data.
-
-        Loads reverse-transformed synthetic tables from the catalog and
-        picks a random entity using process_entity.
-        """
-        from pasteur.extras.encoders import process_entity
-
+        """Pick a random synthetic entity. Serves from cache if ready,
+        otherwise generates on-demand and starts background precomputation."""
         mapping_info = self._get_mapping(view)
         synth_data = self._load_synth_data(view, alg, version)
+        cache_key = f"synth.{view}.{alg}.{version or 'latest'}"
 
-        top_table = mapping_info["top_table"]
-        ids = synth_data["ids"]
-        tables = synth_data["tables"]
-        ctx = synth_data["ctx"]
+        # Start background precompute (no-op if already running/done)
+        self._start_precompute(cache_key, mapping_info, synth_data)
 
-        if top_table not in ids or len(ids[top_table]) == 0:
-            return {"error": "No synthetic data available"}
-
-        all_ids = list(ids[top_table].index)
-        entity_id = random.choice(all_ids)
-
-        return process_entity(
-            top_table,
-            entity_id,
-            mapping_info["mapping"],
-            tables,
-            ctx,
-            ids,
-        )
+        # Serve from pool if ready, otherwise generate on-demand
+        pool = self._get_entity_pool(cache_key)
+        if pool:
+            return random.choice(pool)
+        return self._generate_one(mapping_info, synth_data)
 
     def generate_entity_from_real(self, view: str) -> dict:
-        """Sample a random real entity from the working split.
-
-        Returns a dict representing the entity in human-readable form.
-        """
-        from pasteur.extras.encoders import get_top_table, process_entity
-
+        """Pick a random real entity. Serves from cache if ready,
+        otherwise generates on-demand and starts background precomputation."""
         mapping_info = self._get_mapping(view)
         real_data = self._load_real_data(view)
+        cache_key = f"real.{view}"
 
-        top_table = mapping_info["top_table"]
-        ids = real_data["ids"]
-        tables = real_data["tables"]
-        ctx = real_data["ctx"]
+        self._start_precompute(cache_key, mapping_info, real_data)
 
-        # Pick a random entity from the top table
-        if top_table not in ids or len(ids[top_table]) == 0:
-            return {"error": "No real data available"}
-
-        # Get all entity IDs from the top-level table
-        all_ids = list(ids[top_table].index)
-        entity_id = random.choice(all_ids)
-
-        return process_entity(
-            top_table,
-            entity_id,
-            mapping_info["mapping"],
-            tables,
-            ctx,
-            ids,
-        )
+        pool = self._get_entity_pool(cache_key)
+        if pool:
+            return random.choice(pool)
+        return self._generate_one(mapping_info, real_data)
 
     def generate_entity_json(
         self, view: str, alg: str | None = None, version: str | None = None
