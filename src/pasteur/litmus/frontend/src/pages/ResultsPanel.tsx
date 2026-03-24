@@ -5,7 +5,7 @@ import type {
   SourceResults,
   ResponseTimeStats,
   InterRaterResult,
-  HumanLLMCorrelation,
+  HumanLLMComparison,
 } from "../api";
 
 interface Props {
@@ -75,7 +75,7 @@ export default function ResultsPanel({ experimentId }: Props) {
       )}
 
       {/* Inter-rater Agreement & Correlation */}
-      {(results.inter_rater || results.human_llm_correlation) && (
+      {(results.inter_rater || results.human_llm_comparison) && (
         <>
           <hr className="results-divider" />
           <h3>Statistical Analysis</h3>
@@ -83,8 +83,8 @@ export default function ResultsPanel({ experimentId }: Props) {
             {results.inter_rater && (
               <InterRaterPanel data={results.inter_rater} />
             )}
-            {results.human_llm_correlation && (
-              <CorrelationPanel data={results.human_llm_correlation} />
+            {results.human_llm_comparison && (
+              <ComparisonPanel data={results.human_llm_comparison} />
             )}
           </div>
         </>
@@ -324,50 +324,99 @@ function InterRaterPanel({ data }: { data: InterRaterResult }) {
   );
 }
 
-function CorrelationPanel({ data }: { data: HumanLLMCorrelation }) {
-  const interpretCorr = (r: number) => {
-    const abs = Math.abs(r);
-    if (abs >= 0.8) return { label: "Strong", color: "#00dd77", desc: "Humans and the LLM rank model quality nearly identically." };
-    if (abs >= 0.5) return { label: "Moderate", color: "#44bb55", desc: "Humans and the LLM broadly agree on which models are better." };
-    if (abs >= 0.3) return { label: "Weak", color: "#cc9900", desc: "Some alignment between human and LLM judgments, but notable differences." };
-    return { label: "Negligible", color: "#ff6633", desc: "Human and LLM assessments do not meaningfully correlate." };
-  };
+function ComparisonPanel({ data }: { data: HumanLLMComparison }) {
+  const maxAbsDiff = Math.max(...data.per_source.map((s) => Math.abs(s.diff)), 0.5);
 
-  const spearman = interpretCorr(data.spearman_rho);
+  const diffColor = (diff: number) => {
+    const abs = Math.abs(diff);
+    if (abs < 0.3) return "#44bb55";
+    if (abs < 0.7) return "#cc9900";
+    return "#ff4455";
+  };
 
   return (
     <div className="stat-card">
-      <h4>Human vs LLM Correlation</h4>
+      <h4>Human vs LLM Comparison</h4>
       <p className="stat-desc">
-        Does the LLM evaluator rank model quality the same way humans do?
-        Compares mean scores across {data.n_sources} source{data.n_sources !== 1 ? "s" : ""}.
+        How do human and LLM scores differ for each source?
+        Bars show the gap between mean human and mean LLM ratings.
       </p>
-      <div className="stat-main">
-        <span className="stat-value" style={{ color: spearman.color }}>
-          &rho; = {data.spearman_rho.toFixed(3)}
-        </span>
-        <span className="stat-interpretation" style={{ color: spearman.color }}>
-          {spearman.label}
-        </span>
-      </div>
-      {spearman.desc && (
-        <p className="stat-verdict">{spearman.desc}</p>
-      )}
-      {data.pearson_r !== null && (
-        <div className="stat-secondary">
-          Pearson r = {data.pearson_r.toFixed(3)}
-          <span className="stat-hint"> (linear relationship)</span>
+
+      {/* Per-source mean difference bars */}
+      <div className="diff-chart">
+        {data.per_source.map((s) => {
+          const pct = (s.diff / maxAbsDiff) * 50;
+          const color = diffColor(s.diff);
+          return (
+            <div key={s.source} className="diff-row">
+              <span className="diff-label">{s.pretty_name}</span>
+              <div className="diff-bar-container">
+                <div className="diff-center-line" />
+                <div
+                  className="diff-bar"
+                  style={{
+                    left: s.diff >= 0 ? "50%" : `${50 + pct}%`,
+                    width: `${Math.abs(pct)}%`,
+                    backgroundColor: color,
+                  }}
+                />
+              </div>
+              <span className="diff-values">
+                <span style={{ color: "var(--text-muted)" }}>
+                  H:{s.human_mean.toFixed(1)}
+                </span>
+                {" "}
+                <span style={{ color: "var(--text-dim)" }}>
+                  L:{s.llm_mean.toFixed(1)}
+                </span>
+                {" "}
+                <span style={{ color, fontWeight: 600 }}>
+                  {s.diff > 0 ? "+" : ""}{s.diff.toFixed(2)}
+                </span>
+              </span>
+            </div>
+          );
+        })}
+        <div className="diff-axis">
+          <span>LLM higher</span>
+          <span>Equal</span>
+          <span>Human higher</span>
         </div>
-      )}
-      {data.n_sources < 4 && (
-        <p className="stat-caveat">
-          &#9888; Only {data.n_sources} source{data.n_sources !== 1 ? "s" : ""} compared — correlation is indicative but not statistically robust.
-          Add more models for stronger conclusions.
+      </div>
+
+      {/* Rank comparison */}
+      <div className="rank-comparison">
+        <p className="stat-breakdown-label">Ranking</p>
+        <div className="rank-rows">
+          <div className="rank-row">
+            <span className="rank-label">Human</span>
+            <span className="rank-items">
+              {data.human_ranking.map((name, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="rank-arrow">&gt;</span>}
+                  <span className="rank-item">{name}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+          <div className="rank-row">
+            <span className="rank-label">LLM</span>
+            <span className="rank-items">
+              {data.llm_ranking.map((name, i) => (
+                <span key={i}>
+                  {i > 0 && <span className="rank-arrow">&gt;</span>}
+                  <span className="rank-item">{name}</span>
+                </span>
+              ))}
+            </span>
+          </div>
+        </div>
+        <p className="stat-verdict" style={{ color: data.rank_match ? "#00dd77" : "#cc9900" }}>
+          {data.rank_match
+            ? "Human and LLM rankings match."
+            : "Human and LLM rankings differ."}
         </p>
-      )}
-      <p className="stat-scale">
-        Scale: -1 = opposite rankings &middot; 0 = no relationship &middot; +1 = identical rankings
-      </p>
+      </div>
     </div>
   );
 }

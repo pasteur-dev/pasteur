@@ -552,14 +552,13 @@ def _krippendorff_alpha_ordinal(data: list[list[int]]) -> float | None:
     return 1.0 - Do / De
 
 
-def _compute_human_llm_correlation(
+def _compute_human_llm_comparison(
     human_results, llm_results, source_order, pretty_names
 ) -> dict | None:
-    """Compute Spearman rank correlation between human and LLM mean scores."""
+    """Compute per-source mean difference and rank comparison between human and LLM."""
     if not human_results or not llm_results:
         return None
 
-    # Match sources present in both
     human_means = {r["source"]: r["mean"] for r in human_results}
     llm_means = {r["source"]: r["mean"] for r in llm_results}
 
@@ -567,44 +566,34 @@ def _compute_human_llm_correlation(
     if len(common) < 2:
         return None
 
-    human_vals = [human_means[s] for s in common]
-    llm_vals = [llm_means[s] for s in common]
+    # Per-source mean difference (human - LLM)
+    per_source = []
+    for s in common:
+        diff = human_means[s] - llm_means[s]
+        per_source.append({
+            "source": s,
+            "pretty_name": pretty_names.get(s, s),
+            "human_mean": round(human_means[s], 2),
+            "llm_mean": round(llm_means[s], 2),
+            "diff": round(diff, 2),
+        })
 
-    # Spearman: rank correlation
-    def _rank(vals):
-        indexed = sorted(enumerate(vals), key=lambda x: x[1])
-        ranks = [0.0] * len(vals)
-        i = 0
-        while i < len(indexed):
-            j = i
-            while j < len(indexed) and indexed[j][1] == indexed[i][1]:
-                j += 1
-            avg_rank = (i + j - 1) / 2 + 1
-            for k in range(i, j):
-                ranks[indexed[k][0]] = avg_rank
-            i = j
-        return ranks
+    # Rank comparison
+    human_ranked = sorted(common, key=lambda s: human_means[s], reverse=True)
+    llm_ranked = sorted(common, key=lambda s: llm_means[s], reverse=True)
 
-    hr = _rank(human_vals)
-    lr = _rank(llm_vals)
+    human_ranking = [pretty_names.get(s, s) for s in human_ranked]
+    llm_ranking = [pretty_names.get(s, s) for s in llm_ranked]
 
-    n = len(common)
-    d_sq = sum((hr[i] - lr[i]) ** 2 for i in range(n))
-    rho = 1 - (6 * d_sq) / (n * (n * n - 1))
-
-    # Also compute Pearson for comparison
-    h_mean = sum(human_vals) / n
-    l_mean = sum(llm_vals) / n
-    cov = sum((human_vals[i] - h_mean) * (llm_vals[i] - l_mean) for i in range(n))
-    h_std = (sum((v - h_mean) ** 2 for v in human_vals)) ** 0.5
-    l_std = (sum((v - l_mean) ** 2 for v in llm_vals)) ** 0.5
-    pearson = cov / (h_std * l_std) if h_std > 0 and l_std > 0 else None
+    # Check if rankings match
+    rank_match = human_ranked == llm_ranked
 
     return {
-        "spearman_rho": round(rho, 3),
-        "pearson_r": round(pearson, 3) if pearson is not None else None,
-        "n_sources": n,
-        "sources": [pretty_names.get(s, s) for s in common],
+        "per_source": per_source,
+        "human_ranking": human_ranking,
+        "llm_ranking": llm_ranking,
+        "rank_match": rank_match,
+        "n_sources": len(common),
     }
 
 
@@ -703,8 +692,8 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
     # Inter-rater agreement (Krippendorff's alpha, ordinal)
     inter_rater = _compute_inter_rater(exp, source_order, pretty_names)
 
-    # Human vs LLM correlation (Spearman)
-    human_llm_corr = _compute_human_llm_correlation(
+    # Human vs LLM comparison (per-source mean diff + rank)
+    human_llm = _compute_human_llm_comparison(
         human_results, llm_results, source_order, pretty_names
     )
 
@@ -719,7 +708,7 @@ def _compute_results(exp: Experiment, generator=None) -> dict:
         "llm_scores": llm_results,
         "response_times": response_time_stats,
         "inter_rater": inter_rater,
-        "human_llm_correlation": human_llm_corr,
+        "human_llm_comparison": human_llm,
     }
 
 

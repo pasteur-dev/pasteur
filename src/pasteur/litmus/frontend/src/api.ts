@@ -90,11 +90,20 @@ export interface InterRaterResult {
   per_source: InterRaterSource[];
 }
 
-export interface HumanLLMCorrelation {
-  spearman_rho: number;
-  pearson_r: number | null;
+export interface HumanLLMSourceDiff {
+  source: string;
+  pretty_name: string;
+  human_mean: number;
+  llm_mean: number;
+  diff: number;
+}
+
+export interface HumanLLMComparison {
+  per_source: HumanLLMSourceDiff[];
+  human_ranking: string[];
+  llm_ranking: string[];
+  rank_match: boolean;
   n_sources: number;
-  sources: string[];
 }
 
 export interface ExperimentResults {
@@ -108,7 +117,7 @@ export interface ExperimentResults {
   llm_scores: SourceResults[];
   response_times: ResponseTimeStats[];
   inter_rater: InterRaterResult | null;
-  human_llm_correlation: HumanLLMCorrelation | null;
+  human_llm_comparison: HumanLLMComparison | null;
 }
 
 // --- Views ---

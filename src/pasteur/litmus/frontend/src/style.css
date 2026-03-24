@@ -1315,6 +1315,114 @@ input[type="number"] {
   line-height: 1.4;
 }
 
+/* Human vs LLM difference chart */
+.diff-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.diff-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.diff-label {
+  min-width: 70px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.diff-bar-container {
+  flex: 1;
+  height: 1.2rem;
+  background: var(--bg-input);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.diff-center-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-dim);
+  opacity: 0.5;
+}
+
+.diff-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 2px;
+  transition: all 0.3s;
+}
+
+.diff-values {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  white-space: nowrap;
+  min-width: 130px;
+}
+
+.diff-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  margin-top: 0.1rem;
+  padding: 0 70px 0 70px;
+}
+
+/* Rank comparison */
+.rank-comparison {
+  margin-top: 0.5rem;
+}
+
+.rank-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.rank-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rank-label {
+  min-width: 50px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.rank-items {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.rank-arrow {
+  color: var(--text-dim);
+  margin: 0 0.25rem;
+  opacity: 0.6;
+}
+
+.rank-item {
+  color: var(--text);
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;
