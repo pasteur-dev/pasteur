@@ -145,14 +145,14 @@ export default function EvaluationPage({
         </div>
         <div className="header-right">
           <button
-            className="btn btn-small"
+            className="btn btn-small btn-undo"
             onClick={handleUndo}
             disabled={loading || progress <= 0}
           >
             Undo
           </button>
           <button
-            className="btn btn-small"
+            className="btn btn-small btn-skip"
             onClick={handleSkip}
             disabled={loading}
           >

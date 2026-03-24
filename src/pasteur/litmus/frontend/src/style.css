@@ -279,6 +279,28 @@ input[type="number"] {
   color: white;
 }
 
+.btn-undo {
+  border-color: #4466aa;
+  color: #6699dd;
+}
+
+.btn-undo:hover {
+  background: #223355;
+  border-color: #6699dd;
+  color: white;
+}
+
+.btn-skip {
+  border-color: #7a7004;
+  color: var(--gold);
+}
+
+.btn-skip:hover {
+  background: #3a3500;
+  border-color: var(--gold-bright);
+  color: white;
+}
+
 .btn-small {
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
