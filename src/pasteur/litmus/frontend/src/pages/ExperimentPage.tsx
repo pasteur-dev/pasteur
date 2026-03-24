@@ -5,6 +5,7 @@ import {
   fetchExperiment,
   fetchRunResults,
   resumeRun,
+  updateExperiment,
 } from "../api";
 import type { ExperimentDetail, RunSummary, RunResults } from "../api";
 import { ModelTable } from "../components/ModelLabel";
@@ -27,6 +28,9 @@ export default function ExperimentPage({
   const [exp, setExp] = useState(initialExp);
   const [runName, setRunName] = useState("");
   const [runResults, setRunResults] = useState<RunResults | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsSamples, setSettingsSamples] = useState(initialExp.samples_per_split);
+  const [settingsBlind, setSettingsBlind] = useState(initialExp.blind);
 
   // Refresh experiment data
   const refresh = async () => {
@@ -65,6 +69,21 @@ export default function ExperimentPage({
     onResumeRun(updated, run);
   };
 
+  const openSettings = () => {
+    setSettingsSamples(exp.samples_per_split);
+    setSettingsBlind(exp.blind);
+    setShowSettings(true);
+  };
+
+  const saveSettings = async () => {
+    const updated = await updateExperiment(exp.id, {
+      samples_per_split: settingsSamples,
+      blind: settingsBlind,
+    });
+    setExp(updated);
+    setShowSettings(false);
+  };
+
   return (
     <div className="page experiment-page">
       <header className="header">
@@ -72,9 +91,18 @@ export default function ExperimentPage({
           <img src="/logo.svg" alt="Pasteur" className="header-logo" />
           <h1>LITMUS</h1>
         </a>
-        <button className="btn btn-small btn-undo" onClick={onBack}>
-          Experiments
-        </button>
+        <div className="header-actions">
+          <button
+            className="btn btn-small btn-settings"
+            onClick={openSettings}
+            title="Experiment settings"
+          >
+            &#9881;
+          </button>
+          <button className="btn btn-small btn-undo" onClick={onBack}>
+            Experiments
+          </button>
+        </div>
       </header>
 
       <div className="setup-layout">
@@ -192,6 +220,50 @@ export default function ExperimentPage({
           results={runResults}
           onClose={() => setRunResults(null)}
         />
+      )}
+
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Experiment Settings</h3>
+              <button
+                className="btn btn-small"
+                onClick={() => setShowSettings(false)}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="modal-body">
+              <label>
+                Samples per split
+                <input
+                  type="number"
+                  min={1}
+                  value={settingsSamples}
+                  onChange={(e) => setSettingsSamples(parseInt(e.target.value) || 1)}
+                />
+              </label>
+              <div className="settings-total">
+                Total: {settingsSamples * (exp.num_models + (exp.include_real ? 1 : 0))} samples
+                ({exp.num_models + (exp.include_real ? 1 : 0)} split{(exp.num_models + (exp.include_real ? 1 : 0)) !== 1 ? "s" : ""})
+              </div>
+
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={settingsBlind}
+                  onChange={(e) => setSettingsBlind(e.target.checked)}
+                />
+                Blinded generation
+              </label>
+
+              <button className="btn btn-primary" onClick={saveSettings}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

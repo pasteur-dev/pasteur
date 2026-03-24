@@ -101,6 +101,25 @@ def _register_routes(app: Flask):
             return jsonify({"ok": True})
         return jsonify({"error": "Experiment not found"}), 404
 
+    @app.route("/api/experiments/<eid>", methods=["PATCH"])
+    def update_experiment(eid: str):
+        store = _get_store(app)
+        exp = store.get(eid)
+        if not exp:
+            return jsonify({"error": "Experiment not found"}), 404
+
+        data = request.get_json()
+        if "samples_per_split" in data:
+            val = int(data["samples_per_split"])
+            if val < 1:
+                return jsonify({"error": "samples_per_split must be >= 1"}), 400
+            exp.samples_per_split = val
+        if "blind" in data:
+            exp.blind = bool(data["blind"])
+
+        store.save(exp)
+        return jsonify(_exp_detail(exp))
+
     # --- Runs ---
 
     def _preload_experiment_data(exp):

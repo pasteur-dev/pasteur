@@ -314,6 +314,34 @@ input[type="number"] {
   box-shadow: 0 0 12px var(--gold-glow);
 }
 
+.btn-settings {
+  background: rgba(120, 120, 140, 0.15);
+  border-color: #778;
+  border-width: 2px;
+  color: #99a;
+  font-size: 1.1rem;
+}
+
+.btn-settings:hover {
+  background: #2a2a35;
+  border-color: #aab;
+  color: white;
+  box-shadow: 0 0 12px rgba(150, 150, 170, 0.3);
+}
+
+.header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings-total {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: -0.25rem 0 0.75rem 0;
+}
+
 .btn-small {
   padding: 0.4rem 1rem;
   font-size: 0.85rem;

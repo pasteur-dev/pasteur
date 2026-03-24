@@ -164,6 +164,18 @@ export async function deleteExperiment(id: string): Promise<void> {
   await fetch(`${BASE}/experiments/${id}`, { method: "DELETE" });
 }
 
+export async function updateExperiment(
+  id: string,
+  updates: { samples_per_split?: number; blind?: boolean }
+): Promise<ExperimentDetail> {
+  const res = await fetch(`${BASE}/experiments/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  return res.json();
+}
+
 // --- Runs ---
 
 export async function createRun(
