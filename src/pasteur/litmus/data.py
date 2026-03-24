@@ -123,14 +123,31 @@ def discover_models(data_dir: str | Path) -> dict:
                 continue
 
             # List version directories (timestamps)
+            # Only include versions that have actual output data (bst files)
+            bst_dir = alg_dir / "bst"
             raw_versions = []
             for version_dir in sorted(
                 model_pkl_dir.iterdir(), reverse=True
             ):
                 if not version_dir.is_dir():
                     continue
-                if (version_dir / "model.pkl").exists():
-                    raw_versions.append(version_dir.name)
+                if not (version_dir / "model.pkl").exists():
+                    continue
+                # Check that synth output data exists for this version
+                v_name = version_dir.name
+                if bst_dir.exists():
+                    has_data = any(
+                        (table_dir / v_name).is_dir()
+                        and any((table_dir / v_name).iterdir())
+                        for table_dir in bst_dir.iterdir()
+                        if table_dir.is_dir()
+                    )
+                    if not has_data:
+                        logger.info(
+                            f"Skipping {view_name}/{alg_name}/{v_name}: no output data"
+                        )
+                        continue
+                raw_versions.append(v_name)
 
             if raw_versions:
                 view_info["models"][alg_name] = _prettify_model_versions(
@@ -269,6 +286,22 @@ class EntityGenerator:
         if cache_key in self._data_cache:
             return self._data_cache[cache_key]
 
+        # Early check: verify output data exists on disk before loading
+        if version:
+            locations = self.ctx.config_loader.get("locations")
+            data_dir = Path(locations.get("base", "data"))
+            bst_dir = data_dir / "synth" / view / alg / "bst"
+            if bst_dir.exists():
+                has_data = any(
+                    (table_dir / version).is_dir()
+                    for table_dir in bst_dir.iterdir()
+                    if table_dir.is_dir()
+                )
+                if not has_data:
+                    raise ValueError(
+                        f"No output data for {view}/{alg}/{version}"
+                    )
+
         mapping_info = self._get_mapping(view)
         relationships = mapping_info["relationships"]
         all_tables = set(relationships.keys())
@@ -322,6 +355,14 @@ class EntityGenerator:
                         ctx[ctx_name][t] = data
                 except Exception:
                     logger.debug(f"Could not load synth ctx {ctx_name}/{t}", exc_info=True)
+
+        # Verify we actually loaded some data
+        top_table = mapping_info["top_table"]
+        if top_table not in ids or len(ids[top_table]) == 0:
+            logger.warning(
+                f"No entity data loaded for {cache_key}, skipping"
+            )
+            raise ValueError(f"Empty output for {cache_key}")
 
         result = {"tables": tables, "ids": ids, "ctx": ctx}
         self._data_cache[cache_key] = result
