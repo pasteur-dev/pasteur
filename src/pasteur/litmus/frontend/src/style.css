@@ -609,6 +609,13 @@ input[type="number"] {
   color: var(--text-dim);
 }
 
+.run-date {
+  margin-left: 0.5em;
+  font-size: 0.65rem !important;
+  color: var(--text-dim) !important;
+  opacity: 0.7;
+}
+
 .exp-meta {
   font-size: 0.7rem !important;
 }

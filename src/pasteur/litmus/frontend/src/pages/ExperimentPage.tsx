@@ -121,7 +121,7 @@ export default function ExperimentPage({
             <section className="card">
               <h2>Runs ({exp.runs.length})</h2>
               <div className="experiment-list">
-                {exp.runs.map((run) => (
+                {[...exp.runs].sort((a, b) => b.created_at.localeCompare(a.created_at)).map((run) => (
                   <div
                     key={run.id}
                     className="experiment-item"
@@ -143,6 +143,7 @@ export default function ExperimentPage({
                             ? " (in progress)"
                             : ""}
                         {run.tutorial ? " [tutorial]" : ""}
+                        <span className="run-date">{formatShortDate(run.created_at)}</span>
                       </span>
                     </div>
                     <div className="exp-actions">
@@ -211,4 +212,14 @@ function generateRunName(): string {
   const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
   const num = Math.floor(Math.random() * 100);
   return `${adj}-${noun}-${num}`;
+}
+
+function formatShortDate(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const mon = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${mon}/${day} ${h}:${m}`;
 }
