@@ -73,7 +73,7 @@ export default function ExperimentPage({
           <h1>LITMUS</h1>
         </a>
         <button className="btn btn-small btn-undo" onClick={onBack}>
-          &larr; Experiments
+          Experiments
         </button>
       </header>
 
