@@ -170,9 +170,9 @@ class FinancialDataset(RfelDataset):
         tables = {
             k.lower(): [k]
             for k in [
+                "client",
                 "account",
                 "card",
-                "client",
                 "disp",
                 "district",
                 "loan",
@@ -204,7 +204,7 @@ class FinancialDataset(RfelDataset):
 
         return pd.DataFrame(
             index=(
-                tables["account"]()
+                tables["client"]()
                 .index
                 .unique()
                 .astype(pd.Int64Dtype())

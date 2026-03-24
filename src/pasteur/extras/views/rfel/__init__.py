@@ -9,9 +9,15 @@ from ....view import TabularView, View, filter_by_keys, filter_by_keys_merged
 class RfelView(View):
     """The mimic core tables, slightly post processed."""
 
-    def __init__(self, short_name: str, deps: dict[str, list[str]], **kwargs) -> None:
+    def __init__(
+        self,
+        short_name: str,
+        deps: dict[str, list[str]],
+        dataset: str | None = None,
+        **kwargs,
+    ) -> None:
         self.name = f"rfel_{short_name}"
-        self.dataset = self.name
+        self.dataset = dataset or self.name
         self.deps = deps
         # Current datasets do not need transformer inter-table references
         self.trn_deps = {}
@@ -112,5 +118,146 @@ class StudentLoanView(RfelView):
                 df['name'] = df['name'].str.replace("student", "").astype(pd.Int64Dtype())
                 df.index.name = "enlistment_id"
                 return df
+            case other:
+                assert False, f"Table {other} not part of view {self.name}"
+
+
+class FinancialClientView(RfelView):
+    def __init__(self, **kwargs) -> None:
+        super().__init__(
+            short_name="fnc",
+            dataset="rfel_fn",
+            deps={
+                "client": ["client"],
+                "client_district": ["client", "district"],
+                "account": ["disp", "account"],
+                "card": ["card", "disp"],
+                "loan": ["loan", "disp"],
+                "order": ["order", "disp"],
+                "trans": ["trans", "disp"],
+            },
+            **kwargs,
+        )
+
+    @to_chunked
+    def ingest(self, name, **tables: LazyChunk):
+        match name:
+            case "client":
+                df = tables["client"]()
+                df.index = df.index.astype(pd.Int64Dtype())
+                df.index.name = "client_id"
+                df["district_id"] = df["district_id"].astype(pd.Int64Dtype())
+                return df.sort_index()
+
+            case "client_district":
+                client = tables["client"]()
+                district = tables["district"]()
+
+                # Look up district for each client via client.district_id
+                district.index = district.index.astype(pd.Int64Dtype())
+                df = client[["district_id"]].join(
+                    district, on="district_id", how="left"
+                )
+                df = df.drop(columns=["district_id"])
+                df.index = df.index.astype(pd.Int64Dtype())
+                df.index.name = "client_id"
+                return df.sort_index()
+
+            case "account":
+                disp = tables["disp"]()
+                account = tables["account"]()
+
+                # Join disp with account to get account fields + disp_type
+                disp.index = disp.index.astype(pd.Int64Dtype())
+                disp["client_id"] = disp["client_id"].astype(pd.Int64Dtype())
+                disp["account_id"] = disp["account_id"].astype(pd.Int64Dtype())
+                account.index = account.index.astype(pd.Int64Dtype())
+
+                df = disp[["client_id", "account_id", "type"]].rename(
+                    columns={"type": "disp_type"}
+                )
+                df = df.join(account, on="account_id", how="left")
+                df["district_id"] = df["district_id"].astype(pd.Int64Dtype())
+                # Use disp_id as primary key
+                df.index.name = "disp_id"
+                return df.sort_values(by=["client_id", "account_id"])
+
+            case "card":
+                card = tables["card"]()
+                disp = tables["disp"]()
+
+                card.index = card.index.astype(pd.Int64Dtype())
+                card["disp_id"] = card["disp_id"].astype(pd.Int64Dtype())
+                disp.index = disp.index.astype(pd.Int64Dtype())
+                disp["client_id"] = disp["client_id"].astype(pd.Int64Dtype())
+
+                # Add client_id via disp
+                df = card.join(
+                    disp[["client_id"]], on="disp_id", how="left"
+                )
+                df.index.name = "card_id"
+                return df.sort_values(by=["client_id", "disp_id"])
+
+            case "loan":
+                loan = tables["loan"]()
+                disp = tables["disp"]()
+
+                loan.index = loan.index.astype(pd.Int64Dtype())
+                loan["account_id"] = loan["account_id"].astype(pd.Int64Dtype())
+                disp.index = disp.index.astype(pd.Int64Dtype())
+                disp.index.name = "disp_id"
+                disp["client_id"] = disp["client_id"].astype(pd.Int64Dtype())
+                disp["account_id"] = disp["account_id"].astype(pd.Int64Dtype())
+
+                # Join loan to disp via account_id to get client_id and disp_id
+                df = loan.merge(
+                    disp[["client_id", "account_id"]].reset_index(),
+                    on="account_id",
+                    how="left",
+                )
+                df["disp_id"] = df["disp_id"].astype(pd.Int64Dtype())
+                df.index.name = "loan_id"
+                return df.sort_values(by=["client_id", "disp_id"])
+
+            case "order":
+                order = tables["order"]()
+                disp = tables["disp"]()
+
+                order.index = order.index.astype(pd.Int64Dtype())
+                order["account_id"] = order["account_id"].astype(pd.Int64Dtype())
+                disp.index = disp.index.astype(pd.Int64Dtype())
+                disp.index.name = "disp_id"
+                disp["client_id"] = disp["client_id"].astype(pd.Int64Dtype())
+                disp["account_id"] = disp["account_id"].astype(pd.Int64Dtype())
+
+                df = order.merge(
+                    disp[["client_id", "account_id"]].reset_index(),
+                    on="account_id",
+                    how="left",
+                )
+                df["disp_id"] = df["disp_id"].astype(pd.Int64Dtype())
+                df.index.name = "order_id"
+                return df.sort_values(by=["client_id", "disp_id"])
+
+            case "trans":
+                trans = tables["trans"]()
+                disp = tables["disp"]()
+
+                trans.index = trans.index.astype(pd.Int64Dtype())
+                trans["account_id"] = trans["account_id"].astype(pd.Int64Dtype())
+                disp.index = disp.index.astype(pd.Int64Dtype())
+                disp.index.name = "disp_id"
+                disp["client_id"] = disp["client_id"].astype(pd.Int64Dtype())
+                disp["account_id"] = disp["account_id"].astype(pd.Int64Dtype())
+
+                df = trans.merge(
+                    disp[["client_id", "account_id"]].reset_index(),
+                    on="account_id",
+                    how="left",
+                )
+                df["disp_id"] = df["disp_id"].astype(pd.Int64Dtype())
+                df.index.name = "trans_id"
+                return df.sort_values(by=["client_id", "disp_id"])
+
             case other:
                 assert False, f"Table {other} not part of view {self.name}"

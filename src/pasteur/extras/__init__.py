@@ -23,7 +23,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
     from .views.eicu import EicuRelational
-    from .views.rfel import ConsumerExpendituresView, StudentLoanView
+    from .views.rfel import ConsumerExpendituresView, FinancialClientView, StudentLoanView
 
     # from .views.boston import BostonView
 
@@ -50,6 +50,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         FinancialDataset(),
         ConsumerExpendituresView(),
         StudentLoanView(),
+        FinancialClientView(),
     ]
 
 

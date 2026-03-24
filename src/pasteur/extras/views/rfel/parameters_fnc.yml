@@ -1,0 +1,89 @@
+tables:
+  client:
+    primary_key: client_id
+    fields:
+      client_id: id
+      gender: categorical
+      birth_date: date
+      district_id: id:client_district.client_id
+
+  client_district:
+    primary_key: client_id
+    fields:
+      client_id: id
+      a2: categorical
+      a3: categorical
+      a4: numerical
+      a5: numerical
+      a6: numerical
+      a7: numerical
+      a8: numerical
+      a9: numerical
+      a10: numerical
+      a11: numerical
+      a12: numerical?
+      a13: numerical
+      a14: numerical
+      a15: numerical?
+      a16: numerical
+
+  account:
+    primary_key: disp_id
+    fields:
+      disp_id: id
+      client_id: id:client.client_id
+      account_id: id
+      disp_type: categorical
+      frequency: categorical
+      date: date
+      district_id: id
+
+  card:
+    primary_key: card_id
+    fields:
+      card_id: id
+      disp_id: id:account.disp_id
+      client_id: id:client.client_id
+      type: categorical
+      issued: date
+
+  loan:
+    primary_key: loan_id
+    fields:
+      loan_id: id
+      account_id: id:account.account_id
+      client_id: id:client.client_id
+      disp_id: id:account.disp_id
+      date: date
+      amount: numerical
+      duration: ordinal
+      payments: numerical
+      status: categorical
+
+  order:
+    primary_key: order_id
+    fields:
+      order_id: id
+      account_id: id:account.account_id
+      client_id: id:client.client_id
+      disp_id: id:account.disp_id
+      bank_to: categorical
+      account_to: id
+      amount: numerical
+      k_symbol: categorical
+
+  trans:
+    primary_key: trans_id
+    fields:
+      trans_id: id
+      account_id: id:account.account_id
+      client_id: id:client.client_id
+      disp_id: id:account.disp_id
+      date: date
+      type: categorical
+      operation: categorical?
+      amount: numerical
+      balance: numerical
+      k_symbol: categorical?
+      bank: categorical?
+      account: id?
