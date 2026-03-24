@@ -195,6 +195,16 @@ def _register_routes(app: Flask):
             return jsonify({"ok": True})
         return jsonify({"error": "Cannot skip"}), 400
 
+    @app.route("/api/experiments/<eid>/runs/<rid>/undo", methods=["POST"])
+    def undo_rating(eid: str, rid: str):
+        store = _get_store(app)
+        rating = store.undo_rating(eid, rid)
+        if rating:
+            result = store.get_run(eid, rid)
+            progress = result[1].progress if result else 0
+            return jsonify({"ok": True, "progress": progress})
+        return jsonify({"error": "Nothing to undo"}), 400
+
     @app.route("/api/experiments/<eid>/runs/<rid>/end", methods=["POST"])
     def end_run(eid: str, rid: str):
         store = _get_store(app)

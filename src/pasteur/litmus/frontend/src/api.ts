@@ -186,6 +186,17 @@ export async function skipEntity(
   );
 }
 
+export async function undoRating(
+  experimentId: string,
+  runId: string
+): Promise<{ ok: boolean; progress: number }> {
+  const res = await fetch(
+    `${BASE}/experiments/${experimentId}/runs/${runId}/undo`,
+    { method: "POST" }
+  );
+  return res.json();
+}
+
 export async function endRun(
   experimentId: string,
   runId: string

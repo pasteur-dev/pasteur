@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { rateEntity, skipEntity, endRun } from "../api";
+import { rateEntity, skipEntity, endRun, undoRating } from "../api";
 import type { ExperimentDetail } from "../api";
 import EntityCard from "../components/EntityCard";
 
@@ -114,6 +114,15 @@ export default function EvaluationPage({
     }
   };
 
+  const handleUndo = async () => {
+    if (progress <= 0) return;
+    const res = await undoRating(experiment.id, runId);
+    if (res.ok) {
+      setProgress(res.progress);
+      fetchNext();
+    }
+  };
+
   const handleEnd = async () => {
     await endRun(experiment.id, runId);
     onFinished();
@@ -135,6 +144,13 @@ export default function EvaluationPage({
           </span>
         </div>
         <div className="header-right">
+          <button
+            className="btn btn-small"
+            onClick={handleUndo}
+            disabled={loading || progress <= 0}
+          >
+            Undo
+          </button>
           <button
             className="btn btn-small"
             onClick={handleSkip}

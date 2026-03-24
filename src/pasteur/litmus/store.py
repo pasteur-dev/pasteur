@@ -216,6 +216,21 @@ class ExperimentStore:
                     return True
             return False
 
+    def undo_rating(self, experiment_id: str, run_id: str) -> Rating | None:
+        """Remove and return the last rating from a run."""
+        with self._lock:
+            exp = self._experiments.get(experiment_id)
+            if not exp:
+                return None
+            for run in exp.runs:
+                if run.id == run_id:
+                    if not run.ratings:
+                        return None
+                    rating = run.ratings.pop()
+                    self._save(exp)
+                    return rating
+            return None
+
     def finish_run(self, experiment_id: str, run_id: str) -> bool:
         with self._lock:
             exp = self._experiments.get(experiment_id)
