@@ -5,7 +5,6 @@ tables:
       client_id: id
       gender: categorical
       birth_date: date
-      district_id: id:client_district.client_id
 
   client_district:
     primary_key: client_id

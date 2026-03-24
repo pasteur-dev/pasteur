@@ -138,6 +138,13 @@ class FinancialClientView(RfelView):
             },
             **kwargs,
         )
+        self.trn_deps = {
+            "account": ["client"],
+            "card": ["account"],
+            "loan": ["account"],
+            "order": ["account"],
+            "trans": ["account"],
+        }
 
     @staticmethod
     def _convert_dates(df: pd.DataFrame) -> pd.DataFrame:
