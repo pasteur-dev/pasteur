@@ -351,7 +351,7 @@ def _printer(prompt, sample_num, sample_n, q, stop, task):
             logger.info(
                 f":ephemeral:{task} {sample_num}/{sample_n}. Prompt: {prompt_reduced}{thought_str}\nData:\n{pretty}"
             )
-            last_print = curr
+            last_print = time.perf_counter()
         except json.JSONDecodeError:
             pass
 
