@@ -180,11 +180,13 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
 }
 
 function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
-  // Compute histogram bins across all sources
+  // Compute histogram bins across all sources, dropping top 5% outliers
   const allTimes = data.flatMap((d) => d.times);
   if (allTimes.length === 0) return null;
 
-  const maxTime = Math.max(...allTimes);
+  const sorted = [...allTimes].sort((a, b) => a - b);
+  const p95Idx = Math.floor(sorted.length * 0.95);
+  const maxTime = sorted[Math.max(p95Idx - 1, 0)];
   const NUM_BINS = 20;
   const binWidth = maxTime / NUM_BINS;
 
@@ -192,6 +194,7 @@ function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
   const histograms = data.map((d) => {
     const bins = new Array(NUM_BINS).fill(0);
     for (const t of d.times) {
+      if (t > maxTime) continue; // drop outliers
       const idx = Math.min(Math.floor(t / binWidth), NUM_BINS - 1);
       bins[idx]++;
     }
@@ -206,7 +209,7 @@ function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
       {data.map((d, i) => {
         const color = BAR_COLORS[i % BAR_COLORS.length];
         const bins = histograms[i];
-        const meanPct = (d.mean / maxTime) * 100;
+        const meanPct = Math.min((d.mean / maxTime) * 100, 100);
         const std = d.times.length > 1
           ? Math.sqrt(d.times.reduce((acc, t) => acc + (t - d.mean) ** 2, 0) / d.times.length)
           : 0;
