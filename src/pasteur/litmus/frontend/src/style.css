@@ -269,41 +269,56 @@ input[type="number"] {
 }
 
 .btn-danger {
-  border-color: var(--danger-dim);
+  background: rgba(255, 51, 85, 0.15);
+  border-color: var(--danger);
+  border-width: 2px;
   color: var(--danger);
+  text-shadow: 0 0 8px rgba(255, 51, 85, 0.4);
 }
 
 .btn-danger:hover {
   background: var(--danger-dim);
   border-color: var(--danger);
   color: white;
+  box-shadow: 0 0 12px rgba(255, 51, 85, 0.4);
 }
 
 .btn-undo {
-  border-color: #4466aa;
+  background: rgba(68, 102, 170, 0.15);
+  border-color: #5588cc;
+  border-width: 2px;
   color: #6699dd;
+  text-shadow: 0 0 8px rgba(68, 102, 170, 0.4);
 }
 
 .btn-undo:hover {
   background: #223355;
-  border-color: #6699dd;
+  border-color: #88bbff;
   color: white;
+  box-shadow: 0 0 12px rgba(68, 136, 255, 0.4);
 }
 
 .btn-skip {
-  border-color: #7a7004;
-  color: var(--gold);
+  background: rgba(168, 154, 5, 0.12);
+  border-color: var(--gold);
+  border-width: 2px;
+  color: var(--gold-bright);
+  text-shadow: 0 0 8px var(--gold-glow);
 }
 
 .btn-skip:hover {
   background: #3a3500;
   border-color: var(--gold-bright);
   color: white;
+  box-shadow: 0 0 12px var(--gold-glow);
 }
 
 .btn-small {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
+  padding: 0.4rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .btn-link {
