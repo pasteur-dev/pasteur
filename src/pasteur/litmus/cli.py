@@ -24,11 +24,21 @@ def litmus(port: int, host: str, hotreload: bool):
     from .app import create_app
     from .data import EntityGenerator, discover_models
 
-    with KedroSession.create(env="base") as session:
+    with KedroSession.create() as session:
         ctx = session.load_context()
 
-        # Determine data directory
+        # Determine data directory using the same logic as the Pasteur hook
+        patterns = getattr(ctx.config_loader, "config_patterns", {})
+        if "locations" not in patterns:
+            patterns["locations"] = ["location*", "location*/**", "**/location*"]
         locations = ctx.config_loader.get("locations")
+
+        # Allow local overrides without duplicate key errors
+        if "hidden_base" in locations:
+            locations["base"] = locations.pop("hidden_base")
+        if "hidden_raw" in locations:
+            locations["raw"] = locations.pop("hidden_raw")
+
         data_dir = locations.get("base", "data")
 
         # Discover available views and models from the filesystem
