@@ -794,6 +794,7 @@ input[type="number"]::-webkit-outer-spin-button {
 /* Evaluation page */
 .eval-page .header {
   justify-content: space-between;
+  position: relative;
 }
 
 .header-left,
@@ -801,14 +802,17 @@ input[type="number"]::-webkit-outer-spin-button {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  z-index: 1;
 }
 
 .header-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  flex: 1;
-  justify-content: center;
   max-width: 400px;
 }
 
@@ -1314,6 +1318,7 @@ input[type="number"]::-webkit-outer-spin-button {
 .stat-card {
   flex: 1;
   min-width: 220px;
+  max-width: 50%;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 6px;
