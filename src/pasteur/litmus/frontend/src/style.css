@@ -1259,6 +1259,50 @@ input[type="number"] {
   color: var(--text-muted);
 }
 
+.stat-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem 0;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.stat-verdict {
+  font-size: 0.72rem;
+  color: var(--text);
+  margin: 0.25rem 0 0.5rem 0;
+  line-height: 1.4;
+}
+
+.stat-breakdown-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin: 0.75rem 0 0 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.stat-scale {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin: 0.75rem 0 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  opacity: 0.7;
+}
+
+.stat-hint {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.stat-caveat {
+  font-size: 0.68rem;
+  color: var(--gold);
+  margin: 0.5rem 0 0 0;
+  line-height: 1.4;
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

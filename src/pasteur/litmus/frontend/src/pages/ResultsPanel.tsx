@@ -259,11 +259,11 @@ function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
 
 function InterRaterPanel({ data }: { data: InterRaterResult }) {
   const interpretAlpha = (a: number | null) => {
-    if (a === null) return { label: "N/A", color: "var(--text-dim)" };
-    if (a >= 0.8) return { label: "Excellent", color: "#00dd77" };
-    if (a >= 0.67) return { label: "Good", color: "#44bb55" };
-    if (a >= 0.33) return { label: "Fair", color: "#cc9900" };
-    return { label: "Poor", color: "#ff2244" };
+    if (a === null) return { label: "N/A", color: "var(--text-dim)", desc: "" };
+    if (a >= 0.8) return { label: "Excellent", color: "#00dd77", desc: "Raters strongly agree on quality assessments." };
+    if (a >= 0.67) return { label: "Good", color: "#44bb55", desc: "Raters mostly agree, with minor differences." };
+    if (a >= 0.33) return { label: "Fair", color: "#cc9900", desc: "Moderate disagreement between raters — results should be interpreted cautiously." };
+    return { label: "Poor", color: "#ff2244", desc: "Raters disagree substantially — individual judgments vary widely." };
   };
 
   const overall = interpretAlpha(data.overall);
@@ -271,8 +271,12 @@ function InterRaterPanel({ data }: { data: InterRaterResult }) {
   return (
     <div className="stat-card">
       <h4>Inter-Rater Agreement</h4>
+      <p className="stat-desc">
+        Do different evaluators rate the same data similarly?
+        Higher values mean raters are consistent with each other.
+      </p>
       <p className="stat-subtitle">
-        Krippendorff's &alpha; (ordinal) &middot; {data.n_raters} raters
+        Krippendorff's &alpha; (ordinal) &middot; {data.n_raters} rater{data.n_raters !== 1 ? "s" : ""}
       </p>
       <div className="stat-main">
         <span className="stat-value" style={{ color: overall.color }}>
@@ -282,29 +286,40 @@ function InterRaterPanel({ data }: { data: InterRaterResult }) {
           {overall.label}
         </span>
       </div>
-      {data.per_source.length > 0 && (
-        <table className="stat-table">
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>&alpha;</th>
-              <th>Items</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.per_source.map((s) => {
-              const interp = interpretAlpha(s.alpha);
-              return (
-                <tr key={s.pretty_name}>
-                  <td>{s.pretty_name}</td>
-                  <td style={{ color: interp.color }}>{s.alpha.toFixed(3)}</td>
-                  <td>{s.n_items}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {overall.desc && (
+        <p className="stat-verdict">{overall.desc}</p>
       )}
+      {data.per_source.length > 0 && (
+        <>
+          <p className="stat-breakdown-label">Per source:</p>
+          <table className="stat-table">
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>&alpha;</th>
+                <th>Items</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.per_source.map((s) => {
+                const interp = interpretAlpha(s.alpha);
+                return (
+                  <tr key={s.pretty_name}>
+                    <td>{s.pretty_name}</td>
+                    <td style={{ color: interp.color }}>{s.alpha.toFixed(3)}</td>
+                    <td>{s.n_items}</td>
+                    <td style={{ color: interp.color, fontSize: "0.65rem" }}>{interp.label}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+      <p className="stat-scale">
+        Scale: 0 = random &middot; 1 = perfect agreement &middot; &lt;0 = systematic disagreement
+      </p>
     </div>
   );
 }
@@ -312,10 +327,10 @@ function InterRaterPanel({ data }: { data: InterRaterResult }) {
 function CorrelationPanel({ data }: { data: HumanLLMCorrelation }) {
   const interpretCorr = (r: number) => {
     const abs = Math.abs(r);
-    if (abs >= 0.8) return { label: "Strong", color: "#00dd77" };
-    if (abs >= 0.5) return { label: "Moderate", color: "#44bb55" };
-    if (abs >= 0.3) return { label: "Weak", color: "#cc9900" };
-    return { label: "Negligible", color: "#ff6633" };
+    if (abs >= 0.8) return { label: "Strong", color: "#00dd77", desc: "Humans and the LLM rank model quality nearly identically." };
+    if (abs >= 0.5) return { label: "Moderate", color: "#44bb55", desc: "Humans and the LLM broadly agree on which models are better." };
+    if (abs >= 0.3) return { label: "Weak", color: "#cc9900", desc: "Some alignment between human and LLM judgments, but notable differences." };
+    return { label: "Negligible", color: "#ff6633", desc: "Human and LLM assessments do not meaningfully correlate." };
   };
 
   const spearman = interpretCorr(data.spearman_rho);
@@ -323,8 +338,9 @@ function CorrelationPanel({ data }: { data: HumanLLMCorrelation }) {
   return (
     <div className="stat-card">
       <h4>Human vs LLM Correlation</h4>
-      <p className="stat-subtitle">
-        {data.n_sources} sources compared
+      <p className="stat-desc">
+        Does the LLM evaluator rank model quality the same way humans do?
+        Compares mean scores across {data.n_sources} source{data.n_sources !== 1 ? "s" : ""}.
       </p>
       <div className="stat-main">
         <span className="stat-value" style={{ color: spearman.color }}>
@@ -334,11 +350,24 @@ function CorrelationPanel({ data }: { data: HumanLLMCorrelation }) {
           {spearman.label}
         </span>
       </div>
+      {spearman.desc && (
+        <p className="stat-verdict">{spearman.desc}</p>
+      )}
       {data.pearson_r !== null && (
         <div className="stat-secondary">
           Pearson r = {data.pearson_r.toFixed(3)}
+          <span className="stat-hint"> (linear relationship)</span>
         </div>
       )}
+      {data.n_sources < 4 && (
+        <p className="stat-caveat">
+          &#9888; Only {data.n_sources} source{data.n_sources !== 1 ? "s" : ""} compared — correlation is indicative but not statistically robust.
+          Add more models for stronger conclusions.
+        </p>
+      )}
+      <p className="stat-scale">
+        Scale: -1 = opposite rankings &middot; 0 = no relationship &middot; +1 = identical rankings
+      </p>
     </div>
   );
 }
