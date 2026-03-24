@@ -211,6 +211,74 @@ input[type="number"]:focus {
 
 input[type="number"] {
   width: 120px;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+/* Custom number input wrapper with styled arrows */
+.number-input {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 120px;
+}
+
+.number-input input[type="number"] {
+  width: 100%;
+  padding-right: 2rem;
+}
+
+.number-input-arrows {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  bottom: 1px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.number-input:hover .number-input-arrows,
+.number-input:focus-within .number-input-arrows {
+  opacity: 1;
+}
+
+.number-input-arrows button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 0.3rem;
+  font-size: 0.4rem;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.number-input-arrows button:hover {
+  background: var(--gold-dim);
+  color: var(--cream);
+}
+
+.number-input-arrows button:first-child {
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 3px 0 0;
+}
+
+.number-input-arrows button:last-child {
+  border-radius: 0 0 3px 0;
 }
 
 .checkbox-label {
@@ -322,7 +390,16 @@ input[type="number"] {
   font-size: 1.1rem;
 }
 
-.btn-settings:hover {
+.btn-cancel {
+  background: rgba(120, 120, 140, 0.15);
+  border-color: #778;
+  border-width: 2px;
+  color: #99a;
+  text-transform: uppercase;
+}
+
+.btn-settings:hover,
+.btn-cancel:hover {
   background: #2a2a35;
   border-color: #aab;
   color: white;
@@ -340,6 +417,16 @@ input[type="number"] {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin: -0.25rem 0 0.75rem 0;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.modal.card h3 {
+  margin-top: 0;
 }
 
 .btn-small {

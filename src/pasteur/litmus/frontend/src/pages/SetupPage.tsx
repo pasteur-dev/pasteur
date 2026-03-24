@@ -14,6 +14,7 @@ import type {
   ModelRef,
 } from "../api";
 import { ModelTable } from "../components/ModelLabel";
+import NumberInput from "../components/NumberInput";
 
 interface Props {
   onSelectExperiment: (exp: ExperimentDetail) => void;
@@ -209,31 +210,24 @@ export default function SetupPage({ onSelectExperiment }: Props) {
             <div className="sample-counts">
               <label>
                 Samples per split
-                <input
-                  type="number"
+                <NumberInput
+                  value={samplesPerSplit}
                   min={1}
                   max={100}
-                  value={samplesPerSplit}
-                  onChange={(e) =>
-                    setSamplesPerSplit(
-                      Math.max(1, parseInt(e.target.value) || 1)
-                    )
-                  }
+                  onChange={(v) => setSamplesPerSplit(v)}
                 />
               </label>
               <label>
                 Total samples ({numSplits} split
                 {numSplits !== 1 ? "s" : ""})
-                <input
-                  type="number"
-                  min={numSplits}
+                <NumberInput
                   value={totalSamples}
-                  onChange={(e) => {
-                    const total = parseInt(e.target.value) || numSplits;
+                  min={numSplits}
+                  onChange={(total) =>
                     setSamplesPerSplit(
                       Math.max(1, Math.round(total / Math.max(1, numSplits)))
-                    );
-                  }}
+                    )
+                  }
                 />
               </label>
             </div>

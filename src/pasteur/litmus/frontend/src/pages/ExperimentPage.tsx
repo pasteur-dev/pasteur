@@ -9,6 +9,7 @@ import {
 } from "../api";
 import type { ExperimentDetail, RunSummary, RunResults } from "../api";
 import { ModelTable } from "../components/ModelLabel";
+import NumberInput from "../components/NumberInput";
 import RunResultsModal from "../components/RunResultsModal";
 import ResultsPanel from "./ResultsPanel";
 
@@ -113,8 +114,9 @@ export default function ExperimentPage({
             <div className="exp-summary">
               <strong>{exp.view}</strong> &middot;{" "}
               {exp.num_models} model{exp.num_models !== 1 ? "s" : ""}
-              {exp.include_real ? " + real data" : ""} &middot;{" "}
-              {exp.total_samples} samples per run
+              {exp.include_real ? " + real" : ""} &middot;{" "}
+              {exp.samples_per_split}/split &middot;{" "}
+              {exp.blind ? "blinded" : "not blinded"}
             </div>
 
             <div className="exp-models">
@@ -224,40 +226,36 @@ export default function ExperimentPage({
 
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Experiment Settings</h3>
-              <button
-                className="btn btn-small"
-                onClick={() => setShowSettings(false)}
-              >
-                &times;
-              </button>
+          <div className="modal card" onClick={(e) => e.stopPropagation()}>
+            <h3>Experiment Settings</h3>
+
+            <label>
+              Samples per split
+              <NumberInput
+                value={settingsSamples}
+                min={1}
+                max={100}
+                onChange={(v) => setSettingsSamples(v)}
+              />
+            </label>
+            <div className="settings-total">
+              Total: {settingsSamples * (exp.num_models + (exp.include_real ? 1 : 0))} samples
+              ({exp.num_models + (exp.include_real ? 1 : 0)} split{(exp.num_models + (exp.include_real ? 1 : 0)) !== 1 ? "s" : ""})
             </div>
-            <div className="modal-body">
-              <label>
-                Samples per split
-                <input
-                  type="number"
-                  min={1}
-                  value={settingsSamples}
-                  onChange={(e) => setSettingsSamples(parseInt(e.target.value) || 1)}
-                />
-              </label>
-              <div className="settings-total">
-                Total: {settingsSamples * (exp.num_models + (exp.include_real ? 1 : 0))} samples
-                ({exp.num_models + (exp.include_real ? 1 : 0)} split{(exp.num_models + (exp.include_real ? 1 : 0)) !== 1 ? "s" : ""})
-              </div>
 
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={settingsBlind}
-                  onChange={(e) => setSettingsBlind(e.target.checked)}
-                />
-                Blinded generation
-              </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={settingsBlind}
+                onChange={(e) => setSettingsBlind(e.target.checked)}
+              />
+              Blinded generation
+            </label>
 
+            <div className="settings-actions">
+              <button className="btn btn-cancel" onClick={() => setShowSettings(false)}>
+                Cancel
+              </button>
               <button className="btn btn-primary" onClick={saveSettings}>
                 Save
               </button>

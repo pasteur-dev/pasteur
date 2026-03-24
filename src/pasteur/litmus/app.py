@@ -104,7 +104,7 @@ def _register_routes(app: Flask):
     @app.route("/api/experiments/<eid>", methods=["PATCH"])
     def update_experiment(eid: str):
         store = _get_store(app)
-        exp = store.get(eid)
+        exp = store.get_experiment(eid)
         if not exp:
             return jsonify({"error": "Experiment not found"}), 404
 
@@ -117,7 +117,7 @@ def _register_routes(app: Flask):
         if "blind" in data:
             exp.blind = bool(data["blind"])
 
-        store.save(exp)
+        store.update_experiment(exp)
         return jsonify(_exp_detail(exp))
 
     # --- Runs ---
