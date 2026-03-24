@@ -136,7 +136,7 @@ export default function EvaluationPage({
             <img src="/logo.svg" alt="Pasteur" className="header-logo" />
             <h1>LITMUS</h1>
           </a>
-          <span className="exp-name">{experiment.name}</span>
+          <span className="exp-name">{experiment.name} &middot; {currentRun?.name || runId}</span>
         </div>
         <div className="header-center">
           <span className="progress-text">
