@@ -842,6 +842,8 @@ def sample_rows(
                             pcol = out_cols[val]
                         else:
                             pcol = hist[table][val]
+                        if not np.issubdtype(pcol.dtype, np.integer):
+                            pcol = np.nan_to_num(pcol, nan=0).astype(np.intp)
                         col_lvl = mapping[pcol]
                         np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
                         np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)

@@ -139,6 +139,16 @@ class FinancialClientView(RfelView):
             **kwargs,
         )
 
+    @staticmethod
+    def _convert_dates(df: pd.DataFrame) -> pd.DataFrame:
+        """Convert datetime.date columns to pd.Timestamp (datetime64)."""
+        for col in df.columns:
+            if df[col].dtype == object and len(df) > 0:
+                val = df[col].dropna().iloc[0] if df[col].notna().any() else None
+                if hasattr(val, "year") and not hasattr(val, "hour"):
+                    df[col] = pd.to_datetime(df[col])
+        return df
+
     @to_chunked
     def ingest(self, name, **tables: LazyChunk):
         match name:
@@ -147,7 +157,7 @@ class FinancialClientView(RfelView):
                 df.index = df.index.astype(pd.Int64Dtype())
                 df.index.name = "client_id"
                 df["district_id"] = df["district_id"].astype(pd.Int64Dtype())
-                return df.sort_index()
+                return self._convert_dates(df.sort_index())
 
             case "client_district":
                 client = tables["client"]()
@@ -180,7 +190,7 @@ class FinancialClientView(RfelView):
                 df["district_id"] = df["district_id"].astype(pd.Int64Dtype())
                 # Use disp_id as primary key
                 df.index.name = "disp_id"
-                return df.sort_values(by=["client_id", "account_id"])
+                return self._convert_dates(df.sort_values(by=["client_id", "account_id"]))
 
             case "card":
                 card = tables["card"]()
@@ -196,7 +206,7 @@ class FinancialClientView(RfelView):
                     disp[["client_id"]], on="disp_id", how="left"
                 )
                 df.index.name = "card_id"
-                return df.sort_values(by=["client_id", "disp_id"])
+                return self._convert_dates(df.sort_values(by=["client_id", "disp_id"]))
 
             case "loan":
                 loan = tables["loan"]()
@@ -217,7 +227,7 @@ class FinancialClientView(RfelView):
                 )
                 df["disp_id"] = df["disp_id"].astype(pd.Int64Dtype())
                 df.index.name = "loan_id"
-                return df.sort_values(by=["client_id", "disp_id"])
+                return self._convert_dates(df.sort_values(by=["client_id", "disp_id"]))
 
             case "order":
                 order = tables["order"]()
@@ -257,7 +267,7 @@ class FinancialClientView(RfelView):
                 )
                 df["disp_id"] = df["disp_id"].astype(pd.Int64Dtype())
                 df.index.name = "trans_id"
-                return df.sort_values(by=["client_id", "disp_id"])
+                return self._convert_dates(df.sort_values(by=["client_id", "disp_id"]))
 
             case other:
                 assert False, f"Table {other} not part of view {self.name}"

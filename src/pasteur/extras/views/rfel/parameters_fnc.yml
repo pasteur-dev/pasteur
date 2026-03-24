@@ -32,18 +32,15 @@ tables:
     fields:
       disp_id: id
       client_id: id:client.client_id
-      account_id: id
       disp_type: categorical
       frequency: categorical
       date: date
-      district_id: id
 
   card:
     primary_key: card_id
     fields:
       card_id: id
       disp_id: id:account.disp_id
-      client_id: id:client.client_id
       type: categorical
       issued: date
 
@@ -51,8 +48,6 @@ tables:
     primary_key: loan_id
     fields:
       loan_id: id
-      account_id: id:account.account_id
-      client_id: id:client.client_id
       disp_id: id:account.disp_id
       date: date
       amount: numerical
@@ -64,11 +59,9 @@ tables:
     primary_key: order_id
     fields:
       order_id: id
-      account_id: id:account.account_id
-      client_id: id:client.client_id
       disp_id: id:account.disp_id
       bank_to: categorical
-      account_to: id
+      account_to: numerical
       amount: numerical
       k_symbol: categorical
 
@@ -76,8 +69,6 @@ tables:
     primary_key: trans_id
     fields:
       trans_id: id
-      account_id: id:account.account_id
-      client_id: id:client.client_id
       disp_id: id:account.disp_id
       date: date
       type: categorical
@@ -86,4 +77,4 @@ tables:
       balance: numerical
       k_symbol: categorical?
       bank: categorical?
-      account: id?
+      account: numerical?
