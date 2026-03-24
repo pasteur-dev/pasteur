@@ -242,6 +242,11 @@ def _process_iterables(iterables: dict[str, Iterable]):
 @click.option("--iterator", "-i", multiple=True)
 @click.option("--hyperparameter", "-h", multiple=True)
 @click.option("--clear-cache", "-c", is_flag=True)
+@click.option(
+    "--all",
+    is_flag=True,
+    help="Also runs dataset ingestion, which is skipped by default.",
+)
 @click.option("--skip-parent", "-p", is_flag=True)
 @click.argument(
     "params",
@@ -264,6 +269,7 @@ def sweep(
     iterator,
     hyperparameter,
     skip_parent,
+    all,
     params,
     clear_cache,
     max_workers,
@@ -295,6 +301,9 @@ def sweep(
     Ingest is ran for each parameter combination, so if a parameter override
     changes the view it is honored."""
 
+    import builtins
+    builtins_all = builtins.all
+
     from .mlflow import (
         check_run_done,
         get_parent_name,
@@ -309,15 +318,21 @@ def sweep(
     )
 
     # Create pipelines
+    if all:
+        logger.info("Nodes for ingesting the dataset will be run.")
+        default_tags = []
+    else:
+        default_tags = [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
+
     if alg:
         view = pipeline
         pipelines_tags = [
             (
                 f"{view}.{alg[0]}",
-                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
+                list(default_tags),
             ),
             *[
-                (f"{view}.{a}", [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM])
+                (f"{view}.{a}", [t for t in default_tags if t != TAG_CHANGES_HYPERPARAMETER])
                 for a in alg[1:]
             ],
         ]
@@ -325,7 +340,7 @@ def sweep(
         pipelines_tags = [
             (
                 pipeline,
-                [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM],
+                list(default_tags),
             )
         ]
 
@@ -358,7 +373,7 @@ def sweep(
         vals = param_dict | hyper_dict
         runtime_params = merge_params(vals | mlflow_dict)
 
-        alg_only_hyper = all([n.startswith("alg") for n in vals])
+        alg_only_hyper = builtins_all([n.startswith("alg") for n in vals])
 
         for i, (pipeline, tags) in enumerate(pipelines_tags):
             tags = list(tags)
