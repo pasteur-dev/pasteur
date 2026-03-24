@@ -262,8 +262,8 @@ function InterRaterPanel({ data }: { data: InterRaterResult }) {
     if (a === null) return { label: "N/A", color: "var(--text-dim)", desc: "" };
     if (a >= 0.8) return { label: "Excellent", color: "#00dd77", desc: "Raters strongly agree on quality assessments." };
     if (a >= 0.67) return { label: "Good", color: "#44bb55", desc: "Raters mostly agree, with minor differences." };
-    if (a >= 0.33) return { label: "Fair", color: "#cc9900", desc: "Moderate disagreement between raters — results should be interpreted cautiously." };
-    return { label: "Poor", color: "#ff2244", desc: "Raters disagree substantially — individual judgments vary widely." };
+    if (a >= 0.33) return { label: "Fair", color: "#cc9900", desc: "Moderate disagreement between raters. Results should be interpreted cautiously." };
+    return { label: "Poor", color: "#ff2244", desc: "Raters disagree substantially. Individual judgments vary widely." };
   };
 
   const overall = interpretAlpha(data.overall);
