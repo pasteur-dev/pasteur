@@ -290,6 +290,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                             key={i}
                             model={m}
                             prettyName={exp.pretty_names?.[key]}
+                            verbose
                           />
                         );
                       })}
