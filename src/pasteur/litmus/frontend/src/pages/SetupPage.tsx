@@ -13,7 +13,7 @@ import type {
   ExperimentSummary,
   ModelRef,
 } from "../api";
-import ModelLabel from "../components/ModelLabel";
+import { ModelTable } from "../components/ModelLabel";
 
 interface Props {
   onSelectExperiment: (exp: ExperimentDetail) => void;
@@ -281,20 +281,11 @@ export default function SetupPage({ onSelectExperiment }: Props) {
                       </div>
                     </div>
                     <div className="exp-item-models">
-                      {exp.models.map((m, i) => {
-                        const key = `${m.algorithm}_${m.timestamp || "latest"}`;
-                        return (
-                          <ModelLabel
-                            key={i}
-                            model={m}
-                            prettyName={exp.pretty_names?.[key]}
-                            verbose
-                          />
-                        );
-                      })}
-                      {exp.include_real && (
-                        <span className="model-tag model-tag-real">real</span>
-                      )}
+                      <ModelTable
+                        models={exp.models}
+                        prettyNames={exp.pretty_names}
+                        includeReal={exp.include_real}
+                      />
                     </div>
                   </div>
                 ))}

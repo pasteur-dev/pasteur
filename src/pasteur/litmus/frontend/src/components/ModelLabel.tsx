@@ -2,7 +2,9 @@
  * Displays a model reference.
  *
  * - Default: short label using prettyName (context-aware, only differing params)
- * - verbose: full overrides, one per line, with timestamp
+ * - showTimestamp: include timestamp after the label
+ *
+ * For table-style verbose display, use ModelTable instead.
  */
 import type { ModelRef } from "../api";
 
@@ -10,38 +12,14 @@ interface Props {
   model: ModelRef;
   /** Context-aware short name (only params differing within experiment) */
   prettyName?: string;
-  /** Show full overrides, one per line, with timestamp */
-  verbose?: boolean;
   showTimestamp?: boolean;
 }
 
 export default function ModelLabel({
   model,
   prettyName,
-  verbose = false,
   showTimestamp = false,
 }: Props) {
-  const overrides = Object.entries(model.overrides || {});
-
-  if (verbose) {
-    return (
-      <div className="model-tag model-tag-verbose">
-        <span className="model-tag-alg">{model.algorithm}</span>
-        {overrides.length > 0 && (
-          <div className="model-tag-overrides-list">
-            {overrides.map(([k, v]) => (
-              <span key={k} className="model-tag-override-line">
-                {k}={String(v)}
-              </span>
-            ))}
-          </div>
-        )}
-        <span className="model-tag-ts">{formatTimestamp(model.timestamp)}</span>
-      </div>
-    );
-  }
-
-  // Short mode: use prettyName if available
   const label = prettyName || model.algorithm;
 
   return (
@@ -51,6 +29,49 @@ export default function ModelLabel({
         <span className="model-tag-ts">{formatTimestamp(model.timestamp)}</span>
       )}
     </span>
+  );
+}
+
+/** Table layout for model lists: Algorithm | Timestamp | Overrides */
+export function ModelTable({
+  models,
+  prettyNames,
+  includeReal,
+}: {
+  models: ModelRef[];
+  prettyNames?: Record<string, string>;
+  includeReal?: boolean;
+}) {
+  return (
+    <table className="model-table">
+      <tbody>
+        {models.map((m, i) => {
+          const overrides = Object.entries(m.overrides || {});
+          const key = `${m.algorithm}_${m.timestamp || "latest"}`;
+          const name = prettyNames?.[key] || m.algorithm;
+          return (
+            <tr key={i}>
+              <td className="model-table-alg">{name}</td>
+              <td className="model-table-ts">{formatTimestamp(m.timestamp)}</td>
+              <td className="model-table-overrides">
+                {overrides.map(([k, v]) => (
+                  <span key={k} className="model-table-param">
+                    {k}={String(v)}
+                  </span>
+                ))}
+              </td>
+            </tr>
+          );
+        })}
+        {includeReal && (
+          <tr className="model-table-row-real">
+            <td className="model-table-alg model-table-real">Real Data</td>
+            <td className="model-table-ts"></td>
+            <td className="model-table-overrides"></td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }
 
