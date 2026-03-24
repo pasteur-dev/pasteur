@@ -103,6 +103,7 @@ body::after {
   align-items: center;
   gap: 1rem;
   padding: 0.6rem 1.5rem;
+  min-height: 3.2rem;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 var(--border-glow);
