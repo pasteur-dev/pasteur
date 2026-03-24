@@ -78,7 +78,11 @@ reference.
    `date`, `datetime`, `time`. Append `?` for nullable.
 4. **Register** — import and add both to `get_recommended_datasets()` in
    `src/pasteur/extras/__init__.py`.
-5. **Download, ingest, verify**:
+5. **Pipeline parameters** — add a section in `conf/base/parameters/` for
+   algorithm and metric config (e.g. `algs.mare`, `algs.amalgam`,
+   `metrics.llmeval`). See existing entries in the same file for YAML
+   anchors that can be reused (`*mare`, `*amalgam`, `*llmeval`, etc.).
+6. **Download, ingest, verify**:
    ```bash
    AGENT=1 python -m pasteur download --accept <dataset>
    AGENT=1 python -m pasteur ingest_dataset <dataset>
