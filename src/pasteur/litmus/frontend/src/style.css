@@ -691,6 +691,20 @@ input[type="number"] {
   font-family: var(--mono);
 }
 
+.exp-name-link {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--text-dim);
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.exp-name-link:hover {
+  color: var(--gold-bright);
+  border-bottom-color: var(--gold);
+}
+
 .progress-text {
   font-family: var(--mono);
   font-size: 0.85rem;
