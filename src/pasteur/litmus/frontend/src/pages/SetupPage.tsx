@@ -249,7 +249,7 @@ export default function SetupPage({ onSelectExperiment }: Props) {
         </div>
 
         {/* Right: existing experiments */}
-        <div className="setup-right">
+        <div className="setup-right setup-right-narrow">
           {experiments.length > 0 && (
             <section className="card">
               <h2>Experiments</h2>

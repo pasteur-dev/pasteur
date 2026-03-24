@@ -459,6 +459,14 @@ input[type="number"] {
   gap: 1.5rem;
   padding: 1.5rem;
   flex: 1;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (min-width: 1536px) {
+  .setup-layout {
+    max-width: 1536px;
+  }
 }
 
 .setup-left {
@@ -468,6 +476,10 @@ input[type="number"] {
 
 .setup-right {
   flex: 1;
+}
+
+.setup-right.setup-right-narrow {
+  max-width: 700px;
 }
 
 /* Model list */
