@@ -432,13 +432,14 @@ input[type="number"] {
   color: var(--text-dim);
   font-size: 0.7rem;
   line-height: 1.6;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .model-table-param {
   display: inline;
   margin-right: 0.5em;
   color: var(--gold);
+  white-space: nowrap;
 }
 
 .model-table-real {
