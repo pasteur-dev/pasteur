@@ -72,8 +72,8 @@ export default function ExperimentPage({
           <img src="/logo.svg" alt="Pasteur" className="header-logo" />
           <h1>LITMUS</h1>
         </a>
-        <button className="btn btn-small" onClick={onBack}>
-          Back
+        <button className="btn btn-small btn-undo" onClick={onBack}>
+          &larr; Experiments
         </button>
       </header>
 
