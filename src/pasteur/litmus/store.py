@@ -7,7 +7,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
+from threading import Event, Lock
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,26 @@ class ExperimentStore:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._experiments: dict[str, Experiment] = {}
         self._lock = Lock()
+        self._version = 0
+        self._version_event = Event()
         self._load_all()
+
+    @property
+    def version(self) -> int:
+        return self._version
+
+    def _bump_version(self):
+        """Increment version and wake any long-polling waiters."""
+        self._version += 1
+        self._version_event.set()
+        self._version_event = Event()
+
+    def wait_for_change(self, known_version: int, timeout: float = 10.0) -> int:
+        """Block until version changes or timeout. Returns current version."""
+        if self._version != known_version:
+            return self._version
+        self._version_event.wait(timeout=timeout)
+        return self._version
 
     def _path(self, experiment_id: str) -> Path:
         return self.data_dir / f"{experiment_id}.json"
@@ -118,6 +137,7 @@ class ExperimentStore:
     def _save(self, exp: Experiment):
         with open(self._path(exp.id), "w") as f:
             json.dump(_experiment_to_dict(exp), f, indent=2)
+        self._bump_version()
 
     # --- Experiment CRUD ---
 
@@ -170,6 +190,7 @@ class ExperimentStore:
             if path.exists():
                 os.remove(path)
             logger.info(f"Deleted experiment {experiment_id}")
+            self._bump_version()
             return True
 
     # --- Run CRUD ---

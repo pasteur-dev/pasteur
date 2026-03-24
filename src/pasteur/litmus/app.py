@@ -256,6 +256,20 @@ def _register_routes(app: Flask):
         exp, run = result
         return jsonify(_compute_run_results(exp, run))
 
+    # --- Long poll ---
+
+    @app.route("/api/poll")
+    def poll_changes():
+        """Long-poll endpoint. Blocks until data changes or timeout.
+
+        Query param: version (int) - client's known version.
+        Returns new version number. Client re-fetches results when version changes.
+        """
+        store = _get_store(app)
+        known = request.args.get("version", 0, type=int)
+        new_version = store.wait_for_change(known, timeout=10.0)
+        return jsonify({"version": new_version})
+
     # --- Entity Generation ---
 
     def _pick_source(exp, run):

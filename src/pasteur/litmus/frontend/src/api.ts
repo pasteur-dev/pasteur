@@ -2,6 +2,16 @@
 
 const BASE = "/api";
 
+/**
+ * Long-poll for data changes. Blocks until version changes or ~10s timeout.
+ * Returns the new version number.
+ */
+export async function pollChanges(knownVersion: number): Promise<number> {
+  const res = await fetch(`${BASE}/poll?version=${knownVersion}`);
+  const data = await res.json();
+  return data.version;
+}
+
 export interface ModelVersion {
   version: string;
   name: string;
