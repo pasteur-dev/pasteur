@@ -74,15 +74,6 @@ export default function ResultsPanel({ experimentId }: Props) {
         </>
       )}
 
-      {/* Response Times */}
-      {results.response_times && results.response_times.length > 0 && (
-        <>
-          <hr className="results-divider" />
-          <h3>Response Time</h3>
-          <ResponseTimeChart data={results.response_times} />
-        </>
-      )}
-
       {/* Inter-rater Agreement & Correlation */}
       {(results.inter_rater || results.human_llm_correlation) && (
         <>
@@ -96,6 +87,15 @@ export default function ResultsPanel({ experimentId }: Props) {
               <CorrelationPanel data={results.human_llm_correlation} />
             )}
           </div>
+        </>
+      )}
+
+      {/* Response Times (bottom) */}
+      {results.response_times && results.response_times.length > 0 && (
+        <>
+          <hr className="results-divider" />
+          <h3>Response Time</h3>
+          <ResponseTimeChart data={results.response_times} />
         </>
       )}
     </div>
@@ -180,29 +180,76 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
 }
 
 function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
-  const maxMean = Math.max(...data.map((d) => d.mean), 1);
+  // Compute histogram bins across all sources
+  const allTimes = data.flatMap((d) => d.times);
+  if (allTimes.length === 0) return null;
+
+  const maxTime = Math.max(...allTimes);
+  const NUM_BINS = 20;
+  const binWidth = maxTime / NUM_BINS;
+
+  // Build histogram per source
+  const histograms = data.map((d) => {
+    const bins = new Array(NUM_BINS).fill(0);
+    for (const t of d.times) {
+      const idx = Math.min(Math.floor(t / binWidth), NUM_BINS - 1);
+      bins[idx]++;
+    }
+    return bins;
+  });
+
+  // Max bin count for scaling
+  const maxBin = Math.max(...histograms.flat(), 1);
 
   return (
     <div className="rt-chart">
       {data.map((d, i) => {
-        const pct = (d.mean / maxMean) * 100;
         const color = BAR_COLORS[i % BAR_COLORS.length];
+        const bins = histograms[i];
+        const meanPct = (d.mean / maxTime) * 100;
+        const std = d.times.length > 1
+          ? Math.sqrt(d.times.reduce((acc, t) => acc + (t - d.mean) ** 2, 0) / d.times.length)
+          : 0;
+
         return (
           <div key={d.source} className="rt-row">
             <span className="rt-label">{d.pretty_name}</span>
             <div className="rt-bar-container">
+              {/* Histogram bins */}
+              {bins.map((count, bi) => (
+                <div
+                  key={bi}
+                  className="rt-hist-bin"
+                  style={{
+                    left: `${(bi / NUM_BINS) * 100}%`,
+                    width: `${100 / NUM_BINS}%`,
+                    height: `${(count / maxBin) * 100}%`,
+                    backgroundColor: color,
+                    opacity: 0.4,
+                  }}
+                />
+              ))}
+              {/* Mean marker */}
               <div
-                className="rt-bar"
+                className="rt-mean-line"
                 style={{
-                  width: `${pct}%`,
+                  left: `${meanPct}%`,
                   backgroundColor: color,
                 }}
               />
             </div>
-            <span className="rt-value">{d.mean.toFixed(1)}s</span>
+            <span className="rt-value">
+              {d.mean.toFixed(1)}s
+              <span className="rt-std"> ±{std.toFixed(1)}</span>
+            </span>
           </div>
         );
       })}
+      <div className="rt-axis">
+        <span>0s</span>
+        <span>{(maxTime / 2).toFixed(0)}s</span>
+        <span>{maxTime.toFixed(0)}s</span>
+      </div>
     </div>
   );
 }

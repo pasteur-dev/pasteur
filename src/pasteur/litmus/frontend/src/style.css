@@ -1025,13 +1025,13 @@ input[type="number"] {
   border-spacing: 2px;
   font-size: 0.8rem;
   margin-top: 0.5rem;
-  table-layout: auto;
+  table-layout: fixed;
 }
 
-.heatmap-table col.heatmap-col-label { width: auto; }
-.heatmap-table col.heatmap-col-score { width: 1fr; }
-.heatmap-table col.heatmap-col-n { width: 40px; }
-.heatmap-table col.heatmap-col-stat { width: 50px; }
+.heatmap-table col.heatmap-col-label { width: 15%; }
+.heatmap-table col.heatmap-col-score { }
+.heatmap-table col.heatmap-col-n { width: 6%; }
+.heatmap-table col.heatmap-col-stat { width: 7%; }
 
 .heatmap-table th,
 .heatmap-table td {
@@ -1126,27 +1126,56 @@ input[type="number"] {
 
 .rt-bar-container {
   flex: 1;
-  height: 1.2rem;
+  height: 2rem;
   background: var(--bg-input);
   border-radius: 3px;
   overflow: hidden;
+  position: relative;
 }
 
-.rt-bar {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-  opacity: 0.8;
+.rt-hist-bin {
+  position: absolute;
+  bottom: 0;
+  border-radius: 1px 1px 0 0;
+}
+
+.rt-mean-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: 1px;
+  opacity: 0.9;
+  box-shadow: 0 0 4px currentColor;
 }
 
 .rt-value {
-  min-width: 45px;
+  min-width: 70px;
   font-family: var(--mono);
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.rt-std {
+  font-weight: 400;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.rt-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 80px;
+  margin-right: 70px;
+  margin-left: calc(80px + 0.75rem);
+  margin-right: calc(70px + 0.75rem);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  padding-top: 0.2rem;
 }
 
 /* Stats grid */
