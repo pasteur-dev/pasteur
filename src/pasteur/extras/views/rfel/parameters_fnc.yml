@@ -11,21 +11,21 @@ tables:
     fields:
       client_district_id: id
       client_id: id:client.client_id
-      a2: categorical
-      a3: categorical
-      a4: numerical
-      a5: numerical
-      a6: numerical
-      a7: numerical
-      a8: numerical
-      a9: numerical
-      a10: numerical
-      a11: numerical
-      a12: numerical?
-      a13: numerical
-      a14: numerical
-      a15: numerical?
-      a16: numerical
+      name: categorical
+      region: categorical
+      inhabitants: numerical
+      muni_u500: numerical
+      muni_500_2k: numerical
+      muni_2k_10k: numerical
+      muni_o10k: numerical
+      cities: numerical
+      urban_ratio: numerical
+      avg_salary: numerical
+      unemploy_95: numerical?
+      unemploy_96: numerical
+      entrepreneurs: numerical
+      crimes_95: numerical?
+      crimes_96: numerical
 
   account:
     primary_key: disp_id

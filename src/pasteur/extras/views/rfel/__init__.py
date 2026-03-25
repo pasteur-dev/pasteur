@@ -177,6 +177,24 @@ class FinancialClientView(RfelView):
                     district, on="district_id", how="left"
                 )
                 df = df.drop(columns=["district_id"])
+                # Rename a# columns to meaningful names (lowercased by RfelDataset)
+                df = df.rename(columns={
+                    "a2": "name",
+                    "a3": "region",
+                    "a4": "inhabitants",
+                    "a5": "muni_u500",
+                    "a6": "muni_500_2k",
+                    "a7": "muni_2k_10k",
+                    "a8": "muni_o10k",
+                    "a9": "cities",
+                    "a10": "urban_ratio",
+                    "a11": "avg_salary",
+                    "a12": "unemploy_95",
+                    "a13": "unemploy_96",
+                    "a14": "entrepreneurs",
+                    "a15": "crimes_95",
+                    "a16": "crimes_96",
+                })
                 df.index = df.index.astype(pd.Int64Dtype())
                 # Use a synthetic primary key; client_id becomes a FK column
                 df["client_id"] = df.index.astype(pd.Int64Dtype())
