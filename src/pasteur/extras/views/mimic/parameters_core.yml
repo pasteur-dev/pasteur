@@ -12,7 +12,7 @@ tables:
         nullable: True
         max_len: 99
         bins: 32
-      birth_year: fixed|date
+      birth_year: date
 
   admissions:
     primary_key: hadm_id
@@ -58,8 +58,6 @@ tables:
     fields:
       transfer_id: id
       hadm_id: id:admissions.hadm_id
-      eventtype: categorical
-      careunit: categorical?
       intime:
         type: seq
         ref: admissions.admittime
@@ -69,3 +67,5 @@ tables:
           type: datetime
           span: day.hour
       outtime: datetime?|day.hour:intime
+      eventtype: categorical
+      careunit: categorical?
