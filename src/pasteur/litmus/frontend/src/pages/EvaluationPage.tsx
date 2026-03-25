@@ -155,7 +155,7 @@ export default function EvaluationPage({
         </div>
         <div className="header-center">
           <span className="progress-text">
-            {progress + 1} / {total}
+            {progress} / {total}
           </span>
         </div>
         <div className="header-right">
