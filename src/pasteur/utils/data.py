@@ -700,6 +700,7 @@ def get_relationships(
 
     # Trim leaf tables
     relationships = {}
+    table_order = list(ids.keys())
 
     for name in list(full_relationships.keys()):
         tmp = list(full_relationships[name])
@@ -708,6 +709,8 @@ def get_relationships(
                 if k in tmp:
                     tmp.remove(k)
 
+        # Sort children by their position in the ids dict (metadata order)
+        tmp.sort(key=lambda t: table_order.index(t) if t in table_order else len(table_order))
         relationships[name] = tmp
 
     return relationships
