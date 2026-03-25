@@ -130,6 +130,7 @@ class TableMeta:
         self.name = name
         self.primary_key = meta.get("primary_key", None)
         self.sequencer: tuple[str, ...] | str | None = meta.get("sequencer", None)
+        self.max_children: int | None = meta.get("max_children", None)
 
         if "metrics" in meta:
             metrics_dict = meta["metrics"]

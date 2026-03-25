@@ -521,6 +521,7 @@ def process_entity(
     tables: dict[str, "DataFrame"],
     ctx: dict[str, dict[str, "DataFrame"]],
     ids: dict[str, "DataFrame"],
+    max_children: int | dict[str, int] | None = None,
 ) -> dict:
     result = {}
     stack = [(table, cid, mapping, result)]
@@ -576,6 +577,15 @@ def process_entity(
                 if value.seq:
                     cids = tables[value.name][value.seq][cids].sort_values().index
 
+                # Clip to max_children if set
+                mc = (
+                    max_children.get(value.name, None)
+                    if isinstance(max_children, dict)
+                    else max_children
+                )
+                if mc is not None and len(cids) > mc:
+                    cids = cids[:mc]
+
                 children = []
                 for cid in cids:
                     child = {}
@@ -604,6 +614,7 @@ def _json_encode(
     attrs: dict[str, Attributes],
     ctx_attrs: dict[str, dict[str, Attributes]],
     nrange: "list[int] | np.ndarray",
+    max_children: int | dict[str, int] | None = None,
 ):
     import pandas as pd
 
@@ -627,6 +638,7 @@ def _json_encode(
                 l_tables,
                 l_ctx,
                 l_ids,
+                max_children=max_children,
             )
         )
 
@@ -762,6 +774,10 @@ def _json_decode(
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
     name = "json"
 
+    def __init__(self, max_children: int | dict[str, int] | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.max_children = max_children
+
     def fit(
         self,
         attrs: dict[str, Attributes],
@@ -809,6 +825,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 "relationships": self.relationships,
                 "attrs": self.attrs,
                 "ctx_attrs": self.ctx_attrs,
+                "max_children": self.max_children,
             }
             per_call = []
 
@@ -844,6 +861,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 "relationships": self.relationships,
                 "attrs": self.attrs,
                 "ctx_attrs": self.ctx_attrs,
+                "max_children": self.max_children,
             }
             per_call = []
             for pid_set in pids:

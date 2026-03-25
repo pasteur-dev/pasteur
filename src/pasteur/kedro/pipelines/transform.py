@@ -52,6 +52,7 @@ def _fit_encoder(
     tables: dict[str, LazyFrame],
     ctx: dict[str, dict[str, LazyFrame]],
     ids: dict[str, LazyFrame],
+    meta=None,
 ):
     # Get encoder factories
     attr_encs = get_module_dict(AttributeEncoderFactory, modules)
@@ -70,9 +71,20 @@ def _fit_encoder(
         attrs[name] = table_attrs
         ctx_attrs[name] = table_ctx_attrs
 
+    # Extract per-table max_children from metadata for JSON encoder
+    build_kwargs = {}
+    if meta is not None and enc == "json":
+        max_children = {}
+        for t in meta.tables:
+            mc = meta[t].max_children
+            if mc is not None:
+                max_children[t] = mc
+        if max_children:
+            build_kwargs["max_children"] = max_children
+
     # Create and fit
     if enc in encs:
-        e = encs[enc].build()
+        e = encs[enc].build(**build_kwargs)
     else:
         e = AttributeEncoderHolder(attr_encs[enc])
 
@@ -124,6 +136,7 @@ def create_fit_pipeline(
                 "tables": {t: f"{view}.{split}.bst_{t}" for t in view.tables},
                 "ctx": {t: f"{view}.{split}.ctx_{t}" for t in view.tables},
                 "ids": {t: f"{view}.{split}.ids_{t}" for t in view.tables},
+                "meta": f"{view}.metadata",
             },
             outputs=f"{view}.enc.{enc}",
             namespace=f"{view}.enc",

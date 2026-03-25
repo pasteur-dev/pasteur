@@ -57,6 +57,7 @@ tables:
 
   order:
     primary_key: order_id
+    max_children: 50
     fields:
       order_id: id
       disp_id: id:account.disp_id
@@ -67,6 +68,7 @@ tables:
 
   trans:
     primary_key: trans_id
+    max_children: 50
     fields:
       trans_id: id
       disp_id: id:account.disp_id
