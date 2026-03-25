@@ -53,6 +53,7 @@ export interface ExperimentSummary {
   blind: boolean;
   samples_per_split: number;
   total_samples: number;
+  tutorial_total: number;
   num_runs: number;
   created_at: string;
   pretty_names: Record<string, string>;

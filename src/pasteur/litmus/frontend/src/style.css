@@ -310,6 +310,20 @@ input[type="number"]::-webkit-outer-spin-button {
   accent-color: var(--gold);
 }
 
+.tutorial-toggle {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.tutorial-detail {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -910,6 +924,17 @@ input[type="number"]::-webkit-outer-spin-button {
   max-width: 700px;
   margin-left: auto;
   margin-right: auto;
+}
+
+.entity-source-header.source-real {
+  color: var(--green, #44bb55);
+  border-color: var(--green, #44bb55);
+}
+
+.entity-source-header.source-synth {
+  color: #cc6688;
+  border-color: #cc6688;
+  border-style: dashed;
 }
 
 .entity-spinner-overlay {

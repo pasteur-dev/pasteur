@@ -22,7 +22,7 @@ def litmus(port: int, host: str, hotreload: bool):
     from kedro.framework.session import KedroSession
 
     from .app import create_app
-    from .data import EntityGenerator, discover_models
+    from .data import EntityGenerator
 
     with KedroSession.create() as session:
         ctx = session.load_context()
@@ -41,24 +41,12 @@ def litmus(port: int, host: str, hotreload: bool):
 
         data_dir = locations.get("base", "data")
 
-        # Discover available views and models from the filesystem
-        catalog_info = discover_models(data_dir)
-        view_count = len(catalog_info.get("views", {}))
-        model_count = sum(
-            len(v.get("models", {}))
-            for v in catalog_info.get("views", {}).values()
-        )
-        logger.info(
-            f"Discovered {view_count} views with {model_count} algorithm(s)"
-        )
-
         # Create entity generator bound to the Kedro catalog
         generator = EntityGenerator(ctx)
 
         # Create and start Flask app
         app = create_app(
             data_dir=data_dir,
-            catalog_info=catalog_info,
             generator=generator,
         )
 

@@ -29,6 +29,7 @@ export default function ExperimentPage({
 }: Props) {
   const [exp, setExp] = useState(initialExp);
   const [runName, setRunName] = useState("");
+  const [tutorial, setTutorial] = useState(false);
   const [runResults, setRunResults] = useState<RunResults | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [resultsKey, setResultsKey] = useState(0);
@@ -77,7 +78,7 @@ export default function ExperimentPage({
 
   const handleNewRun = async (e: React.MouseEvent) => {
     const name = runName || generateRunName();
-    const run = await createRun(exp.id, name, false);
+    const run = await createRun(exp.id, name, tutorial);
     const newTab = e.ctrlKey || e.metaKey || e.button === 1;
     if (newTab) {
       window.open(`#/experiment/${exp.id}/run/${run.id}`, "_blank");
@@ -177,6 +178,15 @@ export default function ExperimentPage({
                 onChange={(e) => setRunName(e.target.value)}
                 placeholder="Reviewing Medical Patients (John Doe)"
               />
+            </label>
+
+            <label className="checkbox-label tutorial-toggle">
+              <input
+                type="checkbox"
+                checked={tutorial}
+                onChange={(e) => setTutorial(e.target.checked)}
+              />
+              <span>Tutorial <span className="tutorial-detail">({exp.tutorial_total ?? "?"} samples, unblinded)</span></span>
             </label>
 
             <button className="btn btn-primary" onClick={handleNewRun}>

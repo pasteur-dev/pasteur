@@ -62,6 +62,11 @@ class Experiment:
     """Pre-determined sample order: list of [source_key, entity_index].
     Generated once at experiment creation, shared across all runs."""
 
+    tutorial_schedule: list[list] = field(default_factory=list)
+    """Tutorial schedule: 2 per split, ordered real first then synth (unshuffled)."""
+
+    TUTORIAL_PER_SPLIT = 2
+
     @property
     def num_splits(self) -> int:
         return len(self.models) + (1 if self.include_real else 0)
@@ -69,6 +74,10 @@ class Experiment:
     @property
     def total_samples(self) -> int:
         return self.num_splits * self.samples_per_split
+
+    @property
+    def tutorial_total(self) -> int:
+        return self.num_splits * self.TUTORIAL_PER_SPLIT
 
     def generate_schedule(self):
         """Generate a deterministic schedule seeded by experiment ID.
@@ -102,6 +111,22 @@ class Experiment:
         rng.shuffle(schedule)
         self.schedule = schedule
 
+        # Tutorial schedule: 2 per split, real first then synth, not shuffled
+        tutorial_rng = _random.Random(seed + 1)
+        tutorial = []
+        # Real first
+        if self.include_real:
+            indices = tutorial_rng.sample(range(100_000), self.TUTORIAL_PER_SPLIT)
+            for idx in indices:
+                tutorial.append(["real", idx])
+        # Then each synth model
+        for m in self.models:
+            key = f"{m.algorithm}_{m.timestamp or 'latest'}"
+            indices = tutorial_rng.sample(range(100_000), self.TUTORIAL_PER_SPLIT)
+            for idx in indices:
+                tutorial.append([key, idx])
+        self.tutorial_schedule = tutorial
+
 
 def _experiment_to_dict(exp: Experiment) -> dict:
     return asdict(exp)
@@ -125,9 +150,10 @@ def _experiment_from_dict(d: dict) -> Experiment:
         runs=runs,
         **d,
     )
-    # Auto-generate schedule for legacy experiments
-    if not exp.schedule:
+    # Auto-generate schedules for legacy experiments
+    if not exp.schedule or not exp.tutorial_schedule:
         exp.generate_schedule()
+        exp._needs_save = True
     return exp
 
 
@@ -170,6 +196,9 @@ class ExperimentStore:
                     data = json.load(fh)
                 exp = _experiment_from_dict(data)
                 self._experiments[exp.id] = exp
+                if getattr(exp, "_needs_save", False):
+                    self._save(exp)
+                    del exp._needs_save
                 logger.info(f"Loaded experiment: {exp.id} ({exp.name or 'unnamed'})")
             except Exception:
                 logger.exception(f"Failed to load experiment from {f}")

@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 def create_app(
     data_dir: str | Path,
-    catalog_info: dict | None = None,
     generator=None,
 ) -> Flask:
     static_dir = Path(__file__).parent / "static"
@@ -30,7 +29,7 @@ def create_app(
 
     store = ExperimentStore(data_dir)
     app.config["store"] = store
-    app.config["catalog_info"] = catalog_info or {}
+    app.config["data_dir"] = str(data_dir)
     app.config["generator"] = generator
 
     _register_routes(app)
@@ -50,13 +49,15 @@ def _register_routes(app: Flask):
 
     @app.route("/api/views")
     def list_views():
-        info = app.config["catalog_info"]
+        from .data import discover_models
+        info = discover_models(app.config["data_dir"])
         views = list(info.get("views", {}).keys())
         return jsonify(views)
 
     @app.route("/api/views/<view>/models")
     def list_models(view: str):
-        info = app.config["catalog_info"]
+        from .data import discover_models
+        info = discover_models(app.config["data_dir"])
         models = info.get("views", {}).get(view, {}).get("models", {})
         return jsonify(models)
 
@@ -332,10 +333,11 @@ def _register_routes(app: Flask):
             return jsonify({"error": "No generator available"}), 500
 
         # Look up the predetermined schedule entry for this progress index
-        if not exp.schedule or run.progress >= len(exp.schedule):
+        sched = exp.tutorial_schedule if run.tutorial else exp.schedule
+        if not sched or run.progress >= len(sched):
             return jsonify({"error": "Schedule exhausted"}), 400
 
-        source_key, entity_index = exp.schedule[run.progress]
+        source_key, entity_index = sched[run.progress]
 
         entity_id = str(uuid.uuid4())
         try:
@@ -368,6 +370,7 @@ def _exp_summary(exp: Experiment) -> dict:
         "blind": exp.blind,
         "samples_per_split": exp.samples_per_split,
         "total_samples": exp.total_samples,
+        "tutorial_total": exp.tutorial_total,
         "num_runs": len(exp.runs),
         "created_at": exp.created_at,
         "pretty_names": pretty_names,
@@ -390,7 +393,7 @@ def _run_summary(run: Run, exp: Experiment) -> dict:
         "started": run.started,
         "finished": run.finished,
         "progress": run.progress,
-        "total_samples": exp.total_samples,
+        "total_samples": exp.tutorial_total if run.tutorial else exp.total_samples,
         "created_at": run.created_at,
     }
 

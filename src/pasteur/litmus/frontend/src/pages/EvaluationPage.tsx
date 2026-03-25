@@ -42,7 +42,8 @@ export default function EvaluationPage({
   const loadCompleteTime = useRef(0);
   const spinnerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const total = experiment.total_samples;
+  const isTutorial = currentRun?.tutorial ?? false;
+  const total = isTutorial ? experiment.tutorial_total : experiment.total_samples;
 
   // Fetch view metadata once
   useEffect(() => {
@@ -150,7 +151,7 @@ export default function EvaluationPage({
             onClick={(e) => { e.preventDefault(); handleEnd(); }}
             title="Back to experiment"
           >{experiment.name}</a>
-          <span className="exp-name"> &middot; {currentRun?.name || runId}</span>
+          <span className="exp-name"> &middot; {currentRun?.name || runId}{isTutorial && " [tutorial]"}</span>
         </div>
         <div className="header-center">
           <span className="progress-text">
@@ -179,8 +180,8 @@ export default function EvaluationPage({
       </header>
 
       <div className="entity-container">
-        {!experiment.blind && sourcePretty && (
-          <div className="entity-source-header">{sourcePretty}</div>
+        {(!experiment.blind || currentRun?.tutorial) && sourcePretty && (
+          <div className={`entity-source-header ${source.startsWith("real") ? "source-real" : "source-synth"}`}>{sourcePretty}</div>
         )}
         {entity ? (
           <EntityCard
