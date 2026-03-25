@@ -413,33 +413,10 @@ def _compute_pretty_names(exp: Experiment) -> dict[str, str]:
             key = f"{alg}_{sorted_models[0].timestamp or 'latest'}"
             names[key] = alg.title()
         else:
-            # Multiple models — find differing params
-            ref = sorted_models[0].overrides
-            differing = set()
-            for m in sorted_models[1:]:
-                for k in set(list(ref.keys()) + list(m.overrides.keys())):
-                    if ref.get(k) != m.overrides.get(k):
-                        differing.add(k)
-
-            alg_names: dict[str, str] = {}
-            for m in sorted_models:
+            # Multiple models — number them sequentially
+            for i, m in enumerate(sorted_models):
                 key = f"{alg}_{m.timestamp or 'latest'}"
-                parts = [alg.title()]
-                for k in sorted(differing):
-                    if k in m.overrides:
-                        parts.append(f"{k}={m.overrides[k]}")
-                alg_names[key] = " ".join(parts)
-
-            # Deduplicate: if names collide, suffix with (1), (2), ...
-            name_to_keys: dict[str, list[str]] = defaultdict(list)
-            for key, name in alg_names.items():
-                name_to_keys[name].append(key)
-            for name, keys in name_to_keys.items():
-                if len(keys) > 1:
-                    for i, key in enumerate(keys):
-                        alg_names[key] = f"{name} ({i + 1})"
-
-            names.update(alg_names)
+                names[key] = f"{alg.title()} ({i + 1})"
 
     names["real"] = "Real Data"
     return names
