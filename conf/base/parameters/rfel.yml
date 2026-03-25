@@ -95,7 +95,7 @@ rfel_fnc:
       rebalance: True
     amalgam:
       <<: *amalgam
-      samples: 1000
+      samples: 50
       rebalance:
         unbounded_dp: True
         fixed: [4, 9, 18, 32]
@@ -117,7 +117,7 @@ rfel_fnc:
   metrics:
     llmeval:
       <<: *llmeval
-      samples: 1000
+      samples: 50
       prompt: |
         You are a bank analyst.
 
