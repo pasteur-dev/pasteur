@@ -160,6 +160,29 @@ def discover_models(data_dir: str | Path) -> dict:
     return result
 
 
+def _extract_date_ref(transformer) -> str | None:
+    """Extract ISO date reference from a transformer, handling nested types.
+
+    Supports: DateTransformer (has .ref), DatetimeTransformer (has .dt.ref),
+    SeqTransformerWrapper (has .ctx.dt.ref for context refs).
+    """
+    # DateTransformer: has .ref and .year_name directly
+    if hasattr(transformer, "ref") and hasattr(transformer, "year_name"):
+        return transformer.ref.isoformat()
+
+    # DatetimeTransformer: wraps a DateTransformer in .dt
+    if hasattr(transformer, "dt") and hasattr(transformer.dt, "ref"):
+        return transformer.dt.ref.isoformat()
+
+    # SeqTransformerWrapper: has .ctx (DatetimeTransformer) for the absolute ref
+    if hasattr(transformer, "ctx"):
+        ref = _extract_date_ref(transformer.ctx)
+        if ref is not None:
+            return ref
+
+    return None
+
+
 class EntityGenerator:
     """Generates entities from synth models or real data using the Kedro catalog."""
 
@@ -228,9 +251,9 @@ class EntityGenerator:
             try:
                 trn = self.catalog.load(trn_name)
                 for col_name, transformer in trn.transformers.items():
-                    if hasattr(transformer, "ref") and hasattr(transformer, "year_name"):
-                        ref_ts = transformer.ref
-                        date_refs.setdefault(table, {})[col_name] = ref_ts.isoformat()
+                    ref_ts = _extract_date_ref(transformer)
+                    if ref_ts is not None:
+                        date_refs.setdefault(table, {})[col_name] = ref_ts
             except Exception:
                 logger.debug(f"Could not load transformer for {table}", exc_info=True)
 

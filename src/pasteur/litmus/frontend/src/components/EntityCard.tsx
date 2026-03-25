@@ -22,6 +22,7 @@ interface Props {
   dateRefs?: DateRefs;
   tablePath?: string; // tracks current table for date ref lookup
   tableOrder?: string[];
+  parentDate?: Date; // resolved absolute date from parent for relative datetime fields
 }
 
 type InlineEntry = { key: string; value: unknown };
@@ -29,16 +30,19 @@ type NestedEntry =
   | { kind: "array"; key: string; items: Record<string, unknown>[] }
   | { kind: "object"; key: string; obj: Record<string, unknown> };
 
-/** Detect if an object is a decomposed date: {age_years, week, day}. */
-function isDateObject(
-  obj: Record<string, unknown>
-): obj is { age_years: number; week: string | number; day: string } {
-  const keys = Object.keys(obj);
-  return (
-    keys.includes("age_years") &&
-    keys.includes("week") &&
-    keys.includes("day")
-  );
+/**
+ * Detect decomposed date/datetime objects. Supported patterns:
+ * - {age_years, week, day}           — date with age offset
+ * - {age_years, week, day, time}     — datetime with age offset
+ * - {years_passed, week, day, time}  — datetime with recursive offset
+ * - {day, time}                      — relative datetime (day number + time)
+ */
+function isDateObject(obj: Record<string, unknown>): boolean {
+  const keys = new Set(Object.keys(obj));
+  if (keys.has("age_years") && keys.has("week") && keys.has("day")) return true;
+  if (keys.has("years_passed") && keys.has("week") && keys.has("day")) return true;
+  if (keys.has("day") && keys.has("time") && keys.size === 2) return true;
+  return false;
 }
 
 const DAY_INDEX: Record<string, number> = {
@@ -66,37 +70,118 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-/**
- * Format a decomposed date. If refDateISO is provided, reconstruct an
- * approximate absolute date. Otherwise fall back to relative display.
- */
-function formatDate(
-  obj: { age_years: number; week: string | number; day: string },
-  refDateISO?: string
+/** Reconstruct approximate date from ISO week + day name. */
+function weekDayToDate(year: number, weekNum: number, day: string): Date {
+  const dayOfWeek = DAY_INDEX[day] ?? 1;
+  const jan4 = new Date(year, 0, 4);
+  const jan4Day = jan4.getDay() || 7;
+  const weekStart = new Date(jan4.getTime());
+  weekStart.setDate(jan4.getDate() - jan4Day + 1 + (weekNum - 1) * 7);
+  weekStart.setDate(weekStart.getDate() + dayOfWeek - 1);
+  return weekStart;
+}
+
+/** Pad day name to 9 chars (length of "Wednesday") for alignment. */
+function padDay(day: string): string {
+  return day.padEnd(9);
+}
+
+/** Format date string with aligned day number. */
+function fmtDate(day: string, month: string, dateNum: number, year: number, timeSuffix: string): string {
+  return `${padDay(day)} ${month} ${String(dateNum).padStart(2)}, ${year}${timeSuffix}`;
+}
+
+/** Format a decomposed date/datetime object. */
+function formatDateObj(
+  obj: Record<string, unknown>,
+  refDateISO?: string,
+  parentDate?: Date
 ): string {
-  const { age_years, week, day } = obj;
+  const rawTime = obj.time != null ? String(obj.time) : null;
+  const time = rawTime && rawTime !== "00:00" ? rawTime : null;
+  const timeSuffix = time ? ` ${time}` : "";
+
+  // Pattern: {day (number), time} — relative datetime
+  if ("time" in obj && "day" in obj && !("week" in obj)) {
+    const dayOffset = obj.day as number;
+    if (parentDate) {
+      const d = new Date(parentDate.getTime());
+      d.setDate(d.getDate() + dayOffset);
+      const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()];
+      const month = MONTH_NAMES[d.getMonth()];
+      return fmtDate(dayName, month, d.getDate(), d.getFullYear(), timeSuffix);
+    }
+    return `Day ${String(dayOffset).padStart(3)}${timeSuffix}`;
+  }
+
+  // Extract years and week
+  const years = (obj.age_years ?? obj.years_passed) as number;
+  const week = obj.week as string | number;
+  const day = obj.day as string;
   const weekNum = typeof week === "string" ? parseInt(week, 10) : week;
+  const yearsLabel = "years_passed" in obj ? "years_passed" : "age_years";
 
   if (refDateISO) {
     const ref = new Date(refDateISO);
-    const year = ref.getFullYear() + age_years;
-
-    // Approximate: ISO week to month/day
-    // Jan 4 is always in week 1. Each week is 7 days.
-    const dayOfWeek = DAY_INDEX[day] ?? 1;
-    const jan4 = new Date(year, 0, 4);
-    const jan4Day = jan4.getDay() || 7; // ISO: Monday=1
-    const weekStart = new Date(jan4.getTime());
-    weekStart.setDate(jan4.getDate() - jan4Day + 1 + (weekNum - 1) * 7);
-    weekStart.setDate(weekStart.getDate() + dayOfWeek - 1);
-
-    const month = MONTH_NAMES[weekStart.getMonth()];
-    const dateNum = weekStart.getDate();
-    return `${day}, ${month} ${dateNum}, ${weekStart.getFullYear()}`;
+    const year = ref.getFullYear() + years;
+    const d = weekDayToDate(year, weekNum, day);
+    const month = MONTH_NAMES[d.getMonth()];
+    return fmtDate(day, month, d.getDate(), d.getFullYear(), timeSuffix);
   }
 
   // Fallback: relative format
-  return `${day}, Wk ${weekNum}, +${age_years}y`;
+  const label = yearsLabel === "years_passed" ? "yrs" : "y";
+  return `${padDay(day)} Wk ${String(weekNum).padStart(2)}, +${String(years).padStart(3)}${label}${timeSuffix}`;
+}
+
+/** Resolve a decomposed date object to an absolute Date, if possible. */
+function resolveDateToAbsolute(
+  obj: Record<string, unknown>,
+  refDateISO?: string
+): Date | undefined {
+  if (!refDateISO) return undefined;
+  const years = (obj.age_years ?? obj.years_passed) as number | undefined;
+  if (years == null || !("week" in obj) || !("day" in obj)) return undefined;
+
+  const week = obj.week as string | number;
+  const day = obj.day as string;
+  const weekNum = typeof week === "string" ? parseInt(week, 10) : week;
+
+  const ref = new Date(refDateISO);
+  const year = ref.getFullYear() + years;
+  return weekDayToDate(year, weekNum, day);
+}
+
+/**
+ * Find the first resolvable date field in an entity to use as parentDate
+ * for relative datetime children. Looks for fields with age_years/years_passed.
+ */
+function extractParentDate(
+  data: Record<string, unknown>,
+  dateRefs?: DateRefs,
+  tablePath?: string
+): Date | undefined {
+  if (!dateRefs || !tablePath) return undefined;
+  const tableRefs = dateRefs[tablePath];
+  if (!tableRefs) return undefined;
+
+  for (const [key, value] of Object.entries(data)) {
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      isDateObject(value as Record<string, unknown>)
+    ) {
+      const obj = value as Record<string, unknown>;
+      if ("age_years" in obj || "years_passed" in obj) {
+        const refISO = tableRefs[key];
+        if (refISO) {
+          return resolveDateToAbsolute(obj, refISO);
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 function classifyEntries(data: Record<string, unknown>) {
@@ -142,7 +227,32 @@ function classifyEntries(data: Record<string, unknown>) {
     }
   }
 
-  return { inline, nested };
+  // Hide context date fields that duplicate a field inside a child table.
+  // E.g., top-level "admittime" when "admissions" array items also have "admittime".
+  const childFieldNames = new Set<string>();
+  for (const entry of nested) {
+    if (entry.kind === "array" && entry.items.length > 0) {
+      for (const k of Object.keys(entry.items[0])) {
+        childFieldNames.add(k);
+      }
+    }
+  }
+  const filteredInline = inline.filter(({ key, value }) => {
+    if (!childFieldNames.has(key)) return true;
+    // Hide null/undefined context fields that duplicate a child field
+    if (value === null || value === undefined) return false;
+    // Hide date context fields that duplicate a child field
+    if (
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      isDateObject(value as Record<string, unknown>)
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  return { inline: filteredInline, nested };
 }
 
 /** Check if an entity is compact enough to render in one line. */
@@ -191,10 +301,15 @@ export default function EntityCard({
   dateRefs,
   tablePath,
   tableOrder,
+  parentDate,
 }: Props) {
   const { inline, nested: rawNested } = classifyEntries(data);
   const nested = sortNested(rawNested, tableOrder);
   const compact = depth > 0 && isCompact(inline, nested);
+
+  // Resolve this entity's anchor date for relative child datetimes.
+  // Uses the first resolvable date field (age_years/years_passed + week + day).
+  const resolvedDate = extractParentDate(data, dateRefs, tablePath) ?? parentDate;
 
   if (compact) {
     return (
@@ -206,7 +321,7 @@ export default function EntityCard({
             {i > 0 && <span className="compact-sep">&middot;</span>}
             <span className="field-key">{formatKey(key)}:</span>{" "}
             <span className="field-value">
-              {formatValue(key, value, dateRefs, tablePath)}
+              {formatValue(key, value, dateRefs, tablePath, resolvedDate)}
             </span>
           </span>
         ))}
@@ -231,6 +346,7 @@ export default function EntityCard({
                 value={value}
                 dateRefs={dateRefs}
                 tablePath={tablePath}
+                parentDate={resolvedDate}
               />
             ))}
           </tbody>
@@ -254,6 +370,7 @@ export default function EntityCard({
                     dateRefs={dateRefs}
                     tablePath={entry.key}
                     tableOrder={tableOrder}
+                    parentDate={resolvedDate}
                   />
                 ))}
               </div>
@@ -269,6 +386,7 @@ export default function EntityCard({
               dateRefs={dateRefs}
               tablePath={entry.key}
               tableOrder={tableOrder}
+              parentDate={resolvedDate}
             />
           </div>
         );
@@ -282,11 +400,13 @@ function InlineField({
   value,
   dateRefs,
   tablePath,
+  parentDate,
 }: {
   fieldKey: string;
   value: unknown;
   dateRefs?: DateRefs;
   tablePath?: string;
+  parentDate?: Date;
 }) {
   // null
   if (value === null || value === undefined) {
@@ -312,9 +432,10 @@ function InlineField({
       <tr>
         <td className="field-key">{formatKey(fieldKey)}</td>
         <td className="field-value">
-          {formatDate(
-            value as { age_years: number; week: string | number; day: string },
-            refISO
+          {formatDateObj(
+            value as Record<string, unknown>,
+            refISO,
+            parentDate
           )}
         </td>
       </tr>
@@ -358,7 +479,8 @@ function formatValue(
   key: string,
   value: unknown,
   dateRefs?: DateRefs,
-  tablePath?: string
+  tablePath?: string,
+  parentDate?: Date
 ): string {
   if (value === null || value === undefined) return "-";
   if (
@@ -370,9 +492,10 @@ function formatValue(
       tablePath && dateRefs?.[tablePath]?.[key]
         ? dateRefs[tablePath][key]
         : undefined;
-    return formatDate(
-      value as { age_years: number; week: string | number; day: string },
-      refISO
+    return formatDateObj(
+      value as Record<string, unknown>,
+      refISO,
+      parentDate
     );
   }
   return formatScalar(value);
