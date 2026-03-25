@@ -65,6 +65,12 @@ class Experiment:
     tutorial_schedule: list[list] = field(default_factory=list)
     """Tutorial schedule: 2 per split, ordered real first then synth (unshuffled)."""
 
+    source_seeds: dict[str, int] = field(default_factory=dict)
+    """Per-source RNG seeds for deterministic pool shuffling."""
+
+    tutorial_seeds: dict[str, int] = field(default_factory=dict)
+    """Per-source RNG seeds for tutorial pool shuffling."""
+
     TUTORIAL_PER_SPLIT = 2
 
     @property
@@ -100,32 +106,43 @@ class Experiment:
         if self.include_real:
             sources.append("real")
 
-        # For each source, assign entity indices (large range, will be modulo'd by pool size)
+        # For each source, generate a per-source seed. At entity retrieval
+        # time the pool is shuffled with this seed to pick unique entities.
+        source_seeds = {}
+        for source in sources:
+            source_seeds[source] = rng.randint(0, 2**32 - 1)
+
+        # Build schedule entries: [source_key, nth_unique] where nth_unique
+        # is the 0-based index into the deduplicated sequence for that source.
+        counters: dict[str, int] = {s: 0 for s in sources}
         schedule = []
         for source in sources:
-            indices = rng.sample(range(100_000), self.samples_per_split)
-            for idx in indices:
-                schedule.append([source, idx])
+            for _ in range(self.samples_per_split):
+                schedule.append([source, counters[source]])
+                counters[source] += 1
 
         # Shuffle the full schedule deterministically
         rng.shuffle(schedule)
         self.schedule = schedule
+        self.source_seeds = source_seeds
 
         # Tutorial schedule: 2 per split, real first then synth, not shuffled
         tutorial_rng = _random.Random(seed + 1)
+        tutorial_seeds = {}
         tutorial = []
         # Real first
         if self.include_real:
-            indices = tutorial_rng.sample(range(100_000), self.TUTORIAL_PER_SPLIT)
-            for idx in indices:
-                tutorial.append(["real", idx])
+            tutorial_seeds["real"] = tutorial_rng.randint(0, 2**32 - 1)
+            for i in range(self.TUTORIAL_PER_SPLIT):
+                tutorial.append(["real", i])
         # Then each synth model
         for m in self.models:
             key = f"{m.algorithm}_{m.timestamp or 'latest'}"
-            indices = tutorial_rng.sample(range(100_000), self.TUTORIAL_PER_SPLIT)
-            for idx in indices:
-                tutorial.append([key, idx])
+            tutorial_seeds[key] = tutorial_rng.randint(0, 2**32 - 1)
+            for i in range(self.TUTORIAL_PER_SPLIT):
+                tutorial.append([key, i])
         self.tutorial_schedule = tutorial
+        self.tutorial_seeds = tutorial_seeds
 
 
 def _experiment_to_dict(exp: Experiment) -> dict:
@@ -151,7 +168,7 @@ def _experiment_from_dict(d: dict) -> Experiment:
         **d,
     )
     # Auto-generate schedules for legacy experiments
-    if not exp.schedule or not exp.tutorial_schedule:
+    if not exp.schedule or not exp.tutorial_schedule or not exp.source_seeds:
         exp.generate_schedule()
         exp._needs_save = True
     return exp
@@ -301,6 +318,9 @@ class ExperimentStore:
             for run in exp.runs:
                 if run.id == run_id:
                     if run.finished:
+                        return False
+                    sched = exp.tutorial_schedule if run.tutorial else exp.schedule
+                    if run.progress >= len(sched):
                         return False
                     run.ratings.append(rating)
                     self._save(exp)

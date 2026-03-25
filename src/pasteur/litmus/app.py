@@ -297,19 +297,21 @@ def _register_routes(app: Flask):
                 return "model", m.algorithm, m.timestamp
         return None, None, None
 
-    def _generate_entity(generator, exp, source_key, entity_index):
+    def _generate_entity(generator, exp, source_key, entity_index, is_tutorial=False):
         """Generate a specific entity by source key and index into the pool."""
         pretty_names = _compute_pretty_names(exp)
         source_type, alg, version = _source_key_to_parts(exp, source_key)
+        seeds = exp.tutorial_seeds if is_tutorial else exp.source_seeds
+        seed = seeds.get(source_key, 0)
 
         if source_type == "real":
             entity = generator.generate_entity_by_index(
-                exp.view, None, None, entity_index
+                exp.view, None, None, entity_index, seed=seed
             )
             source_pretty = pretty_names.get("real", "Real Data")
         elif source_type == "model":
             entity = generator.generate_entity_by_index(
-                exp.view, alg, version, entity_index
+                exp.view, alg, version, entity_index, seed=seed
             )
             source_pretty = pretty_names.get(source_key, alg or "")
         else:
@@ -342,7 +344,8 @@ def _register_routes(app: Flask):
         entity_id = str(uuid.uuid4())
         try:
             entity, source, source_pretty = _generate_entity(
-                generator, exp, source_key, entity_index
+                generator, exp, source_key, entity_index,
+                is_tutorial=run.tutorial,
             )
         except Exception:
             logger.exception("Entity generation failed")

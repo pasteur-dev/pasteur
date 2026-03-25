@@ -198,6 +198,7 @@ class EntityGenerator:
         self._encoder_cache: dict[str, Any] = {}
         self._mapping_cache: dict[str, Any] = {}
         self._real_data_cache: dict[str, dict] = {}
+        self._shuffled_orders: dict[str, list[int]] = {}
         # Background entity precomputation
         self._entity_pools: dict[str, list[dict]] = {}
         self._precompute_started: set[str] = set()
@@ -335,22 +336,6 @@ class EntityGenerator:
         cache_key = f"{view}.{alg}.{version or 'latest'}"
         if cache_key in self._data_cache:
             return self._data_cache[cache_key]
-
-        # Early check: verify output data exists on disk before loading
-        if version:
-            locations = self.ctx.config_loader.get("locations")
-            data_dir = Path(locations.get("base", "data"))
-            bst_dir = data_dir / "synth" / view / alg / "bst"
-            if bst_dir.exists():
-                has_data = any(
-                    (table_dir / version).is_dir()
-                    for table_dir in bst_dir.iterdir()
-                    if table_dir.is_dir()
-                )
-                if not has_data:
-                    raise ValueError(
-                        f"No output data for {view}/{alg}/{version}"
-                    )
 
         mapping_info = self._get_mapping(view)
         relationships = mapping_info["relationships"]
@@ -526,16 +511,32 @@ class EntityGenerator:
             return random.choice(pool)
         return self._generate_one(mapping_info, real_data)
 
-    def generate_entity_by_index(
-        self, view: str, alg: str | None, version: str | None, index: int
-    ) -> dict:
-        """Get a specific entity by index. Deterministic across calls.
+    def _get_shuffled_order(self, cache_key: str, pool_size: int, seed: int) -> list[int]:
+        """Get a deterministic, deduplicated ordering of pool indices.
 
-        Uses the precomputed pool (waits if still building). The index
-        is modulo'd by pool size so any large index works.
+        Uses the seed to generate a shuffled permutation of [0, pool_size).
+        The returned list can be indexed by nth_unique to get pool indices
+        without repeats (wraps around if more samples than pool size).
+        """
+        order_key = f"{cache_key}:{seed}"
+        if order_key not in self._shuffled_orders:
+            import random as _random
+            rng = _random.Random(seed)
+            order = list(range(pool_size))
+            rng.shuffle(order)
+            self._shuffled_orders[order_key] = order
+        return self._shuffled_orders[order_key]
+
+    def generate_entity_by_index(
+        self, view: str, alg: str | None, version: str | None,
+        nth: int, seed: int = 0,
+    ) -> dict:
+        """Get the nth unique entity for a source, using seed to shuffle the pool.
+
+        The seed determines the shuffled pool order. nth indexes into that
+        shuffled order, wrapping around if nth >= pool_size.
         """
         if alg is None:
-            # Real data
             mapping_info = self._get_mapping(view)
             data = self._load_real_data(view)
             cache_key = f"real.{view}"
@@ -550,10 +551,10 @@ class EntityGenerator:
         # Try to serve from pool
         pool = self._get_entity_pool(cache_key)
         if pool:
-            return pool[index % len(pool)]
+            order = self._get_shuffled_order(cache_key, len(pool), seed)
+            return pool[order[nth % len(order)]]
 
-        # Pool not ready yet — generate on demand using the index to pick a
-        # specific entity ID (deterministic)
+        # Pool not ready yet — generate on demand
         from pasteur.extras.encoders import process_entity
 
         top_table = mapping_info["top_table"]
@@ -562,7 +563,8 @@ class EntityGenerator:
             return {"error": "No data available"}
 
         all_ids = list(ids[top_table].index)
-        eid = all_ids[index % len(all_ids)]
+        order = self._get_shuffled_order(cache_key, len(all_ids), seed)
+        eid = all_ids[order[nth % len(order)]]
         return process_entity(
             top_table, eid, mapping_info["mapping"],
             data["tables"], data["ctx"], ids,
