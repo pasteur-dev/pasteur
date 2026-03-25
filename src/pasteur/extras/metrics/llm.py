@@ -24,6 +24,14 @@ from ...utils import LazyFrame
 
 logger = logging.getLogger(__name__)
 
+
+def _get_model_name(model: dict) -> str:
+    """Derive a short display name from model params."""
+    if model.get("type") == "or":
+        return model["model"].split("/")[-1]
+    return model.get("filename", model.get("repo_id", "unknown")).removesuffix(".gguf")
+
+
 DEFAULT_PROMPT = """
 You are an expert data scientist.
 
@@ -44,7 +52,7 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         self,
         samples: int | None,
         samples_ref: int | None = None,
-        model: AmalgamHFParams | AmalgamORParams = MODEL_PARAMS_QWEN3,
+        model: AmalgamHFParams | AmalgamORParams | list[AmalgamHFParams | AmalgamORParams] = MODEL_PARAMS_QWEN3,
         prompt: str = DEFAULT_PROMPT,
         marginal: AmalgamMarginalParams = MARGINAL_PARAMS_DEFAULT,
         reason: bool = False,
@@ -57,10 +65,11 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         self.marginal = marginal
         self.reason = reason
         self.topk = topk
-        self.model = {
-            **MODEL_PARAMS_QWEN3,
-            **model,
-        }
+        if isinstance(model, list):
+            self.models = [{**MODEL_PARAMS_QWEN3, **m} for m in model]
+        else:
+            self.models = [{**MODEL_PARAMS_QWEN3, **model}]
+        self.model = self.models[0]
 
     def fit(
         self,
@@ -118,6 +127,16 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         ref: dict[str, dict[str, LazyDataset]],
         _llm=None,
     ) -> Summaries[None | pd.DataFrame]:
+        if len(self.models) > 1:
+            results = {}
+            for model in self.models:
+                self.model = model
+                name = _get_model_name(model)
+                logger.info(f"Evaluating ref data with model: {name}")
+                with hold_gpu_lock(f"eval.{name}.ref"):
+                    results[name] = self.evaluate_dataset(f"{name}.ref", self.samples_ref, wrk, ref, _llm=_llm)
+            return Summaries(wrk=None, ref=results)
+
         with hold_gpu_lock("eval.ref"):
             return Summaries(
                 wrk=None,
@@ -132,17 +151,28 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
         pre: Summaries[pd.DataFrame],
         _llm=None,
     ) -> Summaries[pd.DataFrame]:
+        if len(self.models) > 1:
+            results = {}
+            for model in self.models:
+                self.model = model
+                name = _get_model_name(model)
+                logger.info(f"Evaluating syn data with model: {name}")
+                with hold_gpu_lock(f"eval.{name}.syn"):
+                    results[name] = self.evaluate_dataset(f"{name}.syn", self.samples, wrk, syn, _llm=_llm)
+            return pre.replace(syn=results)
+
         with hold_gpu_lock("eval.syn"):
             return pre.replace(
                 syn=self.evaluate_dataset("syn", self.samples, wrk, syn, _llm=_llm)
             )
 
-    def visualise(
+    def _visualise(
         self,
         data: dict[
             str,
             Summaries[pd.DataFrame],
         ],
+        model_name: str | None = None,
     ):
         import matplotlib.pyplot as plt
         import mlflow
@@ -169,6 +199,8 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
 
         cols = ["1", "2", "3", "4", "5"]
         title = f"LLM Evaluation Scores Distribution"
+        if model_name:
+            title += f" ({model_name})"
         x = np.array(range(len(cols)))
         w = 0.9 / len(splits)
 
@@ -208,12 +240,30 @@ class LlmEvaluatorMetric(Metric[None, None | list[int]]):
 
         plt.tight_layout()
 
-        mlflow_log_figures("llm_scores", fig)
-        mlflow.log_dict(raw_data, "_raw/llmeval.json")
+        fig_path = f"llm_scores/{model_name}" if model_name else "llm_scores"
+        raw_path = f"_raw/llmeval/{model_name}.json" if model_name else "_raw/llmeval.json"
+        mlflow_log_figures(fig_path, fig)
+        mlflow.log_dict(raw_data, raw_path)
 
+        label = f" for '{model_name}'" if model_name else ""
         logger.info(
-            "LLM Evaluation Scores (%)\n"
+            f"LLM Evaluation Scores{label} (%)\n"
             + (pd.DataFrame(df_data) * 100).to_markdown()
             + "\nAverages:\n"
             + "\n".join(f"- {k:>10s}: {v:.2f}" for k, v in avgs.items())
         )
+
+    def visualise(
+        self,
+        data: dict[str, Summaries[pd.DataFrame]],
+    ):
+        if len(self.models) == 1:
+            return self._visualise(data)
+
+        ref_all = next(iter(data.values())).ref
+        for model_name in ref_all:
+            model_data = {
+                k: Summaries(wrk=None, ref=ref_all[model_name], syn=v.syn[model_name])
+                for k, v in data.items()
+            }
+            self._visualise(model_data, model_name=model_name)
