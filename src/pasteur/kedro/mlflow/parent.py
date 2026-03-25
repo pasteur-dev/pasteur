@@ -164,9 +164,16 @@ def log_parent_run(
             )
             for name in run_params
         }
+        # Filter out runs that weren't found in MLflow
+        missing = [name for name, run in runs.items() if run is None]
+        if missing:
+            logger.warning(f"MLflow runs not found (skipping): {missing}")
+        runs = {name: run for name, run in runs.items() if run is not None}
+        if not runs:
+            logger.error("No MLflow runs found, skipping parent logging")
+            return
         artifacts = get_artifacts(runs)
         pretty = prettify_run_names(run_params)
-        assert len(runs)
 
         ref_params = next(iter(runs.values())).data.params
 

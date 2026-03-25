@@ -96,8 +96,11 @@ def check_run_done(name: str, parent: str | None, git: str | None):
     return bool(get_run_id(name, parent, git))
 
 
-def get_run(name: str, parent: str | None, git: str | None) -> Run:
-    return mlflow.get_run(get_run_id(name, parent, git))
+def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
+    run_id = get_run_id(name, parent, git)
+    if run_id is None:
+        return None
+    return mlflow.get_run(run_id)
 
 
 def remove_runs(parent: str, delete_parent: bool = False):
