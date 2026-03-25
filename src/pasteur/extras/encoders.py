@@ -589,9 +589,9 @@ def process_entity(
                     cids = cids[:mc]
 
                 children = []
-                for cid in cids:
+                for child_cid in cids:
                     child = {}
-                    stack.append((value.name, cid, value.child, child))
+                    stack.append((value.name, child_cid, value.child, child))
                     children.append(child)
                 current[key] = children
             else:
