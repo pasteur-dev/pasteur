@@ -213,6 +213,33 @@ class EntityGenerator:
         }
         return self._mapping_cache[view]
 
+    def get_view_meta(self, view: str) -> dict:
+        """Return table order and date reference info for the frontend."""
+        mapping_info = self._get_mapping(view)
+        encoder = self._load_json_encoder(view)
+
+        # Table order from encoder attrs
+        table_order = list(encoder.attrs.keys())
+
+        # Extract date reference dates from transformers
+        date_refs: dict[str, dict[str, str]] = {}
+        for table in table_order:
+            trn_name = f"{view}.trn.{table}"
+            try:
+                trn = self.catalog.load(trn_name)
+                for col_name, transformer in trn.transformers.items():
+                    if hasattr(transformer, "ref") and hasattr(transformer, "year_name"):
+                        ref_ts = transformer.ref
+                        date_refs.setdefault(table, {})[col_name] = ref_ts.isoformat()
+            except Exception:
+                logger.debug(f"Could not load transformer for {table}", exc_info=True)
+
+        return {
+            "table_order": table_order,
+            "top_table": mapping_info["top_table"],
+            "date_refs": date_refs,
+        }
+
     def _load_real_data(self, view: str):
         """Load reverse-transformed real data tables for a view, with caching."""
         if view in self._real_data_cache:

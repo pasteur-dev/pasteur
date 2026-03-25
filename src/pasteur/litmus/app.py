@@ -26,6 +26,8 @@ def create_app(
     static_dir = Path(__file__).parent / "static"
     app = Flask(__name__, static_folder=str(static_dir), static_url_path="")
 
+    app.json.sort_keys = False
+
     store = ExperimentStore(data_dir)
     app.config["store"] = store
     app.config["catalog_info"] = catalog_info or {}
@@ -57,6 +59,17 @@ def _register_routes(app: Flask):
         info = app.config["catalog_info"]
         models = info.get("views", {}).get(view, {}).get("models", {})
         return jsonify(models)
+
+    @app.route("/api/views/<view>/meta")
+    def view_meta(view: str):
+        generator = app.config.get("generator")
+        if not generator:
+            return jsonify({"error": "No generator available"}), 500
+        try:
+            return jsonify(generator.get_view_meta(view))
+        except Exception:
+            logger.exception(f"Could not load meta for {view}")
+            return jsonify({"error": "Could not load view metadata"}), 500
 
     # --- Experiments ---
 

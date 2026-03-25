@@ -142,6 +142,17 @@ export async function fetchModels(view: string): Promise<ViewModels> {
   return res.json();
 }
 
+export interface ViewMeta {
+  table_order: string[];
+  top_table: string;
+  date_refs: Record<string, Record<string, string>>; // table -> field -> ISO date
+}
+
+export async function fetchViewMeta(view: string): Promise<ViewMeta> {
+  const res = await fetch(`${BASE}/views/${view}/meta`);
+  return res.json();
+}
+
 // --- Experiments ---
 
 export async function fetchExperiments(): Promise<ExperimentSummary[]> {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { rateEntity, skipEntity, endRun, undoRating } from "../api";
-import type { ExperimentDetail } from "../api";
+import { rateEntity, skipEntity, endRun, undoRating, fetchViewMeta } from "../api";
+import type { ExperimentDetail, ViewMeta } from "../api";
 import EntityCard from "../components/EntityCard";
 
 interface Props {
@@ -38,10 +38,18 @@ export default function EvaluationPage({
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState("");
   const [sourcePretty, setSourcePretty] = useState("");
+  const [viewMeta, setViewMeta] = useState<ViewMeta | null>(null);
   const loadCompleteTime = useRef(0);
   const spinnerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const total = experiment.total_samples;
+
+  // Fetch view metadata once
+  useEffect(() => {
+    fetchViewMeta(experiment.view)
+      .then(setViewMeta)
+      .catch((err) => console.warn("Could not load view meta:", err));
+  }, [experiment.view]);
 
   const fetchNext = useCallback(async () => {
     setLoading(true);
@@ -175,7 +183,13 @@ export default function EvaluationPage({
           <div className="entity-source-header">{sourcePretty}</div>
         )}
         {entity ? (
-          <EntityCard data={entity} streaming={loading} />
+          <EntityCard
+            data={entity}
+            streaming={loading}
+            dateRefs={viewMeta?.date_refs}
+            tablePath={viewMeta?.top_table}
+            tableOrder={viewMeta?.table_order}
+          />
         ) : null}
         {showSpinner && (
           <div className="entity-spinner-overlay">
