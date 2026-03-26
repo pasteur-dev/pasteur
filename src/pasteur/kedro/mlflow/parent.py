@@ -141,7 +141,7 @@ def log_parent_run(
     MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT.set(True)
 
     git = get_git_suffix()
-    query = f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'"
+    query = f'tags.pasteur_id = "{sanitize_name(parent)}" and tags.pasteur_parent = "1" and tags.pasteur_git = "{git}"'
     parent_runs = mlflow.search_runs(filter_string=query, search_all_experiments=True)
 
     if not len(parent_runs):
@@ -157,16 +157,22 @@ def log_parent_run(
 
     with ctx_mgr:
         runs = {
-            name: get_run(
-                name,
-                parent if not skip_parent else None,
-                git if not skip_parent else None,
-            )
+            name: run
             for name in run_params
+            if (
+                run := get_run(
+                    name,
+                    parent if not skip_parent else None,
+                    git if not skip_parent else None,
+                )
+            )
+            is not None
         }
+        if not runs:
+            logger.warning(f"No child runs found for parent run '{parent}', skipping logging.")
+            return
         artifacts = get_artifacts(runs)
         pretty = prettify_run_names(run_params)
-        assert len(runs)
 
         ref_params = next(iter(runs.values())).data.params
 

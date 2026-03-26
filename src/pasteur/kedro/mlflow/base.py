@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import mlflow
@@ -47,7 +48,13 @@ def get_run_name(pipeline: str, params: dict[str, Any]):
     for param, val in dict_to_flat_params(params).items():
         if param.startswith("_"):
             continue
-        run_name += f" {param}={val}"
+        # Use json.dumps for complex types to avoid Python repr single quotes,
+        # which break MLflow's single-quoted filter string syntax.
+        if isinstance(val, (dict, list)):
+            val_str = json.dumps(val, separators=(",", ":"))
+        else:
+            val_str = str(val)
+        run_name += f" {param}={val_str}"
 
     return run_name
 
@@ -69,16 +76,17 @@ def get_parent_name(
 
 
 def sanitize_name(name: str):
-    # todo: properly escape
-    return name.replace("'", "\\'")
+    # MLflow filter strings don't support backslash escaping.
+    # Use double-quoted strings and escape double quotes within.
+    return name.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = True):
-    filter_string = f"tags.pasteur_id = '{sanitize_name(name)}'"
+    filter_string = f'tags.pasteur_id = "{sanitize_name(name)}"'
     if parent:
-        filter_string += f" and tags.pasteur_pid = '{sanitize_name(parent)}'"
+        filter_string += f' and tags.pasteur_pid = "{sanitize_name(parent)}"'
     if git:
-        filter_string += f" and tags.pasteur_git = '{git}'"
+        filter_string += f' and tags.pasteur_git = "{git}"'
     if finished:
         filter_string += (
             f" and attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'"
@@ -96,8 +104,11 @@ def check_run_done(name: str, parent: str | None, git: str | None):
     return bool(get_run_id(name, parent, git))
 
 
-def get_run(name: str, parent: str | None, git: str | None) -> Run:
-    return mlflow.get_run(get_run_id(name, parent, git))
+def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
+    run_id = get_run_id(name, parent, git)
+    if not run_id:
+        return None
+    return mlflow.get_run(run_id)
 
 
 def remove_runs(parent: str, delete_parent: bool = False):
@@ -106,7 +117,7 @@ def remove_runs(parent: str, delete_parent: bool = False):
     # Delete children
     runs = mlflow.search_runs(
         search_all_experiments=True,
-        filter_string=f"tags.pasteur_pid = '{sanitize_name(parent)}'",
+        filter_string=f'tags.pasteur_pid = "{sanitize_name(parent)}"',
     )
     for id in runs["run_id"]:
         mlflow.delete_run(id)
@@ -118,7 +129,7 @@ def remove_runs(parent: str, delete_parent: bool = False):
     git = get_git_suffix()
     runs = mlflow.search_runs(
         search_all_experiments=True,
-        filter_string=f"tags.pasteur_id = '{sanitize_name(parent)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'",
+        filter_string=f'tags.pasteur_id = "{sanitize_name(parent)}" and tags.pasteur_parent = "1" and tags.pasteur_git = "{git}"',
     )
     for id in runs["run_id"]:
         mlflow.delete_run(id)

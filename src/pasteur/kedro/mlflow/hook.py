@@ -146,7 +146,7 @@ class MlflowTrackingHook:
         git = get_git_suffix()
 
         if self.parent_name:
-            query = f"tags.pasteur_id = '{sanitize_name(self.parent_name)}' and tags.pasteur_parent = '1' and tags.pasteur_git = '{git}'"
+            query = f'tags.pasteur_id = "{sanitize_name(self.parent_name)}" and tags.pasteur_parent = "1" and tags.pasteur_git = "{git}"'
             parent_runs = mlflow.search_runs(
                 experiment_ids=[
                     self.mlflow_config.tracking.experiment._experiment.experiment_id
