@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock
@@ -156,12 +156,11 @@ def _experiment_from_dict(d: dict) -> Experiment:
     for r in raw_runs:
         ratings = [Rating(**rt) for rt in r.pop("ratings", [])]
         runs.append(Run(ratings=ratings, **r))
-    # Drop legacy fields
-    d.pop("timing_params", None)
-    d.pop("tutorial", None)
-    d.pop("finished", None)
     d.setdefault("blind", True)
     d.setdefault("schedule", [])
+    # Filter to known fields to ignore stale/removed keys
+    known = {f.name for f in fields(Experiment)} - {"models", "runs"}
+    d = {k: v for k, v in d.items() if k in known}
     exp = Experiment(
         models=models,
         runs=runs,
