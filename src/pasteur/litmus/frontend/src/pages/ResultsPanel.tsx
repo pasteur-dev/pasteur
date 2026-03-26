@@ -261,10 +261,12 @@ function ResponseTimeChart({ data }: { data: ResponseTimeStats[] }) {
 function InterRaterPanel({ data }: { data: InterRaterResult }) {
   const interpretAlpha = (a: number | null) => {
     if (a === null) return { label: "N/A", color: "var(--text-dim)", desc: "" };
-    if (a >= 0.8) return { label: "Excellent", color: "#00dd77", desc: "Raters strongly agree on quality assessments." };
-    if (a >= 0.67) return { label: "Good", color: "#44bb55", desc: "Raters mostly agree, with minor differences." };
-    if (a >= 0.33) return { label: "Fair", color: "#cc9900", desc: "Moderate disagreement between raters. Results should be interpreted cautiously." };
-    return { label: "Poor", color: "#ff2244", desc: "Raters disagree substantially. Individual judgments vary widely." };
+    if (a >= 0.81) return { label: "Near-perfect", color: "#00dd77", desc: "Raters strongly agree on quality assessments." };
+    if (a >= 0.61) return { label: "Substantial", color: "#44bb55", desc: "Raters mostly agree, with minor differences." };
+    if (a >= 0.41) return { label: "Moderate", color: "#88aa44", desc: "Moderate agreement. Results are usable but should be interpreted with care." };
+    if (a >= 0.21) return { label: "Fair", color: "#cc9900", desc: "Some agreement beyond chance. Subjective differences between raters." };
+    if (a >= 0.0) return { label: "Slight", color: "#dd7733", desc: "Minimal agreement. Individual judgments vary widely." };
+    return { label: "No agreement", color: "#ff2244", desc: "Less than chance agreement." };
   };
 
   const overall = interpretAlpha(data.overall);
