@@ -186,14 +186,16 @@ def _extract_date_ref(transformer) -> str | None:
 class EntityGenerator:
     """Generates entities from synth models or real data using the Kedro catalog."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx, data_dir: str | None = None):
         """Initialize with a loaded Kedro context.
 
         Args:
             ctx: KedroContext from session.load_context()
+            data_dir: Override for data directory path
         """
         self.ctx = ctx
         self.catalog = ctx.catalog
+        self.data_dir = data_dir
         self._data_cache: dict[str, Any] = {}
         self._encoder_cache: dict[str, Any] = {}
         self._mapping_cache: dict[str, Any] = {}
@@ -604,7 +606,7 @@ class EntityGenerator:
         import pickle
         from pathlib import Path
 
-        data_dir = Path(self.ctx.config_loader.get("locations").get("base", "data"))
+        data_dir = Path(self.data_dir) if self.data_dir else Path("data")
         llm_dir = data_dir / "synth" / view / alg / "msr" / "llmeval" / "pre.pkl"
 
         if not llm_dir.exists():

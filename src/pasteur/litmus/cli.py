@@ -42,7 +42,7 @@ def litmus(port: int, host: str, hotreload: bool):
         data_dir = locations.get("base", "data")
 
         # Create entity generator bound to the Kedro catalog
-        generator = EntityGenerator(ctx)
+        generator = EntityGenerator(ctx, data_dir=data_dir)
 
         # Create and start Flask app
         app = create_app(
