@@ -53,6 +53,46 @@
   --glow-lg: 0 0 40px rgba(168, 154, 5, 0.15);
 }
 
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-deep: #f5f4ee;
+    --bg: #faf9f3;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f0efe6;
+    --bg-elevated: #ededdf;
+    --bg-input: #f0efe6;
+
+    --border: #d8d6c0;
+    --border-glow: rgba(168, 154, 5, 0.15);
+    --border-bright: #c8c6aa;
+
+    --text: #1a1a14;
+    --text-muted: #5a5a44;
+    --text-dim: #888870;
+    --text-bright: #000000;
+  }
+
+  /* Same SVG as dark mode with all opacities boosted ~4–5× for visibility on light backgrounds. */
+  body::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='1080' viewBox='0 0 1920 1080'%3E%3Cdefs%3E%3ClinearGradient id='g1' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23a89a05' stop-opacity='0.45'/%3E%3Cstop offset='50%25' stop-color='%23a89a05' stop-opacity='0'/%3E%3Cstop offset='100%25' stop-color='%2355bb80' stop-opacity='0.32'/%3E%3C/linearGradient%3E%3ClinearGradient id='g2' x1='100%25' y1='0%25' x2='0%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%236699dd' stop-opacity='0.36'/%3E%3Cstop offset='100%25' stop-color='%23a89a05' stop-opacity='0'/%3E%3C/linearGradient%3E%3CradialGradient id='g3' cx='50%25' cy='50%25' r='50%25'%3E%3Cstop offset='0%25' stop-color='%2355bb80' stop-opacity='0.27'/%3E%3Cstop offset='100%25' stop-color='%2355bb80' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width='1920' height='1080' fill='none'/%3E%3Cpath d='M0 400 Q 480 200 960 450 T 1920 350' stroke='%23a89a05' stroke-opacity='0.35' stroke-width='1.5' fill='none'/%3E%3Cpath d='M0 600 Q 400 500 800 650 T 1920 550' stroke='%23a89a05' stroke-opacity='0.27' stroke-width='1' fill='none'/%3E%3Cpath d='M0 800 Q 600 700 1200 850 T 1920 750' stroke='%2355bb80' stroke-opacity='0.22' stroke-width='1' fill='none'/%3E%3Cpath d='M0 200 Q 300 100 600 250 T 1200 180 T 1920 220' stroke='%236699dd' stroke-opacity='0.18' stroke-width='0.8' fill='none'/%3E%3Ccircle cx='200' cy='150' r='180' fill='url(%23g1)'/%3E%3Ccircle cx='1700' cy='900' r='250' fill='url(%23g2)'/%3E%3Ccircle cx='960' cy='540' r='400' fill='url(%23g1)' opacity='0.5'/%3E%3Ccircle cx='1400' cy='200' r='150' fill='url(%23g3)'/%3E%3Ccircle cx='400' cy='850' r='120' fill='url(%23g3)' opacity='0.7'/%3E%3Cpolygon points='1600,50 1750,150 1650,250' fill='none' stroke='%23a89a05' stroke-opacity='0.27' stroke-width='1'/%3E%3Cpolygon points='100,700 300,800 150,900' fill='none' stroke='%2355bb80' stroke-opacity='0.22' stroke-width='1'/%3E%3Cpolygon points='800,80 900,30 950,120' fill='none' stroke='%23a89a05' stroke-opacity='0.18' stroke-width='0.8'/%3E%3Cpolygon points='1300,650 1450,600 1400,750 1250,720' fill='none' stroke='%236699dd' stroke-opacity='0.18' stroke-width='0.8'/%3E%3Cpolygon points='500,400 580,350 620,430 560,470' fill='%23a89a05' fill-opacity='0.09'/%3E%3Cpolygon points='1100,900 1200,850 1250,950 1150,980' fill='%2355bb80' fill-opacity='0.09'/%3E%3Cline x1='0' y1='300' x2='1920' y2='280' stroke='%23a89a05' stroke-opacity='0.14' stroke-width='0.5'/%3E%3Cline x1='0' y1='700' x2='1920' y2='720' stroke='%2355bb80' stroke-opacity='0.14' stroke-width='0.5'/%3E%3Cline x1='300' y1='0' x2='280' y2='1080' stroke='%23a89a05' stroke-opacity='0.09' stroke-width='0.5'/%3E%3Cline x1='1600' y1='0' x2='1620' y2='1080' stroke='%236699dd' stroke-opacity='0.09' stroke-width='0.5'/%3E%3Cline x1='960' y1='0' x2='960' y2='1080' stroke='%23a89a05' stroke-opacity='0.07' stroke-width='0.5'/%3E%3Ccircle cx='960' cy='540' r='300' fill='none' stroke='%23a89a05' stroke-opacity='0.14' stroke-width='0.5'/%3E%3Ccircle cx='960' cy='540' r='500' fill='none' stroke='%23a89a05' stroke-opacity='0.09' stroke-width='0.5'/%3E%3Cpath d='M1800 100 L1850 50 L1900 100 L1850 150 Z' fill='none' stroke='%2355bb80' stroke-opacity='0.22' stroke-width='0.8'/%3E%3Cpath d='M50 500 L100 450 L150 500 L100 550 Z' fill='none' stroke='%23a89a05' stroke-opacity='0.18' stroke-width='0.8'/%3E%3C/svg%3E") !important;
+  }
+
+  /* Remove card top-edge texture — cards are plain white, background carries the pattern */
+  .card::before {
+    display: none;
+  }
+
+  /* Hide CRT scanlines — visible as horizontal lines on light backgrounds */
+  body::after {
+    display: none;
+  }
+
+  /* Render logo as black silhouette — light-colored logos vanish on cream backgrounds */
+  .header-logo {
+    filter: drop-shadow(0 0 2px rgba(144, 134, 28, 0.8)) !important;
+  }
+}
+
 * {
   margin: 0;
   padding: 0;

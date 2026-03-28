@@ -155,7 +155,7 @@ function RatingHeatmap({ sources }: { sources: SourceResults[] }) {
                   style={{
                     backgroundColor: `${HEATMAP_COLORS[s - 1]}${alphaHex(intensity)}`,
                     color:
-                      intensity > 0.4 ? "white" : "var(--text-muted)",
+                      intensity > (isLightMode ? 0.55 : 0.4) ? "white" : "var(--text-muted)",
                   }}
                 >
                   {count > 0 && (
@@ -424,7 +424,13 @@ function ComparisonPanel({ data }: { data: HumanLLMComparison }) {
   );
 }
 
+const isLightMode = window.matchMedia("(prefers-color-scheme: light)").matches;
+
 function alphaHex(intensity: number): string {
-  const alpha = Math.round(intensity * 0.8 * 255);
+  // On light backgrounds linear alpha fades to invisible too quickly.
+  // Apply a power curve in light mode so mid-range cells stay visibly colored.
+  const adjusted =
+    isLightMode && intensity > 0 ? Math.pow(intensity, 0.55) : intensity;
+  const alpha = Math.round(adjusted * 0.85 * 255);
   return alpha.toString(16).padStart(2, "0");
 }
