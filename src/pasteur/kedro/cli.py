@@ -619,6 +619,10 @@ cli.add_command(download)
 cli.add_command(pipe)
 cli.add_command(sweep)
 
+from ..litmus.cli import litmus
+
+cli.add_command(litmus)
+
 cli.add_command(download, "dl")
 cli.add_command(pipe, "p")
 cli.add_command(sweep, "s")

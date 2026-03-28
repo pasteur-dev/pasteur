@@ -784,6 +784,36 @@ def sample_rows(
     out_cols = {}
     n = len(idx)
 
+    # Detect gate attributes: when gate value is 0, force all controlled attrs to 0
+    gate_map: dict[str, str] = {}  # controlled_attr -> gate_attr
+    main_attrs = cast(Attributes, attrs[None])
+    for attr_name, attr in main_attrs.items():
+        if attr.gate:
+            for controlled in attr.gate:
+                gate_map[controlled] = attr_name
+    gated_zeros: dict[str, np.ndarray] = {}  # controlled_attr -> bool mask (True = force 0)
+
+    # Pre-sample gate values so they're available for common derivation.
+    # Gate attrs may be needed as parents before they appear in the node order.
+    gate_attrs_set = {attr_name for attr_name, attr in main_attrs.items() if attr.gate}
+    for (x_attr, x, p, domain_g, _partial), marginal in zip(nodes, marginals):
+        if x_attr in gate_attrs_set and x not in out_cols:
+            m = marginal.reshape(-1)
+            try:
+                out_cols[x] = np.random.choice(domain_g, size=n, p=m).astype(
+                    get_dtype(domain_g)
+                )
+            except ValueError:
+                out_cols[x] = np.random.randint(domain_g, size=n).astype(
+                    get_dtype(domain_g)
+                )
+            # Populate gated_zeros
+            attr = main_attrs[x_attr]
+            if attr.gate:
+                mask = out_cols[x] == 0
+                for controlled in attr.gate:
+                    gated_zeros[controlled] = mask
+
     attr_sampled_cols: dict[str, str] = {}
     for (x_attr, x, p, domain, partial), marginal in piter(
         zip(nodes, marginals),
@@ -791,6 +821,11 @@ def sample_rows(
         desc="Sampling values sequentially",
         leave=False,
     ):
+        # Skip gate nodes that were pre-sampled
+        if x in out_cols and x_attr in gate_attrs_set:
+            attr_sampled_cols[x_attr] = x
+            continue
+
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
@@ -842,6 +877,8 @@ def sample_rows(
                             pcol = out_cols[val]
                         else:
                             pcol = hist[table][val]
+                        if not np.issubdtype(pcol.dtype, np.integer):
+                            pcol = np.nan_to_num(pcol, nan=0).astype(np.intp)
                         col_lvl = mapping[pcol]
                         np.multiply(col_lvl, mul * l_mul, out=_tmp_nd, dtype=dtype)
                         np.add(_sum_nd, _tmp_nd, out=_sum_nd, dtype=dtype)
@@ -856,15 +893,30 @@ def sample_rows(
                     assert cmn is not None
                     mapping = np.array(cmn.get_mapping(sel), dtype=dtype)
 
-                    # Derive common column
+                    # Derive common column from an already-sampled value
                     cmn_col = None
                     if table is None:
-                        for nc, c in out_cols.items():
-                            if nc in attr.vals:
-                                meta = attr[nc]
-                                assert isinstance(meta, CatValue)
-                                cmn_col = meta.get_mapping(meta.height - 1)[c]
-                                break
+                        # Check if the common column itself was already sampled
+                        if cmn.name in out_cols:
+                            cmn_col = out_cols[cmn.name]
+                        else:
+                            for nc, c in out_cols.items():
+                                if nc in attr.vals:
+                                    meta = attr[nc]
+                                    assert isinstance(meta, CatValue)
+                                    cmn_col = meta.get_mapping(meta.height - 1)[c]
+                                    break
+                        # If still not found, derive from gate attr
+                        if cmn_col is None:
+                            gate_attr_name = gate_map.get(attr_name)
+                            if gate_attr_name:
+                                # The gate value name matches the gate attr name
+                                gate_val = out_cols.get(gate_attr_name)
+                                if gate_val is not None:
+                                    # Gate=0 → common=0 (Missing), Gate>0 → common=1 (Normal)
+                                    cmn_col = np.where(
+                                        gate_val == 0, 0, 1
+                                    ).astype(dtype)
                     else:
                         nc, meta = next(iter(attr.vals.items()))
                         meta = attr[nc]
@@ -952,8 +1004,19 @@ def sample_rows(
                         x_domain, size=size, p=m_g
                     )
 
+        # Gate enforcement: if this attr is gated and gate=0, force output to 0
+        if x_attr in gated_zeros:
+            out_col[gated_zeros[x_attr]] = 0
+
         # Output column
         out_cols[x] = out_col
         attr_sampled_cols[x_attr] = x
+
+        # If this is a gate attr, record which entities are gated (gate=0)
+        attr = main_attrs[x_attr]
+        if attr.gate:
+            mask = out_col == 0
+            for controlled in attr.gate:
+                gated_zeros[controlled] = mask
 
     return pd.DataFrame(out_cols, index=idx)

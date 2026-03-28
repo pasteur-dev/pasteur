@@ -106,7 +106,7 @@ def check_run_done(name: str, parent: str | None, git: str | None):
 
 def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
     run_id = get_run_id(name, parent, git)
-    if not run_id:
+    if run_id is None:
         return None
     return mlflow.get_run(run_id)
 

@@ -87,3 +87,42 @@ rfel_sl:
 
         Then, you are asked to comment on how real the following student is with a rating from 1 to 5 (5 being very real):
         <eval>
+
+rfel_fnc:
+  algs:
+    mare:
+      <<: *mare
+      rebalance: True
+    amalgam:
+      <<: *amalgam
+      samples: 50
+      rebalance:
+        unbounded_dp: True
+        fixed: [4, 9, 18, 32]
+        u: 7
+      prompt: |
+        You are a bank analyst.
+
+        Reference the following <samples_n> client profiles:
+        <samples>
+
+        And derive a new JSON client using:
+        <seed>
+
+        Guidelines:
+          - the provided values are for the first account/transaction/order/loan/card, generate the rest in a realistic manner
+          - for provided ranges use a random value that is within the range and 4 decimal places
+          - If a value would cause an unrealistic client, adjust it slightly for realism
+
+  metrics:
+    llmeval:
+      <<: *llmeval
+      samples: 50
+      prompt: |
+        You are a bank analyst.
+
+        You are given the following <samples_n> real bank clients as a reference:
+        <samples>
+
+        Then, you are asked to comment on how real the following client is with a rating from 1 to 5 (5 being very real):
+        <eval>

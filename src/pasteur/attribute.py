@@ -824,6 +824,7 @@ class Attribute:
         along: tuple[str | tuple[str, ...], ...] = tuple(),
         partition: bool = False,
         seq_repeat: bool = False,
+        gate: list[str] | None = None,
     ) -> None:
         self.name = name
         self.common = common
@@ -832,6 +833,7 @@ class Attribute:
         self.partition = partition
         self.vals = {k.name: k for k in vals}
         self.seq_repeat = seq_repeat
+        self.gate = gate
 
         self.domain_lru = {}
         self.mapping_lru = {}
@@ -1045,6 +1047,18 @@ def GenAttribute(name: str, max_len: int, gen_len: int | None = None):
     return Attribute(name, [GenerationValue(name, max_len, gen_len=gen_len)])
 
 
+def GateGenAttribute(
+    name: str, max_len: int, gated: list[str], gen_len: int | None = None
+):
+    """Returns a GenAttribute that gates other attributes.
+
+    When this attribute's value is 0, all gated attributes are forced to 0 (Missing).
+    """
+    return Attribute(
+        name, [GenerationValue(name, max_len, gen_len=gen_len)], gate=gated
+    )
+
+
 __all__ = [
     "get_dtype",
     "Grouping",
@@ -1057,4 +1071,5 @@ __all__ = [
     "OrdAttribute",
     "CatAttribute",
     "NumAttribute",
+    "GateGenAttribute",
 ]

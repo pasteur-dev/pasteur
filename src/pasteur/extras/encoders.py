@@ -10,12 +10,14 @@ from pasteur.attribute import (
     Attribute,
     Attributes,
     CatValue,
+    CommonValue,
     DatasetAttributes,
-    GenAttribute,
+    GateGenAttribute,
     Grouping,
     NumValue,
     SeqAttributes,
     SeqValue,
+    StratifiedValue,
     StratifiedNumValue,
     get_dtype,
 )
@@ -521,6 +523,7 @@ def process_entity(
     tables: dict[str, "DataFrame"],
     ctx: dict[str, dict[str, "DataFrame"]],
     ids: dict[str, "DataFrame"],
+    max_children: int | dict[str, int] | None = None,
 ) -> dict:
     result = {}
     stack = [(table, cid, mapping, result)]
@@ -576,10 +579,19 @@ def process_entity(
                 if value.seq:
                     cids = tables[value.name][value.seq][cids].sort_values().index
 
+                # Clip to max_children if set
+                mc = (
+                    max_children.get(value.name, None)
+                    if isinstance(max_children, dict)
+                    else max_children
+                )
+                if mc is not None and len(cids) > mc:
+                    cids = cids[:mc]
+
                 children = []
-                for cid in cids:
+                for child_cid in cids:
                     child = {}
-                    stack.append((value.name, cid, value.child, child))
+                    stack.append((value.name, child_cid, value.child, child))
                     children.append(child)
                 current[key] = children
             else:
@@ -604,6 +616,7 @@ def _json_encode(
     attrs: dict[str, Attributes],
     ctx_attrs: dict[str, dict[str, Attributes]],
     nrange: "list[int] | np.ndarray",
+    max_children: int | dict[str, int] | None = None,
 ):
     import pandas as pd
 
@@ -627,6 +640,7 @@ def _json_encode(
                 l_tables,
                 l_ctx,
                 l_ids,
+                max_children=max_children,
             )
         )
 
@@ -762,6 +776,10 @@ def _json_decode(
 class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
     name = "json"
 
+    def __init__(self, max_children: int | dict[str, int] | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self.max_children = max_children
+
     def fit(
         self,
         attrs: dict[str, Attributes],
@@ -809,6 +827,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 "relationships": self.relationships,
                 "attrs": self.attrs,
                 "ctx_attrs": self.ctx_attrs,
+                "max_children": self.max_children,
             }
             per_call = []
 
@@ -844,6 +863,7 @@ class JsonEncoder(ViewEncoder["type[pydantic.BaseModel]"]):
                 "relationships": self.relationships,
                 "attrs": self.attrs,
                 "ctx_attrs": self.ctx_attrs,
+                "max_children": self.max_children,
             }
             per_call = []
             for pid_set in pids:
@@ -912,7 +932,7 @@ def _flatten_load(
                 .groupby([top_table])
                 .first()
             )
-        out = out.join(t_data.add_prefix(f"{t}_"), how="inner")
+        out = out.join(t_data.add_prefix(f"{t}_"), how="left")
 
     for creator, ctx_tables in ctx.items():
         for t, table in ctx_tables.items():
@@ -922,7 +942,52 @@ def _flatten_load(
             else:
                 t_ids = ids[t][[top_table]]
                 t_data = t_ids.join(table).groupby(top_table).first()
-                out = out.join(t_data.add_prefix(f"{t}#{creator}_"), how="inner")
+                out = out.join(t_data.add_prefix(f"{t}#{creator}_"), how="left")
+
+    # Identify child tables and add common columns
+    child_tables = [t for t in tables if t != top_table]
+    child_prefixes = tuple(f"{t}_" for t in child_tables)
+    for creator, ctx_tables in ctx.items():
+        child_prefixes += tuple(
+            f"{t}#{creator}_" for t in ctx_tables if t != top_table
+        )
+
+    # Add common column for each child table: 0=Missing, 1=Normal
+    # Derived from count: if count is NaN or 0 → Missing, else Normal
+    for t in child_tables:
+        count_col = f"{t}_count"
+        common_col = f"{t}_common"
+        if count_col in out.columns:
+            present = (out[count_col].fillna(0) > 0).astype("int64")
+            out[common_col] = present
+            # Also add common for ctx child tables
+            for creator in ctx:
+                ctx_common_col = f"{t}#{creator}_common"
+                # Check if any ctx columns exist for this table
+                ctx_prefix = f"{t}#{creator}_"
+                if any(c.startswith(ctx_prefix) for c in out.columns):
+                    out[ctx_common_col] = present
+
+    # Left joins introduce NaN for entities missing child rows.
+    # Child data columns are offset by +1 so index 0 = Missing.
+    # Count columns, common columns, and top-table columns: fill NaN with 0.
+    import numpy as np
+
+    for col in out.columns:
+        is_child = child_prefixes and col.startswith(child_prefixes)
+        is_count = col.endswith("_count")
+        is_common = col.endswith("_common")
+
+        if is_child and not is_count and not is_common:
+            # Offset present values by +1, fill absent with 0 (Missing)
+            out[col] = out[col].fillna(-1)
+            if out[col].dtype in ("float32", "float64"):
+                out[col] = np.nan_to_num(out[col], nan=-1).astype("int64")
+            out[col] = out[col] + 1  # -1→0 (Missing), 0→1, 1→2, ...
+        else:
+            out[col] = out[col].fillna(0)
+            if out[col].dtype in ("float32", "float64"):
+                out[col] = np.nan_to_num(out[col], nan=0).astype("int64")
 
     return {"table": out}
 
@@ -948,7 +1013,7 @@ def _flatten_meta(
     blacklist = []
 
     for table, table_attrs in attrs.items():
-        is_top_table = True
+        is_top_table = table not in parents
 
         tmp = {}
         for name, attr in table_attrs.items():
@@ -960,12 +1025,33 @@ def _flatten_meta(
 
             new_common = attr.common.prefix_rename(f"{table}_") if attr.common else None
 
+            if not is_top_table:
+                # Wrap each StratifiedValue with a Missing state at index 0
+                new_vals = [
+                    StratifiedValue(
+                        v.name, Grouping("cat", ["Missing", v.head])
+                    )
+                    if isinstance(v, StratifiedValue)
+                    else v
+                    for v in new_vals
+                ]
+                # Wrap existing common or create one
+                if new_common and isinstance(new_common, StratifiedValue):
+                    new_common = StratifiedValue(
+                        new_common.name,
+                        Grouping("cat", ["Missing", new_common.head]),
+                    )
+                else:
+                    new_common = CommonValue(f"{table}_common", na=True)
+
             tmp[f"{table}_{name}"] = Attribute(f"{table}_{name}", new_vals, new_common)
 
-            is_top_table = table not in parents
-
         if not is_top_table:
-            out[f"{table}_count"] = GenAttribute(f"{table}_count", SEQ_MAX)
+            # Collect gated attribute names for this child table
+            gated_attrs = list(tmp.keys())
+            out[f"{table}_count"] = GateGenAttribute(
+                f"{table}_count", SEQ_MAX, gated_attrs
+            )
 
         # Add attrs after count to be clearer
         out.update(tmp)
@@ -989,6 +1075,26 @@ def _flatten_meta(
                     if attr.common
                     else None
                 )
+
+                if not is_top_table:
+                    # Wrap ctx values with Missing state too
+                    new_vals = [
+                        StratifiedValue(
+                            v.name, Grouping("cat", ["Missing", v.head])
+                        )
+                        if isinstance(v, StratifiedValue)
+                        else v
+                        for v in new_vals
+                    ]
+                    if new_common and isinstance(new_common, StratifiedValue):
+                        new_common = StratifiedValue(
+                            new_common.name,
+                            Grouping("cat", ["Missing", new_common.head]),
+                        )
+                    else:
+                        new_common = CommonValue(
+                            f"{table}#{ctx}_common", na=True
+                        )
 
                 out[f"{table}#{ctx}_{name}"] = Attribute(
                     f"{table}#{ctx}_{name}",
