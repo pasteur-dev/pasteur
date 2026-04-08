@@ -3,7 +3,7 @@ from itertools import chain
 
 import logging
 from math import ceil
-from typing import Any, Sequence, cast
+from typing import Any, Sequence, TypedDict, cast
 
 import pandas as pd
 import numpy as np
@@ -124,6 +124,25 @@ class PrivBayesMare(MareModel):
         )
 
 
+class MirrorDescentParams(TypedDict):
+    lr: float
+    max_iters: int
+    atol: float
+    patience: int
+    device: str
+    compile: bool
+
+
+MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
+    "lr": 0.07,
+    "max_iters": 10_000,
+    "atol": 1e-5,
+    "patience": 50,
+    "device": "auto",
+    "compile": False,
+}
+
+
 class PrivBayesSynth(Synth):
     name = "privbayes"
     type = "idx"
@@ -149,6 +168,7 @@ class PrivBayesSynth(Synth):
         marginal_min_chunk: int = 100,
         skip_zero_counts: bool = True,
         minimum_cutoff: int | None = 3,
+        mirror_descent: MirrorDescentParams | bool = False,
         **kwargs,
     ) -> None:
         if etotal is None:
@@ -167,6 +187,7 @@ class PrivBayesSynth(Synth):
         self.marginal_worker_mult = marginal_worker_mult
         self.skip_zero_counts = skip_zero_counts
         self.minimum_cutoff = minimum_cutoff
+        self.mirror_descent = mirror_descent
         self.kwargs = kwargs
 
     @make_deterministic
@@ -273,21 +294,89 @@ class PrivBayesSynth(Synth):
                 minimum_cutoff=self.minimum_cutoff,
             )
 
+        if self.mirror_descent:
+            self._fit_mirror_descent()
+
+    def _fit_mirror_descent(self):
+        from ....graph.beliefs import create_messages
+        from ....graph.hugin import (
+            find_elim_order,
+            get_junction_tree,
+            get_message_passing_order,
+            to_moral,
+        )
+        from ....graph.loss import LinearObservation
+        from ....graph.sample import create_sampler_meta
+        from ....graph.torch.mirror_descent import mirror_descent
+
+        # Build junction tree
+        g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
+        mg = to_moral(g)
+        _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
+        junction = get_junction_tree(tri, self.table_attrs)
+        generations = get_message_passing_order(junction)
+        cliques = list(junction.nodes())
+        messages = create_messages(generations, self.table_attrs)
+
+        # Build observations, normalize to probabilities
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals)
+        obs = [
+            LinearObservation(o.source, o.mapping, o.obs / o.obs.sum(), o.confidence)
+            for o in obs
+        ]
+
+        # Run mirror descent
+        md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
+        params = {**MIRROR_DESCENT_DEFAULT, **md}
+        device = None if params["device"] == "auto" else params["device"]
+        self._jt_potentials = mirror_descent(
+            cliques,
+            messages,
+            obs,
+            self.table_attrs,
+            lr=params["lr"],
+            max_iters=params["max_iters"],
+            atol=params["atol"],
+            patience=params["patience"],
+            device=device,
+            compile=params["compile"],
+        )
+        self._jt_cliques = cliques
+        self._jt_junction = junction
+        self._jt_sampler_meta = create_sampler_meta(
+            junction, cliques, self.table_attrs
+        )
+
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
         import pandas as pd
 
         if n is None:
             n = self.n
-        tables = {
-            self.table_name: sample_rows(
-                pd.RangeIndex(n),
-                {None: self.attrs[self.table_name]},
-                {},
-                self.nodes,
-                self.marginals,
+
+        if self.mirror_descent:
+            from ....graph.sample import reverse_map_columns, sample_junction_tree
+
+            sampled = sample_junction_tree(
+                self._jt_potentials, self._jt_sampler_meta, n
             )
-        }
+            out_cols = reverse_map_columns(
+                sampled,
+                self._jt_cliques,
+                self._jt_sampler_meta,
+                self.table_attrs,
+            )
+            tables = {self.table_name: pd.DataFrame(out_cols, index=pd.RangeIndex(n))}
+        else:
+            tables = {
+                self.table_name: sample_rows(
+                    pd.RangeIndex(n),
+                    {None: self.attrs[self.table_name]},
+                    {},
+                    self.nodes,
+                    self.marginals,
+                )
+            }
         ids = {self.table_name: pd.DataFrame()}
 
         return tables_to_data(ids, tables)
