@@ -765,7 +765,7 @@ def derive_obs_from_model(
             source,
             None,
             new_obs,
-            1,
+            1.0 / max(new_obs.size, 1),
         )
         lin_obs.append(lo)
 
