@@ -107,8 +107,7 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
                 param_str = param
 
             if param in bool_params:
-                # s = param_str if run_params[name][param] else (" " * len(param_str))
-                s = param_str if run_params[name][param] else ""
+                s = param_str if run_params[name][param] else f"no_{param_str}"
             elif param == "_alg":
                 # FIXME: dirty hack to add algorithm name
                 s = str(name.split(".", 1)[-1].split(" ", 1)[0])
