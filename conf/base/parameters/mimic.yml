@@ -17,7 +17,7 @@ mimic_tab_admissions:
   algs:
     privbayes:
       theta: 7
-      marginal_min_chunk: 1000
+      marginal_mode: inmemory_copy
       
 mimic_core:
   algs:
