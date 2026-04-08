@@ -44,7 +44,8 @@ static inline void sum_inline_u32(
         }
     }
 
-    for (int64_t i = 0; i < l - 7; i += 1 << 3)
+    int64_t i = 0;
+    for (; i < l - 7; i += 1 << 3)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -93,6 +94,18 @@ static inline void sum_inline_u32(
         k = _mm256_extract_epi32(idx, 7);
         out[k] += 1;
     }
+
+    for (; i < l; i++)
+    {
+        uint32_t idx = 0;
+        for (int j = 0; j < n_u8; j++)
+            idx += (uint32_t)arr_u8[j][i] * (uint32_t)mul_u8[j];
+        for (int j = 0; j < n_u16; j++)
+            idx += (uint32_t)arr_u16[j][i] * (uint32_t)mul_u16[j];
+        for (int j = 0; j < n_u32; j++)
+            idx += (uint32_t)arr_u32[j][i] * (uint32_t)mul_u32[j];
+        out[idx] += 1;
+    }
 }
 
 static inline void sum_inline_u16(
@@ -117,7 +130,8 @@ static inline void sum_inline_u16(
         }
     }
 
-    for (int64_t i = 0; i < l - 15; i += 1 << 4)
+    int64_t i = 0;
+    for (; i < l - 15; i += 1 << 4)
     {
         __m256i tmp, mul;
         __m256i idx = _mm256_setzero_si256();
@@ -173,6 +187,16 @@ static inline void sum_inline_u16(
         k = _mm256_extract_epi16(idx, 15);
         out[k] += 1;
     }
+
+    for (; i < l; i++)
+    {
+        uint16_t idx = 0;
+        for (int j = 0; j < n_u8; j++)
+            idx += (uint16_t)arr_u8[j][i] * (uint16_t)mul_u8[j];
+        for (int j = 0; j < n_u16; j++)
+            idx += arr_u16[j][i] * (uint16_t)mul_u16[j];
+        out[idx] += 1;
+    }
 }
 #endif
 
@@ -212,7 +236,8 @@ static inline void sum_inline_u32(
         }
     }
 
-    for (int64_t i = 0; i < l - 3; i += 1 << 2)
+    int64_t i = 0;
+    for (; i < l - 3; i += 1 << 2)
     {
         uint32x4_t tmp, mul;
         uint32x4_t idx = vdupq_n_u32(0);
@@ -254,6 +279,18 @@ static inline void sum_inline_u32(
         k = vgetq_lane_u32(idx, 3);
         out[k] += 1;
     }
+
+    for (; i < l; i++)
+    {
+        uint32_t idx = 0;
+        for (int j = 0; j < n_u8; j++)
+            idx += (uint32_t)arr_u8[j][i] * (uint32_t)mul_u8[j];
+        for (int j = 0; j < n_u16; j++)
+            idx += (uint32_t)arr_u16[j][i] * (uint32_t)mul_u16[j];
+        for (int j = 0; j < n_u32; j++)
+            idx += (uint32_t)arr_u32[j][i] * (uint32_t)mul_u32[j];
+        out[idx] += 1;
+    }
 }
 
 static inline void sum_inline_u16(
@@ -278,7 +315,8 @@ static inline void sum_inline_u16(
         }
     }
 
-    for (int64_t i = 0; i < l - 7; i += 1 << 3)
+    int64_t i = 0;
+    for (; i < l - 7; i += 1 << 3)
     {
         uint16x8_t tmp, mul;
         uint16x8_t idx = vdupq_n_u16(0);
@@ -317,6 +355,16 @@ static inline void sum_inline_u16(
         out[k] += 1;
         k = vgetq_lane_u16(idx, 7);
         out[k] += 1;
+    }
+
+    for (; i < l; i++)
+    {
+        uint16_t idx = 0;
+        for (int j = 0; j < n_u8; j++)
+            idx += (uint16_t)arr_u8[j][i] * (uint16_t)mul_u8[j];
+        for (int j = 0; j < n_u16; j++)
+            idx += arr_u16[j][i] * (uint16_t)mul_u16[j];
+        out[idx] += 1;
     }
 }
 #endif
