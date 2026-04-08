@@ -145,9 +145,10 @@ class BeliefPropagationSingle(torch.nn.Module):
                 if m.sum_dims:
                     proc = torch.logsumexp(proc, dim=m.sum_dims)
 
-                # If backward pass, remove duplicate beliefs
+                # If backward pass, divide out forward message (log-space)
+                # nan_to_num handles -inf - (-inf) = nan -> -inf (0/0 -> 0)
                 if not m.forward:
-                    proc = proc - done[(m.b, m.a)]
+                    proc = (proc - done[(m.b, m.a)]).nan_to_num(float("-inf"))
 
                 arg = self.args[i]
                 if arg:
@@ -179,6 +180,7 @@ class BeliefPropagationSingle(torch.nn.Module):
                             0, idx_exp, proc, reduce="amax", include_self=True
                         )
                         shifted = proc - max_vals.gather(0, idx_exp)
+                        shifted = shifted.nan_to_num(0.0)  # -inf - (-inf) -> 0
                         result = proc.new_zeros((b_idx_dom, rest_dom))
                         result.index_add_(0, idx_b, shifted.exp())
                         proc = result.log() + max_vals
@@ -219,8 +221,8 @@ class BeliefPropagationSingle(torch.nn.Module):
                     "Z: ",
                     [float(t.logsumexp(list(range(len(t.shape))))) for t in theta],
                 )
-            Z = theta[0].logsumexp(list(range(len(theta[0].shape))))
             for i in range(len(theta)):
+                Z = theta[i].logsumexp(list(range(len(theta[i].shape))))
                 theta[i] = theta[i] - Z
 
         return theta
