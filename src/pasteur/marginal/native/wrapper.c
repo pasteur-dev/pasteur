@@ -94,7 +94,7 @@ static PyObject *sum_wrapper(PyObject *self, PyObject *args, PyObject *keywds)
 
 static PyObject *has_simd(PyObject *self, PyObject *args)
 {
-#ifdef __AVX2__
+#if defined(__AVX2__) || defined(__ARM_NEON)
     Py_RETURN_TRUE;
 #else
     Py_RETURN_FALSE;

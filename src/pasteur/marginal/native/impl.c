@@ -176,6 +176,151 @@ static inline void sum_inline_u16(
 }
 #endif
 
+#ifdef __ARM_NEON
+#include <arm_neon.h>
+
+#define ALG 16
+
+static inline void sum_inline_u32(
+    int64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32)
+{
+    uint32_t exp_u8[200] __attribute__((aligned(ALG)));
+    for (int i = 0; i < n_u8; i += 1)
+    {
+        for (int j = 0; j < 1 << 2; j += 1)
+        {
+            exp_u8[(i << 2) + j] = (uint32_t)mul_u8[i];
+        }
+    }
+    uint32_t exp_u16[200] __attribute__((aligned(ALG)));
+    for (int i = 0; i < n_u16; i += 1)
+    {
+        for (int j = 0; j < 1 << 2; j += 1)
+        {
+            exp_u16[(i << 2) + j] = (uint32_t)mul_u16[i];
+        }
+    }
+    uint32_t exp_u32[200] __attribute__((aligned(ALG)));
+    for (int i = 0; i < n_u32; i += 1)
+    {
+        for (int j = 0; j < 1 << 2; j += 1)
+        {
+            exp_u32[(i << 2) + j] = (uint32_t)mul_u32[i];
+        }
+    }
+
+    for (int64_t i = 0; i < l - 3; i += 1 << 2)
+    {
+        uint32x4_t tmp, mul;
+        uint32x4_t idx = vdupq_n_u32(0);
+
+        for (int j = 0; j < n_u8; j += 1)
+        {
+            uint8x8_t load = vld1_u8(&arr_u8[j][i]);
+            uint16x8_t wide16 = vmovl_u8(load);
+            tmp = vmovl_u16(vget_low_u16(wide16));
+            mul = vld1q_u32(&exp_u8[j << 2]);
+            tmp = vmulq_u32(tmp, mul);
+            idx = vaddq_u32(tmp, idx);
+        }
+
+        for (int j = 0; j < n_u16; j += 1)
+        {
+            uint16x4_t load = vld1_u16(&arr_u16[j][i]);
+            tmp = vmovl_u16(load);
+            mul = vld1q_u32(&exp_u16[j << 2]);
+            tmp = vmulq_u32(tmp, mul);
+            idx = vaddq_u32(tmp, idx);
+        }
+
+        for (int j = 0; j < n_u32; j += 1)
+        {
+            tmp = vld1q_u32(&arr_u32[j][i]);
+            mul = vld1q_u32(&exp_u32[j << 2]);
+            tmp = vmulq_u32(tmp, mul);
+            idx = vaddq_u32(tmp, idx);
+        }
+
+        uint32_t k;
+        k = vgetq_lane_u32(idx, 0);
+        out[k] += 1;
+        k = vgetq_lane_u32(idx, 1);
+        out[k] += 1;
+        k = vgetq_lane_u32(idx, 2);
+        out[k] += 1;
+        k = vgetq_lane_u32(idx, 3);
+        out[k] += 1;
+    }
+}
+
+static inline void sum_inline_u16(
+    int64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16)
+{
+    uint16_t exp_u8[200] __attribute__((aligned(ALG)));
+    for (int i = 0; i < n_u8; i += 1)
+    {
+        for (int j = 0; j < 1 << 3; j += 1)
+        {
+            exp_u8[(i << 3) + j] = (uint16_t)mul_u8[i];
+        }
+    }
+    uint16_t exp_u16[200] __attribute__((aligned(ALG)));
+    for (int i = 0; i < n_u16; i += 1)
+    {
+        for (int j = 0; j < 1 << 3; j += 1)
+        {
+            exp_u16[(i << 3) + j] = (uint16_t)mul_u16[i];
+        }
+    }
+
+    for (int64_t i = 0; i < l - 7; i += 1 << 3)
+    {
+        uint16x8_t tmp, mul;
+        uint16x8_t idx = vdupq_n_u16(0);
+
+        for (int j = 0; j < n_u8; j += 1)
+        {
+            uint8x8_t load = vld1_u8(&arr_u8[j][i]);
+            tmp = vmovl_u8(load);
+            mul = vld1q_u16(&exp_u8[j << 3]);
+            tmp = vmulq_u16(tmp, mul);
+            idx = vqaddq_u16(tmp, idx);
+        }
+
+        for (int j = 0; j < n_u16; j += 1)
+        {
+            tmp = vld1q_u16(&arr_u16[j][i]);
+            mul = vld1q_u16(&exp_u16[j << 3]);
+            tmp = vmulq_u16(tmp, mul);
+            idx = vqaddq_u16(tmp, idx);
+        }
+
+        uint16_t k;
+        k = vgetq_lane_u16(idx, 0);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 1);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 2);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 3);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 4);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 5);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 6);
+        out[k] += 1;
+        k = vgetq_lane_u16(idx, 7);
+        out[k] += 1;
+    }
+}
+#endif
+
 static inline void sum_inline_u16_nonsimd(
     int64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
@@ -278,7 +423,7 @@ void sum_non_simd(
     }
 }
 
-#ifdef __AVX2__
+#if defined(__AVX2__)
 void sum(
     uint64_t dom, uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
@@ -294,8 +439,23 @@ void sum(
         break;
     }
 }
+#elif defined(__ARM_NEON)
+void sum(
+    uint64_t dom, uint64_t l, uint32_t *out,
+    int n_u8, int *mul_u8, uint8_t **arr_u8,
+    int n_u16, int *mul_u16, uint16_t **arr_u16,
+    int n_u32, int *mul_u32, uint32_t **arr_u32)
+{
+    switch (SUM_CASE(n_u8, n_u16, n_u32))
+    {
+        SUM_RECUR
+    default:
+        SUM_INLINE(n_u8, n_u16, n_u32)
+        break;
+    }
+}
 #else
-#warning AX2 not supported by the current platform. Code will be compiled without SIMD.
+#warning Neither AVX2 nor NEON supported by the current platform. Code will be compiled without SIMD.
 void sum(
     uint64_t dom, uint64_t l, uint32_t *out,
     int n_u8, int *mul_u8, uint8_t **arr_u8,
