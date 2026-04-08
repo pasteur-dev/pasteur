@@ -25,7 +25,7 @@ def mirror_descent(
     *,
     lr: float = 0.07,
     max_iters: int = 10_000,
-    atol: float = 1e-5,
+    ptol: float = 2e-4,
     patience: int = 50,
     checkpoint_every: int = 50,
     device: torch.device | str | None = None,
@@ -99,12 +99,12 @@ def mirror_descent(
         # Sync GPU and check convergence
         loss_vals = [l.item() for l in losses]
         for cur_loss in loss_vals:
-            if cur_loss < best_loss:
-                best_loss = cur_loss
-            if cur_loss <= atol or cur_loss > best_loss:
+            if abs((best_loss - cur_loss) / best_loss) < ptol:
                 stale += 1
             else:
                 stale = 0
+            if cur_loss < best_loss:
+                best_loss = cur_loss
 
         desc = (
             f"Mirror descent: loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
@@ -124,7 +124,7 @@ def mirror_descent(
     else:
         logger.warning(
             f"Mirror descent did not converge after {max_iters} iterations "
-            f"(best loss={best_loss:.6e}, atol={atol})."
+            f"(best loss={best_loss:.6e}, ptol={ptol})."
         )
 
     # Final BP pass to get consistent clique potentials
