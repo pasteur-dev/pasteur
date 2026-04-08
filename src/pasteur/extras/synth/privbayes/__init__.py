@@ -368,7 +368,6 @@ class PrivBayesSynth(Synth):
             zip(self.nodes, obs, projected)
         ):
             orig_marg = self.marginals[idx]
-            n_total = orig_marg.sum()
 
             # Rebuild orig and vals lists (same logic as derive_obs_from_model)
             out = []
@@ -468,11 +467,11 @@ class PrivBayesSynth(Synth):
             inv_perm = [vals_order.index(v) for v in orig_order]
             corr_orig = corr_expanded.transpose(inv_perm)
 
-            # Normalize and scale back to counts
+            # Normalize to probability space (matching calc_noisy_marginals output)
             corr_orig = corr_orig.reshape(orig_marg.shape)
             s = corr_orig.sum()
             if s > 0:
-                corr_orig = corr_orig / s * n_total
+                corr_orig = corr_orig / s
             md_marginals[idx] = corr_orig
 
         self.md_marginals = md_marginals
