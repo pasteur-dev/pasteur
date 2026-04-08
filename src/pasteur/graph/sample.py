@@ -7,7 +7,7 @@ child on the separator values from its parent.
 """
 
 import logging
-from collections import deque
+from collections import defaultdict, deque
 from typing import NamedTuple, Sequence
 
 import networkx as nx
@@ -47,19 +47,27 @@ class ChildInfo(NamedTuple):
     sample_dims: tuple[int, ...]
 
 
+class ValueOwner(NamedTuple):
+    """Which clique dimension provides a specific value at the finest height."""
+
+    clique_idx: int
+    dim_idx: int
+    height: int
+
+
 class SamplerMeta(NamedTuple):
     """Pre-computed metadata for junction tree sampling."""
 
     cliques: list[CliqueMeta]
-    # Per-clique dimension info
     dim_info: list[list[DimInfo]]
-    # Root clique index
     root: int
-    # BFS traversal: list of ChildInfo (root is not included)
     children: list[ChildInfo]
-    # For each (table, order, attr): which clique index owns it
-    # (the first clique in BFS order that has this attribute)
-    owners: dict[tuple, int]
+    # For each (table, order, attr): which clique dim to use for sampling
+    # (the clique that first appears in BFS — for separator consistency)
+    attr_owners: dict[tuple, int]
+    # For each (table, order, attr, value_name): best clique + dim + height
+    # (the clique with the lowest height for this value)
+    value_owners: dict[tuple, ValueOwner]
 
 
 def _build_index_map(
@@ -113,12 +121,12 @@ def create_sampler_meta(
     visited = {root}
     queue = deque([root])
     children: list[ChildInfo] = []
-    owners: dict[tuple, int] = {}
+    attr_owners: dict[tuple, int] = {}
 
     # Root owns all its attributes
     for meta in cliques[root]:
         key = (meta.table, meta.order, meta.attr)
-        owners[key] = root
+        attr_owners[key] = root
 
     while queue:
         parent_idx = queue.popleft()
@@ -155,31 +163,40 @@ def create_sampler_meta(
             for ci in sample_dims:
                 meta = child_cl[ci]
                 key = (meta.table, meta.order, meta.attr)
-                if key not in owners:
-                    owners[key] = child_idx
+                if key not in attr_owners:
+                    attr_owners[key] = child_idx
 
-    return SamplerMeta(cliques, dim_info, root, children, owners)
+    # Build per-value ownership: for each individual value, find the clique
+    # that has it at the lowest height (finest resolution)
+    value_owners: dict[tuple, ValueOwner] = {}
+    for cl_idx, cl in enumerate(cliques):
+        for dim_idx, meta in enumerate(cl):
+            sel = convert_sel(meta.sel)
+            if isinstance(sel, int):
+                # Common value
+                vkey = (meta.table, meta.order, meta.attr, "__common__")
+                if vkey not in value_owners or sel < value_owners[vkey].height:
+                    value_owners[vkey] = ValueOwner(cl_idx, dim_idx, sel)
+            else:
+                for val_name, h in sel.items():
+                    vkey = (meta.table, meta.order, meta.attr, val_name)
+                    if vkey not in value_owners or h < value_owners[vkey].height:
+                        value_owners[vkey] = ValueOwner(cl_idx, dim_idx, h)
+
+    return SamplerMeta(cliques, dim_info, root, children, attr_owners, value_owners)
 
 
 def sample_junction_tree(
     potentials: Sequence[np.ndarray],
     meta: SamplerMeta,
     n: int,
-) -> dict[tuple, np.ndarray]:
+) -> dict[int, dict[int, np.ndarray]]:
     """Sample n rows from fitted clique potentials.
 
-    Args:
-        potentials: List of numpy arrays (one per clique), in probability
-            space (non-negative, each sums to ~1).
-        meta: Pre-computed sampler metadata from create_sampler_meta.
-        n: Number of rows to sample.
-
     Returns:
-        Dict mapping (table, order, attr) to numpy arrays of compressed
-        domain indices. Use reverse_map to convert to column values.
+        Dict mapping clique_idx -> {dim_idx: array of n sampled indices}.
     """
-    # Per-clique sampled indices: clique_idx -> {dim_idx: array of n indices}
-    sampled: list[dict[int, np.ndarray]] = [{} for _ in meta.cliques]
+    sampled: dict[int, dict[int, np.ndarray]] = defaultdict(dict)
 
     # Step 1: Sample root clique from joint distribution
     root_p = potentials[meta.root].copy()
@@ -200,11 +217,11 @@ def sample_junction_tree(
     # Step 2: Sample children in BFS order
     for child_info in meta.children:
         cidx = child_info.child_idx
+        pidx = child_info.parent_idx
         child_p = potentials[cidx].copy()
         child_p = child_p.clip(min=0)
 
         # Get separator values from BFS parent, translated to child domain
-        pidx = child_info.parent_idx
         sep_vals = []
         sep_child_dims = []
         sep_domains = []
@@ -218,21 +235,19 @@ def sample_junction_tree(
             sep_child_dims.append(sep.child_dim)
             sep_domains.append(meta.dim_info[cidx][sep.child_dim].domain)
 
-        # Also store separator values in sampled
+        # Store separator values
         for sep, vals in zip(child_info.separator, sep_vals):
             sampled[cidx][sep.child_dim] = vals
 
         sample_dims = child_info.sample_dims
         if not sample_dims:
-            # All dims are separator, nothing to sample
             continue
 
         sample_shape = tuple(meta.dim_info[cidx][d].domain for d in sample_dims)
-        sample_size = int(np.prod(sample_shape))
 
         # Encode separator values into a single group key
         if len(sep_vals) == 1:
-            group_keys = sep_vals[0]
+            group_keys = sep_vals[0].astype(np.int64)
         else:
             group_keys = np.zeros(n, dtype=np.int64)
             mul = 1
@@ -241,14 +256,16 @@ def sample_junction_tree(
                 mul *= dom
 
         # Sample per group
-        out_dims = {d: np.empty(n, dtype=get_dtype(max(1, s - 1))) for d, s in zip(sample_dims, sample_shape)}
+        out_dims = {
+            d: np.empty(n, dtype=get_dtype(max(1, s - 1)))
+            for d, s in zip(sample_dims, sample_shape)
+        }
 
         for group_key in np.unique(group_keys):
             mask = group_keys == group_key
             group_n = int(mask.sum())
 
-            # Extract conditional: fix separator dims, get distribution over sample dims
-            # Build index tuple to slice the child potential
+            # Extract conditional: fix separator dims
             idx = [slice(None)] * len(child_p.shape)
             if len(sep_vals) == 1:
                 idx[sep_child_dims[0]] = int(group_key)
@@ -259,13 +276,9 @@ def sample_junction_tree(
                     remaining //= dom
 
             conditional = child_p[tuple(idx)]
-
-            # conditional now has shape with only the sample_dims remaining
-            # (separator dims are scalar-indexed away)
             cond_flat = conditional.ravel()
             cond_sum = cond_flat.sum()
             if cond_sum < 1e-12:
-                # Fallback to uniform
                 cond_flat = np.ones_like(cond_flat)
                 cond_sum = cond_flat.sum()
             cond_flat /= cond_sum
@@ -273,79 +286,72 @@ def sample_junction_tree(
             group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
             group_per_dim = np.unravel_index(group_indices, conditional.shape)
 
-            # Map back: conditional.shape corresponds to the sample_dims in order
             for j, dim_idx in enumerate(sample_dims):
                 out_dims[dim_idx][mask] = group_per_dim[j]
 
         for dim_idx, arr in out_dims.items():
             sampled[cidx][dim_idx] = arr
 
-    # Step 3: Collect output columns (one per unique attribute)
-    output: dict[tuple, np.ndarray] = {}
-    for cl_idx, owner_clique in enumerate(meta.cliques):
-        for dim_idx, meta_dim in enumerate(meta.dim_info[cl_idx]):
-            key = (meta_dim.attr_meta.table, meta_dim.attr_meta.order, meta_dim.attr_meta.attr)
-            if meta.owners.get(key) != cl_idx:
-                continue
-            if dim_idx in sampled[cl_idx]:
-                output[key] = sampled[cl_idx][dim_idx]
-
-    return output
-
+    return dict(sampled)
 
 
 def reverse_map_columns(
-    sampled: dict[tuple, np.ndarray],
-    cliques: Sequence[CliqueMeta],
+    sampled: dict[int, dict[int, np.ndarray]],
     meta: SamplerMeta,
     attrs: DatasetAttributes,
 ) -> dict[str, np.ndarray]:
-    """Convert compressed domain indices to original column values.
+    """Convert sampled clique indices to output column values.
+
+    For each value in each attribute, finds the clique that has it at the
+    finest height (lowest h), decomposes the combined domain index, and
+    extracts the per-value index at that height. No upsampling is used;
+    values are output at whatever resolution the clique tree provides.
 
     Args:
-        sampled: Output of sample_junction_tree.
-        cliques: List of clique metadata.
+        sampled: Output of sample_junction_tree (clique_idx -> dim_idx -> indices).
         meta: Sampler metadata.
         attrs: Dataset attribute metadata.
 
     Returns:
-        Dict mapping column value names (e.g. 'admittime_week') to numpy
-        arrays of raw domain indices.
+        Dict mapping column value names to numpy arrays of indices at the
+        finest available height.
     """
     output: dict[str, np.ndarray] = {}
 
-    for (table, order, attr_name), indices in sampled.items():
-        attr = get_attrs(attrs, table, order)[attr_name]
-        owner_idx = meta.owners[(table, order, attr_name)]
-        # Find the AttrMeta for this attribute in the owner clique
-        owner_cl = cliques[owner_idx]
-        attr_meta = None
-        for am in owner_cl:
-            if am.table == table and am.order == order and am.attr == attr_name:
-                attr_meta = am
-                break
-        assert attr_meta is not None
+    for (table, order, attr_name, val_name), owner in meta.value_owners.items():
+        if val_name == "__common__":
+            continue  # common values are derived from their children
 
+        cl_idx = owner.clique_idx
+        dim_idx = owner.dim_idx
+        if cl_idx not in sampled or dim_idx not in sampled[cl_idx]:
+            continue
+
+        combined_idx = sampled[cl_idx][dim_idx]
+        attr_meta = meta.dim_info[cl_idx][dim_idx].attr_meta
         sel = convert_sel(attr_meta.sel)
 
         if isinstance(sel, int):
-            # Common value at a height — upsample to height 0
+            # Common-only dimension: this value is the common value itself
+            attr = get_attrs(attrs, table, order)[attr_name]
             cmn = attr.common
             assert cmn is not None
-            output[cmn.name] = cmn.upsample(indices, sel)
+            # Output the compressed index directly (at this height)
+            output[cmn.name] = combined_idx
         else:
-            # Multi-value: the combined index maps to individual values
-            # Decompose the combined index into per-value indices
-            vals = list(sel.keys())
-            cat_vals = [attr[v] for v in vals]
-            assert all(isinstance(cv, CatValue) for cv in cat_vals)
-
-            remaining = indices.copy().astype(np.int64)
-            for v, cv in zip(vals, cat_vals):
-                h = sel[v]
+            # Multi-value dimension: decompose combined index to find this value
+            # The combined index encodes values in sel order (alphabetical)
+            remaining = combined_idx.copy().astype(np.int64)
+            for v_name in sel:
+                attr = get_attrs(attrs, table, order)[attr_name]
+                cv = attr[v_name]
+                assert isinstance(cv, CatValue)
+                h = sel[v_name]
                 dom = cv.get_domain(h)
                 per_val = (remaining % dom).astype(get_dtype(max(1, dom - 1)))
                 remaining //= dom
-                output[v] = cv.upsample(per_val, h)
+                if v_name == val_name:
+                    output[val_name] = per_val
+                    break
 
     return output

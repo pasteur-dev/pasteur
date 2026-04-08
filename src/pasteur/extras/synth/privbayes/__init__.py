@@ -362,7 +362,6 @@ class PrivBayesSynth(Synth):
             )
             out_cols = reverse_map_columns(
                 sampled,
-                self._jt_cliques,
                 self._jt_sampler_meta,
                 self.table_attrs,
             )
