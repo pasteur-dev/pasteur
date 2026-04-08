@@ -412,16 +412,44 @@ class PrivBayesSynth(Synth):
                 )
             )
 
-            # corr is in source shape (per-attribute combined domains).
-            # Expand to per-value dims, then inverse-transpose back to orig order.
+            # corr is in source shape (per-attribute compressed combined domains).
+            # First, undo the alignment step for multi-value attributes
+            # (expand compressed combined domain back to naive per-value product).
             per_val_shape = []
-            for a in source:
+            for dim_i, a in enumerate(source):
                 if isinstance(a.sel, int):
                     attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
                     per_val_shape.append(attr.common.get_domain(a.sel))
                 else:
+                    attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
+                    naive_dom = 1
                     for val, h in a.sel:
-                        attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
+                        naive_dom *= attr[val].get_domain(h)
+                    compressed_dom = attr.get_domain(dict(a.sel))
+                    if naive_dom != compressed_dom:
+                        # Undo alignment: expand compressed -> naive domain
+                        # The forward used np.add.at(tmp, o_map, src[i_map])
+                        # Inverse: distribute compressed probs to naive entries
+                        i_map = tuple(
+                            attr.get_naive_mapping(dict(a.sel)) if j == dim_i else slice(None)
+                            for j in range(len(corr.shape))
+                        )
+                        o_map = tuple(
+                            attr.get_mapping(dict(a.sel)) if j == dim_i else slice(None)
+                            for j in range(len(corr.shape))
+                        )
+                        # Count how many naive entries map to each compressed entry
+                        mapping = attr.get_mapping(dict(a.sel))
+                        counts = np.bincount(mapping, minlength=compressed_dom).astype(np.float32)
+                        counts_shape = [1] * len(corr.shape)
+                        counts_shape[dim_i] = compressed_dom
+                        # Distribute proportionally
+                        expanded_shape = list(corr.shape)
+                        expanded_shape[dim_i] = naive_dom
+                        expanded = np.zeros(expanded_shape, dtype=np.float32)
+                        expanded[i_map] = corr[o_map] / counts.reshape(counts_shape)[o_map]
+                        corr = expanded
+                    for val, h in a.sel:
                         per_val_shape.append(attr[val].get_domain(h))
 
             # Reshape from combined per-attribute to individual per-value dims
