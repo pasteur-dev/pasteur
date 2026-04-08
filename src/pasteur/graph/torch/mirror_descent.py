@@ -47,15 +47,23 @@ def mirror_descent(
     optimizer = torch.optim.Adam(theta, lr=lr)
 
     def compute_grad(theta, bp, loss_fn):
-        theta_bp = bp(list(theta))
-        theta_bp = [t.detach().requires_grad_(True) for t in theta_bp]
-        loss = loss_fn(theta_bp)
+        # 1. Forward: BP to get consistent log-potentials, then exponentiate
+        with torch.no_grad():
+            theta_bp = bp(list(theta))
+            mu = [t.exp() for t in theta_bp]
+
+        # 2. Compute loss and gradient w.r.t. probability-space marginals
+        mu = [m.requires_grad_(True) for m in mu]
+        loss = loss_fn.forward_probs(mu)
         loss.backward()
-        for t, t_bp in zip(theta, theta_bp):
+
+        # 3. Apply marginal-space gradient directly to potentials
+        #    (this is the correct mirror descent update: theta -= lr * ∂L/∂mu)
+        for t, m in zip(theta, mu):
             if t.grad is None:
-                t.grad = t_bp.grad
-            elif t_bp.grad is not None:
-                t.grad.copy_(t_bp.grad)
+                t.grad = m.grad
+            elif m.grad is not None:
+                t.grad.copy_(m.grad)
         return loss
 
     if compile:

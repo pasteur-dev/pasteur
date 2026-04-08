@@ -56,7 +56,7 @@ class LinearLoss(torch.nn.Module):
         obs: Sequence[LinearObservation],
         cliques: Sequence[CliqueMeta],
         attrs: DatasetAttributes,
-        loss_fun=torch.nn.MSELoss(),
+        loss_fun: str = "mse",
     ) -> None:
         super().__init__()
         self.obs_meta = obs
@@ -75,11 +75,11 @@ class LinearLoss(torch.nn.Module):
             self.obs_meta, self.parents, attrs
         )
 
-        self.loss_fun = loss_fun
+        self.loss_type = loss_fun
 
-    def _project(self, theta: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
-        """Project a clique potential to an observation's shape."""
-        proc = theta[idx].exp()
+    def _project_probs(self, mu: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
+        """Project probability-space clique marginals to an observation's shape."""
+        proc = mu[idx]
 
         if pmeta.sum_dims:
             proc = torch.sum(proc, dim=pmeta.sum_dims)
@@ -102,7 +102,36 @@ class LinearLoss(torch.nn.Module):
 
         return proc
 
+    def _project(self, theta: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
+        """Project log-space clique potentials to an observation's shape."""
+        return self._project_probs([t.exp() for t in theta], idx, pmeta)
+
+    def forward_probs(self, mu: Sequence[torch.Tensor]):
+        """Compute loss on probability-space clique marginals.
+
+        Gradients are w.r.t. mu (marginals), matching the mirror descent
+        update rule from private-pgm: theta -= alpha * grad_mu(L)."""
+        losses = []
+
+        for idx, obs, ometa, pmeta in zip(
+            self.cidx, self.obs, self.obs_meta, self.parent_meta
+        ):
+            proc = self._project_probs(mu, idx, pmeta)
+
+            if ometa.mapping is not None:
+                proc = ometa.mapping @ proc
+
+            obs_loss = torch.nn.functional.mse_loss(obs, proc)
+
+            if ometa.confidence != 1:
+                obs_loss *= ometa.confidence
+
+            losses.append(obs_loss)
+
+        return torch.mean(torch.stack(losses))
+
     def forward(self, theta: Sequence[torch.Tensor]):
+        """Compute loss on log-space potentials (legacy interface)."""
         losses = []
 
         for idx, obs, ometa, pmeta in zip(
@@ -110,10 +139,17 @@ class LinearLoss(torch.nn.Module):
         ):
             proc = self._project(theta, idx, pmeta)
 
-            # Apply loss function
             if ometa.mapping is not None:
                 proc = ometa.mapping @ proc
-            obs_loss = self.loss_fun(obs, proc)
+
+            if self.loss_type == "kl":
+                log_ratio = torch.log(obs + 1e-30) - torch.log(proc + 1e-30)
+                obs_loss = torch.sum(obs * log_ratio) / obs.numel()
+            elif self.loss_type == "mse":
+                obs_loss = torch.nn.functional.mse_loss(obs, proc)
+            else:
+                obs_loss = self.loss_type(obs, proc)
+
             if ometa.confidence != 1:
                 obs_loss *= ometa.confidence
 
