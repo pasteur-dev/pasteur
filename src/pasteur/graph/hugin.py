@@ -37,7 +37,7 @@ def get_attrs(
 
 
 def create_clique_meta(
-    cl: Collection[str], g: nx.Graph, attrs: DatasetAttributes
+    cl: Collection[str], g: nx.Graph, attrs: DatasetAttributes, compress: bool = True
 ) -> CliqueMeta:
     """Creates a hashable metadata holder for tuples with a fixed ordering."""
 
@@ -49,6 +49,8 @@ def create_clique_meta(
         val = g.nodes[var]["value"]
         height = g.nodes[var]["height"]
 
+        if not compress:
+            height = 0
         if (table, order, attr) in sels and val in sels[(table, order, attr)]:
             height = min(sels[(table, order, attr)][val], height)
         sels[(table, order, attr)][val] = height
@@ -179,13 +181,14 @@ def get_junction_tree(
     triangulated: nx.Graph,
     attrs: DatasetAttributes,
     metric: Literal["domain", "common"] = "domain",
+    compress: bool = True,
 ):
     full_tree = nx.Graph()
 
     for a, b in combinations(nx.find_cliques(triangulated), 2):
         full_tree.add_edge(
-            create_clique_meta(a, triangulated, attrs),
-            create_clique_meta(b, triangulated, attrs),
+            create_clique_meta(a, triangulated, attrs, compress=compress),
+            create_clique_meta(b, triangulated, attrs, compress=compress),
             common=len(set(a) & set(b)),
             domain=get_factor_domain(set(a) & set(b), triangulated, attrs),
         )
