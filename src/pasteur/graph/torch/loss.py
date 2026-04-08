@@ -109,9 +109,10 @@ class LinearLoss(torch.nn.Module):
     def forward_probs(self, mu: Sequence[torch.Tensor]):
         """Compute loss on probability-space clique marginals.
 
-        Gradients are w.r.t. mu (marginals), matching the mirror descent
-        update rule from private-pgm: theta -= alpha * grad_mu(L)."""
-        losses = []
+        Each observation is weighted by 1/numel², so small reliable
+        observations (high SNR per cell) get more influence than
+        large noisy ones."""
+        loss = torch.tensor(0.0, device=mu[0].device)
 
         for idx, obs, ometa, pmeta in zip(
             self.cidx, self.obs, self.obs_meta, self.parent_meta
@@ -126,9 +127,9 @@ class LinearLoss(torch.nn.Module):
             if ometa.confidence != 1:
                 obs_loss *= ometa.confidence
 
-            losses.append(obs_loss)
+            loss = loss + obs_loss
 
-        return torch.mean(torch.stack(losses))
+        return loss
 
     def forward(self, theta: Sequence[torch.Tensor]):
         """Compute loss on log-space potentials (legacy interface)."""
