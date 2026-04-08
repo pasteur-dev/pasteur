@@ -13,6 +13,8 @@ from typing import Sequence
 import numpy as np
 import torch
 
+from ...utils.progress import piter
+
 from ...attribute import DatasetAttributes
 from ..beliefs import create_messages, get_clique_shapes
 from ..hugin import (
@@ -54,8 +56,9 @@ def mirror_descent(
         lr: Learning rate for Adam optimizer.
         max_iters: Maximum number of iterations.
         atol: Absolute loss threshold for convergence.
-        patience: Stop after this many consecutive iterations below atol.
-        checkpoint_every: How often to log progress and check convergence.
+        patience: Stop after this many consecutive iterations below atol
+            or without improvement.
+        checkpoint_every: How often to sync GPU and check convergence.
         device: Torch device. None for auto-detect.
         compile: Whether to use torch.compile on the gradient computation.
 
@@ -102,10 +105,12 @@ def mirror_descent(
     best_loss = float("inf")
     stale = 0
     total_iters = 0
+    converged = False
+    pbar = piter(range(max_iters), total=max_iters, desc="Mirror descent")
 
     while total_iters < max_iters:
-        losses = []
         block_size = min(checkpoint_every, max_iters - total_iters)
+        losses = []
         for _ in range(block_size):
             loss = compute_grad(theta, bp, loss_fn)
             losses.append(loss)
@@ -115,9 +120,10 @@ def mirror_descent(
                 for t in theta:
                     Z = t.logsumexp(list(range(len(t.shape))))
                     t -= Z
-            total_iters += 1
+        total_iters += block_size
+        pbar.update(block_size)
 
-        # Check convergence
+        # Sync GPU and check convergence
         loss_vals = [l.item() for l in losses]
         for cur_loss in loss_vals:
             if cur_loss < best_loss:
@@ -127,14 +133,18 @@ def mirror_descent(
             else:
                 stale = 0
 
-        logger.info(
-            f"Iter {total_iters}: loss={loss_vals[-1]:.6e}, "
-            f"best={best_loss:.6e}, stale={stale}/{patience}"
+        pbar.set_description(
+            f"Mirror descent: loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
+            f"stale={stale}/{patience}"
         )
 
         if stale >= patience:
-            logger.info(f"Mirror descent converged at iter {total_iters}.")
+            converged = True
             break
+
+    pbar.close()
+    if converged:
+        logger.info(f"Mirror descent converged at iter {total_iters}.")
     else:
         logger.warning(
             f"Mirror descent did not converge after {max_iters} iterations "
