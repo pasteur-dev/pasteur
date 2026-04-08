@@ -306,7 +306,6 @@ class PrivBayesSynth(Synth):
             to_moral,
         )
         from ....graph.loss import LinearObservation
-        from ....graph.sample import create_sampler_meta
         from ....graph.torch.mirror_descent import mirror_descent
 
         # Build junction tree
@@ -325,11 +324,11 @@ class PrivBayesSynth(Synth):
             for o in obs
         ]
 
-        # Run mirror descent
+        # Run mirror descent and use corrected per-observation marginals
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}
         device = None if params["device"] == "auto" else params["device"]
-        self._jt_potentials = mirror_descent(
+        corrected = mirror_descent(
             cliques,
             messages,
             obs,
@@ -341,11 +340,11 @@ class PrivBayesSynth(Synth):
             device=device,
             compile=params["compile"],
         )
-        self._jt_cliques = cliques
-        self._jt_junction = junction
-        self._jt_sampler_meta = create_sampler_meta(
-            junction, cliques, self.table_attrs
-        )
+
+        # Replace noisy marginals with corrected ones (scaled back to counts)
+        for i, (orig, corr) in enumerate(zip(self.marginals, corrected)):
+            n_total = orig.sum()
+            self.marginals[i] = corr.reshape(orig.shape) * n_total
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
@@ -354,28 +353,15 @@ class PrivBayesSynth(Synth):
         if n is None:
             n = self.n
 
-        if self.mirror_descent:
-            from ....graph.sample import reverse_map_columns, sample_junction_tree
-
-            sampled = sample_junction_tree(
-                self._jt_potentials, self._jt_sampler_meta, n
+        tables = {
+            self.table_name: sample_rows(
+                pd.RangeIndex(n),
+                {None: self.attrs[self.table_name]},
+                {},
+                self.nodes,
+                self.marginals,
             )
-            out_cols = reverse_map_columns(
-                sampled,
-                self._jt_sampler_meta,
-                self.table_attrs,
-            )
-            tables = {self.table_name: pd.DataFrame(out_cols, index=pd.RangeIndex(n))}
-        else:
-            tables = {
-                self.table_name: sample_rows(
-                    pd.RangeIndex(n),
-                    {None: self.attrs[self.table_name]},
-                    {},
-                    self.nodes,
-                    self.marginals,
-                )
-            }
+        }
         ids = {self.table_name: pd.DataFrame()}
 
         return tables_to_data(ids, tables)

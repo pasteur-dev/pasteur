@@ -1,6 +1,7 @@
 from functools import reduce
 from typing import NamedTuple, Sequence
 
+import numpy as np
 import torch
 
 from ...attribute import DatasetAttributes
@@ -76,38 +77,38 @@ class LinearLoss(torch.nn.Module):
 
         self.loss_fun = loss_fun
 
+    def _project(self, theta: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
+        """Project a clique potential to an observation's shape."""
+        proc = theta[idx].exp()
+
+        if pmeta.sum_dims:
+            proc = torch.sum(proc, dim=pmeta.sum_dims)
+
+        if pmeta.idx is not None:
+            proc = proc.permute(pmeta.transpose)
+            og_shape = proc.shape
+
+            a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(pmeta.b_doms)])
+            b_idx_dom = reduce(lambda a, b: a * b, pmeta.b_doms)
+            rest_dom = reduce(lambda a, b: a * b, og_shape[len(pmeta.b_doms) :], 1)
+
+            proc = proc.reshape((a_idx_dom, -1))
+            proc = proc.new_zeros((b_idx_dom, rest_dom)).index_add_(
+                0, self.idx[pmeta.idx], proc
+            )
+
+            new_shape = list(pmeta.b_doms) + list(og_shape[len(pmeta.b_doms) :])
+            proc = proc.reshape(new_shape).permute(pmeta.transpose_undo)
+
+        return proc
+
     def forward(self, theta: Sequence[torch.Tensor]):
         losses = []
 
         for idx, obs, ometa, pmeta in zip(
             self.cidx, self.obs, self.obs_meta, self.parent_meta
         ):
-            proc = theta[idx].exp()
-
-            if pmeta.sum_dims:
-                proc = torch.sum(proc, dim=pmeta.sum_dims)
-
-            # Peform alignment if necessary
-            if pmeta.idx is not None:
-                proc = proc.permute(pmeta.transpose)
-                og_shape = proc.shape
-
-                # Find domains of front dimensions and back dimension
-                # the front dimension changes during indexing, the back stays the same.
-                a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(pmeta.b_doms)])
-                b_idx_dom = reduce(lambda a, b: a * b, pmeta.b_doms)
-                rest_dom = reduce(lambda a, b: a * b, og_shape[len(pmeta.b_doms) :], 1)
-
-                # Perform index add on new tensor
-                # because index_add is expensive, only do it when it's required.
-                proc = proc.reshape((a_idx_dom, -1))
-                proc = proc.new_zeros((b_idx_dom, rest_dom)).index_add_(
-                    0, self.idx[pmeta.idx], proc
-                )
-
-                # Reshape to individual columns and undo transpose
-                new_shape = list(pmeta.b_doms) + list(og_shape[len(pmeta.b_doms) :])
-                proc = proc.reshape(new_shape).permute(pmeta.transpose_undo)
+            proc = self._project(theta, idx, pmeta)
 
             # Apply loss function
             if ometa.mapping is not None:
@@ -119,3 +120,23 @@ class LinearLoss(torch.nn.Module):
             losses.append(obs_loss)
 
         return torch.mean(torch.stack(losses))
+
+    def project_marginals(self, theta: Sequence[torch.Tensor]) -> list[np.ndarray]:
+        """Project clique potentials back to per-observation marginals.
+
+        Returns a list of numpy arrays (one per observation) in the same
+        shape as the original observations, normalized to probabilities."""
+        result = []
+        with torch.no_grad():
+            for idx, ometa, pmeta in zip(
+                self.cidx, self.obs_meta, self.parent_meta
+            ):
+                proc = self._project(theta, idx, pmeta)
+                if ometa.mapping is not None:
+                    proc = ometa.mapping @ proc
+                p = proc.cpu().numpy()
+                p_sum = p.sum()
+                if p_sum > 0:
+                    p /= p_sum
+                result.append(p)
+        return result
