@@ -165,18 +165,23 @@ class BeliefPropagationSingle(torch.nn.Module):
                     # Perform index add on new tensor
                     # because index_add is expensive, only do it when it's required.
                     proc = proc.reshape((a_idx_dom, -1))
-                    if arg.idx_b is not None:
-                        # Exponentiate to prepare for addition if idx_b exists
-                        # Proc is dimensionally smaller before idx_a is applied.
-                        proc = proc.exp()
                     if arg.idx_a is not None:
                         proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
                     if arg.idx_b is not None:
-                        proc = (
-                            proc.new_zeros((b_idx_dom, rest_dom))
-                            .index_add_(0, self.idx_b[arg.idx_b], proc)
-                            .log()
+                        # Stable scatter logsumexp: subtract per-group max
+                        # before exp to avoid float32 underflow, then add back.
+                        idx_b = self.idx_b[arg.idx_b]
+                        idx_exp = idx_b.unsqueeze(1).expand_as(proc)
+                        max_vals = proc.new_full(
+                            (b_idx_dom, rest_dom), float("-inf")
                         )
+                        max_vals.scatter_reduce_(
+                            0, idx_exp, proc, reduce="amax", include_self=True
+                        )
+                        shifted = proc - max_vals.gather(0, idx_exp)
+                        result = proc.new_zeros((b_idx_dom, rest_dom))
+                        result.index_add_(0, idx_b, shifted.exp())
+                        proc = result.log() + max_vals
 
                     # Reshape to individual columns and undo transpose
                     new_shape = list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
