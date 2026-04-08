@@ -584,7 +584,6 @@ class RebalancedValue(CatValue):
 
             out = []
             new_ofs = [0 for _ in range(len(vals))]
-            domains = [v.grouping.shape[1] for v in vals]
 
             for l in range(len(vals[0].common_groups[0])):
                 groupings = [
@@ -593,24 +592,20 @@ class RebalancedValue(CatValue):
                         if h != -1
                         else [0 for _ in range(v.common_sizes[0][l])]
                     )
-                    for v, h in reversed(list(zip(vals, heights)))
+                    for v, h in zip(vals, heights)
                 ]
 
                 ofs = list(new_ofs)
                 for combos in product(*groupings):
-                    l_dom = 1
-                    num = 0
+                    row = tuple(ofs[i] + c for i, c in enumerate(combos))
                     for i, c in enumerate(combos):
-                        val = ofs[i] + c
-                        new_ofs[i] = max(val, new_ofs[i])
-                        num += val * l_dom + ofs[i]
-                        l_dom *= domains[i]
-                    out.append(num)
+                        new_ofs[i] = max(ofs[i] + c, new_ofs[i])
+                    out.append(row)
 
                 for i in range(len(new_ofs)):
                     new_ofs[i] += 1
 
-            return np.array(out, dtype=get_dtype(max(out)))
+            return out
 
 
 def rebalance_attributes(
