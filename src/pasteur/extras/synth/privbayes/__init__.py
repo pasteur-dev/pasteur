@@ -310,11 +310,16 @@ class PrivBayesSynth(Synth):
         from ....graph.loss import LinearObservation
         from ....graph.torch.mirror_descent import mirror_descent
 
+        md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
+        params = {**MIRROR_DESCENT_DEFAULT, **md}
+        compress = params.pop("compress", True)
+        device = None if params["device"] == "auto" else params["device"]
+
         # Build junction tree
         g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
         mg = to_moral(g)
         _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
-        junction = get_junction_tree(tri, self.table_attrs)
+        junction = get_junction_tree(tri, self.table_attrs, compress=compress)
         generations = get_message_passing_order(junction)
         cliques = list(junction.nodes())
         messages = create_messages(generations, self.table_attrs)
@@ -327,9 +332,6 @@ class PrivBayesSynth(Synth):
         ]
 
         # Run mirror descent — returns (fitted clique potentials, loss_fn)
-        md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
-        params = {**MIRROR_DESCENT_DEFAULT, **md}
-        device = None if params["device"] == "auto" else params["device"]
         potentials, loss_fn = mirror_descent(
             cliques,
             messages,
@@ -350,6 +352,10 @@ class PrivBayesSynth(Synth):
         loss_device = next(loss_fn.parameters()).device
         theta_torch = [torch.from_numpy(p).float().log().to(loss_device) for p in potentials]
         projected = loss_fn.project_marginals(theta_torch)
+
+        # Store for diagnostics
+        self.md_obs = obs
+        self.md_projected = projected
 
         # Map projected marginals (in obs/source ordering) back to
         # the original marginal ordering used by sample_rows.
