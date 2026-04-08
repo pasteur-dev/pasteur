@@ -127,7 +127,7 @@ class PrivBayesMare(MareModel):
 class MirrorDescentParams(TypedDict):
     lr: float
     max_iters: int
-    atol: float
+    ptol: float
     patience: int
     device: str
     compile: bool
@@ -136,7 +136,7 @@ class MirrorDescentParams(TypedDict):
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "lr": 0.07,
     "max_iters": 10_000,
-    "atol": 1e-5,
+    "ptol": 2e-4,
     "patience": 50,
     "device": "auto",
     "compile": False,
@@ -339,7 +339,7 @@ class PrivBayesSynth(Synth):
             self.table_attrs,
             lr=params["lr"],
             max_iters=params["max_iters"],
-            atol=params["atol"],
+            ptol=params["ptol"],
             patience=params["patience"],
             device=device,
             compile=params["compile"],
