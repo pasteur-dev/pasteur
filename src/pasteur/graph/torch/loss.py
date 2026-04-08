@@ -56,7 +56,6 @@ class LinearLoss(torch.nn.Module):
         obs: Sequence[LinearObservation],
         cliques: Sequence[CliqueMeta],
         attrs: DatasetAttributes,
-        loss_fun: str = "mse",
     ) -> None:
         super().__init__()
         self.obs_meta = obs
@@ -74,8 +73,6 @@ class LinearLoss(torch.nn.Module):
         self.parent_meta, self.idx = torch_get_parent_meta(
             self.obs_meta, self.parents, attrs
         )
-
-        self.loss_type = loss_fun
 
     def _project_probs(self, mu: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
         """Project probability-space clique marginals to an observation's shape."""
@@ -102,16 +99,11 @@ class LinearLoss(torch.nn.Module):
 
         return proc
 
-    def _project(self, theta: Sequence[torch.Tensor], idx: int, pmeta: TorchParentMeta):
-        """Project log-space clique potentials to an observation's shape."""
-        return self._project_probs([t.exp() for t in theta], idx, pmeta)
-
-    def forward_probs(self, mu: Sequence[torch.Tensor]):
+    def forward(self, mu: Sequence[torch.Tensor]):
         """Compute loss on probability-space clique marginals.
 
-        Each observation is weighted by 1/numel², so small reliable
-        observations (high SNR per cell) get more influence than
-        large noisy ones."""
+        Uses 0.5 * sum(diff²) as base loss (matching private-pgm).
+        Confidence from LinearObservation handles per-observation weighting."""
         loss = torch.tensor(0.0, device=mu[0].device)
 
         for idx, obs, ometa, pmeta in zip(
@@ -122,41 +114,13 @@ class LinearLoss(torch.nn.Module):
             if ometa.mapping is not None:
                 proc = ometa.mapping @ proc
 
-            obs_loss = torch.nn.functional.mse_loss(obs, proc)
-
-            if ometa.confidence != 1:
-                obs_loss *= ometa.confidence
+            diff = obs - proc
+            obs_loss = 0.5 * torch.sum(diff * diff)
+            obs_loss *= ometa.confidence
 
             loss = loss + obs_loss
 
         return loss
-
-    def forward(self, theta: Sequence[torch.Tensor]):
-        """Compute loss on log-space potentials (legacy interface)."""
-        losses = []
-
-        for idx, obs, ometa, pmeta in zip(
-            self.cidx, self.obs, self.obs_meta, self.parent_meta
-        ):
-            proc = self._project(theta, idx, pmeta)
-
-            if ometa.mapping is not None:
-                proc = ometa.mapping @ proc
-
-            if self.loss_type == "kl":
-                log_ratio = torch.log(obs + 1e-30) - torch.log(proc + 1e-30)
-                obs_loss = torch.sum(obs * log_ratio) / obs.numel()
-            elif self.loss_type == "mse":
-                obs_loss = torch.nn.functional.mse_loss(obs, proc)
-            else:
-                obs_loss = self.loss_type(obs, proc)
-
-            if ometa.confidence != 1:
-                obs_loss *= ometa.confidence
-
-            losses.append(obs_loss)
-
-        return torch.mean(torch.stack(losses))
 
     def project_marginals(self, theta: Sequence[torch.Tensor]) -> list[np.ndarray]:
         """Project clique potentials back to per-observation marginals.
@@ -168,7 +132,8 @@ class LinearLoss(torch.nn.Module):
             for idx, ometa, pmeta in zip(
                 self.cidx, self.obs_meta, self.parent_meta
             ):
-                proc = self._project(theta, idx, pmeta)
+                mu = [t.exp() for t in theta]
+                proc = self._project_probs(mu, idx, pmeta)
                 if ometa.mapping is not None:
                     proc = ometa.mapping @ proc
                 p = proc.cpu().numpy()

@@ -325,7 +325,8 @@ class PrivBayesSynth(Synth):
         messages = create_messages(generations, self.table_attrs)
 
         # Build observations, normalize to probabilities
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals)
+        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, noise_scale)
         obs = [
             LinearObservation(o.source, o.mapping, o.obs / o.obs.sum(), o.confidence)
             for o in obs
@@ -350,7 +351,9 @@ class PrivBayesSynth(Synth):
 
         # Move to same device as loss_fn parameters
         loss_device = next(loss_fn.parameters()).device
-        theta_torch = [torch.from_numpy(p).float().log().to(loss_device) for p in potentials]
+        theta_torch = [
+            torch.from_numpy(p).float().log().to(loss_device) for p in potentials
+        ]
         projected = loss_fn.project_marginals(theta_torch)
 
         # Store for diagnostics
@@ -364,9 +367,7 @@ class PrivBayesSynth(Synth):
         from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
 
         md_marginals = list(self.marginals)
-        for idx, (node, obs_i, corr) in enumerate(
-            zip(self.nodes, obs, projected)
-        ):
+        for idx, (node, obs_i, corr) in enumerate(zip(self.nodes, obs, projected)):
             orig_marg = self.marginals[idx]
 
             # Rebuild orig and vals lists (same logic as derive_obs_from_model)
@@ -439,7 +440,11 @@ class PrivBayesSynth(Synth):
                         # The forward used np.add.at(tmp, o_map, src[i_map])
                         # Inverse: distribute compressed probs to naive entries
                         i_map = tuple(
-                            attr.get_naive_mapping(dict(a.sel)) if j == dim_i else slice(None)
+                            (
+                                attr.get_naive_mapping(dict(a.sel))
+                                if j == dim_i
+                                else slice(None)
+                            )
                             for j in range(len(corr.shape))
                         )
                         o_map = tuple(
@@ -448,14 +453,18 @@ class PrivBayesSynth(Synth):
                         )
                         # Count how many naive entries map to each compressed entry
                         mapping = attr.get_mapping(dict(a.sel))
-                        counts = np.bincount(mapping, minlength=compressed_dom).astype(np.float32)
+                        counts = np.bincount(mapping, minlength=compressed_dom).astype(
+                            np.float32
+                        )
                         counts_shape = [1] * len(corr.shape)
                         counts_shape[dim_i] = compressed_dom
                         # Distribute proportionally
                         expanded_shape = list(corr.shape)
                         expanded_shape[dim_i] = naive_dom
                         expanded = np.zeros(expanded_shape, dtype=np.float32)
-                        expanded[i_map] = corr[o_map] / counts.reshape(counts_shape)[o_map]
+                        expanded[i_map] = (
+                            corr[o_map] / counts.reshape(counts_shape)[o_map]
+                        )
                         corr = expanded
                     for val, h in a.sel:
                         per_val_shape.append(attr[val].get_domain(h))
@@ -483,7 +492,9 @@ class PrivBayesSynth(Synth):
         if n is None:
             n = self.n
 
-        marginals = self.md_marginals if self.md_marginals is not None else self.marginals
+        marginals = (
+            self.md_marginals if self.md_marginals is not None else self.marginals
+        )
         tables = {
             self.table_name: sample_rows(
                 pd.RangeIndex(n),
@@ -505,7 +516,7 @@ class PrivBayesSynth(Synth):
             self.e2,
             self.theta,
             self.t,
-            minimum_cutoff=self.minimum_cutoff
+            minimum_cutoff=self.minimum_cutoff,
         )
 
 
@@ -661,7 +672,8 @@ def derive_graph_from_nodes(
 
 
 def derive_obs_from_model(
-    nodes: Sequence[Node], attrs: DatasetAttributes, marginals: Sequence[np.ndarray]
+    nodes: Sequence[Node], attrs: DatasetAttributes, marginals: Sequence[np.ndarray],
+    noise_scale: float = 0.0,
 ):
     from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
@@ -765,7 +777,7 @@ def derive_obs_from_model(
             source,
             None,
             new_obs,
-            1.0 / max(new_obs.size, 1),
+            1.0 / (1.0 + 2.0 * noise_scale ** 2 * new_obs.size),
         )
         lin_obs.append(lo)
 

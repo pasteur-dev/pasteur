@@ -54,7 +54,7 @@ def mirror_descent(
 
         # 2. Compute loss and gradient w.r.t. probability-space marginals
         mu = [m.requires_grad_(True) for m in mu]
-        loss = loss_fn.forward_probs(mu)
+        loss = loss_fn(mu)
         loss.backward()
 
         # 3. Apply marginal-space gradient directly to potentials
