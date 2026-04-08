@@ -1,28 +1,14 @@
-"""Mirror descent optimization for clique potentials on a junction tree.
-
-Given noisy marginal observations (e.g. from differential privacy), fits
-clique potentials by iterating:
-  1. Belief propagation (projection onto marginal polytope)
-  2. Loss computation against observations
-  3. Gradient update on log-potentials (entropic mirror descent)
-"""
-
 import logging
 from typing import Sequence
 
 import numpy as np
 import torch
 
-from ...utils.progress import piter
+from ...utils.progress import piter, IS_AGENT
 
 from ...attribute import DatasetAttributes
-from ..beliefs import create_messages, get_clique_shapes
 from ..hugin import (
     CliqueMeta,
-    get_junction_tree,
-    get_message_passing_order,
-    to_moral,
-    find_elim_order,
 )
 from ..loss import LinearObservation
 from .beliefs import BeliefPropagationSingle, torch_create_cliques
@@ -45,27 +31,6 @@ def mirror_descent(
     device: torch.device | str | None = None,
     compile: bool = False,
 ) -> list[np.ndarray]:
-    """Run mirror descent to fit clique potentials to observations.
-
-    Args:
-        cliques: List of clique metadata from junction tree.
-        messages: Compiled message schedule from create_messages.
-        obs: Observed marginals as LinearObservation objects (should be
-            normalized to probabilities).
-        attrs: Dataset attribute metadata.
-        lr: Learning rate for Adam optimizer.
-        max_iters: Maximum number of iterations.
-        atol: Absolute loss threshold for convergence.
-        patience: Stop after this many consecutive iterations below atol
-            or without improvement.
-        checkpoint_every: How often to sync GPU and check convergence.
-        device: Torch device. None for auto-detect.
-        compile: Whether to use torch.compile on the gradient computation.
-
-    Returns:
-        List of numpy arrays (one per clique) in probability space,
-        normalized so each sums to 1.
-    """
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     elif isinstance(device, str):
@@ -133,10 +98,13 @@ def mirror_descent(
             else:
                 stale = 0
 
-        pbar.set_description(
+        desc = (
             f"Mirror descent: loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
             f"stale={stale}/{patience}"
         )
+        pbar.set_description(desc)
+        if IS_AGENT:
+            logger.info(desc)
 
         if stale >= patience:
             converged = True
