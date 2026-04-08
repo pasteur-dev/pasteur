@@ -325,11 +325,8 @@ class PrivBayesSynth(Synth):
         messages = create_messages(generations, self.table_attrs)
 
         # Build observations, normalize to probabilities
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals)
-        obs = [
-            LinearObservation(o.source, o.mapping, o.obs / o.obs.sum(), o.confidence)
-            for o in obs
-        ]
+        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, noise_scale)
 
         # Run mirror descent — returns (fitted clique potentials, loss_fn)
         potentials, loss_fn = mirror_descent(
@@ -671,7 +668,10 @@ def derive_graph_from_nodes(
 
 
 def derive_obs_from_model(
-    nodes: Sequence[Node], attrs: DatasetAttributes, marginals: Sequence[np.ndarray],
+    nodes: Sequence[Node],
+    attrs: DatasetAttributes,
+    marginals: Sequence[np.ndarray],
+    noise_scale: float = 0.0,
 ):
     from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
@@ -769,13 +769,17 @@ def derive_obs_from_model(
                 ]
             )
             np.add.at(tmp, o_map, new_obs[i_map])  # type: ignore
-            new_obs = tmp
+            new_obs = tmp / tmp.sum()
 
+        # Confidence accounts for cumulative noise: larger observations
+        # have more total noise (2σ^2N) when projecting back to individual
+        # columns. When noise is small relative to signal, all observations
+        # are equally reliable (confidence->1).
         lo = LinearObservation(
             source,
             None,
             new_obs,
-            1.0 / max(new_obs.size, 1),
+            1.0 / (1.0 + 2.0 * noise_scale**2 * new_obs.size),
         )
         lin_obs.append(lo)
 
