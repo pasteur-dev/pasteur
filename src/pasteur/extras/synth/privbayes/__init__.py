@@ -296,6 +296,8 @@ class PrivBayesSynth(Synth):
 
         if self.mirror_descent:
             self._fit_mirror_descent()
+        else:
+            self.md_marginals = None
 
     def _fit_mirror_descent(self):
         from ....graph.beliefs import create_messages
@@ -355,6 +357,7 @@ class PrivBayesSynth(Synth):
         # We need to invert this for each node.
         from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
 
+        md_marginals = list(self.marginals)
         for idx, (node, obs_i, corr) in enumerate(
             zip(self.nodes, obs, projected)
         ):
@@ -464,7 +467,9 @@ class PrivBayesSynth(Synth):
             s = corr_orig.sum()
             if s > 0:
                 corr_orig = corr_orig / s * n_total
-            self.marginals[idx] = corr_orig
+            md_marginals[idx] = corr_orig
+
+        self.md_marginals = md_marginals
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
@@ -473,13 +478,14 @@ class PrivBayesSynth(Synth):
         if n is None:
             n = self.n
 
+        marginals = self.md_marginals if self.md_marginals is not None else self.marginals
         tables = {
             self.table_name: sample_rows(
                 pd.RangeIndex(n),
                 {None: self.attrs[self.table_name]},
                 {},
                 self.nodes,
-                self.marginals,
+                marginals,
             )
         }
         ids = {self.table_name: pd.DataFrame()}
