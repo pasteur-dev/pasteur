@@ -151,8 +151,13 @@ def mirror_descent(
             f"(best loss={best_loss:.6e}, atol={atol})."
         )
 
-    # Final BP pass, then project back to per-observation marginals
+    # Final BP pass to get consistent clique potentials
     with torch.no_grad():
         theta_bp = bp(list(theta))
+        result = []
+        for t in theta_bp:
+            p = t.exp().cpu().numpy()
+            p /= p.sum()
+            result.append(p)
 
-    return loss_fn.project_marginals(theta_bp)
+    return result, loss_fn

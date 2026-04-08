@@ -324,11 +324,11 @@ class PrivBayesSynth(Synth):
             for o in obs
         ]
 
-        # Run mirror descent and use corrected per-observation marginals
+        # Run mirror descent — returns (fitted clique potentials, loss_fn)
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}
         device = None if params["device"] == "auto" else params["device"]
-        corrected = mirror_descent(
+        potentials, loss_fn = mirror_descent(
             cliques,
             messages,
             obs,
@@ -341,10 +341,102 @@ class PrivBayesSynth(Synth):
             compile=params["compile"],
         )
 
-        # Replace noisy marginals with corrected ones (scaled back to counts)
-        for i, (orig, corr) in enumerate(zip(self.marginals, corrected)):
-            n_total = orig.sum()
-            self.marginals[i] = corr.reshape(orig.shape) * n_total
+        # Project clique potentials back to per-observation marginals
+        import torch
+
+        # Move to same device as loss_fn parameters
+        loss_device = next(loss_fn.parameters()).device
+        theta_torch = [torch.from_numpy(p).float().log().to(loss_device) for p in potentials]
+        projected = loss_fn.project_marginals(theta_torch)
+
+        # Map projected marginals (in obs/source ordering) back to
+        # the original marginal ordering used by sample_rows.
+        # derive_obs_from_model applied: transpose(orig->vals) + reshape + alignment.
+        # We need to invert this for each node.
+        from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
+
+        for idx, (node, obs_i, corr) in enumerate(
+            zip(self.nodes, obs, projected)
+        ):
+            orig_marg = self.marginals[idx]
+            n_total = orig_marg.sum()
+
+            # Rebuild orig and vals lists (same logic as derive_obs_from_model)
+            out = []
+            orig_order = []
+            used_parent = False
+            for s in node.p:
+                if len(s) == 3:
+                    table_sel, attr_name, sel = s
+                else:
+                    table_sel = None
+                    attr_name, sel = s
+                if isinstance(table_sel, tuple):
+                    table = table_sel[0]
+                    order = table_sel[1]
+                else:
+                    table = table_sel
+                    order = None
+                attr = _get_attrs(self.table_attrs, table, order)[attr_name]
+                if isinstance(sel, int):
+                    orig_order.append((table, order, attr_name, None))
+                else:
+                    cmn = attr.common.name if attr.common else None
+                    new_sel = []
+                    for val, h in sel.items():
+                        if val == cmn:
+                            continue
+                        new_sel.append((val, h))
+                        orig_order.append((table, order, attr_name, val))
+                    if node.attr == attr_name:
+                        new_sel.append((node.value, 0))
+                        used_parent = True
+                    new_sel = tuple(sorted(new_sel))
+                    out.append(AttrMeta(table, order, attr_name, new_sel))
+                    continue
+                out.append(AttrMeta(table, order, attr_name, sel))
+
+            if not used_parent:
+                out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
+            orig_order.append((None, None, node.attr, node.value))
+
+            source = tuple(sorted(out, key=lambda x: x[:-1]))
+            vals_order = list(
+                chain.from_iterable(
+                    (
+                        [(a.table, a.order, a.attr, None)]
+                        if isinstance(a.sel, int)
+                        else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
+                    )
+                    for a in source
+                )
+            )
+
+            # corr is in source shape (per-attribute combined domains).
+            # Expand to per-value dims, then inverse-transpose back to orig order.
+            per_val_shape = []
+            for a in source:
+                if isinstance(a.sel, int):
+                    attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
+                    per_val_shape.append(attr.common.get_domain(a.sel))
+                else:
+                    for val, h in a.sel:
+                        attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
+                        per_val_shape.append(attr[val].get_domain(h))
+
+            # Reshape from combined per-attribute to individual per-value dims
+            corr_expanded = corr.reshape(per_val_shape)
+
+            # Inverse transpose: vals_order -> orig_order
+            inv_perm = [vals_order.index(v) for v in orig_order]
+            corr_orig = corr_expanded.transpose(inv_perm)
+
+            # Normalize and scale back to counts
+            corr_orig = corr_orig.reshape(orig_marg.shape)
+            s = corr_orig.sum()
+            if s > 0:
+                corr_orig = corr_orig / s * n_total
+            self.marginals[idx] = corr_orig
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
