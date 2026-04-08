@@ -122,7 +122,7 @@ def mirror_descent(
         for cur_loss in loss_vals:
             if cur_loss < best_loss:
                 best_loss = cur_loss
-            if cur_loss <= atol:
+            if cur_loss <= atol or cur_loss > best_loss:
                 stale += 1
             else:
                 stale = 0
