@@ -177,7 +177,16 @@ def get_clique_weights(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
 
 
 def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
-    return [np.zeros(shape) for shape in get_clique_shapes(cliques, attrs)]
+    out = []
+    for shape, weight in zip(
+        get_clique_shapes(cliques, attrs), get_clique_weights(cliques, attrs)
+    ):
+        v = np.array(1.0)
+        for s, w in zip(shape, weight):
+            v = np.expand_dims(v, -1) * w
+            assert v.shape[-1] == s
+        out.append(v)
+    return out
 
 
 def numpy_gen_multi_index(messages: Sequence[Message]):
@@ -208,9 +217,9 @@ def numpy_perform_pass_multi_index(
         if m.sum_dims:
             proc = np.sum(proc, axis=m.sum_dims)
 
-        # If backward pass, remove duplicate beliefs
+        # If backward pass, divide out the forward message to avoid double-counting
         if not m.forward:
-            proc = proc - done[(m.b, m.a)]
+            proc = proc / done[(m.b, m.a)]
 
         # Apply indexing ops
         assert len(m.index_args) == len(proc.shape)
@@ -248,8 +257,8 @@ def numpy_perform_pass_multi_index(
                 new_shape.append(1)
         proc = proc.reshape(new_shape)
 
-        # Apply to clique
-        cliques[m.b] = cliques[m.b] + proc
+        # Apply to clique (multiplicative absorption)
+        cliques[m.b] = cliques[m.b] * proc
 
     return cliques
 
@@ -332,9 +341,9 @@ def numpy_perform_pass(
         if m.sum_dims:
             proc = np.sum(proc, axis=m.sum_dims)
 
-        # If backward pass, remove duplicate beliefs
+        # If backward pass, divide out the forward message to avoid double-counting
         if not m.forward:
-            proc = proc - done[(m.b, m.a)]
+            proc = proc / done[(m.b, m.a)]
 
         # Apply single indexing op
         # Reshape common attributes in cliques a, b that have different heights
@@ -354,7 +363,7 @@ def numpy_perform_pass(
             rest_dom = reduce(lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1)
 
             # Perform index add on new tensor
-            tmp = np.zeros((b_idx_dom, rest_dom), dtype="float32")
+            tmp = np.zeros((b_idx_dom, rest_dom), dtype="float64")
             tmp2 = proc.reshape((a_idx_dom, -1))[arg.idx_a]
             # np.add.at(tmp, arg.idx_b, tmp2)
             tmp[arg.idx_b] += tmp2
@@ -380,7 +389,7 @@ def numpy_perform_pass(
                 new_shape.append(1)
         proc = proc.reshape(new_shape)
 
-        # Apply to clique
-        cliques[m.b] = cliques[m.b] + proc
+        # Apply to clique (multiplicative absorption)
+        cliques[m.b] = cliques[m.b] * proc
 
     return cliques
