@@ -134,7 +134,7 @@ class MirrorDescentParams(TypedDict):
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
-    "lr": 5,
+    "lr": 1,
     "max_iters": 10_000,
     "ptol": 2e-4,
     "patience": 50,
