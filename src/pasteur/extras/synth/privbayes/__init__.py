@@ -134,7 +134,7 @@ class MirrorDescentParams(TypedDict):
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
-    "lr": 0.07,
+    "lr": 5,
     "max_iters": 10_000,
     "ptol": 2e-4,
     "patience": 50,
@@ -325,8 +325,7 @@ class PrivBayesSynth(Synth):
         messages = create_messages(generations, self.table_attrs)
 
         # Build observations, normalize to probabilities
-        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, noise_scale)
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals)
         obs = [
             LinearObservation(o.source, o.mapping, o.obs / o.obs.sum(), o.confidence)
             for o in obs
@@ -673,7 +672,6 @@ def derive_graph_from_nodes(
 
 def derive_obs_from_model(
     nodes: Sequence[Node], attrs: DatasetAttributes, marginals: Sequence[np.ndarray],
-    noise_scale: float = 0.0,
 ):
     from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
@@ -777,7 +775,7 @@ def derive_obs_from_model(
             source,
             None,
             new_obs,
-            1.0 / (1.0 + 2.0 * noise_scale ** 2 * new_obs.size),
+            1.0 / max(new_obs.size, 1),
         )
         lin_obs.append(lo)
 

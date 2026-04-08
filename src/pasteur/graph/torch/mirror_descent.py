@@ -44,8 +44,6 @@ def mirror_descent(
     theta = torch_create_cliques(cliques, attrs, device=device)
     theta = [t.requires_grad_(True) for t in theta]
 
-    optimizer = torch.optim.Adam(theta, lr=lr)
-
     def compute_grad(theta, bp, loss_fn):
         # 1. Forward: BP to get consistent log-potentials, then exponentiate
         with torch.no_grad():
@@ -88,8 +86,10 @@ def mirror_descent(
             loss = compute_grad(theta, bp, loss_fn)
             losses.append(loss)
             with torch.no_grad():
-                optimizer.step()
-                optimizer.zero_grad()
+                for t in theta:
+                    if t.grad is not None:
+                        t -= lr * t.grad
+                        t.grad.zero_()
                 for t in theta:
                     Z = t.logsumexp(list(range(len(t.shape))))
                     t -= Z
