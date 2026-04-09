@@ -350,6 +350,9 @@ class PrivBayesSynth(Synth):
         from ....graph.beliefs import convert_sel
 
         self.md_obs = obs
+        self.md_potentials = potentials
+        self.md_cliques = cliques
+        self.md_loss_fn = loss_fn
 
         md_marginals = list(self.marginals)
         for idx, node in enumerate(self.nodes):
