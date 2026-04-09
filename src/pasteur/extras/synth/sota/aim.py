@@ -127,6 +127,9 @@ class AIM(Synth):
         ]
         workload = [(cl, 1.0) for cl in workload_cliques]
         candidates = _compile_workload(workload)
+        # Ensure all 1-way cliques are candidates even if filtered from 2-way
+        for attr_name in all_attrs:
+            candidates.setdefault((attr_name,), 1.0)
 
         # Budget allocation: 90% measurements, 10% selection
         sigma = sqrt(rounds / (2 * 0.9 * rho))

@@ -206,11 +206,13 @@ class FittedPGM:
 
         parents = get_parents(source_tuple, self.cliques)
         if not parents:
-            logger.debug(
-                f"project({clique}): no parents found. "
-                f"source={source_tuple}, "
-                f"cliques={[tuple(a.attr for a in c) for c in self.cliques]}"
-            )
+            if len(clique) == 1:
+                # Single attr not in any clique — return uniform
+                logger.warning(
+                    f"project({clique}): single attr not in tree, returning uniform"
+                )
+                dom = attr_domain_size(clique[0], attrs)
+                return np.ones(dom) / dom * self.n
             # No single clique contains all attrs — approximate with
             # independence: outer product of per-attribute marginals
             marginals = []

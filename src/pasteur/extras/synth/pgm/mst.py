@@ -107,7 +107,8 @@ class MST(Synth):
         mechs_dir = str(__import__('pathlib').Path(mbi_init).parent.parent.parent / "mechanisms")
         if mechs_dir not in sys.path:
             sys.path.insert(0, mechs_dir)
-        from mst import MST as MSTimpl
+        from mst import measure, select
+        from mbi import estimation
 
         from ....marginal import MarginalOracle
         from .common import OracleDataset
@@ -123,18 +124,16 @@ class MST(Synth):
         ) as o:
             data = OracleDataset(o)
 
-            workload = list(itertools.combinations(data.domain, self.degree))
-            workload = [cl for cl in workload if data.domain.size(cl) <= self.max_cells]
-            if self.num_marginals > 0:
-                workload = [
-                    workload[i]
-                    for i in np.random.choice(
-                        len(workload), self.num_marginals, replace=False
-                    )
-                ]
-
-            workload = [(cl, 1.0) for cl in workload]
-            self.model = MSTimpl(data, self.e, self.delta)
+            # Inline MST logic, skipping compress_domain (needs row-level data)
+            from cdp2adp import cdp_rho
+            rho = cdp_rho(self.e, self.delta)
+            sigma = np.sqrt(3 / (2 * rho))
+            cliques = [(col,) for col in data.domain]
+            log1 = measure(data, cliques, sigma)
+            # Skip domain compression — OracleDataset has no row-level data
+            cliques = select(data, rho / 3.0, log1)
+            log2 = measure(data, cliques, sigma)
+            self.model = estimation.mirror_descent(data.domain, log1 + log2, iters=10000)
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
