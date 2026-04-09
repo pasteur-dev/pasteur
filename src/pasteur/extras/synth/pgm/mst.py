@@ -100,7 +100,12 @@ class MST(Synth):
     def fit(self, data: dict[str, LazyFrame]):
         import itertools
 
+        import sys
         import numpy as np
+        from mbi import __file__ as mbi_init
+        mechs_dir = str(__import__('pathlib').Path(mbi_init).parent.parent.parent / "mechanisms")
+        if mechs_dir not in sys.path:
+            sys.path.insert(0, mechs_dir)
         from mst import MST as MSTimpl
 
         from ....marginal import MarginalOracle
@@ -111,8 +116,9 @@ class MST(Synth):
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
 
+        table_attrs = {None: self.attrs[self.table]}
         with MarginalOracle(
-            self.attrs[self.table], tables[self.table], mode=self.marginal_mode
+            data, table_attrs, mode=self.marginal_mode
         ) as o:
             data = OracleDataset(o)
 
