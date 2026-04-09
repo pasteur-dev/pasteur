@@ -71,8 +71,10 @@ def mirror_descent(
         logger.info("Compiling mirror descent compute graph...")
         compute_grad = torch.compile(compute_grad)
 
+    total_params = sum(t.numel() for t in theta)
     logger.info(
         f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
+        f"{total_params:_} params, "
         f"lr={lr}, device={device}, compile={compile}, line_search={line_search}"
     )
 
