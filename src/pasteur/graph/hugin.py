@@ -177,6 +177,30 @@ def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10)
     return min_order, min_triag, min_cost
 
 
+def get_junction_tree_from_cliques(
+    cliques: Sequence[CliqueMeta],
+):
+    """Build a junction tree directly from a set of CliqueMeta tuples.
+
+    Uses maximum spanning tree on the number of shared attributes.
+    No triangulation or fill cliques — the cliques ARE the tree nodes."""
+    full_tree = nx.Graph()
+    for cl in cliques:
+        full_tree.add_node(cl)
+
+    for a, b in combinations(cliques, 2):
+        shared = sum(
+            1
+            for ai in a
+            for bi in b
+            if ai.table == bi.table and ai.order == bi.order and ai.attr == bi.attr
+        )
+        if shared > 0:
+            full_tree.add_edge(a, b, common=shared)
+
+    return nx.maximum_spanning_tree(full_tree, weight="common")
+
+
 def get_junction_tree(
     triangulated: nx.Graph,
     attrs: DatasetAttributes,

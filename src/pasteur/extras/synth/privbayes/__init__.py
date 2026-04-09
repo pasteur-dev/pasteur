@@ -308,6 +308,7 @@ class PrivBayesSynth(Synth):
         from ....graph.hugin import (
             find_elim_order,
             get_junction_tree,
+            get_junction_tree_from_cliques,
             get_message_passing_order,
             to_moral,
         )
@@ -318,42 +319,29 @@ class PrivBayesSynth(Synth):
         params = {**MIRROR_DESCENT_DEFAULT, **md}
         compress = params.pop("compress", True)
         md_sample = params.pop("sample", False)
+        tree_mode = params.pop("tree", "hugin")
         device = None if params["device"] == "auto" else params["device"]
         params.pop("device", None)
 
-        # Build junction tree
-        g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
-        mg = to_moral(g)
-        _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
+        # Build observations first (needed for maximal tree mode)
+        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
 
-        # Fix compression bottlenecks: for each (attr, val), if 3+ different
-        # heights exist, drop all above the 2nd-lowest to the 2nd-lowest.
-        # [0, 2, 3] → [0, 2, 2]. Two heights are fine (direct edge, no
-        # round-trip). Three+ create fine→coarse→fine bottlenecks.
-        # if compress:
-        #     height_sets: dict[tuple, list[int]] = {}
-        #     for _, data in tri.nodes(data=True):
-        #         key = (data["table"], data["order"], data["attr"], data["value"])
-        #         height_sets.setdefault(key, []).append(data["height"])
-        #     for key, hs in height_sets.items():
-        #         unique = sorted(set(hs))
-        #         if len(unique) <= 2:
-        #             continue
-        #         # Set everything above 2nd-lowest to 2nd-lowest
-        #         cap = unique[1]
-        #         for _, data in tri.nodes(data=True):
-        #             k = (data["table"], data["order"], data["attr"], data["value"])
-        #             if k == key and data["height"] > cap:
-        #                 data["height"] = cap
+        if tree_mode == "maximal":
+            # Build junction tree directly from observation cliques.
+            # No triangulation or fill cliques — fewer cliques, faster BP.
+            obs_cliques = [o.source for o in obs]
+            junction = get_junction_tree_from_cliques(obs_cliques)
+        else:
+            # Build junction tree from moral graph triangulation (hugin).
+            g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
+            mg = to_moral(g)
+            _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
+            junction = get_junction_tree(tri, self.table_attrs, compress=compress)
 
-        junction = get_junction_tree(tri, self.table_attrs, compress=compress)
         generations = get_message_passing_order(junction)
         cliques = list(junction.nodes())
         messages = create_messages(generations, self.table_attrs)
-
-        # Build observations, normalize to probabilities
-        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
 
         # Run mirror descent — returns (fitted clique potentials, loss_fn)
         potentials, loss_fn = mirror_descent(
