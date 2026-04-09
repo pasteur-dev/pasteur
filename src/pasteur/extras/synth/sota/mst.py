@@ -157,5 +157,6 @@ class MST(Synth):
         n = n or self.n
         df = self.model.synthetic_data(n, self.table_attrs)
         return tables_to_data(
-            {self.table: pd.DataFrame()}, {self.table: df}
+            {self.table: pd.DataFrame()}, {self.table: df},
+            partition=i if self.partitions > 1 else None,
         )

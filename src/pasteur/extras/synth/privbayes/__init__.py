@@ -495,7 +495,10 @@ class PrivBayesSynth(Synth):
             }
         ids = {self.table_name: pd.DataFrame()}
 
-        return tables_to_data(ids, tables)
+        return tables_to_data(
+            ids, tables,
+            partition=i if self.partitions > 1 else None,
+        )
 
     def _sample_junction_tree(self, n: int, idx) -> "pd.DataFrame":
         import pandas as pd

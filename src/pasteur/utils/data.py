@@ -656,12 +656,16 @@ def tables_to_data(
     ids: Mapping[str, Any],
     tables: Mapping[str, Any],
     ctx: Mapping[str, Mapping[str, Any]] = {},
+    partition: int | None = None,
 ):
     ctx_out = {}
     for creator, ctxc in ctx.items():
         for parent, ctxv in ctxc.items():
             ctx_out[f"{creator}#{parent}_ctx"] = ctxv
-    return {**{f"{n}_ids": v for n, v in ids.items()}, **tables, **ctx_out}
+    out = {**{f"{n}_ids": v for n, v in ids.items()}, **tables, **ctx_out}
+    if partition is not None:
+        out = {k: {f"{partition:03d}": v} for k, v in out.items()}
+    return out
 
 
 def lazy_load_tables(tables: Mapping[str, LazyChunk | pd.DataFrame]):
