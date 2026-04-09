@@ -167,7 +167,7 @@ class AIM(Synth):
                 table_attrs,
                 measurements,
                 n,
-                {**self.md_params, "max_iters": 1000},
+                {**self.md_params, "max_iters": 5000},
             )
 
             # Adaptive loop
@@ -234,8 +234,21 @@ class AIM(Synth):
                     )
 
                 max_sens = max(abs(candidates[cl]) for cl in small_candidates)
+                # Log top errors
+                top = sorted(errors.items(), key=lambda x: -x[1])[:3]
+                logger.info(f"AIM: Top errors: {[(c, f'{e:.1f}') for c, e in top]}")
                 cl = exponential_mechanism(errors, epsilon, max_sens)
-                logger.info(f"AIM: Selected {cl}")
+                # Diagnostic: check if project finds parents for selected clique
+                _src = model._build_source(cl, table_attrs)
+                from ....graph.loss import get_parents as _gp
+                _par = _gp(_src, model.cliques)
+                _x = answers[cl]
+                _xest = model.project(cl, table_attrs).ravel()
+                logger.info(
+                    f"AIM: Selected {cl}, parents={len(_par)}, "
+                    f"|x|={_x.sum():.0f}, |xest|={_xest.sum():.1f}, "
+                    f"L1={np.linalg.norm(_x - _xest / _xest.sum() * _x.sum() if _xest.sum() > 0 else _xest, 1):.1f}"
+                )
 
                 # Measure
                 new_meas = measure(oracle, table_attrs, [cl], sigma)
@@ -246,7 +259,7 @@ class AIM(Synth):
                     table_attrs,
                     measurements,
                     n,
-                    {**self.md_params, "max_iters": 1000},
+                    {**self.md_params, "max_iters": 5000},
                     prev_model=model,
                 )
 

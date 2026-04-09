@@ -206,6 +206,11 @@ class FittedPGM:
 
         parents = get_parents(source_tuple, self.cliques)
         if not parents:
+            logger.debug(
+                f"project({clique}): no parents found. "
+                f"source={source_tuple}, "
+                f"cliques={[tuple(a.attr for a in c) for c in self.cliques]}"
+            )
             # No single clique contains all attrs — approximate with
             # independence: outer product of per-attribute marginals
             marginals = []
@@ -224,11 +229,19 @@ class FittedPGM:
 
         # Sum out dims not in the requested clique
         requested = {a.attr for a in source_tuple}
+        remaining = [a for a in parent if a.attr in requested]
         sum_dims = tuple(
             i for i, a in enumerate(parent) if a.attr not in requested
         )
         if sum_dims:
             proc = proc.sum(axis=sum_dims)
+
+        # Transpose from sorted AttrMeta order back to requested clique order
+        sorted_names = [a.attr for a in remaining]
+        req_names = list(clique)
+        if sorted_names != req_names:
+            perm = [sorted_names.index(a) for a in req_names]
+            proc = proc.transpose(perm)
 
         return proc * self.n
 
