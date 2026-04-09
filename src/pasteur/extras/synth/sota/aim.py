@@ -61,7 +61,7 @@ class AIM(Synth):
         self,
         e: float = 1.0,
         delta: float = 1e-9,
-        rounds: int | None = None,
+        rounds: int = 50,
         max_model_size: float = 80,
         degree: int = 2,
         max_cells: int = 10000,
@@ -172,8 +172,10 @@ class AIM(Synth):
             while not terminate:
                 t += 1
                 remaining = rho - rho_used
+                if remaining <= 0:
+                    break
                 if remaining < 2 * (0.5 / sigma**2 + 1.0 / 8 * epsilon**2):
-                    # Final round
+                    # Final round: use remaining budget
                     sigma = sqrt(1 / (2 * 0.9 * remaining))
                     epsilon = sqrt(8 * 0.1 * remaining)
                     terminate = True
