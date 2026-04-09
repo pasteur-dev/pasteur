@@ -761,14 +761,12 @@ def calc_noisy_marginals(
         noise = cast(
             np.ndarray, np.random.laplace(scale=noise_scale, size=marginal.shape)
         )
-        marginal /= marginal.sum()
 
         if skip_zero_counts:
             # Skip adding noise to zero counts
             noise[marginal == 0] = 0
 
-        noised_marginal = (marginal + noise).clip(0)
-        noised_marginal /= noised_marginal.sum()
+        noised_marginal = marginal + noise
         noised_marginals.append(noised_marginal)
 
     return noised_marginals
@@ -798,7 +796,10 @@ def sample_rows(
     gate_attrs_set = {attr_name for attr_name, attr in main_attrs.items() if attr.gate}
     for (x_attr, x, p, domain_g, _partial), marginal in zip(nodes, marginals):
         if x_attr in gate_attrs_set and x not in out_cols:
-            m = marginal.reshape(-1)
+            m = marginal.reshape(-1).clip(0)
+            m_sum = m.sum()
+            if m_sum > 0:
+                m = m / m_sum
             try:
                 out_cols[x] = np.random.choice(domain_g, size=n, p=m).astype(
                     get_dtype(domain_g)
@@ -829,12 +830,15 @@ def sample_rows(
         if len(p) == 0:
             # No parents = use 1-way marginal
             # Concatenate m to avoid N dimensions and use lookup table to recover
-            m = marginal.reshape(-1)
+            m = marginal.reshape(-1).clip(0)
 
             if attrs[None][x_attr][x].ignore_nan:
                 m = m.copy()
                 m[0] = 0
-                m /= np.sum(m)
+
+            m_sum = m.sum()
+            if m_sum > 0:
+                m = m / m_sum
 
             try:
                 out_col = np.random.choice(domain, size=n, p=m)
@@ -971,7 +975,7 @@ def sample_rows(
                 common_group = group // mul
 
                 m = marginal
-                m_g = m[parent_group, :]  # m[:, group]
+                m_g = m[parent_group, :].clip(0)
 
                 # If we have sampled the common value, mask the marginal to allow only common values
                 cv = cast(CatValue, tattrs[x_attr][x])
@@ -986,11 +990,9 @@ def sample_rows(
                 if m_sum < 1e-6:
                     # If the sum of the group is zero, there are no samples
                     # Use the average probability of the variable
-                    m_sum = marginal.sum()
-                    m_avg = (
-                        marginal.sum(axis=0) / m_sum
-                    )  # marginal.sum(axis=1) / marginal.sum()
-                    m_g = m_avg
+                    m_avg = marginal.clip(0).sum(axis=0)
+                    m_sum = m_avg.sum()
+                    m_g = m_avg / m_sum if m_sum > 0 else m_avg
                 else:
                     # Otherwise normalize
                     m_g = m_g / m_sum

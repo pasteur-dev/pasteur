@@ -90,7 +90,7 @@ class PrivBayesMare(MareModel):
         for attr in cast(Attributes, attrs[None]).values():
             d += len(attr.vals)
 
-        noise = (1 if self.unbounded_dp else 2) * d / self.e2 / n
+        noise = (1 if self.unbounded_dp else 2) * d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
@@ -135,7 +135,7 @@ class MirrorDescentParams(TypedDict):
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
-    "lr": 1,
+    "lr": 5,
     "max_iters": 10_000,
     "ptol": 2e-4,
     "patience": 50,
@@ -276,7 +276,7 @@ class PrivBayesSynth(Synth):
         self.partitions = len(table)
         self.n = ceil(table.shape[0] / self.partitions)
 
-        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
+        noise = (1 if self.unbounded_dp else 2) * self.d / self.e2
         if self.e2 > MAX_EPSILON:
             logger.warning(f"Considering e2={self.e2} unbounded, sampling without DP.")
             noise = 0
@@ -328,8 +328,8 @@ class PrivBayesSynth(Synth):
         messages = create_messages(generations, self.table_attrs)
 
         # Build observations, normalize to probabilities
-        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2 / self.n
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, noise_scale)
+        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
 
         # Run mirror descent — returns (fitted clique potentials, loss_fn)
         potentials, loss_fn = mirror_descent(
@@ -341,7 +341,7 @@ class PrivBayesSynth(Synth):
             **params,
         )
 
-        # Project clique potentials back to per-observation marginals
+        # Project clique potentials back to per-observation marginals (probabilities)
         import torch
 
         # Move to same device as loss_fn parameters
@@ -350,6 +350,9 @@ class PrivBayesSynth(Synth):
             torch.from_numpy(p).float().log().to(loss_device) for p in potentials
         ]
         projected = loss_fn.project_marginals(theta_torch)
+
+        # Scale back to counts for sampling
+        projected = [p * self.n for p in projected]
 
         # Store for diagnostics
         self.md_obs = obs
@@ -471,11 +474,7 @@ class PrivBayesSynth(Synth):
             inv_perm = [vals_order.index(v) for v in orig_order]
             corr_orig = corr_expanded.transpose(inv_perm)
 
-            # Normalize to probability space (matching calc_noisy_marginals output)
             corr_orig = corr_orig.reshape(orig_marg.shape)
-            s = corr_orig.sum()
-            if s > 0:
-                corr_orig = corr_orig / s
             md_marginals[idx] = corr_orig
 
         self.md_marginals = md_marginals
@@ -670,6 +669,7 @@ def derive_obs_from_model(
     nodes: Sequence[Node],
     attrs: DatasetAttributes,
     marginals: Sequence[np.ndarray],
+    n: int,
     noise_scale: float = 0.0,
 ):
     from ....graph.hugin import AttrMeta, get_attrs
@@ -768,17 +768,19 @@ def derive_obs_from_model(
                 ]
             )
             np.add.at(tmp, o_map, new_obs[i_map])  # type: ignore
-            new_obs = tmp / tmp.sum()
+            new_obs = tmp
 
-        # Confidence accounts for cumulative noise: larger observations
-        # have more total noise (2σ^2N) when projecting back to individual
-        # columns. When noise is small relative to signal, all observations
-        # are equally reliable (confidence->1).
+        # Normalize counts to probabilities for mirror descent
+        obs_sum = new_obs.sum()
+        if obs_sum != 0:
+            new_obs = new_obs / obs_sum
+
+        confidence = n / (n + noise_scale * new_obs.size)
         lo = LinearObservation(
             source,
             None,
             new_obs,
-            1.0 / (1.0 + 2.0 * noise_scale**2 * new_obs.size),
+            confidence,
         )
         lin_obs.append(lo)
 
