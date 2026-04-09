@@ -121,6 +121,26 @@ class LinearLoss(torch.nn.Module):
 
         return loss
 
+    def per_obs_loss(self, mu: Sequence[torch.Tensor]) -> list[tuple[float, float, np.ndarray, np.ndarray]]:
+        """Return per-observation (loss, max_dev, projected, target) for diagnostics."""
+        device = next(self.parameters()).device
+        mu = [m.to(device) for m in mu]
+        result = []
+        with torch.no_grad():
+            for idx, obs, ometa, pmeta in zip(
+                self.cidx, self.obs, self.obs_meta, self.parent_meta
+            ):
+                proc = self._project_probs(mu, idx, pmeta)
+                if ometa.mapping is not None:
+                    proc = ometa.mapping @ proc
+                diff = obs - proc
+                obs_loss = 0.5 * torch.sum(diff * diff) * ometa.confidence
+                proj_np = proc.cpu().numpy()
+                tgt_np = obs.cpu().numpy()
+                max_dev = float(diff.abs().max())
+                result.append((float(obs_loss), max_dev, proj_np, tgt_np))
+        return result
+
     def project_marginals(self, theta: Sequence[torch.Tensor]) -> list[np.ndarray]:
         """Project clique potentials back to per-observation marginals.
 
