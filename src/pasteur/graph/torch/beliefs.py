@@ -137,34 +137,34 @@ class BeliefPropagationSingle(torch.nn.Module):
             print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
 
         with torch.no_grad():
-            done = {}
+            # Shafer-Shenoy: for message a→b, build belief at a from
+            # original potential + all incoming messages except from b,
+            # then marginalize. Avoids the numerically unstable
+            # subtraction of the Hugin algorithm.
+            received: dict[int, list[tuple[torch.Tensor, int]]] = {}
+
             for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
-                # Start with clique
+                # Build belief at a excluding message from b
                 proc = theta[a_idx]
+                if a_idx in received:
+                    for msg, from_idx in received[a_idx]:
+                        if from_idx != b_idx:
+                            proc = proc + msg
 
                 if m.sum_dims:
                     proc = torch.logsumexp(proc, dim=m.sum_dims)
-
-                # If backward pass, divide out forward message (log-space)
-                # nan_to_num handles -inf - (-inf) = nan -> -inf (0/0 -> 0)
-                if not m.forward:
-                    proc = (proc - done[(m.b, m.a)]).nan_to_num(float("-inf"))
 
                 arg = self.args[i]
                 if arg:
                     proc = proc.permute(arg.transpose)
                     og_shape = proc.shape
 
-                    # Find domains of front dimensions and back dimension
-                    # the front dimension changes during indexing, the back stays the same.
                     a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
                     b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
                     rest_dom = reduce(
                         lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1
                     )
 
-                    # Perform index add on new tensor
-                    # because index_add is expensive, only do it when it's required.
                     proc = proc.reshape((a_idx_dom, -1))
                     if arg.idx_a is not None:
                         proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
@@ -185,15 +185,10 @@ class BeliefPropagationSingle(torch.nn.Module):
                         result.index_add_(0, idx_b, shifted.exp())
                         proc = result.log() + max_vals
 
-                    # Reshape to individual columns and undo transpose
                     new_shape = list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
                     proc = proc.reshape(new_shape).permute(arg.transpose_undo)
 
-                # Keep version for backprop
-                if m.forward:
-                    done[(m.a, m.b)] = proc
-
-                # Expand dims
+                # Broadcast reshape to target clique shape
                 shape = proc.shape
                 new_shape = []
                 ofs = 0
@@ -205,7 +200,6 @@ class BeliefPropagationSingle(torch.nn.Module):
                         new_shape.append(1)
                 proc = proc.reshape(new_shape)
 
-                # Apply to clique
                 if debug:
                     print(
                         a_idx,
@@ -213,9 +207,19 @@ class BeliefPropagationSingle(torch.nn.Module):
                         proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
                         m.forward,
                     )
-                theta[b_idx] = theta[b_idx] + proc
 
-            # # Normalize resulting cliques
+                if b_idx not in received:
+                    received[b_idx] = []
+                received[b_idx].append((proc, a_idx))
+
+            # Compute final beliefs: original potential + all received messages
+            theta = list(theta)
+            for idx in range(len(theta)):
+                if idx in received:
+                    for msg, _ in received[idx]:
+                        theta[idx] = theta[idx] + msg
+
+            # Normalize resulting cliques
             if debug:
                 print(
                     "Z: ",
