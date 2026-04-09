@@ -436,21 +436,35 @@ class PrivBayesSynth(Synth):
                     compressed_dom = attr.get_domain(dict(a.sel))
 
                     if naive_dom != compressed_dom:
-                        # Expand compressed dim using index mappings
+                        # Expand compressed dim using index mappings.
+                        # Compression sums naive→compressed; expansion must
+                        # divide by group size to avoid duplicating mass.
+                        naive_mapping = attr.get_naive_mapping(dict(a.sel))
+                        comp_mapping = attr.get_mapping(dict(a.sel))
+
+                        _, unique_idx = np.unique(naive_mapping, return_index=True)
+                        naive_per_comp_dedup = np.zeros(compressed_dom, dtype=np.float32)
+                        np.add.at(naive_per_comp_dedup, comp_mapping[unique_idx], 1.0)
+                        naive_per_comp_dedup = np.maximum(naive_per_comp_dedup, 1.0)
+
                         i_map = tuple(
-                            attr.get_naive_mapping(dict(a.sel))
+                            naive_mapping
                             if j == dim_i else slice(None)
                             for j in range(len(proc.shape))
                         )
                         o_map = tuple(
-                            attr.get_mapping(dict(a.sel))
+                            comp_mapping
                             if j == dim_i else slice(None)
                             for j in range(len(proc.shape))
                         )
+                        scale_shape = [1] * len(proc.shape)
+                        scale_shape[dim_i] = compressed_dom
+                        scaled_proc = proc / naive_per_comp_dedup.reshape(scale_shape)
+
                         expanded_shape = list(proc.shape)
                         expanded_shape[dim_i] = naive_dom
                         expanded = np.zeros(expanded_shape, dtype=proc.dtype)
-                        expanded[i_map] = proc[o_map]
+                        expanded[i_map] = scaled_proc[o_map]
                         proc = expanded
 
                     for val, h in a.sel:
