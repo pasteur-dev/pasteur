@@ -138,14 +138,17 @@ class AIM(Synth):
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            # Precompute true answers for all candidates
+            # Precompute true answers for all candidates (single batched call)
+            candidate_list = list(candidates.keys())
             logger.info(
-                f"AIM: Computing answers for {len(candidates)} candidates"
+                f"AIM: Computing answers for {len(candidate_list)} candidates"
             )
-            answers = {}
-            for cl in candidates:
-                ans = oracle.process([_build_request(cl, table_attrs)], postprocess=None)[0]
-                answers[cl] = ans.ravel().astype(np.float64)
+            requests = [_build_request(cl, table_attrs) for cl in candidate_list]
+            results = oracle.process(requests, postprocess=None)
+            answers = {
+                cl: r.ravel().astype(np.float64)
+                for cl, r in zip(candidate_list, results)
+            }
 
             # Phase 1: Measure all 1-way marginals
             oneway = [cl for cl in candidates if len(cl) == 1]

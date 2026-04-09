@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
-from scipy.special import softmax
-
 from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
@@ -112,14 +110,13 @@ class MST(Synth):
                 {**self.md_params, "max_iters": 2500, "patience": 100},
             )
 
-            # Compute L1 error on all 2-way candidates
+            # Compute L1 error on all 2-way candidates (single batched call)
             candidates = list(itertools.combinations(all_attrs, 2))
+            requests = [_build_request((a, b), table_attrs) for a, b in candidates]
+            results = oracle.process(requests, postprocess=None)
             weights = {}
-            for a, b in candidates:
-                x = oracle.process(
-                    [_build_request((a, b), table_attrs)],
-                    postprocess=None,
-                )[0].ravel().astype(np.float64)
+            for (a, b), x_raw in zip(candidates, results):
+                x = x_raw.ravel().astype(np.float64)
                 xhat = est.project((a, b), table_attrs).ravel()
                 weights[a, b] = np.linalg.norm(x - xhat, 1)
 
