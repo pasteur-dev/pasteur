@@ -30,6 +30,7 @@ def mirror_descent(
     checkpoint_every: int = 50,
     device: torch.device | str | None = None,
     compile: bool = False,
+    line_search: bool = False,
 ) -> list[np.ndarray]:
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -51,6 +52,7 @@ def mirror_descent(
             mu = [t.exp() for t in theta_bp]
 
         # 2. Compute loss and gradient w.r.t. probability-space marginals
+        mu_detached = mu
         mu = [m.requires_grad_(True) for m in mu]
         loss = loss_fn(mu)
         loss.backward()
@@ -62,7 +64,7 @@ def mirror_descent(
                 t.grad = m.grad
             elif m.grad is not None:
                 t.grad.copy_(m.grad)
-        return loss
+        return loss, mu_detached
 
     if compile:
         logger.info("Compiling mirror descent compute graph...")
@@ -70,29 +72,56 @@ def mirror_descent(
 
     logger.info(
         f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
-        f"lr={lr}, device={device}, compile={compile}"
+        f"lr={lr}, device={device}, compile={compile}, line_search={line_search}"
     )
 
+    alpha = torch.tensor(lr, device=device)
     best_loss = float("inf")
     stale = 0
     total_iters = 0
     converged = False
     pbar = piter(range(max_iters), total=max_iters, desc="Mirror descent")
+    prev_loss, prev_mu, prev_grads = None, None, None
 
     while total_iters < max_iters:
         block_size = min(checkpoint_every, max_iters - total_iters)
         losses = []
         for _ in range(block_size):
-            loss = compute_grad(theta, bp, loss_fn)
+            loss, mu = compute_grad(theta, bp, loss_fn)
             losses.append(loss)
+
             with torch.no_grad():
-                for t in theta:
-                    if t.grad is not None:
-                        t -= lr * t.grad
+                # Adjust alpha using previous iteration's Armijo condition
+                # (delayed by one step to avoid a duplicate BP pass)
+                if (
+                    line_search
+                    and prev_grads is not None
+                    and prev_loss is not None
+                    and prev_mu is not None
+                ):
+                    dot = sum(
+                        (g * (m1 - m2)).sum()
+                        for g, m1, m2 in zip(prev_grads, prev_mu, mu)
+                        if g is not None
+                    )
+                    sufficient = (prev_loss - loss) >= 0.5 * alpha * dot
+                    alpha = torch.where(sufficient, alpha * 1.01, alpha * 0.5)
+
+                prev_grads = [
+                    t.grad.clone() if t.grad is not None else None for t in theta
+                ]
+                prev_loss = loss
+                prev_mu = mu
+
+                # Step: theta = theta - alpha * grad, then normalize
+                for t, g in zip(theta, prev_grads):
+                    if g is not None:
+                        t.sub_(alpha * g)
                         t.grad.zero_()
                 for t in theta:
                     Z = t.logsumexp(list(range(len(t.shape))))
-                    t -= Z
+                    t.sub_(Z)
+
         total_iters += block_size
         pbar.update(block_size)
 
@@ -110,6 +139,8 @@ def mirror_descent(
             f"Mirror descent: loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
             f"stale={stale}/{patience}"
         )
+        if line_search:
+            desc += f", alpha={alpha.item():.2e}"
         pbar.set_description(desc)
         if IS_AGENT:
             logger.info(desc)

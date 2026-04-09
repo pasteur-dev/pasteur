@@ -131,6 +131,7 @@ class MirrorDescentParams(TypedDict):
     patience: int
     device: str
     compile: bool
+    line_search: bool
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
@@ -140,6 +141,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "patience": 50,
     "device": "auto",
     "compile": False,
+    "line_search": True,
 }
 
 
@@ -314,6 +316,7 @@ class PrivBayesSynth(Synth):
         params = {**MIRROR_DESCENT_DEFAULT, **md}
         compress = params.pop("compress", True)
         device = None if params["device"] == "auto" else params["device"]
+        params.pop("device", None)
 
         # Build junction tree
         g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
@@ -334,12 +337,8 @@ class PrivBayesSynth(Synth):
             messages,
             obs,
             self.table_attrs,
-            lr=params["lr"],
-            max_iters=params["max_iters"],
-            ptol=params["ptol"],
-            patience=params["patience"],
             device=device,
-            compile=params["compile"],
+            **params,
         )
 
         # Project clique potentials back to per-observation marginals
