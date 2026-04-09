@@ -765,7 +765,7 @@ def derive_obs_from_model(
 
         # Align naive and compressed representations
         for i, a in enumerate(source):
-            if isinstance(a.sel, int):  # or len(a.sel) == 1:
+            if isinstance(a.sel, int) or len(a.sel) == 1:
                 # Skip single dimension
                 continue
 
