@@ -144,12 +144,14 @@ class FittedPGM:
     def __init__(
         self,
         potentials: list[np.ndarray],
+        raw_theta: list[np.ndarray],
         cliques: list,  # list of CliqueMeta tuples
         clique_names: list[tuple[str, ...]],  # attr name tuples
         n: int,
         loss_fn,
     ):
         self.potentials = potentials
+        self.raw_theta = raw_theta  # pre-BP log-potentials for warm starting
         self.cliques = cliques
         self.clique_names = clique_names
         self.n = n
@@ -245,6 +247,7 @@ def fit_pgm(
     measurements: list[Measurement],
     n: int,
     md_params: dict | None = None,
+    prev_model: FittedPGM | None = None,
 ) -> FittedPGM:
     """Fit a PGM model from measurements using our mirror descent + BP."""
     from ....graph.beliefs import create_messages
@@ -309,9 +312,19 @@ def fit_pgm(
     jt_cliques = list(junction.nodes())
     messages = create_messages(generations, attrs)
 
+    # Warm start: use previous model's raw theta (pre-BP) where cliques match
+    init_potentials = None
+    if prev_model is not None:
+        init_potentials = {}
+        for i, cl in enumerate(jt_cliques):
+            if cl in prev_model.cliques:
+                prev_idx = prev_model.cliques.index(cl)
+                init_potentials[i] = prev_model.raw_theta[prev_idx]
+
     # Run mirror descent
-    potentials, loss_fn = mirror_descent(
-        jt_cliques, messages, obs_list, attrs, device=device, **params
+    potentials, loss_fn, raw_theta = mirror_descent(
+        jt_cliques, messages, obs_list, attrs,
+        device=device, init_potentials=init_potentials, **params
     )
 
-    return FittedPGM(potentials, jt_cliques, clique_names, n, loss_fn)
+    return FittedPGM(potentials, raw_theta, jt_cliques, clique_names, n, loss_fn)

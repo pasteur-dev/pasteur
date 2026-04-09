@@ -230,12 +230,13 @@ class AIM(Synth):
                 new_meas = measure(oracle, table_attrs, [cl], sigma)
                 measurements.extend(new_meas)
 
-                # Refit with warm start
+                # Refit with warm start from previous model
                 model = fit_pgm(
                     table_attrs,
                     measurements,
                     n,
                     {**self.md_params, "max_iters": 1000},
+                    prev_model=model,
                 )
 
                 # Adaptive sigma reduction

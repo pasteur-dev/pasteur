@@ -52,6 +52,7 @@ def mirror_descent(
     device: torch.device | str | None = None,
     compile: int = 10_000_000,
     optim: str = "sgd",
+    init_potentials: dict[int, np.ndarray] | None = None,
     # Backwards compat
     line_search: bool | None = None,
 ) -> list[np.ndarray]:
@@ -72,6 +73,11 @@ def mirror_descent(
 
     # Initialize potentials (uniform weighted prior in log-space)
     theta = create_cliques(cliques, attrs, device=device)
+
+    # Warm start: override with previous model's raw theta (already log-space)
+    if init_potentials:
+        for idx, raw in init_potentials.items():
+            theta[idx] = torch.from_numpy(raw).to(device).float()
 
     theta = [t.requires_grad_(True) for t in theta]
 
@@ -203,6 +209,9 @@ def mirror_descent(
             f"(best loss={best_loss:.6e}, ptol={ptol})."
         )
 
+    # Save raw theta (pre-BP) for warm starting
+    raw_theta = [t.detach().cpu().numpy() for t in theta]
+
     # Final BP pass to get consistent clique potentials
     with torch.no_grad():
         theta_bp = bp(list(theta))
@@ -212,4 +221,4 @@ def mirror_descent(
             p /= p.sum()
             result.append(p)
 
-    return result, loss_fn
+    return result, loss_fn, raw_theta

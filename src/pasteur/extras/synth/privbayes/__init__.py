@@ -323,8 +323,8 @@ class PrivBayesSynth(Synth):
         cliques = list(junction.nodes())
         messages = create_messages(generations, self.table_attrs)
 
-        # Run mirror descent — returns (fitted clique potentials, loss_fn)
-        potentials, loss_fn = mirror_descent(
+        # Run mirror descent — returns (fitted clique potentials, loss_fn, raw_theta)
+        potentials, loss_fn, _ = mirror_descent(
             cliques,
             messages,
             obs,
