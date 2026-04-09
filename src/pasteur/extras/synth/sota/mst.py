@@ -107,7 +107,7 @@ class MST(Synth):
             # Fit 1-way model to estimate errors
             est = fit_pgm(
                 table_attrs, log1, n,
-                {**self.md_params, "max_iters": 2500, "patience": 100},
+                {**self.md_params},
             )
 
             # Compute L1 error on all 2-way candidates (single batched call)
