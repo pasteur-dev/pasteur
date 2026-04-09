@@ -68,7 +68,6 @@ def get_recommended_system_modules() -> list[Module]:
         SeqHist,
     )
 
-    # from .synth.extern import AimSynth, PrivMrfSynth
     from .synth.privbayes import PrivBayesSynth
     from ..synth import IdentSynth
     from .transformers import (
@@ -102,8 +101,6 @@ def get_recommended_system_modules() -> list[Module]:
         # Synthesizers
         IdentSynth.get_factory(),
         PrivBayesSynth.get_factory(),
-        # AimSynth.get_factory(),
-        # PrivMrfSynth.get_factory(),
         # Metrics
         DistributionMetric.get_factory(),
         NumericalHist.get_factory(),
