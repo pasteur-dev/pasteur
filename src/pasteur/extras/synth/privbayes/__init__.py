@@ -131,7 +131,7 @@ class MirrorDescentParams(TypedDict):
     patience: int
     device: str
     compile: bool
-    line_search: bool
+    optim: str  # "sgd", "line_search", or "adam"
     sample: bool
 
 
@@ -142,7 +142,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "patience": 50,
     "device": "auto",
     "compile": 10_000_000,
-    "line_search": True,
+    "optim": "line_search",
     "sample": False,
 }
 
