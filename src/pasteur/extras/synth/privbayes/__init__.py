@@ -327,21 +327,21 @@ class PrivBayesSynth(Synth):
         # heights exist, drop all above the 2nd-lowest to the 2nd-lowest.
         # [0, 2, 3] → [0, 2, 2]. Two heights are fine (direct edge, no
         # round-trip). Three+ create fine→coarse→fine bottlenecks.
-        if compress:
-            height_sets: dict[tuple, list[int]] = {}
-            for _, data in tri.nodes(data=True):
-                key = (data["table"], data["order"], data["attr"], data["value"])
-                height_sets.setdefault(key, []).append(data["height"])
-            for key, hs in height_sets.items():
-                unique = sorted(set(hs))
-                if len(unique) <= 2:
-                    continue
-                # Set everything above 2nd-lowest to 2nd-lowest
-                cap = unique[1]
-                for _, data in tri.nodes(data=True):
-                    k = (data["table"], data["order"], data["attr"], data["value"])
-                    if k == key and data["height"] > cap:
-                        data["height"] = cap
+        # if compress:
+        #     height_sets: dict[tuple, list[int]] = {}
+        #     for _, data in tri.nodes(data=True):
+        #         key = (data["table"], data["order"], data["attr"], data["value"])
+        #         height_sets.setdefault(key, []).append(data["height"])
+        #     for key, hs in height_sets.items():
+        #         unique = sorted(set(hs))
+        #         if len(unique) <= 2:
+        #             continue
+        #         # Set everything above 2nd-lowest to 2nd-lowest
+        #         cap = unique[1]
+        #         for _, data in tri.nodes(data=True):
+        #             k = (data["table"], data["order"], data["attr"], data["value"])
+        #             if k == key and data["height"] > cap:
+        #                 data["height"] = cap
 
         junction = get_junction_tree(tri, self.table_attrs, compress=compress)
         generations = get_message_passing_order(junction)
