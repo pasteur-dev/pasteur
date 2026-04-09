@@ -341,36 +341,23 @@ class PrivBayesSynth(Synth):
             **params,
         )
 
-        # Project clique potentials back to per-observation marginals (probabilities)
-        import torch
+        # Project clique potentials directly to node marginals.
+        # Each node's attributes are a subset of some clique's attributes.
+        # We marginalize (sum out) extra clique dims and remap indices
+        # to the node's native shape. No lossy compress/decompress roundtrip.
+        from ....graph.hugin import AttrMeta, get_attrs as _get_attrs, get_clique_domain
+        from ....graph.loss import get_smallest_parent, get_parent_meta
+        from ....graph.beliefs import convert_sel
 
-        # Move to same device as loss_fn parameters
-        loss_device = next(loss_fn.parameters()).device
-        theta_torch = [
-            torch.from_numpy(p).float().log().to(loss_device) for p in potentials
-        ]
-        projected = loss_fn.project_marginals(theta_torch)
-
-        # Scale back to counts for sampling
-        projected = [p * self.n for p in projected]
-
-        # Store for diagnostics
         self.md_obs = obs
-        self.md_projected = projected
-
-        # Map projected marginals (in obs/source ordering) back to
-        # the original marginal ordering used by sample_rows.
-        # derive_obs_from_model applied: transpose(orig->vals) + reshape + alignment.
-        # We need to invert this for each node.
-        from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
 
         md_marginals = list(self.marginals)
-        for idx, (node, obs_i, corr) in enumerate(zip(self.nodes, obs, projected)):
+        for idx, node in enumerate(self.nodes):
             orig_marg = self.marginals[idx]
 
-            # Rebuild orig and vals lists (same logic as derive_obs_from_model)
+            # Build the node's source AttrMeta (same as derive_obs_from_model)
             out = []
-            orig_order = []
+            orig = []
             used_parent = False
             for s in node.p:
                 if len(s) == 3:
@@ -379,14 +366,12 @@ class PrivBayesSynth(Synth):
                     table_sel = None
                     attr_name, sel = s
                 if isinstance(table_sel, tuple):
-                    table = table_sel[0]
-                    order = table_sel[1]
+                    table, order = table_sel[0], table_sel[1]
                 else:
-                    table = table_sel
-                    order = None
+                    table, order = table_sel, None
                 attr = _get_attrs(self.table_attrs, table, order)[attr_name]
                 if isinstance(sel, int):
-                    orig_order.append((table, order, attr_name, None))
+                    orig.append((table, order, attr_name, None))
                 else:
                     cmn = attr.common.name if attr.common else None
                     new_sel = []
@@ -394,88 +379,73 @@ class PrivBayesSynth(Synth):
                         if val == cmn:
                             continue
                         new_sel.append((val, h))
-                        orig_order.append((table, order, attr_name, val))
+                        orig.append((table, order, attr_name, val))
                     if node.attr == attr_name:
                         new_sel.append((node.value, 0))
                         used_parent = True
                     new_sel = tuple(sorted(new_sel))
-                    out.append(AttrMeta(table, order, attr_name, new_sel))
-                    continue
-                out.append(AttrMeta(table, order, attr_name, sel))
-
+                out.append(AttrMeta(table, order, attr_name, new_sel))
             if not used_parent:
                 out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
-            orig_order.append((None, None, node.attr, node.value))
+            orig.append((None, None, node.attr, node.value))
 
             source = tuple(sorted(out, key=lambda x: x[:-1]))
-            vals_order = list(
-                chain.from_iterable(
-                    (
-                        [(a.table, a.order, a.attr, None)]
-                        if isinstance(a.sel, int)
-                        else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
-                    )
-                    for a in source
-                )
-            )
 
-            # corr is in source shape (per-attribute compressed combined domains).
-            # First, undo the alignment step for multi-value attributes
-            # (expand compressed combined domain back to naive per-value product).
+            # Find the parent clique and get projection metadata
+            parent = get_smallest_parent(source, cliques, self.table_attrs)
+            parent_idx = cliques.index(parent)
+            meta = get_parent_meta(source, parent, self.table_attrs)
+
+            # Start with fitted clique marginal (probability space)
+            proc = potentials[parent_idx].copy()
+
+            # Sum out dimensions not in the node
+            if meta.sum_dims:
+                proc = np.sum(proc, axis=meta.sum_dims)
+
+            # Remap indices from clique domain to node's source domain
+            if meta.idx is not None:
+                proc = proc.transpose(meta.transpose)
+                og_shape = proc.shape
+                a_idx_dom = 1
+                for d in og_shape[: len(meta.b_doms)]:
+                    a_idx_dom *= d
+                b_idx_dom = 1
+                for d in meta.b_doms:
+                    b_idx_dom *= d
+                rest_dom = 1
+                for d in og_shape[len(meta.b_doms) :]:
+                    rest_dom *= d
+                proc = proc.reshape((a_idx_dom, -1))
+                out = np.zeros((b_idx_dom, rest_dom), dtype=proc.dtype)
+                np.add.at(out, meta.idx, proc)
+                new_shape = list(meta.b_doms) + list(og_shape[len(meta.b_doms) :])
+                proc = out.reshape(new_shape).transpose(meta.transpose_undo)
+
+            # proc is now in source shape (one compressed dim per attribute).
+            # Expand each compressed attr dim to per-value naive dims.
+            vals_order = []
             per_val_shape = []
-            for dim_i, a in enumerate(source):
+            for a in source:
                 if isinstance(a.sel, int):
                     attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
                     per_val_shape.append(attr.common.get_domain(a.sel))
+                    vals_order.append((a.table, a.order, a.attr, None))
                 else:
                     attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
-                    naive_dom = 1
-                    for val, h in a.sel:
-                        naive_dom *= attr[val].get_domain(h)
-                    compressed_dom = attr.get_domain(dict(a.sel))
-                    if naive_dom != compressed_dom:
-                        # Undo alignment: expand compressed -> naive domain
-                        # The forward used np.add.at(tmp, o_map, src[i_map])
-                        # Inverse: distribute compressed probs to naive entries
-                        i_map = tuple(
-                            (
-                                attr.get_naive_mapping(dict(a.sel))
-                                if j == dim_i
-                                else slice(None)
-                            )
-                            for j in range(len(corr.shape))
-                        )
-                        o_map = tuple(
-                            attr.get_mapping(dict(a.sel)) if j == dim_i else slice(None)
-                            for j in range(len(corr.shape))
-                        )
-                        # Count how many naive entries map to each compressed entry
-                        mapping = attr.get_mapping(dict(a.sel))
-                        counts = np.bincount(mapping, minlength=compressed_dom).astype(
-                            np.float32
-                        )
-                        counts_shape = [1] * len(corr.shape)
-                        counts_shape[dim_i] = compressed_dom
-                        # Distribute proportionally
-                        expanded_shape = list(corr.shape)
-                        expanded_shape[dim_i] = naive_dom
-                        expanded = np.zeros(expanded_shape, dtype=np.float32)
-                        expanded[i_map] = (
-                            corr[o_map] / counts.reshape(counts_shape)[o_map]
-                        )
-                        corr = expanded
                     for val, h in a.sel:
                         per_val_shape.append(attr[val].get_domain(h))
+                        vals_order.append((a.table, a.order, a.attr, val))
 
-            # Reshape from combined per-attribute to individual per-value dims
-            corr_expanded = corr.reshape(per_val_shape)
+            # Reshape compressed dims to per-value dims
+            proc = proc.reshape(per_val_shape)
 
-            # Inverse transpose: vals_order -> orig_order
-            inv_perm = [vals_order.index(v) for v in orig_order]
-            corr_orig = corr_expanded.transpose(inv_perm)
+            # Transpose from source (alphabetical) order to orig (node) order
+            inv_perm = [vals_order.index(v) for v in orig]
+            proc = proc.transpose(inv_perm)
 
-            corr_orig = corr_orig.reshape(orig_marg.shape)
-            md_marginals[idx] = corr_orig
+            # Scale to counts and store
+            md_marginals[idx] = proc.reshape(orig_marg.shape) * self.n
 
         self.md_marginals = md_marginals
 
