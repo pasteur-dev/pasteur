@@ -378,11 +378,13 @@ class PrivBayesSynth(Synth):
         md_marginals = list(self.marginals)
         for idx, node in enumerate(self.nodes):
             orig_marg = self.marginals[idx]
+            o = obs[idx]
 
-            # Build the node's source AttrMeta (same as derive_obs_from_model)
-            out = []
+            # Reuse observation's source (same AttrMeta as derive_obs_from_model)
+            source = o.source
+
+            # Rebuild orig order for transpose (node's native dim ordering)
             orig = []
-            used_parent = False
             for s in node.p:
                 if len(s) == 3:
                     table_sel, attr_name, sel = s
@@ -393,30 +395,28 @@ class PrivBayesSynth(Synth):
                     table, order = table_sel[0], table_sel[1]
                 else:
                     table, order = table_sel, None
-                attr = _get_attrs(self.table_attrs, table, order)[attr_name]
                 if isinstance(sel, int):
                     orig.append((table, order, attr_name, None))
                 else:
+                    attr = _get_attrs(self.table_attrs, table, order)[attr_name]
                     cmn = attr.common.name if attr.common else None
-                    new_sel = []
                     for val, h in sel.items():
                         if val == cmn:
                             continue
-                        new_sel.append((val, h))
                         orig.append((table, order, attr_name, val))
-                    if node.attr == attr_name:
-                        new_sel.append((node.value, 0))
-                        used_parent = True
-                    new_sel = tuple(sorted(new_sel))
-                out.append(AttrMeta(table, order, attr_name, new_sel))
-            if not used_parent:
-                out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
             orig.append((None, None, node.attr, node.value))
 
-            source = tuple(sorted(out, key=lambda x: x[:-1]))
-
             # Find the parent clique and get projection metadata
-            parent = get_smallest_parent(source, cliques, self.table_attrs)
+            from ....graph.loss import get_parents
+            parents = get_parents(source, cliques)
+            if not parents:
+                # No compatible clique — keep original marginal
+                logger.warning(
+                    f"Node {idx} ({node.attr}.{node.value}): no parent clique found, "
+                    f"keeping original marginal"
+                )
+                continue
+            parent = min(parents, key=lambda x: get_clique_domain(x, self.table_attrs))
             parent_idx = cliques.index(parent)
             meta = get_parent_meta(source, parent, self.table_attrs)
 
@@ -450,18 +450,41 @@ class PrivBayesSynth(Synth):
             # Expand each compressed attr dim to per-value naive dims.
             vals_order = []
             per_val_shape = []
-            for a in source:
+            for dim_i, a in enumerate(source):
                 if isinstance(a.sel, int):
                     attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
                     per_val_shape.append(attr.common.get_domain(a.sel))
                     vals_order.append((a.table, a.order, a.attr, None))
                 else:
                     attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
+                    naive_dom = 1
+                    for val, h in a.sel:
+                        naive_dom *= attr[val].get_domain(h)
+                    compressed_dom = attr.get_domain(dict(a.sel))
+
+                    if naive_dom != compressed_dom:
+                        # Expand compressed dim using index mappings
+                        i_map = tuple(
+                            attr.get_naive_mapping(dict(a.sel))
+                            if j == dim_i else slice(None)
+                            for j in range(len(proc.shape))
+                        )
+                        o_map = tuple(
+                            attr.get_mapping(dict(a.sel))
+                            if j == dim_i else slice(None)
+                            for j in range(len(proc.shape))
+                        )
+                        expanded_shape = list(proc.shape)
+                        expanded_shape[dim_i] = naive_dom
+                        expanded = np.zeros(expanded_shape, dtype=proc.dtype)
+                        expanded[i_map] = proc[o_map]
+                        proc = expanded
+
                     for val, h in a.sel:
                         per_val_shape.append(attr[val].get_domain(h))
                         vals_order.append((a.table, a.order, a.attr, val))
 
-            # Reshape compressed dims to per-value dims
+            # Reshape to per-value dims
             proc = proc.reshape(per_val_shape)
 
             # Transpose from source (alphabetical) order to orig (node) order
