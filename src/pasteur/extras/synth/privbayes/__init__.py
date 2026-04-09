@@ -304,29 +304,32 @@ class PrivBayesSynth(Synth):
     def _fit_mirror_descent(self):
         from ....graph.beliefs import create_messages
         from ....graph.hugin import (
-            get_junction_tree_from_cliques,
+            find_elim_order,
+            get_junction_tree,
             get_message_passing_order,
+            to_moral,
         )
         from ....graph.loss import LinearObservation
         from ....graph.mirror_descent import mirror_descent
 
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}
-        params.pop("compress", None)
+        compress = params.pop("compress", True)
         device = None if params["device"] == "auto" else params["device"]
         params.pop("device", None)
 
-        # Build observations first (we need sources for the junction tree)
-        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
-
-        # Build junction tree directly from observation sources — no moralization
-        # or triangulation, so no fill cliques without observations.
-        obs_cliques = [o.source for o in obs]
-        junction = get_junction_tree_from_cliques(obs_cliques, self.table_attrs)
+        # Build junction tree
+        g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
+        mg = to_moral(g)
+        _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
+        junction = get_junction_tree(tri, self.table_attrs, compress=compress)
         generations = get_message_passing_order(junction)
         cliques = list(junction.nodes())
         messages = create_messages(generations, self.table_attrs)
+
+        # Build observations, normalize to probabilities
+        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
+        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
 
         # Run mirror descent — returns (fitted clique potentials, loss_fn)
         potentials, loss_fn = mirror_descent(
@@ -347,9 +350,6 @@ class PrivBayesSynth(Synth):
         from ....graph.beliefs import convert_sel
 
         self.md_obs = obs
-        self.md_potentials = potentials
-        self.md_cliques = cliques
-        self.md_loss_fn = loss_fn
 
         md_marginals = list(self.marginals)
         for idx, node in enumerate(self.nodes):

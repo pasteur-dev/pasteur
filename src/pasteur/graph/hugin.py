@@ -109,40 +109,6 @@ def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttrib
     return get_clique_domain(meta, attrs)
 
 
-def get_junction_tree_from_cliques(
-    cliques: Sequence[CliqueMeta],
-    attrs: DatasetAttributes,
-    metric: Literal["domain", "common"] = "domain",
-):
-    """Build a junction tree directly from CliqueMeta tuples.
-
-    Skips moralization and triangulation — uses the given cliques as-is.
-    The running intersection property may not hold if the cliques don't
-    come from a chordal graph."""
-    from itertools import combinations as _combinations
-
-    def shared_attrs(a: CliqueMeta, b: CliqueMeta) -> int:
-        count = 0
-        for am in a:
-            for bm in b:
-                if am.table == bm.table and am.order == bm.order and am.attr == bm.attr:
-                    count += 1
-        return count
-
-    full_tree = nx.Graph()
-    for a, b in _combinations(cliques, 2):
-        common = shared_attrs(a, b)
-        if common > 0:
-            full_tree.add_edge(a, b, common=common, domain=common)
-
-    # Add isolated cliques (no shared vars with any other)
-    for cl in cliques:
-        if cl not in full_tree:
-            full_tree.add_node(cl)
-
-    return nx.maximum_spanning_tree(full_tree, weight=metric)
-
-
 def elimination_order_greedy(
     g: nx.Graph,
     attrs: DatasetAttributes,
