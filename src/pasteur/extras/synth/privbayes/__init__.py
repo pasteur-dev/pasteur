@@ -763,26 +763,41 @@ def derive_obs_from_model(
             i += l
         new_obs = new_obs.reshape(new_dom)
 
-        # Align naive and compressed representations
+        # Align naive and compressed representations.
+        # The data is at per-value coarse resolution (not leaf level).
+        # get_naive_mapping/get_mapping return leaf-level arrays, so we must
+        # deduplicate to avoid reading the same naive cell multiple times.
         for i, a in enumerate(source):
-            if isinstance(a.sel, int) or len(a.sel) == 1:
-                # Skip single dimension
+            if isinstance(a.sel, int):
                 continue
 
             attr = get_attrs(attrs, a.table, a.order)[a.attr]
+            naive_dom = new_obs.shape[i]
+            compressed_dom = attr.get_domain(dict(a.sel))
+
+            if naive_dom == compressed_dom:
+                # No actual compression needed — domains match.
+                continue
+
+            # Deduplicate leaf-level mappings to get naive→compressed mapping.
+            # Multiple leaves can map to the same naive cell; we only want
+            # each naive cell read once.
+            raw_naive = attr.get_naive_mapping(dict(a.sel))
+            raw_compressed = attr.get_mapping(dict(a.sel))
+            _, unique_idx = np.unique(raw_naive, return_index=True)
+            naive_idx = raw_naive[unique_idx]
+            compressed_idx = raw_compressed[unique_idx]
+
             i_map = tuple(
-                attr.get_naive_mapping(dict(a.sel)) if j == i else slice(None)
+                naive_idx if j == i else slice(None)
                 for j in range(len(new_obs.shape))
             )
             o_map = tuple(
-                attr.get_mapping(dict(a.sel)) if j == i else slice(None)
+                compressed_idx if j == i else slice(None)
                 for j in range(len(new_obs.shape))
             )
             tmp = np.zeros(
-                [
-                    attr.get_domain(dict(a.sel)) if j == i else d
-                    for j, d in enumerate(new_obs.shape)
-                ]
+                [compressed_dom if j == i else d for j, d in enumerate(new_obs.shape)]
             )
             np.add.at(tmp, o_map, new_obs[i_map])  # type: ignore
             new_obs = tmp
