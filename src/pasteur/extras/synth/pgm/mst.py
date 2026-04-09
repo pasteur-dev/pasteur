@@ -100,8 +100,9 @@ class MST(Synth):
     def fit(self, data: dict[str, LazyFrame]):
         import itertools
 
-        import sys
+        import os, sys
         import numpy as np
+        os.environ["JAX_PLATFORMS"] = "cpu"
         from mbi import __file__ as mbi_init
         mechs_dir = str(__import__('pathlib').Path(mbi_init).parent.parent.parent / "mechanisms")
         if mechs_dir not in sys.path:

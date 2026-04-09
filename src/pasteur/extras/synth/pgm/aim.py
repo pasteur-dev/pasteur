@@ -66,8 +66,10 @@ class AIM(Synth[dict[str, Attributes]]):
     def fit(self, data: dict[str, LazyFrame]):
         import itertools
 
-        import sys
+        import os, sys
         import numpy as np
+        # Force JAX to CPU before importing
+        os.environ["JAX_PLATFORMS"] = "cpu"
         # mechanisms/ dir isn't a package — add to path
         from mbi import __file__ as mbi_init
         mechs_dir = str(__import__('pathlib').Path(mbi_init).parent.parent.parent / "mechanisms")
@@ -107,7 +109,7 @@ class AIM(Synth[dict[str, Attributes]]):
             data.cache_marginals(list(candidates.keys()))
 
             mech = AIMimpl(self.e, self.delta, rounds=self.rounds)
-            self.model = mech.run(data, workload)
+            self.model, _ = mech.run(data, workload)
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
