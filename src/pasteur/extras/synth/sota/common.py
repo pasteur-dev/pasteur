@@ -264,7 +264,24 @@ class FittedPGM:
                 probs = marginal / total
             else:
                 probs = np.ones(len(marginal)) / len(marginal)
-            columns[attr_name] = np.random.choice(len(probs), size=n, p=probs)
+            flat_idx = np.random.choice(len(probs), size=n, p=probs)
+
+            if len(attr.vals) == 1:
+                # Single-value attribute: flat index is the column value
+                val_name = next(iter(attr.vals))
+                columns[val_name] = flat_idx
+            elif attr.common:
+                # Common grouping: flat index is the common category,
+                # broadcast to all value columns (decoder handles the rest)
+                for vname in attr.vals:
+                    columns[vname] = flat_idx
+            else:
+                # Multi-value attribute: unravel flat index into per-value columns
+                val_names = list(attr.vals.keys())
+                val_domains = [attr.vals[v].get_domain(0) for v in val_names]
+                multi_idx = np.unravel_index(flat_idx, val_domains)
+                for vname, vidx in zip(val_names, multi_idx):
+                    columns[vname] = vidx
 
         return pd.DataFrame(columns)
 
