@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 import logging
 from math import sqrt
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, _build_request
+from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, _attr_sel
 
 if TYPE_CHECKING:
     pass
@@ -85,7 +85,7 @@ class MST(Synth):
         rho = cdp_rho(self.e, self.delta)
         sigma = sqrt(3 / (2 * rho))
 
-        all_attrs = list(cast(Attributes, table_attrs[None]).keys())
+        all_attrs = get_attr_names(table_attrs)
 
         with MarginalOracle(
             data,
@@ -112,7 +112,10 @@ class MST(Synth):
 
             # Compute L1 error on all 2-way candidates (single batched call)
             candidates = list(itertools.combinations(all_attrs, 2))
-            requests = [_build_request((a, b), table_attrs) for a, b in candidates]
+            requests = [
+                [(a, _attr_sel(a, table_attrs)), (b, _attr_sel(b, table_attrs))]
+                for a, b in candidates
+            ]
             results = oracle.process(requests, postprocess=None)
             weights = {}
             for (a, b), x_raw in zip(candidates, results):

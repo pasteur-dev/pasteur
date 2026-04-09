@@ -20,7 +20,8 @@ from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, _build_request
+from ....utils.progress import piter
+from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, clique_domain_size, _attr_sel
 
 if TYPE_CHECKING:
     pass
@@ -110,7 +111,7 @@ class AIM(Synth):
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
         rho = cdp_rho(self.e, self.delta)
-        all_attrs = list(cast(Attributes, table_attrs[None]).keys())
+        all_attrs = get_attr_names(table_attrs)
         num_attrs = len(all_attrs)
         rounds = self.rounds or 16 * num_attrs
 
@@ -143,7 +144,10 @@ class AIM(Synth):
             logger.info(
                 f"AIM: Computing answers for {len(candidate_list)} candidates"
             )
-            requests = [_build_request(cl, table_attrs) for cl in candidate_list]
+            requests = [
+                [(attr_name, _attr_sel(attr_name, table_attrs)) for attr_name in cl]
+                for cl in candidate_list
+            ]
             results = oracle.process(requests, postprocess=None)
             answers = {
                 cl: r.ravel().astype(np.float64)
@@ -169,6 +173,12 @@ class AIM(Synth):
             # Adaptive loop
             t = 0
             terminate = False
+            PBAR_FMT = " " * 11 + ">>>>>>>  {desc}: {percentage:3.0f}%|{bar}| {n:.5f}/{total:.5f} [{elapsed}<{remaining}]"
+            pbar = piter(
+                None, total=rho, desc="AIM budget", unit="rho",
+                bar_format=PBAR_FMT,
+            )
+            pbar.update(rho_used)
             while not terminate:
                 t += 1
                 remaining = rho - rho_used
@@ -180,8 +190,9 @@ class AIM(Synth):
                     epsilon = sqrt(8 * 0.1 * remaining)
                     terminate = True
 
-                rho_used += 1.0 / 8 * epsilon**2 + 0.5 / sigma**2
-                logger.info(f"AIM round {t}: budget {rho_used:.4f}/{rho:.4f}")
+                step_cost = 1.0 / 8 * epsilon**2 + 0.5 / sigma**2
+                rho_used += step_cost
+                pbar.update(step_cost)
 
                 # Filter candidates by model size
                 size_limit = self.max_model_size * rho_used / rho
@@ -252,6 +263,8 @@ class AIM(Synth):
                         )
                         sigma /= 2
                         epsilon *= 2
+
+            pbar.close()
 
             # Final model
             logger.info(f"AIM: Final fit with {len(measurements)} measurements")

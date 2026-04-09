@@ -1,4 +1,7 @@
-"""Shared utilities for MST and AIM: measurement, CDP, PGM fitting, sampling."""
+"""Shared utilities for MST and AIM: measurement, CDP, PGM fitting, sampling.
+
+Cliques use ATTRIBUTE names (e.g., 'admittime', 'income'), not value names.
+Multi-value attributes are handled internally by the oracle and AttrMeta."""
 
 from __future__ import annotations
 
@@ -72,44 +75,57 @@ def exponential_mechanism(
 
 
 # ============================================================
-# Measurement
+# Attribute helpers
 # ============================================================
-class Measurement(NamedTuple):
-    """A noisy measurement of a marginal clique."""
-
-    clique: tuple[str, ...]
-    noisy: np.ndarray  # noisy count vector (flat)
-    sigma: float  # noise standard deviation
-
-
 def _attr_sel(attr_name: str, attrs: DatasetAttributes):
-    """Build the oracle selector for an attribute at height 0."""
+    """Build the oracle selector for an attribute at height 0.
+
+    Returns int 0 for common-based attrs, dict {val: 0} for multi-value."""
     attr = cast(Attributes, attrs[None])[attr_name]
     if attr.common:
         return 0
     return {v: 0 for v in attr.vals}
 
 
-def _build_request(clique: tuple[str, ...], attrs: DatasetAttributes):
-    """Build a marginal oracle request for a clique at height 0.
-
-    Always returns attributes in sorted order so the marginal array
-    matches the alphabetical AttrMeta ordering used by fit_pgm."""
-    return [(attr_name, _attr_sel(attr_name, attrs)) for attr_name in sorted(clique)]
+def attr_domain_size(attr_name: str, attrs: DatasetAttributes) -> int:
+    """Domain size for a single attribute at height 0."""
+    attr = cast(Attributes, attrs[None])[attr_name]
+    dom = 1
+    for val in attr.vals.values():
+        if attr.common and val.name == attr.common.name:
+            continue
+        dom *= cast(IdxValue, val).get_domain(0)
+    return dom
 
 
 def clique_domain_size(
     clique: tuple[str, ...], attrs: DatasetAttributes
 ) -> int:
-    """Domain size for a clique at height 0."""
+    """Domain size for a clique of attribute names at height 0."""
     dom = 1
     for attr_name in clique:
-        attr = cast(Attributes, attrs[None])[attr_name]
-        for val in attr.vals.values():
-            if attr.common and val.name == attr.common.name:
-                continue
-            dom *= cast(IdxValue, val).get_domain(0)
+        dom *= attr_domain_size(attr_name, attrs)
     return dom
+
+
+def get_attr_names(attrs: DatasetAttributes) -> list[str]:
+    """Get all non-empty attribute names, excluding those with no values."""
+    result = []
+    for attr_name, attr in cast(Attributes, attrs[None]).items():
+        if attr.vals:
+            result.append(attr_name)
+    return result
+
+
+# ============================================================
+# Measurement
+# ============================================================
+class Measurement(NamedTuple):
+    """A noisy measurement of a marginal clique (attribute names)."""
+
+    clique: tuple[str, ...]
+    noisy: np.ndarray  # noisy count vector (flat)
+    sigma: float  # noise standard deviation
 
 
 def measure(
@@ -119,13 +135,18 @@ def measure(
     sigma: float,
     weights: np.ndarray | None = None,
 ) -> list[Measurement]:
-    """Measure marginals at height 0 with Gaussian noise."""
+    """Measure marginals at height 0 with Gaussian noise.
+
+    Cliques are tuples of attribute names."""
     if weights is None:
         weights = np.ones(len(cliques))
     weights = weights / np.linalg.norm(weights)
 
-    # Build requests at height 0
-    requests = [_build_request(clique, attrs) for clique in cliques]
+    # Build oracle requests
+    requests = [
+        [(attr_name, _attr_sel(attr_name, attrs)) for attr_name in clique]
+        for clique in cliques
+    ]
 
     results = oracle.process(requests, postprocess=None)
 
@@ -154,23 +175,17 @@ class FittedPGM:
         loss_fn,
     ):
         self.potentials = potentials
-        self.raw_theta = raw_theta  # pre-BP log-potentials for warm starting
+        self.raw_theta = raw_theta
         self.cliques = cliques
         self.clique_names = clique_names
         self.n = n
         self.loss_fn = loss_fn
 
-    def project(
-        self, clique: tuple[str, ...], attrs: DatasetAttributes
-    ) -> np.ndarray:
-        """Project fitted model to a marginal over the given attrs."""
-        from ....graph.loss import get_parents
-        from ....graph.hugin import get_clique_domain, AttrMeta, get_attrs
-        from ....graph.beliefs import convert_sel
-
-        # Build source meta for the requested clique
+    def _build_source(self, clique: tuple[str, ...], attrs: DatasetAttributes):
+        """Build AttrMeta source tuple for an attribute-name clique."""
+        from ....graph.hugin import AttrMeta, get_attrs
         source = []
-        for attr_name in sorted(clique):
+        for attr_name in clique:
             attr = get_attrs(attrs, None, None)[attr_name]
             if attr.common:
                 sel: int | tuple = 0
@@ -178,41 +193,39 @@ class FittedPGM:
                 vals = [(v, 0) for v in attr.vals]
                 sel = tuple(sorted(vals))
             source.append(AttrMeta(None, None, attr_name, sel))
-        source_tuple = tuple(source)
+        return tuple(sorted(source, key=lambda x: x[:-1]))
+
+    def project(
+        self, clique: tuple[str, ...], attrs: DatasetAttributes
+    ) -> np.ndarray:
+        """Project fitted model to a marginal over the given attrs."""
+        from ....graph.loss import get_parents
+        from ....graph.hugin import get_clique_domain
+
+        source_tuple = self._build_source(clique, attrs)
 
         parents = get_parents(source_tuple, self.cliques)
         if not parents:
-            # Try to find a clique that contains all requested attrs
-            for i, cl_names in enumerate(self.clique_names):
-                if set(clique).issubset(set(cl_names)):
-                    parent = self.cliques[i]
-                    break
-            else:
-                # No single clique contains all attrs — approximate with
-                # independence: outer product of per-attribute marginals
-                marginals = []
-                for attr_name in sorted(clique):
-                    m = self.project((attr_name,), attrs).ravel()
-                    m = m / m.sum() if m.sum() > 0 else m
-                    marginals.append(m)
-                result = marginals[0]
-                for m in marginals[1:]:
-                    result = np.outer(result, m).ravel()
-                return result * self.n
-        else:
-            parent = min(
-                parents, key=lambda x: get_clique_domain(x, attrs)
-            )
+            # No single clique contains all attrs — approximate with
+            # independence: outer product of per-attribute marginals
+            marginals = []
+            for attr_name in clique:
+                m = self.project((attr_name,), attrs).ravel()
+                m = m / m.sum() if m.sum() > 0 else m
+                marginals.append(m)
+            result = marginals[0]
+            for m in marginals[1:]:
+                result = np.outer(result, m).ravel()
+            return result * self.n
 
+        parent = min(parents, key=lambda x: get_clique_domain(x, attrs))
         parent_idx = self.cliques.index(parent)
         proc = self.potentials[parent_idx].copy()
 
         # Sum out dims not in the requested clique
-        parent_attrs = [a.attr for a in parent]
+        requested = {a.attr for a in source_tuple}
         sum_dims = tuple(
-            i
-            for i, a in enumerate(parent)
-            if a.attr not in clique
+            i for i, a in enumerate(parent) if a.attr not in requested
         )
         if sum_dims:
             proc = proc.sum(axis=sum_dims)
@@ -222,17 +235,13 @@ class FittedPGM:
     def synthetic_data(
         self, n: int, attrs: DatasetAttributes
     ) -> pd.DataFrame:
-        """Generate synthetic data by ancestral sampling from the junction tree."""
-        from ....graph.beliefs import convert_sel
-        from ....graph.hugin import get_attrs
-
+        """Generate synthetic data by independent sampling per attribute."""
         all_attrs = cast(Attributes, attrs[None])
         columns = {}
 
-        # For each attribute, find the clique with the smallest domain
-        # that contains it, and sample from the marginal
-        for attr_name in all_attrs:
-            attr = all_attrs[attr_name]
+        for attr_name, attr in all_attrs.items():
+            if not attr.vals:
+                continue
             marginal = self.project((attr_name,), attrs).ravel()
             marginal = marginal.clip(0)
             total = marginal.sum()
@@ -252,8 +261,10 @@ def fit_pgm(
     md_params: dict | None = None,
     prev_model: FittedPGM | None = None,
 ) -> FittedPGM:
-    """Fit a PGM model from measurements using our mirror descent + BP."""
-    from ....graph.beliefs import create_messages
+    """Fit a PGM model from measurements using our mirror descent + BP.
+
+    Measurement cliques are attribute-name tuples."""
+    from ....graph.beliefs import create_messages, convert_sel
     from ....graph.hugin import (
         AttrMeta,
         get_attrs,
@@ -262,7 +273,6 @@ def fit_pgm(
     )
     from ....graph.loss import LinearObservation
     from ....graph.mirror_descent import mirror_descent
-    from ....graph.beliefs import convert_sel
 
     params = {**MIRROR_DESCENT_DEFAULT, **(md_params or {})}
     device = params.pop("device", "auto")
@@ -271,13 +281,14 @@ def fit_pgm(
     params.pop("sample", None)
     params.pop("tree", None)
 
-    # Build CliqueMeta for each measurement clique (at height 0)
+    # Build CliqueMeta for each measurement (attribute-name cliques)
     obs_list = []
     clique_metas = []
     clique_names = []
     for meas in measurements:
+        # Build AttrMeta — sorted alphabetically by (table, order, attr)
         source = []
-        for attr_name in sorted(meas.clique):
+        for attr_name in meas.clique:
             attr = get_attrs(attrs, None, None)[attr_name]
             if attr.common:
                 sel: int | tuple = 0
@@ -285,18 +296,36 @@ def fit_pgm(
                 vals = [(v, 0) for v in attr.vals]
                 sel = tuple(sorted(vals))
             source.append(AttrMeta(None, None, attr_name, sel))
-        source_tuple = tuple(source)
+        source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
         clique_metas.append(source_tuple)
         clique_names.append(meas.clique)
 
-        # Normalize to probabilities, clip negatives
+        # The oracle returns data in the request order (meas.clique order).
+        # AttrMeta is sorted alphabetically. Transpose to match.
         obs = meas.noisy.copy()
-        # Reshape to match source domain
-        shape = []
+
+        # Build per-dim sizes for request order and source order
+        req_dims = []
+        for attr_name in meas.clique:
+            attr = get_attrs(attrs, None, None)[attr_name]
+            sel_val = _attr_sel(attr_name, attrs)
+            d = attr.get_domain(sel_val)
+            req_dims.append(d)
+
+        src_dims = []
         for a in source_tuple:
             attr = get_attrs(attrs, a.table, a.order)[a.attr]
-            shape.append(attr.get_domain(convert_sel(a.sel)))
-        obs = obs.reshape(shape)
+            src_dims.append(attr.get_domain(convert_sel(a.sel)))
+
+        # Reshape to request order, transpose to source order
+        obs = obs.reshape(req_dims)
+        src_attr_names = [a.attr for a in source_tuple]
+        req_attr_names = list(meas.clique)
+        if req_attr_names != src_attr_names:
+            perm = [req_attr_names.index(a) for a in src_attr_names]
+            obs = obs.transpose(perm)
+
+        obs = obs.reshape(src_dims)
         obs = obs.clip(0)
         obs_sum = obs.sum()
         if obs_sum > 0:
@@ -306,7 +335,7 @@ def fit_pgm(
         confidence = n / (n + meas.sigma * obs.size)
         obs_list.append(LinearObservation(source_tuple, None, obs, confidence))
 
-    # Deduplicate clique metas (multiple measurements can map to same clique)
+    # Deduplicate clique metas
     unique_metas = list(dict.fromkeys(clique_metas))
 
     # Build junction tree from unique observation cliques
@@ -315,7 +344,7 @@ def fit_pgm(
     jt_cliques = list(junction.nodes())
     messages = create_messages(generations, attrs)
 
-    # Warm start: use previous model's raw theta (pre-BP) where cliques match
+    # Warm start: use previous model's raw theta where cliques match
     init_potentials = None
     if prev_model is not None:
         init_potentials = {}

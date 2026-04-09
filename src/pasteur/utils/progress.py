@@ -115,7 +115,7 @@ def limit_pbar_nesting(pbar_gen: A) -> A:
 
     @functools.wraps(pbar_gen)
     def closure(*args, **kwargs):
-        return pbar_gen(*args, **kwargs, **get_tqdm_args())
+        return pbar_gen(*args, **{**get_tqdm_args(), **kwargs})
 
     return closure  # type: ignore
 
