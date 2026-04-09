@@ -132,6 +132,7 @@ class MirrorDescentParams(TypedDict):
     device: str
     compile: bool
     line_search: bool
+    sample: bool
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
@@ -142,6 +143,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "device": "auto",
     "compile": 10_000_000,
     "line_search": True,
+    "sample": False,
 }
 
 
@@ -315,6 +317,7 @@ class PrivBayesSynth(Synth):
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}
         compress = params.pop("compress", True)
+        md_sample = params.pop("sample", False)
         device = None if params["device"] == "auto" else params["device"]
         params.pop("device", None)
 
@@ -374,6 +377,8 @@ class PrivBayesSynth(Synth):
         self.md_potentials = potentials
         self.md_cliques = cliques
         self.md_loss_fn = loss_fn
+        self.md_sample = md_sample
+        self.md_junction = junction
 
         md_marginals = list(self.marginals)
         for idx, node in enumerate(self.nodes):
@@ -503,21 +508,88 @@ class PrivBayesSynth(Synth):
         if n is None:
             n = self.n
 
-        marginals = (
-            self.md_marginals if self.md_marginals is not None else self.marginals
-        )
-        tables = {
-            self.table_name: sample_rows(
-                pd.RangeIndex(n),
-                {None: self.attrs[self.table_name]},
-                {},
-                self.nodes,
-                marginals,
+        if getattr(self, "md_sample", False) and self.md_potentials is not None:
+            tables = {
+                self.table_name: self._sample_junction_tree(n, pd.RangeIndex(n))
+            }
+        else:
+            marginals = (
+                self.md_marginals if self.md_marginals is not None else self.marginals
             )
-        }
+            tables = {
+                self.table_name: sample_rows(
+                    pd.RangeIndex(n),
+                    {None: self.attrs[self.table_name]},
+                    {},
+                    self.nodes,
+                    marginals,
+                )
+            }
         ids = {self.table_name: pd.DataFrame()}
 
         return tables_to_data(ids, tables)
+
+    def _sample_junction_tree(self, n: int, idx) -> "pd.DataFrame":
+        import pandas as pd
+        from ....attribute import CatValue as _CatValue
+        from ....graph.sample import (
+            create_sampler_meta,
+            sample_junction_tree,
+            reverse_map_columns,
+        )
+
+        meta = create_sampler_meta(
+            self.md_junction, self.md_cliques, self.table_attrs
+        )
+        sampled = sample_junction_tree(self.md_potentials, meta, n)
+        columns = reverse_map_columns(sampled, meta, self.table_attrs)
+
+        # Convert from clique-tree height to leaf-level indices.
+        # For values sampled at height h > 0, uniformly pick a fine-grained
+        # bin within the coarse bin.
+        main_attrs = self.attrs[self.table_name]
+        out_cols: dict[str, np.ndarray] = {}
+        for val_name, coarse_idx in columns.items():
+            # Find which attribute and CatValue this belongs to
+            cv = None
+            for attr in main_attrs.values():
+                if val_name in attr.vals:
+                    cv = attr[val_name]
+                    break
+            if cv is None or not isinstance(cv, _CatValue):
+                out_cols[val_name] = coarse_idx
+                continue
+
+            # Find the height this was sampled at
+            owner = meta.value_owners.get(
+                (None, None, next(
+                    aname for aname, a in main_attrs.items() if val_name in a.vals
+                ), val_name)
+            )
+            if owner is None or owner.height == 0:
+                # Already at finest level
+                out_cols[val_name] = coarse_idx
+                continue
+
+            # Upsample: map coarse bin → uniform random fine bin
+            h = owner.height
+            mapping = cv.get_mapping(h)  # fine → coarse
+            # Build reverse map: coarse_bin → list of fine bins
+            coarse_dom = cv.get_domain(h)
+            reverse: list[np.ndarray] = [
+                np.where(mapping == c)[0] for c in range(coarse_dom)
+            ]
+            fine_idx = np.empty(n, dtype=np.int64)
+            for c in range(coarse_dom):
+                mask = coarse_idx == c
+                count = int(mask.sum())
+                if count > 0 and len(reverse[c]) > 0:
+                    fine_idx[mask] = np.random.choice(reverse[c], size=count)
+                elif count > 0:
+                    fine_idx[mask] = 0
+            out_cols[val_name] = fine_idx
+
+        return pd.DataFrame(out_cols, index=idx)
 
     def __str__(self) -> str:
         return print_tree(

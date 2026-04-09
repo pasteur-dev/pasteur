@@ -28,13 +28,27 @@ class DimInfo(NamedTuple):
 
 
 class SeparatorDim(NamedTuple):
-    """One shared dimension between parent and child."""
+    """One shared dimension between parent and child (exact match)."""
 
     parent_dim: int
     child_dim: int
     # Mapping from parent compressed index -> child compressed index.
     # None if domains match exactly.
     index_map: np.ndarray | None
+
+
+class MaskedDim(NamedTuple):
+    """A shared dimension where parent is coarser than child.
+
+    The child dimension is sampled (not fixed), but constrained to values
+    compatible with the parent's coarse bin."""
+
+    parent_dim: int
+    child_dim: int
+    child_domain: int
+    # For each parent compressed index, a boolean mask of shape (child_domain,)
+    # indicating which child values are compatible.
+    masks: np.ndarray  # shape (parent_domain, child_domain)
 
 
 class ChildInfo(NamedTuple):
@@ -45,6 +59,8 @@ class ChildInfo(NamedTuple):
     separator: tuple[SeparatorDim, ...]
     # Child dimensions that need to be sampled (not in separator)
     sample_dims: tuple[int, ...]
+    # Dimensions shared with parent but at different resolutions
+    masked_dims: tuple[MaskedDim, ...]
 
 
 class ValueOwner(NamedTuple):
@@ -77,7 +93,7 @@ def _build_index_map(
 ) -> np.ndarray | None:
     """Build a mapping from parent's compressed domain to child's compressed domain.
 
-    Returns None if both use the same sel (domains match)."""
+    Returns None if both use the same sel (domains match exactly)."""
     if parent_meta.sel == child_meta.sel:
         return None
 
@@ -93,6 +109,28 @@ def _build_index_map(
         index_map[pi] = c_map[raw]
 
     return index_map
+
+
+def _build_mask_map(
+    parent_meta: AttrMeta,
+    child_meta: AttrMeta,
+    attrs: DatasetAttributes,
+) -> np.ndarray:
+    """Build a boolean mask (parent_domain, child_domain) for coarser parent.
+
+    mask[pi, ci] is True if child compressed index ci is compatible with
+    parent compressed index pi."""
+    attr = get_attrs(attrs, parent_meta.table, parent_meta.order)[parent_meta.attr]
+    p_map = attr.get_mapping(convert_sel(parent_meta.sel))
+    c_map = attr.get_mapping(convert_sel(child_meta.sel))
+    p_dom = attr.get_domain(convert_sel(parent_meta.sel))
+    c_dom = attr.get_domain(convert_sel(child_meta.sel))
+
+    mask = np.zeros((p_dom, c_dom), dtype=bool)
+    for raw_idx in range(len(p_map)):
+        mask[p_map[raw_idx], c_map[raw_idx]] = True
+
+    return mask
 
 
 def create_sampler_meta(
@@ -141,22 +179,45 @@ def create_sampler_meta(
 
             child_cl = cliques[child_idx]
 
-            # Find separator dims and sample dims
+            # Find separator dims, masked dims, and sample dims
             separator = []
+            masked = []
             sample_dims = []
             for ci, child_meta in enumerate(child_cl):
                 found = False
                 for pi, parent_meta in enumerate(parent_cl):
                     if is_same(child_meta, parent_meta):
-                        idx_map = _build_index_map(parent_meta, child_meta, attrs)
-                        separator.append(SeparatorDim(pi, ci, idx_map))
+                        if parent_meta.sel == child_meta.sel:
+                            # Exact match — fix child value from parent
+                            separator.append(SeparatorDim(pi, ci, None))
+                        else:
+                            # Different resolutions — check if 1-to-1 or coarser
+                            idx_map = _build_index_map(parent_meta, child_meta, attrs)
+                            assert idx_map is not None
+                            p_dom = len(idx_map)
+                            c_dom = dim_info[child_idx][ci].domain
+                            if p_dom >= c_dom:
+                                # Parent is finer or equal — use direct map
+                                separator.append(SeparatorDim(pi, ci, idx_map))
+                            else:
+                                # Parent is coarser — use mask so child
+                                # can sample among compatible fine values
+                                mask_map = _build_mask_map(
+                                    parent_meta, child_meta, attrs
+                                )
+                                masked.append(
+                                    MaskedDim(pi, ci, c_dom, mask_map)
+                                )
                         found = True
                         break
                 if not found:
                     sample_dims.append(ci)
 
             children.append(
-                ChildInfo(parent_idx, child_idx, tuple(separator), tuple(sample_dims))
+                ChildInfo(
+                    parent_idx, child_idx,
+                    tuple(separator), tuple(sample_dims), tuple(masked),
+                )
             )
 
             # Child owns its non-separator attributes
@@ -184,6 +245,18 @@ def create_sampler_meta(
                         value_owners[vkey] = ValueOwner(cl_idx, dim_idx, h)
 
     return SamplerMeta(cliques, dim_info, root, children, attr_owners, value_owners)
+
+
+def _cond_dim(child_dim: int, sep_child_dims: list[int]) -> int:
+    """Map a child clique dim index to its position in the conditional array
+    (after separator dims have been removed by indexing)."""
+    offset = sum(1 for sd in sep_child_dims if sd < child_dim)
+    return child_dim - offset
+
+
+def _cond_dims(dims: list[int], sep_child_dims: list[int]) -> list[int]:
+    """Map multiple child dims to conditional positions."""
+    return [_cond_dim(d, sep_child_dims) for d in dims]
 
 
 def sample_junction_tree(
@@ -221,7 +294,7 @@ def sample_junction_tree(
         child_p = potentials[cidx].copy()
         child_p = child_p.clip(min=0)
 
-        # Get separator values from BFS parent, translated to child domain
+        # Get exact separator values from BFS parent
         sep_vals = []
         sep_child_dims = []
         sep_domains = []
@@ -235,47 +308,79 @@ def sample_junction_tree(
             sep_child_dims.append(sep.child_dim)
             sep_domains.append(meta.dim_info[cidx][sep.child_dim].domain)
 
-        # Store separator values
+        # Store exact separator values
         for sep, vals in zip(child_info.separator, sep_vals):
             sampled[cidx][sep.child_dim] = vals
 
-        sample_dims = child_info.sample_dims
-        if not sample_dims:
+        # Masked dims + sample dims are all sampled together
+        # Masked dims are constrained by parent's coarse value
+        masked_parent_vals = []
+        for md in child_info.masked_dims:
+            masked_parent_vals.append(sampled[pidx][md.parent_dim])
+
+        all_sample_dims = list(child_info.sample_dims) + [
+            md.child_dim for md in child_info.masked_dims
+        ]
+        if not all_sample_dims:
             continue
 
-        sample_shape = tuple(meta.dim_info[cidx][d].domain for d in sample_dims)
+        all_sample_shape = tuple(
+            meta.dim_info[cidx][d].domain for d in all_sample_dims
+        )
 
-        # Encode separator values into a single group key
-        if len(sep_vals) == 1:
-            group_keys = sep_vals[0].astype(np.int64)
+        # Encode separator + masked parent values into group keys
+        # (each unique combination needs separate conditional sampling)
+        all_group_vals = list(sep_vals) + [v.astype(np.int64) for v in masked_parent_vals]
+        all_group_domains = list(sep_domains) + [
+            md.masks.shape[0] for md in child_info.masked_dims
+        ]
+
+        if len(all_group_vals) == 0:
+            group_keys = np.zeros(n, dtype=np.int64)
+        elif len(all_group_vals) == 1:
+            group_keys = all_group_vals[0].astype(np.int64)
         else:
             group_keys = np.zeros(n, dtype=np.int64)
             mul = 1
-            for sv, dom in zip(sep_vals, sep_domains):
+            for sv, dom in zip(all_group_vals, all_group_domains):
                 group_keys += sv.astype(np.int64) * mul
                 mul *= dom
 
         # Sample per group
         out_dims = {
             d: np.empty(n, dtype=get_dtype(max(1, s - 1)))
-            for d, s in zip(sample_dims, sample_shape)
+            for d, s in zip(all_sample_dims, all_sample_shape)
         }
 
         for group_key in np.unique(group_keys):
-            mask = group_keys == group_key
-            group_n = int(mask.sum())
+            row_mask = group_keys == group_key
+            group_n = int(row_mask.sum())
 
-            # Extract conditional: fix separator dims
+            # Extract conditional: fix exact separator dims
             idx = [slice(None)] * len(child_p.shape)
-            if len(sep_vals) == 1:
-                idx[sep_child_dims[0]] = int(group_key)
-            else:
-                remaining = int(group_key)
-                for sd, dom in zip(sep_child_dims, sep_domains):
-                    idx[sd] = remaining % dom
-                    remaining //= dom
+            remaining = int(group_key)
+            for sd, dom in zip(sep_child_dims, sep_domains):
+                idx[sd] = remaining % dom
+                remaining //= dom
+
+            # Get masked parent values for this group
+            masked_parent_group = []
+            for md in child_info.masked_dims:
+                masked_parent_group.append(remaining % md.masks.shape[0])
+                remaining //= md.masks.shape[0]
 
             conditional = child_p[tuple(idx)]
+
+            # Apply masks for coarse-parent dims: zero out incompatible values
+            for md, parent_val in zip(child_info.masked_dims, masked_parent_group):
+                # Find dimension index within conditional (after removing sep dims)
+                cond_dim = _cond_dim(md.child_dim, sep_child_dims)
+                dim_mask = md.masks[parent_val]
+                # Broadcast mask to conditional shape
+                shape = [1] * conditional.ndim
+                shape[cond_dim] = md.child_domain
+                conditional = conditional * dim_mask.reshape(shape)
+
             cond_flat = conditional.ravel()
             cond_sum = cond_flat.sum()
             if cond_sum < 1e-12:
@@ -286,8 +391,10 @@ def sample_junction_tree(
             group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
             group_per_dim = np.unravel_index(group_indices, conditional.shape)
 
-            for j, dim_idx in enumerate(sample_dims):
-                out_dims[dim_idx][mask] = group_per_dim[j]
+            # Map back from conditional dim indices to child clique dim indices
+            cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
+            for j, dim_idx in enumerate(all_sample_dims):
+                out_dims[dim_idx][row_mask] = group_per_dim[cond_dim_list[j]]
 
         for dim_idx, arr in out_dims.items():
             sampled[cidx][dim_idx] = arr
