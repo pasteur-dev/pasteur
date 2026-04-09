@@ -118,9 +118,6 @@ def mirror_descent(
                     if g is not None:
                         t.sub_(alpha * g)
                         t.grad.zero_()
-                for t in theta:
-                    Z = t.logsumexp(list(range(len(t.shape))))
-                    t.sub_(Z)
 
         total_iters += block_size
         pbar.update(block_size)
