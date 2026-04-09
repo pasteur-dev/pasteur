@@ -4,15 +4,15 @@ from typing import Sequence
 import numpy as np
 import torch
 
-from ...utils.progress import piter, IS_AGENT
+from ..utils.progress import piter, IS_AGENT
 
-from ...attribute import DatasetAttributes
-from ..hugin import (
+from ..attribute import DatasetAttributes
+from .hugin import (
     CliqueMeta,
 )
-from ..loss import LinearObservation
-from .beliefs import BeliefPropagationSingle, torch_create_cliques
-from .loss import LinearLoss
+from .loss import LinearObservation
+from .beliefs import BeliefPropagation, create_cliques
+from .linear_loss import LinearLoss
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +38,11 @@ def mirror_descent(
         device = torch.device(device)
 
     # Build modules
-    bp = BeliefPropagationSingle(cliques, messages).to(device)
+    bp = BeliefPropagation(cliques, messages).to(device)
     loss_fn = LinearLoss(obs, cliques, attrs).to(device)
 
     # Initialize potentials (uniform weighted prior in log-space)
-    theta = torch_create_cliques(cliques, attrs, device=device)
+    theta = create_cliques(cliques, attrs, device=device)
     theta = [t.requires_grad_(True) for t in theta]
 
     def compute_grad(theta, bp, loss_fn):

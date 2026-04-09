@@ -310,7 +310,7 @@ class PrivBayesSynth(Synth):
             to_moral,
         )
         from ....graph.loss import LinearObservation
-        from ....graph.torch.mirror_descent import mirror_descent
+        from ....graph.mirror_descent import mirror_descent
 
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}

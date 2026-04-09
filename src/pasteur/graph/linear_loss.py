@@ -4,10 +4,9 @@ from typing import NamedTuple, Sequence
 import numpy as np
 import torch
 
-from ...attribute import DatasetAttributes
-from ..hugin import CliqueMeta
-from ..loss import LinearObservation, ParentMeta, get_parent_meta, get_smallest_parent
-from .beliefs import torch_to_mapping_repr
+from ..attribute import DatasetAttributes
+from .hugin import CliqueMeta
+from .loss import LinearObservation, ParentMeta, get_parent_meta, get_smallest_parent
 
 
 class TorchParentMeta(NamedTuple):

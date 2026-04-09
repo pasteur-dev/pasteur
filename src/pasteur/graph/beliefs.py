@@ -1,22 +1,15 @@
 from functools import reduce
 from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
     NamedTuple,
-    Protocol,
     Sequence,
-    TypeVar,
 )
 
 import numpy as np
+import torch
 
 from ..attribute import DatasetAttributes, get_dtype
 from .hugin import CliqueMeta, get_attrs
 
-
-A = TypeVar("A")
-B = TypeVar("B", covariant=True)
 
 def deduplicate(arr1, arr2):
     check = set()
@@ -43,9 +36,6 @@ class Message:
 
     # This message can be either part of the forward pass (a -> b before b -> a)
     # or part of the backward pass.
-    # If it's part of the backward pass, the forward message (b -> a)
-    # which has been sent needs to be subtracted from it, so a version of the
-    # forward message that is broadcastable has to be stored during the forward pass.
     forward: bool
 
     # The broadcastable version will contain a subset of dims, the others
@@ -167,7 +157,7 @@ def get_clique_weights(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
             attr = get_attrs(attrs, meta.table, meta.order)[meta.attr]
             mapping = attr.get_mapping(convert_sel(meta.sel))
             dom = attr.get_domain(convert_sel(meta.sel))
-            
+
             w = np.zeros(dom)
             np.add.at(w, mapping, 1)
             w /= len(mapping)
@@ -176,94 +166,10 @@ def get_clique_weights(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
     return weights
 
 
-def numpy_create_cliques(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
-    out = []
-    for shape, weight in zip(
-        get_clique_shapes(cliques, attrs), get_clique_weights(cliques, attrs)
-    ):
-        v = np.array(1.0)
-        for s, w in zip(shape, weight):
-            v = np.expand_dims(v, -1) * w
-            assert v.shape[-1] == s
-        out.append(v)
-    return out
+# --- Torch belief propagation ---
 
 
-def numpy_gen_multi_index(messages: Sequence[Message]):
-    index_args = []
-    for m in messages:
-        index_args.append(
-            tuple(
-                # np.unique(np.stack([idx.a_map, idx.b_map]), axis=1)
-                deduplicate(idx.a_map, idx.b_map)
-                if idx is not None
-                else None
-                for idx in m.index_args
-            )
-        )
-    return tuple(index_args)
-
-
-def numpy_perform_pass_multi_index(
-    cliques: dict[CliqueMeta, np.ndarray],
-    messages: Sequence[Message],
-    index_args: tuple[tuple[np.ndarray | None, ...], ...],
-):
-    done = {}
-    for i, m in enumerate(messages):
-        # Start with clique
-        proc = cliques[m.a]
-
-        if m.sum_dims:
-            proc = np.sum(proc, axis=m.sum_dims)
-
-        # If backward pass, divide out the forward message to avoid double-counting
-        if not m.forward:
-            proc = proc / done[(m.b, m.a)]
-
-        # Apply indexing ops
-        assert len(m.index_args) == len(proc.shape)
-        for j, ia in enumerate(m.index_args):
-            if not ia:
-                continue
-            op = index_args[i][j]
-            assert op is not None
-
-            new_dom = ia.b_dom
-            a_slice = [
-                op[0, :] if k == j else slice(None) for k in range(len(proc.shape))
-            ]
-            b_slice = [
-                op[1, :] if k == j else slice(None) for k in range(len(proc.shape))
-            ]
-            tmp = np.zeros([new_dom if j == k else s for k, s in enumerate(proc.shape)])
-            tmp2 = proc[tuple(a_slice)]
-            np.add.at(tmp, tuple(b_slice), tmp2)  # type: ignore
-            proc = tmp
-
-        # Keep version for backprop
-        if m.forward:
-            done[(m.a, m.b)] = proc
-
-        # Expand dims
-        shape = proc.shape
-        new_shape = []
-        ofs = 0
-        for is_common in m.reshape_dims:
-            if is_common:
-                new_shape.append(shape[ofs])
-                ofs += 1
-            else:
-                new_shape.append(1)
-        proc = proc.reshape(new_shape)
-
-        # Apply to clique (multiplicative absorption)
-        cliques[m.b] = cliques[m.b] * proc
-
-    return cliques
-
-
-class NumpyIndexArgs(NamedTuple):
+class _NumpyIndexArgs(NamedTuple):
     transpose: tuple[int, ...]
     transpose_undo: tuple[int, ...]
 
@@ -271,7 +177,8 @@ class NumpyIndexArgs(NamedTuple):
     idx_b: np.ndarray
     b_doms: tuple[int, ...]
 
-def numpy_gen_args(messages: Sequence[Message]):
+
+def _numpy_gen_args(messages: Sequence[Message]):
     index_args = []
     for m in messages:
         transpose_front = []
@@ -284,7 +191,6 @@ def numpy_gen_args(messages: Sequence[Message]):
 
         for i, arg in enumerate(m.index_args):
             if arg:
-                # uniques = np.unique(np.stack([arg.a_map, arg.b_map]), axis=1)
                 uniques = deduplicate(arg.a_map, arg.b_map)
                 idx_a_dims.append(uniques[0, :])
                 idx_a_doms.append(arg.a_dom)
@@ -295,8 +201,6 @@ def numpy_gen_args(messages: Sequence[Message]):
             else:
                 transpose_back.append(i)
 
-        # When reshaping is not needed, the `if arg` block
-        # of the loop won't run so arrays will be empty. SKip.
         if not idx_a_dims:
             index_args.append(None)
             continue
@@ -322,74 +226,176 @@ def numpy_gen_args(messages: Sequence[Message]):
         transpose = tuple(transpose_front + transpose_back)
         transpose_undo = tuple(transpose.index(i) for i in range(len(transpose)))
         index_args.append(
-            NumpyIndexArgs(transpose, transpose_undo, idx_a, idx_b, b_doms)
+            _NumpyIndexArgs(transpose, transpose_undo, idx_a, idx_b, b_doms)
         )
 
     return tuple(index_args)
 
 
-def numpy_perform_pass(
-    cliques: dict[CliqueMeta, np.ndarray],
-    messages: Sequence[Message],
-    args: tuple[NumpyIndexArgs | None, ...],
+class _TorchIndexArgs(NamedTuple):
+    transpose: tuple[int, ...]
+    transpose_undo: tuple[int, ...]
+    b_doms: tuple[int, ...]
+    idx_a: int | None
+    idx_b: int | None
+
+
+def _torch_gen_args(messages: Sequence[Message]):
+    args = []
+    idx_a = []
+    idx_b = []
+    for a in _numpy_gen_args(messages):
+        if a:
+            idx_a_idx = idx_b_idx = None
+            if a.idx_a[-1] != len(a.idx_a) - 1:
+                idx_a_idx = len(idx_a)
+                idx_a.append(
+                    torch.nn.Parameter(
+                        torch.from_numpy(a.idx_a.astype("int64")), requires_grad=False
+                    )
+                )
+            if a.idx_b[-1] != len(a.idx_b) - 1:
+                idx_b_idx = len(idx_b)
+                idx_b.append(
+                    torch.nn.Parameter(
+                        torch.from_numpy(a.idx_b.astype("int64")), requires_grad=False
+                    )
+                )
+
+            args.append(
+                _TorchIndexArgs(
+                    a.transpose, a.transpose_undo, a.b_doms, idx_a_idx, idx_b_idx
+                )
+            )
+        else:
+            args.append(None)
+
+    return args, torch.nn.ParameterList(idx_a), torch.nn.ParameterList(idx_b)
+
+
+def create_cliques(
+    cliques: Sequence[CliqueMeta],
+    attrs: DatasetAttributes,
+    device: "torch.device | None" = None,
 ):
-    done = {}
-    for i, m in enumerate(messages):
-        # Start with clique
-        proc: np.ndarray = cliques[m.a]
+    out = []
+    for shape, weight in zip(
+        get_clique_shapes(cliques, attrs), get_clique_weights(cliques, attrs)
+    ):
+        v = torch.scalar_tensor(1).to(device)
+        for s, w in zip(shape, weight):
+            v = torch.from_numpy(w).type(torch.float32).to(device) * v.unsqueeze(-1)
+            assert v.shape[-1] == s
+        out.append(v.log())
+    return out
 
-        if m.sum_dims:
-            proc = np.sum(proc, axis=m.sum_dims)
 
-        # If backward pass, divide out the forward message to avoid double-counting
-        if not m.forward:
-            proc = proc / done[(m.b, m.a)]
+class BeliefPropagation(torch.nn.Module):
+    def __init__(
+        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
+    ) -> None:
+        super().__init__()
+        self.cliques = cliques
+        self.messages = messages
+        self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
+        self.args, self.idx_a, self.idx_b = _torch_gen_args(messages)
 
-        # Apply single indexing op
-        # Reshape common attributes in cliques a, b that have different heights
-        # by bringing them in front, reshaping the message to have one front dim
-        # and one back dim, and then reindexing the front dim into a new tensor.
-        # By combining all indexing ops into one big op, memory accesses are minimized.
-        # By bringing the indexing dims to the front, spatial locality is maximized.
-        arg = args[i]
-        if arg:
-            proc = proc.transpose(arg.transpose)
-            og_shape = proc.shape
+    def forward(self, theta: Sequence[torch.Tensor], debug: bool = False):
+        theta = list(theta)
+        if debug:
+            print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
 
-            # Find domains of front dimensions and back dimension
-            # the front dimension changes during indexing, the back stays the same.
-            a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
-            b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
-            rest_dom = reduce(lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1)
+        with torch.no_grad():
+            # Shafer-Shenoy: for message a→b, build belief at a from
+            # original potential + all incoming messages except from b,
+            # then marginalize. Avoids the numerically unstable
+            # subtraction of the Hugin algorithm.
+            received: dict[int, list[tuple[torch.Tensor, int]]] = {}
 
-            # Perform index add on new tensor
-            tmp = np.zeros((b_idx_dom, rest_dom), dtype="float64")
-            tmp2 = proc.reshape((a_idx_dom, -1))[arg.idx_a]
-            # np.add.at(tmp, arg.idx_b, tmp2)
-            tmp[arg.idx_b] += tmp2
+            for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
+                # Build belief at a excluding message from b
+                proc = theta[a_idx]
+                if a_idx in received:
+                    for msg, from_idx in received[a_idx]:
+                        if from_idx != b_idx:
+                            proc = proc + msg
 
-            # Reshape to individual columns and undo transpose
-            proc = tmp.reshape(
-                list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
-            ).transpose(arg.transpose_undo)
+                if m.sum_dims:
+                    proc = torch.logsumexp(proc, dim=m.sum_dims)
 
-        # Keep version for backprop
-        if m.forward:
-            done[(m.a, m.b)] = proc
+                arg = self.args[i]
+                if arg:
+                    proc = proc.permute(arg.transpose)
+                    og_shape = proc.shape
 
-        # Expand dims
-        shape = proc.shape
-        new_shape = []
-        ofs = 0
-        for is_common in m.reshape_dims:
-            if is_common:
-                new_shape.append(shape[ofs])
-                ofs += 1
-            else:
-                new_shape.append(1)
-        proc = proc.reshape(new_shape)
+                    a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
+                    b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
+                    rest_dom = reduce(
+                        lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1
+                    )
 
-        # Apply to clique (multiplicative absorption)
-        cliques[m.b] = cliques[m.b] * proc
+                    proc = proc.reshape((a_idx_dom, -1))
+                    if arg.idx_a is not None:
+                        proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
+                    if arg.idx_b is not None:
+                        # Stable scatter logsumexp: subtract per-group max
+                        # before exp to avoid float32 underflow, then add back.
+                        idx_b = self.idx_b[arg.idx_b]
+                        idx_exp = idx_b.unsqueeze(1).expand_as(proc)
+                        max_vals = proc.new_full(
+                            (b_idx_dom, rest_dom), float("-inf")
+                        )
+                        max_vals.scatter_reduce_(
+                            0, idx_exp, proc, reduce="amax", include_self=True
+                        )
+                        shifted = proc - max_vals.gather(0, idx_exp)
+                        shifted = shifted.nan_to_num(0.0)  # -inf - (-inf) -> 0
+                        result = proc.new_zeros((b_idx_dom, rest_dom))
+                        result.index_add_(0, idx_b, shifted.exp())
+                        proc = result.log() + max_vals
 
-    return cliques
+                    new_shape = list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
+                    proc = proc.reshape(new_shape).permute(arg.transpose_undo)
+
+                # Broadcast reshape to target clique shape
+                shape = proc.shape
+                new_shape = []
+                ofs = 0
+                for is_common in m.reshape_dims:
+                    if is_common:
+                        new_shape.append(shape[ofs])
+                        ofs += 1
+                    else:
+                        new_shape.append(1)
+                proc = proc.reshape(new_shape)
+
+                if debug:
+                    print(
+                        a_idx,
+                        b_idx,
+                        proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
+                        m.forward,
+                    )
+
+                if b_idx not in received:
+                    received[b_idx] = []
+                received[b_idx].append((proc, a_idx))
+
+            # Compute final beliefs: original potential + all received messages
+            theta = list(theta)
+            for idx in range(len(theta)):
+                if idx in received:
+                    for msg, _ in received[idx]:
+                        theta[idx] = theta[idx] + msg
+
+            # Normalize resulting cliques
+            if debug:
+                print(
+                    "Z: ",
+                    [float(t.logsumexp(list(range(len(t.shape))))) for t in theta],
+                )
+            for i in range(len(theta)):
+                Z = theta[i].logsumexp(list(range(len(theta[i].shape))))
+                theta[i] = theta[i] - Z
+
+        return theta
