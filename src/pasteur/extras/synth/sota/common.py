@@ -91,8 +91,11 @@ def _attr_sel(attr_name: str, attrs: DatasetAttributes):
 
 
 def _build_request(clique: tuple[str, ...], attrs: DatasetAttributes):
-    """Build a marginal oracle request for a clique at height 0."""
-    return [(attr_name, _attr_sel(attr_name, attrs)) for attr_name in clique]
+    """Build a marginal oracle request for a clique at height 0.
+
+    Always returns attributes in sorted order so the marginal array
+    matches the alphabetical AttrMeta ordering used by fit_pgm."""
+    return [(attr_name, _attr_sel(attr_name, attrs)) for attr_name in sorted(clique)]
 
 
 def clique_domain_size(
