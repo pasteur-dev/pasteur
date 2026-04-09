@@ -43,6 +43,42 @@ def mirror_descent(
 
     # Initialize potentials (uniform weighted prior in log-space)
     theta = create_cliques(cliques, attrs, device=device)
+
+    # Initialize potentials from observations where they exist.
+    # Unobserved cliques (fill from triangulation) are zeroed — neutral
+    # pass-throughs in BP. Observed cliques get weighted prior + observation.
+    from .loss import get_smallest_parent, get_parent_meta
+
+    observed_cliques = set(loss_fn.cidx)
+    with torch.no_grad():
+        for o in obs:
+            parent = get_smallest_parent(o.source, cliques, attrs)
+            pidx = cliques.index(parent)
+            meta = get_parent_meta(o.source, parent, attrs)
+
+            log_obs = torch.from_numpy(
+                np.log(np.maximum(o.obs, 1e-10)).astype("float32")
+            ).to(device)
+
+            if meta.idx is not None:
+                log_obs = log_obs.permute(meta.transpose)
+                og_shape = log_obs.shape
+                b_idx_dom = 1
+                for d in meta.b_doms:
+                    b_idx_dom *= d
+                log_obs = log_obs.reshape((b_idx_dom, -1))
+                log_obs = log_obs[torch.from_numpy(meta.idx.astype("int64")).to(device)]
+                a_shape = list(theta[pidx].permute(meta.transpose).shape[:len(meta.b_doms)])
+                log_obs = log_obs.reshape(a_shape + list(og_shape[len(meta.b_doms):]))
+                log_obs = log_obs.permute(meta.transpose_undo)
+
+            if meta.sum_dims:
+                for d in sorted(meta.sum_dims):
+                    log_obs = log_obs.unsqueeze(d)
+                log_obs = log_obs.expand_as(theta[pidx])
+
+            theta[pidx] = theta[pidx] + log_obs
+
     theta = [t.requires_grad_(True) for t in theta]
 
     def compute_grad(theta, bp, loss_fn):
