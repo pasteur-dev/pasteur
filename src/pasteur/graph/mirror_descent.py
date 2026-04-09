@@ -1,5 +1,5 @@
 import logging
-from typing import Sequence
+from typing import Sequence, TypedDict
 
 import numpy as np
 import torch
@@ -15,6 +15,27 @@ from .beliefs import BeliefPropagation, create_cliques
 from .linear_loss import LinearLoss
 
 logger = logging.getLogger(__name__)
+
+
+class MirrorDescentParams(TypedDict, total=False):
+    lr: float
+    max_iters: int
+    ptol: float
+    patience: int
+    device: str
+    compile: int | bool
+    optim: str  # "sgd", "line_search", or "adam"
+
+
+MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
+    "lr": 1,
+    "max_iters": 10_000,
+    "ptol": 2e-4,
+    "patience": 50,
+    "device": "auto",
+    "compile": 10_000_000,
+    "optim": "line_search",
+}
 
 
 def mirror_descent(

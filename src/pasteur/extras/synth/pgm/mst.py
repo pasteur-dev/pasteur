@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 
 class MST(Synth):
-    name = "mst"
+    name = "ref_mst"
     type = "idx"
     tabular = True
     multimodal = False

@@ -3,7 +3,7 @@ from itertools import chain
 
 import logging
 from math import ceil
-from typing import Any, Sequence, TypedDict, cast
+from typing import Any, Sequence, cast
 
 import pandas as pd
 import numpy as np
@@ -124,27 +124,7 @@ class PrivBayesMare(MareModel):
         )
 
 
-class MirrorDescentParams(TypedDict):
-    lr: float
-    max_iters: int
-    ptol: float
-    patience: int
-    device: str
-    compile: bool
-    optim: str  # "sgd", "line_search", or "adam"
-    sample: bool
-
-
-MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
-    "lr": 1,
-    "max_iters": 10_000,
-    "ptol": 2e-4,
-    "patience": 50,
-    "device": "auto",
-    "compile": 10_000_000,
-    "optim": "line_search",
-    "sample": False,
-}
+from ....graph.mirror_descent import MirrorDescentParams, MIRROR_DESCENT_DEFAULT
 
 
 class PrivBayesSynth(Synth):

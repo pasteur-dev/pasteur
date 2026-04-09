@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class AIM(Synth[dict[str, Attributes]]):
-    name = "aim"
+    name = "ref_aim"
     type = "idx"
     tabular = True
     multimodal = False

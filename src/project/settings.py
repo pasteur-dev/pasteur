@@ -58,7 +58,8 @@ CONFIG_LOADER_ARGS = {}
 # DATA_CATALOG_CLASS = DataCatalog
 
 from pasteur.extras import get_recommended_modules
-from pasteur.extras.synth.pgm import AIM, MST
+from pasteur.extras.synth.pgm import AIM as RefAIM, MST as RefMST
+from pasteur.extras.synth.sota import AIM, MST
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 
@@ -78,6 +79,8 @@ from pasteur import IS_AGENT
 
 
 PASTEUR_MODULES = get_recommended_modules() + [
+    RefAIM.get_factory(),
+    RefMST.get_factory(),
     AIM.get_factory(),
     MST.get_factory(),
     MimicBillion(),
