@@ -140,7 +140,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "ptol": 2e-4,
     "patience": 50,
     "device": "auto",
-    "compile": False,
+    "compile": 10_000_000,
     "line_search": True,
 }
 

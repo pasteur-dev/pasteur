@@ -29,7 +29,7 @@ def mirror_descent(
     patience: int = 50,
     checkpoint_every: int = 50,
     device: torch.device | str | None = None,
-    compile: bool = False,
+    compile: int = 10_000_000,
     line_search: bool = False,
 ) -> list[np.ndarray]:
     if device is None:
@@ -67,15 +67,16 @@ def mirror_descent(
                 t.grad.copy_(m.grad)
         return loss, mu_detached
 
-    if compile:
+    total_params = sum(t.numel() for t in theta)
+    do_compile = total_params >= compile if isinstance(compile, int) else compile
+    if do_compile:
         logger.info("Compiling mirror descent compute graph...")
         compute_grad = torch.compile(compute_grad)
 
-    total_params = sum(t.numel() for t in theta)
     logger.info(
         f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
         f"{total_params:_} params, "
-        f"lr={lr}, device={device}, compile={compile}, line_search={line_search}"
+        f"lr={lr}, device={device}, compile={do_compile}, line_search={line_search}"
     )
 
     alpha = torch.tensor(lr, device=device)
