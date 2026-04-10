@@ -120,39 +120,29 @@ def _build_mask_map(
     return mask
 
 
-def _can_match_as_separator_or_mask(parent_sel, child_sel) -> bool:
-    """Decide whether a parent/child dim pair can be matched as a
-    SeparatorDim or MaskedDim.
+def _can_match_as_separator_or_mask(
+    parent_sel, child_sel
+) -> str:
+    """Classify how a parent/child dim pair should be matched.
 
-    Returns True only when matching is safe:
-    - Both int (common-only): always safe.
-    - Both tuples with the same value names AND parent is uniformly
-      finer-or-equal (every shared value has parent_h ≤ child_h):
-      safe — the mask will be wide (each parent bin maps to ≥1 child
-      bin per value, and no cross-value narrowing occurs).
-    - Otherwise (mixed int/tuple, child has extra values, or heights
-      go in opposite directions across values): return False so the
-      child dim is left as a free sample_dim.  A mixed-direction match
-      creates masks where the finer parent values restrict the child
-      to very few bins, destroying marginal quality.
+    Returns:
+      "exact"   — same value names: SeparatorDim (if parent finer) or
+                   domain-based MaskedDim.  index_map is safe.
+      "partial" — overlapping but not equal value names: always MaskedDim.
+                   index_map would collapse extra values.
+      "none"    — no overlap or incompatible types: leave as free sample_dim.
     """
     if isinstance(parent_sel, int) and isinstance(child_sel, int):
-        return True
+        return "exact"
     if isinstance(parent_sel, int) or isinstance(child_sel, int):
-        return False
-    parent_map = dict(parent_sel)
-    child_map = dict(child_sel)
-    # Child must not introduce new value names
-    if not (child_map.keys() <= parent_map.keys()):
-        return False
-    # Parent must be finer or equal for every shared value (h ≤ child h).
-    # When the parent is coarser, the mask is lossy and cascading
-    # conditioning through inconsistent potentials degrades marginals.
-    # Only allow SeparatorDim (parent finer → deterministic mapping).
-    for name in child_map:
-        if parent_map[name] > child_map[name]:
-            return False
-    return True
+        return "none"
+    parent_names = {name for name, _h in parent_sel}
+    child_names = {name for name, _h in child_sel}
+    if child_names == parent_names:
+        return "exact"
+    if child_names & parent_names:
+        return "partial"
+    return "none"
 
 
 def create_sampler_meta(
@@ -215,11 +205,13 @@ def create_sampler_meta(
                             # extra values to an arbitrary constant.
                             # Use a MaskedDim instead so the child can
                             # sample the missing values.
-                            can_match = _can_match_as_separator_or_mask(
+                            match_type = _can_match_as_separator_or_mask(
                                 parent_meta.sel, child_meta.sel
                             )
 
-                            if can_match:
+                            if match_type == "exact":
+                                # Same value names — safe to use index_map
+                                # for SeparatorDim / domain-based MaskedDim
                                 idx_map = _build_index_map(
                                     parent_meta, child_meta, attrs
                                 )
@@ -238,7 +230,19 @@ def create_sampler_meta(
                                         MaskedDim(pi, ci, c_dom, mask_map)
                                     )
                                 found = True
-                            # else: can't match — leave as free sample_dim
+                            elif match_type == "partial":
+                                # Overlapping but not equal value names —
+                                # always MaskedDim (index_map would collapse
+                                # extra values in parent or child)
+                                c_dom = dim_info[child_idx][ci].domain
+                                mask_map = _build_mask_map(
+                                    parent_meta, child_meta, attrs
+                                )
+                                masked.append(
+                                    MaskedDim(pi, ci, c_dom, mask_map)
+                                )
+                                found = True
+                            # else "none": no overlap — free sample_dim
                         if found:
                             break
                 if not found:
