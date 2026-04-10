@@ -55,8 +55,10 @@ class LinearLoss(torch.nn.Module):
         obs: Sequence[LinearObservation],
         cliques: Sequence[CliqueMeta],
         attrs: DatasetAttributes,
+        loss_type: str = "l2",
     ) -> None:
         super().__init__()
+        self.loss_type = loss_type
         self.obs_meta = obs
         self.obs = torch.nn.ParameterList(
             [
@@ -114,7 +116,12 @@ class LinearLoss(torch.nn.Module):
                 proc = ometa.mapping @ proc
 
             diff = obs - proc
-            obs_loss = 0.5 * torch.sum(diff * diff)
+            if self.loss_type == "l1":
+                obs_loss = torch.sum(torch.abs(diff))
+            elif self.loss_type == "l1l2":
+                obs_loss = torch.sum(torch.abs(diff)) + 0.5 * torch.sum(diff * diff)
+            else:
+                obs_loss = 0.5 * torch.sum(diff * diff)
             obs_loss *= ometa.confidence
 
             loss = loss + obs_loss

@@ -25,6 +25,7 @@ class MirrorDescentParams(TypedDict, total=False):
     device: str
     compile: int | bool
     optim: str  # "sgd", "line_search", or "adam"
+    loss_type: str  # "l2", "l1", or "l1l2"
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
@@ -53,6 +54,7 @@ def mirror_descent(
     compile: int = 10_000_000,
     optim: str = "sgd",
     init_potentials: dict[int, np.ndarray] | None = None,
+    loss_type: str = "l2",
     # Backwards compat
     line_search: bool | None = None,
 ) -> list[np.ndarray]:
@@ -69,7 +71,7 @@ def mirror_descent(
 
     # Build modules
     bp = BeliefPropagation(cliques, messages).to(device)
-    loss_fn = LinearLoss(obs, cliques, attrs).to(device)
+    loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type).to(device)
 
     # Initialize potentials (uniform weighted prior in log-space)
     theta = create_cliques(cliques, attrs, device=device)
