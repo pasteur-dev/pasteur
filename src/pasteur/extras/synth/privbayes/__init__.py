@@ -317,6 +317,67 @@ class PrivBayesSynth(Synth):
             g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
             mg = to_moral(g)
             _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
+
+            if tree_mode == "hugin_uncomp":
+                # Fix compression bottlenecks.  BP messages between cliques
+                # with different resolutions use lossy index transforms
+                # (fine→coarse sums bins, coarse→fine can't recover them).
+                # When a value appears at 3+ heights, the junction tree may
+                # route messages fine→coarse→fine, creating an information
+                # bottleneck that prevents BP from achieving consistency.
+                #
+                # Fix: for each (attr, val), keep at most the 2 lowest
+                # heights and collapse everything above to the 2nd-lowest.
+                #   [0, 2]       → [0, 2]       (no change)
+                #   [0, 2, 3, 4] → [0, 2, 2, 2] (cap at 2nd-lowest)
+                # This ensures messages only cross one resolution boundary
+                # (the direct h0↔h_cap edge), eliminating round-trips.
+                height_sets: dict[tuple, list[int]] = {}
+                for _, data in tri.nodes(data=True):
+                    key = (data["table"], data["order"], data["attr"], data["value"])
+                    height_sets.setdefault(key, []).append(data["height"])
+                for key, hs in height_sets.items():
+                    unique = sorted(set(hs))
+                    if len(unique) <= 2:
+                        continue
+                    cap = unique[1]
+                    for _, data in tri.nodes(data=True):
+                        k = (data["table"], data["order"], data["attr"], data["value"])
+                        if k == key and data["height"] > cap:
+                            data["height"] = cap
+            elif tree_mode != "hugin_comp": # "hugin_unvalley" / default
+                # Less aggressive than hugin_uncomp: only collapse heights
+                # that are NOT consecutive with the height below them.
+                # A consecutive chain (each step +1) can pass messages
+                # without severe information loss.  A gap (e.g. 0→3)
+                # forces a lossy many-to-one mapping.
+                #
+                #   [0, 2]       → [0, 2]       (2 heights, no change)
+                #   [0, 2, 3, 4] → [0, 2, 3, 4] (2→3→4 consecutive, keep)
+                #   [0, 3, 5]    → [0, 3, 3]    (3→5 gap, cap 5 to 3)
+                #   [0, 1, 4]    → [0, 1, 1]    (1→4 gap, cap 4 to 1)
+                height_sets: dict[tuple, list[int]] = {}
+                for _, data in tri.nodes(data=True):
+                    key = (data["table"], data["order"], data["attr"], data["value"])
+                    height_sets.setdefault(key, []).append(data["height"])
+                for key, hs in height_sets.items():
+                    unique = sorted(set(hs))
+                    if len(unique) <= 2:
+                        continue
+                    # Walk the sorted chain; cap at the first non-consecutive gap
+                    cap = unique[1]
+                    for i in range(2, len(unique)):
+                        if unique[i] != unique[i - 1] + 1:
+                            break
+                        cap = unique[i]
+                    else:
+                        # Fully consecutive above unique[1] — no gap
+                        continue
+                    for _, data in tri.nodes(data=True):
+                        k = (data["table"], data["order"], data["attr"], data["value"])
+                        if k == key and data["height"] > cap:
+                            data["height"] = cap
+
             junction = get_junction_tree(tri, self.table_attrs, compress=compress)
 
         generations = get_message_passing_order(junction)
