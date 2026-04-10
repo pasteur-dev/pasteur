@@ -121,20 +121,42 @@ def _build_mask_map(
 
 
 def _can_match_as_separator_or_mask(parent_sel, child_sel) -> bool:
-    """Check whether a parent/child dim pair can be matched as a
+    """Decide whether a parent/child dim pair can be matched as a
     SeparatorDim or MaskedDim.
 
-    Returns True when the child's value names are a subset of the
-    parent's (same attribute, parent has at least the child's values).
-    Mixed int/tuple or child introducing new value names → False,
-    so the child dim becomes a free sample_dim."""
+    Returns True only when matching is safe:
+    - Both int (common-only): always safe.
+    - Both tuples with the same value names AND parent is uniformly
+      finer-or-equal (every shared value has parent_h ≤ child_h):
+      safe — the mask will be wide (each parent bin maps to ≥1 child
+      bin per value, and no cross-value narrowing occurs).
+    - Otherwise (mixed int/tuple, child has extra values, or heights
+      go in opposite directions across values): return False so the
+      child dim is left as a free sample_dim.  A mixed-direction match
+      creates masks where the finer parent values restrict the child
+      to very few bins, destroying marginal quality.
+    """
     if isinstance(parent_sel, int) and isinstance(child_sel, int):
         return True
     if isinstance(parent_sel, int) or isinstance(child_sel, int):
         return False
-    parent_names = {name for name, _h in parent_sel}
-    child_names = {name for name, _h in child_sel}
-    return child_names <= parent_names
+    parent_map = dict(parent_sel)
+    child_map = dict(child_sel)
+    # Child must not introduce new value names
+    if not (child_map.keys() <= parent_map.keys()):
+        return False
+    # For shared values, parent must be finer or equal (lower or equal h)
+    for name in child_map:
+        if parent_map[name] > child_map[name]:
+            # Parent is coarser for this value → would need mask
+            # Only allow if ALL shared values go the same direction
+            # (all parent coarser).  Mixed directions create narrow masks.
+            all_coarser = all(
+                parent_map[n] >= child_map[n] for n in child_map
+            )
+            if not all_coarser:
+                return False
+    return True
 
 
 def create_sampler_meta(
