@@ -3,18 +3,19 @@
 After mirror descent (or any inference method) produces consistent clique
 potentials, this module samples synthetic rows by traversing the junction
 tree top-down: sample the root clique from its joint, then condition each
-child on the separator values from its parent.
+child on the separator values from its parent.  Whenever a clique dimension
+has height-0 values, those are extracted directly into the output dict.
 """
 
 import logging
-from collections import defaultdict, deque
+from collections import deque
 from typing import NamedTuple, Sequence
 
 import networkx as nx
 import numpy as np
 
-from ..attribute import CatValue, DatasetAttributes, get_dtype
-from .beliefs import convert_sel, has_attr, is_same
+from ..attribute import DatasetAttributes, get_dtype
+from .beliefs import convert_sel, is_same
 from .hugin import AttrMeta, CliqueMeta, get_attrs
 
 logger = logging.getLogger(__name__)
@@ -63,14 +64,6 @@ class ChildInfo(NamedTuple):
     masked_dims: tuple[MaskedDim, ...]
 
 
-class ValueOwner(NamedTuple):
-    """Which clique dimension provides a specific value at the finest height."""
-
-    clique_idx: int
-    dim_idx: int
-    height: int
-
-
 class SamplerMeta(NamedTuple):
     """Pre-computed metadata for junction tree sampling."""
 
@@ -78,12 +71,6 @@ class SamplerMeta(NamedTuple):
     dim_info: list[list[DimInfo]]
     root: int
     children: list[ChildInfo]
-    # For each (table, order, attr): which clique dim to use for sampling
-    # (the clique that first appears in BFS — for separator consistency)
-    attr_owners: dict[tuple, int]
-    # For each (table, order, attr, value_name): best clique + dim + height
-    # (the clique with the lowest height for this value)
-    value_owners: dict[tuple, ValueOwner]
 
 
 def _build_index_map(
@@ -133,6 +120,45 @@ def _build_mask_map(
     return mask
 
 
+def _can_match_as_separator_or_mask(parent_sel, child_sel) -> bool:
+    """Decide whether a parent/child dim pair can be matched as a
+    SeparatorDim or MaskedDim.
+
+    Returns True only when matching is safe:
+    - Both int (common-only): always safe.
+    - Both tuples with the same value names AND parent is uniformly
+      finer-or-equal (every shared value has parent_h ≤ child_h):
+      safe — the mask will be wide (each parent bin maps to ≥1 child
+      bin per value, and no cross-value narrowing occurs).
+    - Otherwise (mixed int/tuple, child has extra values, or heights
+      go in opposite directions across values): return False so the
+      child dim is left as a free sample_dim.  A mixed-direction match
+      creates masks where the finer parent values restrict the child
+      to very few bins, destroying marginal quality.
+    """
+    if isinstance(parent_sel, int) and isinstance(child_sel, int):
+        return True
+    if isinstance(parent_sel, int) or isinstance(child_sel, int):
+        return False
+    parent_map = dict(parent_sel)
+    child_map = dict(child_sel)
+    # Child must not introduce new value names
+    if not (child_map.keys() <= parent_map.keys()):
+        return False
+    # For shared values, parent must be finer or equal (lower or equal h)
+    for name in child_map:
+        if parent_map[name] > child_map[name]:
+            # Parent is coarser for this value → would need mask
+            # Only allow if ALL shared values go the same direction
+            # (all parent coarser).  Mixed directions create narrow masks.
+            all_coarser = all(
+                parent_map[n] >= child_map[n] for n in child_map
+            )
+            if not all_coarser:
+                return False
+    return True
+
+
 def create_sampler_meta(
     junction: nx.Graph,
     cliques: Sequence[CliqueMeta],
@@ -159,12 +185,6 @@ def create_sampler_meta(
     visited = {root}
     queue = deque([root])
     children: list[ChildInfo] = []
-    attr_owners: dict[tuple, int] = {}
-
-    # Root owns all its attributes
-    for meta in cliques[root]:
-        key = (meta.table, meta.order, meta.attr)
-        attr_owners[key] = root
 
     while queue:
         parent_idx = queue.popleft()
@@ -191,17 +211,38 @@ def create_sampler_meta(
                             # Exact match — fix child value from parent
                             separator.append(SeparatorDim(pi, ci, None))
                         else:
-                            # Different resolutions — check if 1-to-1 or coarser
-                            idx_map = _build_index_map(parent_meta, child_meta, attrs)
-                            assert idx_map is not None
-                            p_dom = len(idx_map)
-                            c_dom = dim_info[child_idx][ci].domain
-                            if p_dom >= c_dom:
-                                # Parent is finer or equal — use direct map
-                                separator.append(SeparatorDim(pi, ci, idx_map))
+                            # Check if the child has value names not in
+                            # the parent.  When the child's sel contains
+                            # extra values (e.g. parent {A,B} vs child
+                            # {A,B,C}), a SeparatorDim would pin the
+                            # extra values to an arbitrary constant.
+                            # Use a MaskedDim instead so the child can
+                            # sample the missing values.
+                            can_match = _can_match_as_separator_or_mask(
+                                parent_meta.sel, child_meta.sel
+                            )
+
+                            if can_match:
+                                idx_map = _build_index_map(
+                                    parent_meta, child_meta, attrs
+                                )
+                                assert idx_map is not None
+                                p_dom = len(idx_map)
+                                c_dom = dim_info[child_idx][ci].domain
+                                if p_dom >= c_dom:
+                                    separator.append(
+                                        SeparatorDim(pi, ci, idx_map)
+                                    )
+                                else:
+                                    mask_map = _build_mask_map(
+                                        parent_meta, child_meta, attrs
+                                    )
+                                    masked.append(
+                                        MaskedDim(pi, ci, c_dom, mask_map)
+                                    )
                             else:
-                                # Parent is coarser — use mask so child
-                                # can sample among compatible fine values
+                                # Child has extra values — must use mask
+                                c_dom = dim_info[child_idx][ci].domain
                                 mask_map = _build_mask_map(
                                     parent_meta, child_meta, attrs
                                 )
@@ -220,31 +261,7 @@ def create_sampler_meta(
                 )
             )
 
-            # Child owns its non-separator attributes
-            for ci in sample_dims:
-                meta = child_cl[ci]
-                key = (meta.table, meta.order, meta.attr)
-                if key not in attr_owners:
-                    attr_owners[key] = child_idx
-
-    # Build per-value ownership: for each individual value, find the clique
-    # that has it at the lowest height (finest resolution)
-    value_owners: dict[tuple, ValueOwner] = {}
-    for cl_idx, cl in enumerate(cliques):
-        for dim_idx, meta in enumerate(cl):
-            sel = convert_sel(meta.sel)
-            if isinstance(sel, int):
-                # Common value
-                vkey = (meta.table, meta.order, meta.attr, "__common__")
-                if vkey not in value_owners or sel < value_owners[vkey].height:
-                    value_owners[vkey] = ValueOwner(cl_idx, dim_idx, sel)
-            else:
-                for val_name, h in sel.items():
-                    vkey = (meta.table, meta.order, meta.attr, val_name)
-                    if vkey not in value_owners or h < value_owners[vkey].height:
-                        value_owners[vkey] = ValueOwner(cl_idx, dim_idx, h)
-
-    return SamplerMeta(cliques, dim_info, root, children, attr_owners, value_owners)
+    return SamplerMeta(cliques, dim_info, root, children)
 
 
 def _cond_dim(child_dim: int, sep_child_dims: list[int]) -> int:
@@ -259,21 +276,117 @@ def _cond_dims(dims: list[int], sep_child_dims: list[int]) -> list[int]:
     return [_cond_dim(d, sep_child_dims) for d in dims]
 
 
+def _decompose_dim(
+    attr,
+    sel: dict,
+    combined_idx: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Decompose a combined compressed dim index into per-value arrays.
+
+    ``attr.get_mapping(sel)`` (multi-value) and ``attr.get_mapping({vn: h})``
+    (single-value) both dispatch to the same ``CatValue.get_mapping_multiple``
+    implementation, so they share the same raw-index ordering.  We exploit
+    this: for each compressed bin we find the per-value encoded index by
+    pairing the multi-value and single-value mappings at the same raw index.
+    """
+    comp_map = attr.get_mapping(sel)  # raw → comp_bin
+    comp_dom = attr.get_domain(sel)
+
+    # For each value in sel, compute a single-value mapping that uses the
+    # SAME raw-index ordering as comp_map.
+    val_maps: dict[str, np.ndarray] = {}
+    for vn, h in sel.items():
+        val_maps[vn] = attr.get_mapping({vn: h})  # raw → encoded_vn
+
+    # Build comp_bin → per_value_encoded lookup (first-seen wins; within
+    # a bin all raw indices share the same per-value encoded index because
+    # the bin encodes a unique group combination).
+    lookup: dict[str, np.ndarray] = {
+        vn: np.zeros(comp_dom, dtype=np.int64) for vn in sel
+    }
+    seen = np.zeros(comp_dom, dtype=bool)
+    for r in range(len(comp_map)):
+        c = int(comp_map[r])
+        if seen[c]:
+            continue
+        seen[c] = True
+        for vn in sel:
+            lookup[vn][c] = int(val_maps[vn][r])
+        if seen.all():
+            break
+
+    # Apply lookup to sampled indices.
+    result: dict[str, np.ndarray] = {}
+    for vn in sel:
+        result[vn] = lookup[vn][combined_idx.astype(np.int64)]
+
+    return result
+
+
+def _extract_h0(
+    cl_idx: int,
+    meta: SamplerMeta,
+    attrs: DatasetAttributes,
+    clique_vals: dict[int, np.ndarray],
+    out: dict[str, np.ndarray],
+):
+    """Extract height-0 values from a clique's sampled dims into out.
+
+    First-write wins: if a value name is already in out, skip it (earlier
+    cliques in BFS order are better conditioned)."""
+    cl = meta.cliques[cl_idx]
+
+    for dim_idx, a_meta in enumerate(cl):
+        if dim_idx not in clique_vals:
+            continue
+
+        combined_idx = clique_vals[dim_idx]
+        sel = convert_sel(a_meta.sel)
+        attr = get_attrs(attrs, a_meta.table, a_meta.order)[a_meta.attr]
+
+        if isinstance(sel, int):
+            # Common-only dim (gate variable): not a data column, skip.
+            pass
+        elif len(sel) == 1:
+            # Single-value dim: combined_idx IS the per-value index
+            vn, h = next(iter(sel.items()))
+            if h == 0 and vn not in out:
+                dom = max(2, int(combined_idx.max()) + 1) if len(combined_idx) > 0 else 2
+                out[vn] = combined_idx.astype(get_dtype(max(1, dom - 1)))
+        else:
+            # Multi-value dim: check if any values are at h=0
+            h0_vals = [vn for vn, h in sel.items() if h == 0 and vn not in out]
+            if h0_vals:
+                decomposed = _decompose_dim(attr, sel, combined_idx)
+                for vn in h0_vals:
+                    if vn in decomposed:
+                        arr = decomposed[vn]
+                        dom = max(2, int(arr.max()) + 1) if len(arr) > 0 else 2
+                        out[vn] = arr.astype(get_dtype(max(1, dom - 1)))
+
+
 def sample_junction_tree(
     potentials: Sequence[np.ndarray],
     meta: SamplerMeta,
     n: int,
-) -> dict[int, dict[int, np.ndarray]]:
+    attrs: DatasetAttributes,
+) -> dict[str, np.ndarray]:
     """Sample n rows from fitted clique potentials.
 
-    Returns:
-        Dict mapping clique_idx -> {dim_idx: array of n sampled indices}.
+    Follows the junction tree elimination order (BFS from root).
+    For the root, samples from the joint distribution.  For each child,
+    conditions on shared separator values from its parent and samples
+    the remaining dimensions.  Height-0 values are extracted into the
+    output dict as each clique is processed.
+
+    Returns dict mapping column names to arrays of height-0 indices.
     """
-    sampled: dict[int, dict[int, np.ndarray]] = defaultdict(dict)
+    out: dict[str, np.ndarray] = {}
+    # Per-clique sampled dim values: clique_idx -> {dim_idx: array}
+    clique_vals: dict[int, dict[int, np.ndarray]] = {}
 
     # Step 1: Sample root clique from joint distribution
-    root_p = potentials[meta.root].copy()
-    root_p = root_p.clip(min=0)
+    root_p = potentials[meta.root].copy().clip(min=0)
     root_sum = root_p.sum()
     if root_sum < 1e-12:
         logger.warning("Root clique has near-zero total probability, sampling uniform.")
@@ -284,58 +397,57 @@ def sample_junction_tree(
     flat = root_p.ravel()
     indices = np.random.choice(len(flat), size=n, p=flat)
     per_dim = np.unravel_index(indices, root_p.shape)
-    for dim_idx, dim_vals in enumerate(per_dim):
-        sampled[meta.root][dim_idx] = dim_vals
+    clique_vals[meta.root] = {i: arr for i, arr in enumerate(per_dim)}
+    _extract_h0(meta.root, meta, attrs, clique_vals[meta.root], out)
 
     # Step 2: Sample children in BFS order
     for child_info in meta.children:
         cidx = child_info.child_idx
         pidx = child_info.parent_idx
-        child_p = potentials[cidx].copy()
-        child_p = child_p.clip(min=0)
+        child_p = potentials[cidx].copy().clip(min=0)
 
-        # Get exact separator values from BFS parent
-        sep_vals = []
-        sep_child_dims = []
-        sep_domains = []
+        dims: dict[int, np.ndarray] = {}
+
+        # Fix separator dims from parent
+        sep_child_dims: list[int] = []
+        sep_vals: list[np.ndarray] = []
+        sep_domains: list[int] = []
         for sep in child_info.separator:
-            parent_vals = sampled[pidx][sep.parent_dim]
-            if sep.index_map is not None:
-                child_vals = sep.index_map[parent_vals]
-            else:
-                child_vals = parent_vals
-            sep_vals.append(child_vals)
+            parent_vals = clique_vals[pidx][sep.parent_dim]
+            child_vals = sep.index_map[parent_vals] if sep.index_map is not None else parent_vals
+            dims[sep.child_dim] = child_vals
             sep_child_dims.append(sep.child_dim)
+            sep_vals.append(child_vals)
             sep_domains.append(meta.dim_info[cidx][sep.child_dim].domain)
 
-        # Store exact separator values
-        for sep, vals in zip(child_info.separator, sep_vals):
-            sampled[cidx][sep.child_dim] = vals
+        # Collect masked parent values
+        masked_parent_vals = [
+            clique_vals[pidx][md.parent_dim] for md in child_info.masked_dims
+        ]
 
-        # Masked dims + sample dims are all sampled together
-        # Masked dims are constrained by parent's coarse value
-        masked_parent_vals = []
-        for md in child_info.masked_dims:
-            masked_parent_vals.append(sampled[pidx][md.parent_dim])
-
+        # Dims to sample = free dims + masked child dims
         all_sample_dims = list(child_info.sample_dims) + [
             md.child_dim for md in child_info.masked_dims
         ]
+
         if not all_sample_dims:
+            clique_vals[cidx] = dims
+            _extract_h0(cidx, meta, attrs, dims, out)
             continue
 
         all_sample_shape = tuple(
             meta.dim_info[cidx][d].domain for d in all_sample_dims
         )
 
-        # Encode separator + masked parent values into group keys
-        # (each unique combination needs separate conditional sampling)
-        all_group_vals = list(sep_vals) + [v.astype(np.int64) for v in masked_parent_vals]
+        # Build group keys from separator + masked parent values
+        all_group_vals = list(sep_vals) + [
+            v.astype(np.int64) for v in masked_parent_vals
+        ]
         all_group_domains = list(sep_domains) + [
             md.masks.shape[0] for md in child_info.masked_dims
         ]
 
-        if len(all_group_vals) == 0:
+        if not all_group_vals:
             group_keys = np.zeros(n, dtype=np.int64)
         elif len(all_group_vals) == 1:
             group_keys = all_group_vals[0].astype(np.int64)
@@ -346,24 +458,25 @@ def sample_junction_tree(
                 group_keys += sv.astype(np.int64) * mul
                 mul *= dom
 
-        # Sample per group
-        out_dims = {
+        # Allocate output arrays for sampled dims
+        out_dims: dict[int, np.ndarray] = {
             d: np.empty(n, dtype=get_dtype(max(1, s - 1)))
             for d, s in zip(all_sample_dims, all_sample_shape)
         }
 
-        for group_key in np.unique(group_keys):
-            row_mask = group_keys == group_key
+        # For loop per unique condition value
+        for gk in np.unique(group_keys):
+            row_mask = group_keys == gk
             group_n = int(row_mask.sum())
 
-            # Extract conditional: fix exact separator dims
+            # Slice potential at separator values
             idx = [slice(None)] * len(child_p.shape)
-            remaining = int(group_key)
+            remaining = int(gk)
             for sd, dom in zip(sep_child_dims, sep_domains):
                 idx[sd] = remaining % dom
                 remaining //= dom
 
-            # Get masked parent values for this group
+            # Decode masked parent values from group key
             masked_parent_group = []
             for md in child_info.masked_dims:
                 masked_parent_group.append(remaining % md.masks.shape[0])
@@ -371,16 +484,15 @@ def sample_junction_tree(
 
             conditional = child_p[tuple(idx)]
 
-            # Apply masks for coarse-parent dims: zero out incompatible values
+            # Apply masks for masked dims
             for md, parent_val in zip(child_info.masked_dims, masked_parent_group):
-                # Find dimension index within conditional (after removing sep dims)
                 cond_dim = _cond_dim(md.child_dim, sep_child_dims)
                 dim_mask = md.masks[parent_val]
-                # Broadcast mask to conditional shape
                 shape = [1] * conditional.ndim
                 shape[cond_dim] = md.child_domain
                 conditional = conditional * dim_mask.reshape(shape)
 
+            # Normalize and sample
             cond_flat = conditional.ravel()
             cond_sum = cond_flat.sum()
             if cond_sum < 1e-12:
@@ -391,74 +503,15 @@ def sample_junction_tree(
             group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
             group_per_dim = np.unravel_index(group_indices, conditional.shape)
 
-            # Map back from conditional dim indices to child clique dim indices
             cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
             for j, dim_idx in enumerate(all_sample_dims):
                 out_dims[dim_idx][row_mask] = group_per_dim[cond_dim_list[j]]
 
+        # Store sampled dims
         for dim_idx, arr in out_dims.items():
-            sampled[cidx][dim_idx] = arr
+            dims[dim_idx] = arr
 
-    return dict(sampled)
+        clique_vals[cidx] = dims
+        _extract_h0(cidx, meta, attrs, dims, out)
 
-
-def reverse_map_columns(
-    sampled: dict[int, dict[int, np.ndarray]],
-    meta: SamplerMeta,
-    attrs: DatasetAttributes,
-) -> dict[str, np.ndarray]:
-    """Convert sampled clique indices to output column values.
-
-    For each value in each attribute, finds the clique that has it at the
-    finest height (lowest h), decomposes the combined domain index, and
-    extracts the per-value index at that height. No upsampling is used;
-    values are output at whatever resolution the clique tree provides.
-
-    Args:
-        sampled: Output of sample_junction_tree (clique_idx -> dim_idx -> indices).
-        meta: Sampler metadata.
-        attrs: Dataset attribute metadata.
-
-    Returns:
-        Dict mapping column value names to numpy arrays of indices at the
-        finest available height.
-    """
-    output: dict[str, np.ndarray] = {}
-
-    for (table, order, attr_name, val_name), owner in meta.value_owners.items():
-        if val_name == "__common__":
-            continue  # common values are derived from their children
-
-        cl_idx = owner.clique_idx
-        dim_idx = owner.dim_idx
-        if cl_idx not in sampled or dim_idx not in sampled[cl_idx]:
-            continue
-
-        combined_idx = sampled[cl_idx][dim_idx]
-        attr_meta = meta.dim_info[cl_idx][dim_idx].attr_meta
-        sel = convert_sel(attr_meta.sel)
-
-        if isinstance(sel, int):
-            # Common-only dimension: this value is the common value itself
-            attr = get_attrs(attrs, table, order)[attr_name]
-            cmn = attr.common
-            assert cmn is not None
-            # Output the compressed index directly (at this height)
-            output[cmn.name] = combined_idx
-        else:
-            # Multi-value dimension: decompose combined index to find this value
-            # The combined index encodes values in sel order (alphabetical)
-            remaining = combined_idx.copy().astype(np.int64)
-            for v_name in sel:
-                attr = get_attrs(attrs, table, order)[attr_name]
-                cv = attr[v_name]
-                assert isinstance(cv, CatValue)
-                h = sel[v_name]
-                dom = cv.get_domain(h)
-                per_val = (remaining % dom).astype(get_dtype(max(1, dom - 1)))
-                remaining //= dom
-                if v_name == val_name:
-                    output[val_name] = per_val
-                    break
-
-    return output
+    return out
