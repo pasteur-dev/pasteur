@@ -15,10 +15,10 @@ def get_recommended_datasets() -> list[Dataset | View]:
     from .datasets.adult import AdultDataset
     from .datasets.mimic import MimicDataset
     from .datasets.eicu import EicuDataset
-    from .datasets.texas import TexasDataset
+    # from .datasets.texas import TexasDataset
 
     # from .datasets.boston import BostonDataset
-    from .datasets.pad import PadDataset
+    # from .datasets.pad import PadDataset
     from .datasets.rfel import ConsumerExpendituresDataset, FinancialDataset, StudentLoanDataset
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
@@ -35,7 +35,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
         # BostonDataset(),
         MimicDataset(),
         EicuDataset(),
-        PadDataset(),
+        # PadDataset(),
         # TexasDataset(),
         # TexasChargesView(),
         # TexasBaseView(),
