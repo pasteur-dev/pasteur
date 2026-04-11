@@ -507,9 +507,21 @@ def structure_learn(
             clique_domains.append(dom)
 
         node_to_cliques: dict[str, list[int]] = {}
+        clique_node_sets: list[set[str]] = []
         for ci, cl in enumerate(base_cliques):
+            cl_set = set(cl)
+            clique_node_sets.append(cl_set)
             for node in cl:
                 node_to_cliques.setdefault(node, []).append(ci)
+
+        # Compute current measured cells: sum of domains of cliques
+        # that contain at least one structure-learning edge
+        base_measured_cells = 0
+        for ci, cl_set in enumerate(clique_node_sets):
+            if any(edge <= cl_set for edge in structure_edges):
+                base_measured_cells += clique_domains[ci]
+        # Ensure non-zero for division (before any edges are added)
+        base_measured_cells = max(base_measured_cells, 1)
 
         # Score each candidate
         scores = np.full(len(active), float("-inf"))
@@ -522,7 +534,7 @@ def structure_learn(
             shared = cliques_a & cliques_b
 
             if shared:
-                # Same clique: no domain change, no penalty
+                # Same clique: already measured (or will be), no new cells
                 scores[i] = cand_tvd_boost[idx]
             else:
                 # Cross-clique: exact re-triangulation via adjacency sets
@@ -532,11 +544,20 @@ def structure_learn(
                 if not valid:
                     continue  # stays -inf
 
-                # Penalty: domain increase relative to base
-                base_local = sum(clique_domains[ci] for ci in cliques_a | cliques_b)
-                domain_increase = max(trial_domain - base_domain_total + base_local, 0)
-                penalty_ratio = domain_increase / max(base_local, 1)
-                scores[i] = cand_tvd_boost[idx] - size_penalty * penalty_ratio
+                # The new edge creates a new measured clique.
+                # Estimate its domain from the common-neighbor clique:
+                # {na, nb} ∪ (N_tri(na) ∩ N_tri(nb))
+                new_clique_dom = get_factor_domain(
+                    {na, nb} | (set(base_tri.neighbors(na)) & set(base_tri.neighbors(nb))),
+                    base_tri, attrs,
+                )
+
+                # Penalty: divide score by (1 + new_cells / prev_cells) ^ size_penalty
+                # size_penalty=1: 20% more cells → picked 20% less
+                # size_penalty=2: 20% more cells → picked 44% less
+                # size_penalty=0: no penalty
+                cell_ratio = new_clique_dom / base_measured_cells
+                scores[i] = cand_tvd_boost[idx] / (1 + cell_ratio) ** size_penalty
 
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)

@@ -45,7 +45,7 @@ class AdjuvantSynth(Synth):
         e2_frac: float = 0.20,
         e3_frac: float = 0.70,
         theta: float = 4,
-        size_penalty: float = 1e-8,
+        size_penalty: float = 0.5,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
