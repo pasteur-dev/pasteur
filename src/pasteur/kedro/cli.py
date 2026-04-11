@@ -266,6 +266,20 @@ def _process_iterables(iterables: dict[str, Iterable]):
     is_flag=True,
     help="Also runs dataset ingestion, which is skipped by default.",
 )
+@click.option("--pre", is_flag=True, help="Only runs split preprocessing.")
+@click.option(
+    "--synth",
+    is_flag=True,
+    help="Skips running split preprocessing, only runs synthesis.",
+)
+@click.option(
+    "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
+)
+@click.option(
+    "--sample",
+    is_flag=True,
+    help="Loads existing model, runs refresh (e.g. mirror descent), then samples.",
+)
 @click.option("--skip-parent", "-p", is_flag=True)
 @click.argument(
     "params",
@@ -289,6 +303,10 @@ def sweep(
     hyperparameter,
     skip_parent,
     all,
+    pre,
+    synth,
+    metrics,
+    sample,
     params,
     clear_cache,
     max_workers,
@@ -335,12 +353,38 @@ def sweep(
         TAG_ALWAYS,
         TAG_CHANGES_HYPERPARAMETER,
         TAG_CHANGES_PER_ALGORITHM,
+        TAG_REVERSE,
+        TAG_SAMPLE,
+        TAG_METRICS,
     )
 
+    assert sum([all, pre, synth, metrics, sample]) <= 1
+
     # Create pipelines
+    load_any = False
+    refresh = False
     if all:
         logger.info("Nodes for ingesting the dataset will be run.")
         default_tags = []
+    elif pre:
+        logger.info("Only nodes for preprocessing the view will be run.")
+        default_tags = [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER]
+    elif synth:
+        logger.warning(
+            "Skipping ingest nodes which are affected by hyperparameters, results may be invalid."
+        )
+        default_tags = [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM]
+    elif metrics:
+        logger.warning("Only running metrics nodes.")
+        default_tags = [TAG_METRICS]
+        load_any = True
+    elif sample:
+        logger.info(
+            "Loading existing model, refreshing, sampling, and running metrics."
+        )
+        default_tags = [TAG_ALWAYS, TAG_SAMPLE, TAG_REVERSE, TAG_METRICS]
+        load_any = True
+        refresh = True
     else:
         default_tags = [
             TAG_ALWAYS,
@@ -386,6 +430,16 @@ def sweep(
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name, delete_parent=False)
+
+    # Apply load_any / refresh hooks (same as pipe)
+    if load_any or refresh:
+        from pasteur.kedro.hooks import pasteur as pasteur_hook
+
+        if pasteur_hook:
+            if load_any:
+                pasteur_hook.load_any = True
+            if refresh:
+                pasteur_hook.refresh = True
 
     # TODO: Allow for using a config value
     if refresh_processes == 0:
