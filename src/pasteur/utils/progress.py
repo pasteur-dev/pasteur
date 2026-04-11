@@ -58,6 +58,23 @@ CHECK_LEAKS = False
 
 IS_AGENT = bool(int(environ.get("AGENT", 0)))
 
+import threading as _threading
+
+_should_exit = _threading.Event()
+
+
+def check_exit():
+    """Raise a runtime exception if should exit is set."""
+    if IS_SUBPROCESS:
+        return
+    if _should_exit.is_set():
+        raise RuntimeError("should_exit exit")
+
+
+def request_exit():
+    """Signal long-running loops to terminate early. Thread-safe."""
+    _should_exit.set()
+
 
 def _is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
@@ -706,4 +723,6 @@ __all__ = [
     "set_node_name",
     "get_node_name",
     "reduce",
+    "check_exit",
+    "request_exit",
 ]

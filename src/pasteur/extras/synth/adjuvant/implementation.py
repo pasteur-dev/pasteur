@@ -5,8 +5,6 @@ height-chain graph construction, greedy edge addition with exponential
 mechanism, and measurement/observation building.
 """
 
-from __future__ import annotations
-
 import itertools
 import logging
 from math import sqrt
@@ -423,7 +421,7 @@ def structure_learn(
     """
     from ..sota.common import exponential_mechanism
     from ....graph.hugin import to_moral, get_factor_domain
-    from ....utils.progress import piter
+    from ....utils.progress import piter, check_exit
 
     # Moralize the directed height-chain graph -> undirected base
     moral = to_moral(directed_graph)
@@ -460,6 +458,12 @@ def structure_learn(
         cand_tvd_boost[idx] = base * boost
 
     for it in range(max_steps):
+        try:
+            check_exit()
+        except Exception as e:
+            pbar.close()
+            raise e
+
         # Filter to active candidates (attribute pair not yet connected)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):

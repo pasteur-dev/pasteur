@@ -72,6 +72,7 @@ def _call_node_run(  # noqa: PLR0913
             inputs=inputs,
             is_async=is_async,
             session_id=session_id,
+            run_id=run_id,
         )
         raise exc
     hook_manager.hook.after_node_run(
@@ -149,7 +150,10 @@ def run_expanded_node(
             run_id=run_id,
         )
     except Exception as e:
-        print_exc = not (isinstance(e, RuntimeError) and str(e) == "subprocess failed")
+        print_exc = not (
+            isinstance(e, RuntimeError)
+            and str(e) in ("subprocess failed", "should_exit exit")
+        )
         if print_exc:
             if not IS_AGENT:
                 # Prevent printing traceback for subprocesses that crash
@@ -159,7 +163,7 @@ def run_expanded_node(
                 exc_info=IS_AGENT,
             )
         logger.info(
-            f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
+            f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"`'
         )
         raise e
 
@@ -181,7 +185,7 @@ def run_expanded_node(
             )
         except Exception as e:
             logger.info(
-                f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"` to a pipeline run\'s arguments.'
+                f'To continue from this node, add `-c "{node.name.split("(", 1)[0]}" -s "{session_id}"`'
             )
             raise e
     else:
@@ -192,7 +196,8 @@ def run_expanded_node(
                 hook_manager.hook.after_dataset_saved(node=node, dataset_name=name, data=data)  # type: ignore
         except Exception as e:
             print_exc = not (
-                isinstance(e, RuntimeError) and str(e) == "subprocess failed"
+                isinstance(e, RuntimeError)
+                and str(e) in ("subprocess failed", "should_exit exit")
             )
             if print_exc and not IS_AGENT:
                 # Prevent printing traceback for subprocesses that crash

@@ -73,7 +73,7 @@ class AdjuvantSynth(Synth):
         self.seed = seed
         self.n = n
         self.partitions = partitions
-        self.md_params = mirror_descent or {}
+        self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.kwargs = kwargs
 
     @make_deterministic

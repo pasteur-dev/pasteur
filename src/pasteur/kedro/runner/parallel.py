@@ -19,6 +19,7 @@ from ...utils.progress import (
     is_jupyter,
     logging_redirect_pbar,
     piter,
+    request_exit,
     set_node_name,
 )
 from .common import run_expanded_node, resume_from, resume_from_dependencies
@@ -252,6 +253,7 @@ class SimpleParallelRunner(ParallelRunner):
             close_pool()
 
             if interrupted:
+                request_exit()
                 logger.error(f"Received KeyboardInterrupt, exiting...")
             if failed:
                 # Remove unfinished pbar
