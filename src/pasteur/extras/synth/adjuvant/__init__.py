@@ -115,11 +115,9 @@ class AdjuvantSynth(Synth):
         from ..sota.common import cdp_rho, get_attr_names
         from ....graph.mirror_descent import (
             MIRROR_DESCENT_DEFAULT,
-            build_junction_tree,
             mirror_descent,
-            fit_model,
         )
-        from ....graph.hugin import to_moral, find_elim_order, get_junction_tree
+        from ....graph.hugin import get_clique_domain
 
         ids, tables = data_to_tables(data)
         table = tables[self.table]
@@ -187,18 +185,6 @@ class AdjuvantSynth(Synth):
             )
 
             # ==================================================
-            # Step 2e: Finalize graph — proper triangulation + junction tree
-            # (cap_heights may coarsen heights; observations use post-cap heights
-            # so they're guaranteed to have parent cliques in the junction tree)
-            # ==================================================
-            logger.info("Adjuvant Step 2e: Triangulation and junction tree")
-            _, triangulated, cost = find_elim_order(moral, table_attrs)
-            logger.info(f"Adjuvant: triangulation cost={cost:_}")
-            junction = get_junction_tree(triangulated, table_attrs)
-            cliques = list(junction.nodes())
-            logger.info(f"Adjuvant: {len(cliques)} cliques in junction tree")
-
-            # ==================================================
             # Step 3: Measure 2-way marginals for structure-learning edges
             # ==================================================
             logger.info(
@@ -217,20 +203,35 @@ class AdjuvantSynth(Synth):
             )
 
             # ==================================================
-            # Mirror descent fitting
+            # Build junction tree
             # ==================================================
+            from ....graph.mirror_descent import build_junction_tree
+
             md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
             md.pop("compress", None)
             md.pop("sample", None)
-            md.pop("tree", None)
+            tree_mode = md.pop("tree", "maximal")
+
+            logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
+            mg = moral if tree_mode != "maximal" else None
+            junction, cliques, messages = build_junction_tree(
+                all_obs, table_attrs,
+                tree_mode=tree_mode,
+                moral_graph=mg,
+            )
+            total_params = sum(
+                get_clique_domain(cl, table_attrs) for cl in cliques
+            )
+            logger.info(
+                f"Adjuvant: junction tree has {len(cliques)} cliques, "
+                f"{total_params:_} parameters"
+            )
+
+            # ==================================================
+            # Mirror descent fitting
+            # ==================================================
             device = md.pop("device", "auto")
             device = None if device == "auto" else device
-
-            from ....graph.hugin import get_message_passing_order
-            from ....graph.beliefs import create_messages
-
-            generations = get_message_passing_order(junction)
-            messages = create_messages(generations, table_attrs)
 
             logger.info(
                 f"Adjuvant: Running mirror descent "
