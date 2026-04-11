@@ -100,6 +100,11 @@ def create_session(
     "--metrics", is_flag=True, help="Useful for testing metrics, runs only metrics."
 )
 @click.option(
+    "--sample",
+    is_flag=True,
+    help="Loads existing model, runs refresh (e.g. mirror descent), then samples.",
+)
+@click.option(
     "-r",
     "--refresh-processes",
     type=int,
@@ -130,6 +135,7 @@ def pipe(
     pre,
     synth,
     metrics,
+    sample,
     max_workers,
     refresh_processes,
     continue_from,
@@ -141,10 +147,12 @@ def pipe(
         TAG_ALWAYS,
         TAG_CHANGES_HYPERPARAMETER,
         TAG_CHANGES_PER_ALGORITHM,
+        TAG_REVERSE,
+        TAG_SAMPLE,
         TAG_METRICS,
     )
 
-    assert sum([all, pre, synth, metrics]) <= 1
+    assert sum([all, pre, synth, metrics, sample]) <= 1
 
     param_dict = str_params_to_dict(params)
 
@@ -184,6 +192,17 @@ def pipe(
 
             if pasteur:
                 pasteur.load_any = True
+        elif sample:
+            logger.info(
+                "Loading existing model, refreshing, sampling, and running metrics."
+            )
+            tags = [TAG_ALWAYS, TAG_SAMPLE, TAG_REVERSE, TAG_METRICS]
+
+            from pasteur.kedro.hooks import pasteur
+
+            if pasteur:
+                pasteur.load_any = True
+                pasteur.refresh = True
         else:
             logger.debug(
                 "Skipping dataset ingestion. In case of error, run the pipeline with the name of the dataset."
@@ -302,6 +321,7 @@ def sweep(
     changes the view it is honored."""
 
     import builtins
+
     builtins_all = builtins.all
 
     from .mlflow import (
@@ -322,7 +342,11 @@ def sweep(
         logger.info("Nodes for ingesting the dataset will be run.")
         default_tags = []
     else:
-        default_tags = [TAG_ALWAYS, TAG_CHANGES_HYPERPARAMETER, TAG_CHANGES_PER_ALGORITHM]
+        default_tags = [
+            TAG_ALWAYS,
+            TAG_CHANGES_HYPERPARAMETER,
+            TAG_CHANGES_PER_ALGORITHM,
+        ]
 
     if alg:
         view = pipeline
@@ -332,7 +356,10 @@ def sweep(
                 list(default_tags),
             ),
             *[
-                (f"{view}.{a}", [t for t in default_tags if t != TAG_CHANGES_HYPERPARAMETER])
+                (
+                    f"{view}.{a}",
+                    [t for t in default_tags if t != TAG_CHANGES_HYPERPARAMETER],
+                )
                 for a in alg[1:]
             ],
         ]
@@ -396,7 +423,11 @@ def sweep(
                     # ingest pipeline has None and should be skipped from cross-eval
                     runs[run_name] = vals
 
-                if check_run_done(run_name, None if skip_parent else parent_name, None if skip_parent else get_git_suffix()):
+                if check_run_done(
+                    run_name,
+                    None if skip_parent else parent_name,
+                    None if skip_parent else get_git_suffix(),
+                ):
                     logger.warning(f"Run '{run_name}' is complete, skipping...")
                     continue
 

@@ -115,6 +115,14 @@ class Synth(ModuleClass, Generic[META]):
         Data and Ids are dictionaries containing the dataframes with the data."""
         raise NotImplementedError()
 
+    def refresh(self, **kwargs):
+        """Re-run expensive post-fit steps (e.g. mirror descent) using
+        fresh parameters without recomputing marginals.
+
+        Receives the same kwargs as the constructor so subclasses can
+        selectively update fields (e.g. ``mirror_descent``)."""
+        pass
+
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
         """Returns synthetic data in the same format they were provided.
 
@@ -193,7 +201,11 @@ def synth_fit(
     return model
 
 
-def synth_sample(s: Synth, data=None):
+def synth_sample(s: Synth, metadata: "Metadata | None" = None, data=None):
+    from pasteur.kedro.hooks import pasteur
+    
+    if pasteur and pasteur.refresh and metadata is not None:
+        s.refresh(**metadata.alg_override)
     if data is not None:
         return s.sample(data=data)
     else:

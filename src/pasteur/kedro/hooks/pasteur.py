@@ -41,6 +41,7 @@ class PasteurHook:
         self._param_hash = None
         self._module_id = None
         self.load_any = False
+        self.refresh = False
 
     def update_data(self):
         params = self.context.params

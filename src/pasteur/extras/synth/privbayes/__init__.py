@@ -283,6 +283,12 @@ class PrivBayesSynth(Synth):
         else:
             self.md_marginals = None
 
+    def refresh(self, **kwargs):
+        if "mirror_descent" in kwargs and isinstance(kwargs["mirror_descent"], dict):
+            self.mirror_descent = kwargs["mirror_descent"]
+        if self.mirror_descent:
+            self._fit_mirror_descent()
+
     def _fit_mirror_descent(self):
         from ....graph.beliefs import create_messages
         from ....graph.hugin import (

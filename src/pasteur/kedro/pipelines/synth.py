@@ -6,7 +6,7 @@ from kedro.pipeline import Pipeline as pipeline
 
 from ...synth import synth_fit, synth_sample
 from .meta import DatasetMeta as D
-from .meta import PipelineMeta, node, TAGS_SYNTH, TAG_GPU
+from .meta import PipelineMeta, node, TAGS_SYNTH, TAG_SAMPLE
 from .utils import gen_closure
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ def create_synth_pipeline(
                         if fr.in_types is None
                         else {t: f"{view}.enc.{t}" for t in fr.in_types}
                     ),
-                    "data": data_in, # type: ignore
+                    "data": data_in,  # type: ignore
                 },
                 namespace=f"{view}.{fr.name}",
                 outputs=f"{view}.{fr.name}.model",
@@ -55,11 +55,12 @@ def create_synth_pipeline(
                 func=synth_sample,
                 inputs={
                     "s": f"{view}.{fr.name}.model",
-                    **synth_in, # type: ignore
+                    "metadata": f"{view}.metadata",
+                    **synth_in,  # type: ignore
                 },
                 outputs=f"{view}.{fr.name}.enc",
                 namespace=f"{view}.{fr.name}",
-                tags=tags,
+                tags=[*tags, TAG_SAMPLE],
             ),
         ]
     )
