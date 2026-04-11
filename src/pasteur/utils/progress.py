@@ -377,7 +377,7 @@ def _init_pool(max_workers: int | None = None, refresh_processes: int | None = N
 
     close_pool()
 
-    ctx = get_context("spawn")
+    ctx = get_context("forkserver")
     manager = ctx.Manager()
     _max_workers = max_workers or cpu_count() or 1
 
