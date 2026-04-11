@@ -409,7 +409,6 @@ def structure_learn(
     tvd: dict[tuple[str, str], float],
     max_clique_size: float,
     size_penalty: float,
-    max_no_improve: int,
     rho2_exp: float,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
@@ -441,11 +440,10 @@ def structure_learn(
     attr_edge_count: dict[str, int] = {}
     saturated_attrs: set[str] = set()
 
-    max_steps = d * (max_edges_per_attr // 2 + 1) + max_no_improve - 1
+    max_steps = d * (max_edges_per_attr // 2 + 1)
     eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
     rho_spent = 0.0
 
-    no_improve_count = 0
 
     pbar = piter(
         None,
@@ -548,23 +546,15 @@ def structure_learn(
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)
         if not np.any(valid_mask):
-            no_improve_count += 1
             n_same = sum(1 for i, (idx, na, nb) in enumerate(active)
                          if set(node_to_cliques.get(na, [])) & set(node_to_cliques.get(nb, [])))
             n_cross = len(active) - n_same
             logger.info(
-                f"Adjuvant: no valid candidates at iter {it} "
-                f"({no_improve_count}/{max_no_improve}). "
+                f"Adjuvant: exit (no valid candidates) at iter {it}. "
                 f"active={len(active)} (same_clq={n_same}, cross_clq={n_cross}), "
                 f"max_base_dom={max_base_dom:_}"
             )
-            if no_improve_count >= max_no_improve:
-                logger.info(f"Adjuvant: exit (max_no_improve={max_no_improve} reached)")
-                break
-            pbar.update(1)
-            continue
-
-        no_improve_count = 0
+            break
 
         # Exponential mechanism selection among valid candidates
         valid_indices = np.where(valid_mask)[0]
@@ -680,25 +670,44 @@ def _clique_to_request(clique):
 
 
 def select_cliques_to_measure(
+    junction_cliques: list,
     triangulated: nx.Graph,
-    attrs: DatasetAttributes,
     structure_edges: set[frozenset[str]],
 ) -> list:
-    """Select maximal cliques that contain at least one structure-learning edge.
+    """Filter junction tree cliques to those containing structure-learning edges.
 
-    Returns list of CliqueMeta tuples for cliques worth measuring."""
-    from ....graph.hugin import create_clique_meta
+    Uses the junction tree's own CliqueMeta tuples, so observations are
+    guaranteed to have parent cliques in the tree.
+
+    Args:
+        junction_cliques: List of CliqueMeta from the junction tree.
+        triangulated: The triangulated graph (for node lookups).
+        structure_edges: Set of frozenset node pairs from structure learning.
+    """
+    # Build reverse map: for each (attr, value) -> set of graph nodes
+    attr_val_to_nodes: dict[tuple, set[str]] = {}
+    for node, data in triangulated.nodes(data=True):
+        key = (data["table"], data["order"], data["attr"], data["value"])
+        attr_val_to_nodes.setdefault(key, set()).add(node)
 
     measured = []
-    for clique_nodes in nx.find_cliques(triangulated):
-        node_set = set(clique_nodes)
+    for clique_meta in junction_cliques:
+        # Expand CliqueMeta back to the set of graph nodes it covers
+        clique_nodes: set[str] = set()
+        for am in clique_meta:
+            if isinstance(am.sel, int):
+                # Common value at height h: find matching nodes
+                for node in attr_val_to_nodes.get((am.table, am.order, am.attr, am.attr), set()):
+                    clique_nodes.add(node)
+            else:
+                for val, h in am.sel:
+                    for node in attr_val_to_nodes.get((am.table, am.order, am.attr, val), set()):
+                        clique_nodes.add(node)
+
         # Check if any structure-learning edge has both endpoints in this clique
-        has_structure_edge = any(
-            edge <= node_set for edge in structure_edges
-        )
+        has_structure_edge = any(edge <= clique_nodes for edge in structure_edges)
         if has_structure_edge:
-            meta = create_clique_meta(clique_nodes, triangulated, attrs)
-            measured.append(meta)
+            measured.append(clique_meta)
 
     return measured
 

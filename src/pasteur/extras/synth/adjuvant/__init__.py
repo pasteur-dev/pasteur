@@ -47,7 +47,6 @@ class AdjuvantSynth(Synth):
         e2_tvd_frac: float = 0.50,
         theta: float = 4,
         size_penalty: float = 1e-8,
-        max_no_improve: int = 3,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -66,7 +65,6 @@ class AdjuvantSynth(Synth):
         self.e2_tvd_frac = e2_tvd_frac
         self.theta = theta
         self.size_penalty = size_penalty
-        self.max_no_improve = max_no_improve
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -199,7 +197,6 @@ class AdjuvantSynth(Synth):
                 tvd,
                 max_clique_size,
                 self.size_penalty,
-                self.max_no_improve,
                 rho2_exp,
             )
             rho3 += rho2_remaining
@@ -208,17 +205,9 @@ class AdjuvantSynth(Synth):
             )
 
             # ==================================================
-            # Step 3: Select cliques to measure at structure-learning heights
-            # (before cap_heights / final triangulation changes them)
-            # ==================================================
-            moral_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
-            cliques_to_measure = select_cliques_to_measure(
-                moral_tri, table_attrs, structure_edges
-            )
-
-            # ==================================================
             # Step 2e: Finalize graph — proper triangulation + junction tree
-            # (cap_heights may coarsen heights for the junction tree)
+            # (cap_heights may coarsen heights; observations use post-cap heights
+            # so they're guaranteed to have parent cliques in the junction tree)
             # ==================================================
             logger.info("Adjuvant Step 2e: Triangulation and junction tree")
             _, triangulated, cost = find_elim_order(moral, table_attrs)
@@ -226,6 +215,14 @@ class AdjuvantSynth(Synth):
             junction = get_junction_tree(triangulated, table_attrs)
             cliques = list(junction.nodes())
             logger.info(f"Adjuvant: {len(cliques)} cliques in junction tree")
+
+            # ==================================================
+            # Step 3: Select cliques to measure (from triangulated graph,
+            # so heights match the junction tree)
+            # ==================================================
+            cliques_to_measure = select_cliques_to_measure(
+                cliques, triangulated, structure_edges
+            )
             logger.info(
                 f"Adjuvant Step 3: Measuring {len(cliques_to_measure)}/{len(cliques)} "
                 f"cliques (rho3={rho3:.4f})"
