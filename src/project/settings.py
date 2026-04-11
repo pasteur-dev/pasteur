@@ -60,6 +60,7 @@ CONFIG_LOADER_ARGS = {}
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM as RefAIM, MST as RefMST
 from pasteur.extras.synth.sota import AIM, MST, PrivMRF
+from pasteur.extras.synth.adjuvant import AdjuvantSynth
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 
@@ -84,6 +85,7 @@ PASTEUR_MODULES = get_recommended_modules() + [
     AIM.get_factory(),
     MST.get_factory(),
     PrivMRF.get_factory(),
+    AdjuvantSynth.get_factory(),
     MimicBillion(),
     MimicCore(),
     MimicIcu(),
