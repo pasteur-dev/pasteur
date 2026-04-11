@@ -288,6 +288,13 @@ class PrivBayesSynth(Synth):
             self.mirror_descent = kwargs["mirror_descent"]
         if self.mirror_descent:
             self._fit_mirror_descent()
+        else:
+            self.md_obs = None
+            self.md_potentials = None
+            self.md_cliques = None
+            self.md_loss_fn = None
+            self.md_sample = None
+            self.md_junction = None
 
     def _fit_mirror_descent(self):
         from ....graph.beliefs import create_messages
