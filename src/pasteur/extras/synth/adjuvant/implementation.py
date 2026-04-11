@@ -405,6 +405,7 @@ def structure_learn(
     max_clique_size: float,
     size_penalty: float,
     rho2_exp: float,
+    min_tvd: float = 0.04,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
@@ -572,16 +573,33 @@ def structure_learn(
             )
             break
 
-        # Exponential mechanism selection among valid candidates
+        # Exponential mechanism selection among valid candidates + "stop" option.
+        # The stop option has score = min_tvd. If EM picks it, we exit:
+        # all remaining candidates are below the noise floor.
         valid_indices = np.where(valid_mask)[0]
         valid_scores = scores[valid_mask]
 
+        # Append stop option at the end, boosted by log(N) to compensate
+        # for competing against N candidates in the softmax
+        sensitivity = 2.0 / n
+        log_n_boost = 2 * sensitivity * np.log(max(len(valid_scores), 1)) / eps_per_step if eps_per_step > 0 else 0
+        em_scores = np.append(valid_scores, min_tvd + log_n_boost if min_tvd else 0)
+        stop_idx = len(valid_scores)
+
         if eps_per_step > 0:
             sensitivity = 2.0 / n  # TVD sensitivity
-            sel = exponential_mechanism(valid_scores, eps_per_step, sensitivity)
+            sel = exponential_mechanism(em_scores, eps_per_step, sensitivity)
             rho_spent += eps_per_step ** 2 / 8
         else:
-            sel = int(np.argmax(valid_scores))
+            sel = int(np.argmax(em_scores))
+
+        if sel == stop_idx:
+            logger.info(
+                f"Adjuvant: exit (EM picked stop option, min_tvd={min_tvd}) "
+                f"at iter {it}, edges={len(structure_edges)}"
+            )
+            pbar.update(1)
+            break
 
         _, na, nb = active[valid_indices[sel]]
 
@@ -644,12 +662,19 @@ def structure_learn(
             if not attr_cands:
                 continue
 
-            scores_arr = np.array(attr_scores)
+            # Add stop option to forced-edge EM too
+            scores_arr = np.append(np.array(attr_scores), min_tvd)
+            forced_stop_idx = len(attr_scores)
+
             if eps_per_step > 0:
                 sel = exponential_mechanism(scores_arr, eps_per_step, 2.0 / n)
                 rho_spent += eps_per_step ** 2 / 8
             else:
                 sel = int(np.argmax(scores_arr))
+
+            if sel == forced_stop_idx:
+                logger.info(f"Adj. skip forced edge for {attr} (below min_tvd)")
+                continue
 
             _, na, nb = attr_cands[sel]
             moral.add_edge(na, nb, structure=True)
