@@ -44,7 +44,6 @@ class AdjuvantSynth(Synth):
         e1_frac: float = 0.10,
         e2_frac: float = 0.20,
         e3_frac: float = 0.70,
-        e2_tvd_frac: float = 0.50,
         theta: float = 4,
         size_penalty: float = 1e-8,
         rebalance: bool | dict = True,
@@ -62,7 +61,6 @@ class AdjuvantSynth(Synth):
         self.e1_frac = e1_frac
         self.e2_frac = e2_frac
         self.e3_frac = e3_frac
-        self.e2_tvd_frac = e2_tvd_frac
         self.theta = theta
         self.size_penalty = size_penalty
         self.rebalance = rebalance
@@ -109,7 +107,7 @@ class AdjuvantSynth(Synth):
         from .implementation import (
             compute_all_marginals,
             add_noise_1way,
-            compute_noisy_tvd,
+            compute_tvd,
             build_height_chain_graph,
             structure_learn,
             select_cliques_to_measure,
@@ -139,8 +137,6 @@ class AdjuvantSynth(Synth):
         rho1 = self.e1_frac * rho
         rho2 = self.e2_frac * rho
         rho3 = self.e3_frac * rho
-        rho2_tvd = self.e2_tvd_frac * rho2
-        rho2_exp = (1 - self.e2_tvd_frac) * rho2
 
         all_attrs = get_attr_names(table_attrs)
         d = len(all_attrs)
@@ -181,10 +177,9 @@ class AdjuvantSynth(Synth):
             # Step 2: Structure learning (budget e2)
             # ==================================================
             logger.info(
-                f"Adjuvant Step 2: Structure learning "
-                f"(rho2_tvd={rho2_tvd:.4f}, rho2_exp={rho2_exp:.4f})"
+                f"Adjuvant Step 2: Structure learning (rho2={rho2:.4f})"
             )
-            tvd = compute_noisy_tvd(cached, n, rho2_tvd)
+            tvd = compute_tvd(cached)
             directed_graph = build_height_chain_graph(table_attrs)
             logger.info(
                 f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
@@ -195,9 +190,10 @@ class AdjuvantSynth(Synth):
                 directed_graph,
                 table_attrs,
                 tvd,
+                n,
                 max_clique_size,
                 self.size_penalty,
-                rho2_exp,
+                rho2,
             )
             rho3 += rho2_remaining
             logger.info(

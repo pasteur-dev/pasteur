@@ -84,16 +84,12 @@ def add_noise_1way(
 # ============================================================
 # Step 2b: Noisy TVD
 # ============================================================
-def compute_noisy_tvd(
+def compute_tvd(
     cached: CachedMarginals,
-    n: int,
-    rho2_tvd: float,
 ) -> dict[tuple[str, str], float]:
-    """Compute noisy pairwise TVD = ||P(A,B) - P(A)P(B)||_1 / 2."""
-    num_pairs = len(cached.two_way)
-    tvd_sens = 2.0 / n
-    sigma = tvd_sens * sqrt(num_pairs / (2 * rho2_tvd)) if rho2_tvd > 0 else 0
+    """Compute exact pairwise TVD = ||P(A,B) - P(A)P(B)||_1 / 2.
 
+    No noise added — the exponential mechanism provides privacy for selection."""
     # Normalize 1-way to probabilities
     p1: dict[str, np.ndarray] = {}
     for a, m in cached.one_way.items():
@@ -107,8 +103,6 @@ def compute_noisy_tvd(
         p_ab = flat / s if s > 0 else flat
         indep = np.outer(p1[a], p1[b]).ravel()
         val = float(np.sum(np.abs(p_ab - indep)) / 2)
-        if sigma > 0:
-            val += np.random.normal(0, sigma)
         tvd[a, b] = val
         tvd[b, a] = val
 
@@ -407,6 +401,7 @@ def structure_learn(
     directed_graph: nx.DiGraph,
     attrs: DatasetAttributes,
     tvd: dict[tuple[str, str], float],
+    n: int,
     max_clique_size: float,
     size_penalty: float,
     rho2_exp: float,
@@ -561,7 +556,7 @@ def structure_learn(
         valid_scores = scores[valid_mask]
 
         if eps_per_step > 0:
-            sensitivity = 1.0
+            sensitivity = 2.0 / n  # TVD sensitivity
             sel = exponential_mechanism(valid_scores, eps_per_step, sensitivity)
             rho_spent += eps_per_step ** 2 / 8
         else:
@@ -630,7 +625,7 @@ def structure_learn(
 
             scores_arr = np.array(attr_scores)
             if eps_per_step > 0:
-                sel = exponential_mechanism(scores_arr, eps_per_step, 1.0)
+                sel = exponential_mechanism(scores_arr, eps_per_step, 2.0 / n)
                 rho_spent += eps_per_step ** 2 / 8
             else:
                 sel = int(np.argmax(scores_arr))
@@ -646,12 +641,35 @@ def structure_learn(
             logger.info(f"Adj. forced edge: ({na}, {nb})")
 
     rho_remaining = rho2_exp - rho_spent
+
+    # Diagnostic: show top unconnected pairs by TVD
+    all_pairs_tvd: list[tuple[float, str, str]] = []
+    for (a, b), val in tvd.items():
+        if a < b:  # avoid duplicates
+            all_pairs_tvd.append((val, a, b))
+    all_pairs_tvd.sort(reverse=True)
+
     logger.info(
         f"Adjuvant: structure learning done, "
         f"{len(structure_edges)} edges, "
         f"{len(connected_pairs)} attribute pairs connected, "
         f"rho2_exp spent={rho_spent:.4f}, remaining={rho_remaining:.4f}"
     )
+    logger.info("Adjuvant: Connected pairs (by TVD):")
+    for val, a, b in all_pairs_tvd:
+        pair = tuple(sorted([a, b]))
+        status = "CONNECTED" if pair in connected_pairs else "MISSING"
+        if status == "CONNECTED" or val > 0.01:
+            # Find which candidates existed for this pair
+            n_cands = sum(
+                1 for idx, (na, nb) in enumerate(candidates)
+                if tuple(sorted([directed_graph.nodes[na]["attr"],
+                                  directed_graph.nodes[nb]["attr"]])) == pair
+            )
+            logger.info(
+                f"  {status:>9} TVD={val:.4f} {a} x {b} "
+                f"(candidates={n_cands})"
+            )
 
     return moral, structure_edges, rho_remaining
 
