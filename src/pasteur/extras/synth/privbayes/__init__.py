@@ -285,7 +285,17 @@ class PrivBayesSynth(Synth):
 
     def refresh(self, **kwargs):
         if "mirror_descent" in kwargs:
+            has_md = bool(self.mirror_descent)
             self.mirror_descent = kwargs["mirror_descent"]
+            if (
+                has_md
+                and isinstance(self.mirror_descent, dict)
+                and len(self.mirror_descent) == 1
+                and next(iter(self.mirror_descent)) == "sample"
+            ):
+                # Special case, when testing sampler do not recreate
+                # potentials to get 1-1 comparison
+                return
         if self.mirror_descent:
             self._fit_mirror_descent()
         else:
@@ -318,7 +328,9 @@ class PrivBayesSynth(Synth):
 
         # Build observations first (needed for maximal tree mode)
         noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
-        obs = derive_obs_from_model(self.nodes, self.table_attrs, self.marginals, self.n, noise_scale)
+        obs = derive_obs_from_model(
+            self.nodes, self.table_attrs, self.marginals, self.n, noise_scale
+        )
 
         if tree_mode == "maximal":
             # Build junction tree directly from observation cliques.
@@ -400,6 +412,7 @@ class PrivBayesSynth(Synth):
 
             # Find the parent clique and get projection metadata
             from ....graph.loss import get_parents
+
             parents = get_parents(source, cliques)
             if not parents:
                 # No compatible clique — keep original marginal
@@ -462,18 +475,18 @@ class PrivBayesSynth(Synth):
                         comp_mapping = attr.get_mapping(dict(a.sel))
 
                         _, unique_idx = np.unique(naive_mapping, return_index=True)
-                        naive_per_comp_dedup = np.zeros(compressed_dom, dtype=np.float32)
+                        naive_per_comp_dedup = np.zeros(
+                            compressed_dom, dtype=np.float32
+                        )
                         np.add.at(naive_per_comp_dedup, comp_mapping[unique_idx], 1.0)
                         naive_per_comp_dedup = np.maximum(naive_per_comp_dedup, 1.0)
 
                         i_map = tuple(
-                            naive_mapping
-                            if j == dim_i else slice(None)
+                            naive_mapping if j == dim_i else slice(None)
                             for j in range(len(proc.shape))
                         )
                         o_map = tuple(
-                            comp_mapping
-                            if j == dim_i else slice(None)
+                            comp_mapping if j == dim_i else slice(None)
                             for j in range(len(proc.shape))
                         )
                         scale_shape = [1] * len(proc.shape)
@@ -510,9 +523,7 @@ class PrivBayesSynth(Synth):
             n = self.n
 
         if getattr(self, "md_sample", False) and self.md_potentials is not None:
-            tables = {
-                self.table_name: self._sample_junction_tree(n, pd.RangeIndex(n))
-            }
+            tables = {self.table_name: self._sample_junction_tree(n, pd.RangeIndex(n))}
         else:
             marginals = (
                 self.md_marginals if self.md_marginals is not None else self.marginals
@@ -529,7 +540,8 @@ class PrivBayesSynth(Synth):
         ids = {self.table_name: pd.DataFrame()}
 
         return tables_to_data(
-            ids, tables,
+            ids,
+            tables,
             partition=i if self.partitions > 1 else None,
         )
 
@@ -540,9 +552,7 @@ class PrivBayesSynth(Synth):
             sample_junction_tree,
         )
 
-        meta = create_sampler_meta(
-            self.md_junction, self.md_cliques, self.table_attrs
-        )
+        meta = create_sampler_meta(self.md_junction, self.md_cliques, self.table_attrs)
         columns = sample_junction_tree(self.md_potentials, meta, n, self.table_attrs)
         return pd.DataFrame(columns, index=idx)
 
@@ -858,8 +868,7 @@ def derive_obs_from_model(
             compressed_idx = raw_compressed[unique_idx]
 
             i_map = tuple(
-                naive_idx if j == i else slice(None)
-                for j in range(len(new_obs.shape))
+                naive_idx if j == i else slice(None) for j in range(len(new_obs.shape))
             )
             o_map = tuple(
                 compressed_idx if j == i else slice(None)
