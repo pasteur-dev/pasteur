@@ -51,11 +51,13 @@ PROGRESS_STEP_NS = 50_000_000
 # debugger stops at the top-most exception
 DEBUG = bool(int(environ.get("_DEBUG", 0)))
 MULTIPROCESS_ENABLE = bool(int(environ.get("_MULTIPROCESS", 1)))
+MULTIPROCESS_METHOD = environ.get("_MP_METHOD", "forkserver")
 IS_SUBPROCESS = False
 
 CHECK_LEAKS = False
 
 IS_AGENT = bool(int(environ.get("AGENT", 0)))
+
 
 def _is_jupyter() -> bool:  # pragma: no cover
     """Check if we're running in a Jupyter notebook.
@@ -164,7 +166,8 @@ def _wrap_exceptions(
             if not IS_AGENT:
                 get_console().print_exception(**RICH_TRACEBACK_ARGS)
             logger.error(
-                f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}', exc_info=IS_AGENT
+                f'Subprocess of "{get_node_name()}" failed with error:\n{type(e).__name__}',
+                exc_info=IS_AGENT,
             )
         raise RuntimeError("subprocess failed") from e
 
@@ -199,7 +202,8 @@ def _calc_worker(args):
                     if not IS_AGENT:
                         get_console().print_exception(**RICH_TRACEBACK_ARGS)
                     logger.error(
-                        f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}', exc_info=IS_AGENT
+                        f'Subprocess initialization of "{get_node_name()}" failed with error:\n{type(e).__name__}',
+                        exc_info=IS_AGENT,
                     )
                 raise RuntimeError("subprocess failed") from e
 
@@ -267,6 +271,8 @@ def _calc_worker(args):
 
 _max_workers: int = 1
 _pool: "tuple[Pool, SyncManager, Any] | None" = None
+_error_lock: Any = None
+_first_error: Any = None
 
 
 def get_max_workers() -> int:
@@ -373,13 +379,19 @@ def _init_pool(max_workers: int | None = None, refresh_processes: int | None = N
     import threading
     from multiprocessing import get_context
 
-    global _pool, _max_workers
+    global _pool, _max_workers, _error_lock, _first_error
 
     close_pool()
 
-    ctx = get_context("forkserver")
+    ctx = get_context(MULTIPROCESS_METHOD)
     manager = ctx.Manager()
     _max_workers = max_workers or cpu_count() or 1
+
+    # Shared error-reporting primitives — created once so the proxies
+    # stay valid for the lifetime of the pool (fixes refcount errors
+    # with forkserver/spawn where per-call proxy creation fails).
+    _error_lock = manager.Lock()
+    _first_error = manager.Value("b", True)
 
     # set up logging handler for subprocesses
     log_queue = manager.Queue()
@@ -426,8 +438,8 @@ def process(fun: Callable[P, X], *args: P.args, **kwargs: P.kwargs) -> X:
     if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return fun(*args, **kwargs)
 
-    pool, manager, _ = _get_pool()
-    return pool.apply(_wrap_exceptions, (fun, get_node_name(), manager.Lock(), manager.Value("first_error", True), *args), kwargs)  # type: ignore
+    pool, _, _ = _get_pool()
+    return pool.apply(_wrap_exceptions, (fun, get_node_name(), _error_lock, _first_error, *args), kwargs)  # type: ignore
 
 
 class AsyncResultStub(AsyncResult):
@@ -454,8 +466,8 @@ def process_async(
     if not MULTIPROCESS_ENABLE or IS_SUBPROCESS:
         return AsyncResultStub(fun(*args, **kwargs))
 
-    pool, manager, _ = _get_pool()
-    return pool.apply_async(_wrap_exceptions, (fun, get_node_name(), manager.Lock(), manager.Value("first_error", True), *args), kwargs)  # type: ignore
+    pool, _, _ = _get_pool()
+    return pool.apply_async(_wrap_exceptions, (fun, get_node_name(), _error_lock, _first_error, *args), kwargs)  # type: ignore
 
 
 def process_in_parallel(
@@ -599,7 +611,7 @@ def logging_redirect_pbar():
 
             if ":ephemeral:" in text:
                 if IS_AGENT:
-                    return # Don't print ephemeral logs in agent mode
+                    return  # Don't print ephemeral logs in agent mode
                 # Derive from external_write_mode
                 with tqdm.get_lock():
                     min_pbar = -1
