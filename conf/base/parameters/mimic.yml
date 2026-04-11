@@ -14,10 +14,11 @@ mimic_billion:
       sequential_min: 1000000
       
 mimic_tab_admissions:
+  alg:
+    marginal_mode: inmemory_copy
   algs:
     privbayes:
       theta: 7
-      marginal_mode: inmemory_copy
       
 mimic_core:
   algs:
