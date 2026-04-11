@@ -318,12 +318,13 @@ def structure_learn(
     size_penalty: float,
     max_no_improve: int,
     rho2_exp: float,
-) -> tuple[nx.Graph, set[frozenset[str]]]:
+) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
         structure_edges: Set of frozenset node pairs for structure-learning edges.
+        rho2_exp_remaining: Unspent exponential mechanism budget.
     """
     from ..sota.common import exponential_mechanism
     from ....graph.hugin import to_moral
@@ -338,8 +339,10 @@ def structure_learn(
     structure_edges: set[frozenset[str]] = set()
 
     # Budget: one exponential mechanism selection per attribute pair (upper bound)
+    # Each selection costs eps^2 / 8 in rho-CDP
     max_steps = len(attr_pair_map)
     eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
+    rho_spent = 0.0
 
     no_improve_count = 0
 
@@ -386,6 +389,7 @@ def structure_learn(
         if eps_per_step > 0:
             sensitivity = 1.0  # TVD bounded in [0, 1]
             sel = exponential_mechanism(valid_scores, eps_per_step, sensitivity)
+            rho_spent += eps_per_step ** 2 / 8
         else:
             sel = int(np.argmax(valid_scores))
 
@@ -406,13 +410,15 @@ def structure_learn(
             f"pairs={len(connected_pairs)}/{len(attr_pair_map)}"
         )
 
+    rho_remaining = rho2_exp - rho_spent
     logger.info(
         f"Adjuvant: structure learning done, "
         f"{len(structure_edges)} edges, "
-        f"{len(connected_pairs)} attribute pairs connected"
+        f"{len(connected_pairs)} attribute pairs connected, "
+        f"rho2_exp spent={rho_spent:.4f}, remaining={rho_remaining:.4f}"
     )
 
-    return moral, structure_edges
+    return moral, structure_edges, rho_remaining
 
 
 # ============================================================

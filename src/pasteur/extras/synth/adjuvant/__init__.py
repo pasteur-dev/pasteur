@@ -16,7 +16,9 @@ import numpy as np
 import pandas as pd
 
 from ....attribute import Attributes, DatasetAttributes
+from ....hierarchy import rebalance_attributes
 from ....marginal import MarginalOracle
+from ....marginal.oracle import counts_preprocess
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 
@@ -39,12 +41,13 @@ class AdjuvantSynth(Synth):
         e: float = 2.0,
         delta: float = 1e-9,
         e1_frac: float = 0.10,
-        e2_frac: float = 0.15,
-        e3_frac: float = 0.75,
+        e2_frac: float = 0.20,
+        e3_frac: float = 0.70,
         e2_tvd_frac: float = 0.50,
         max_clique_size: float = 1e7,
         size_penalty: float = 1e-8,
         max_no_improve: int = 3,
+        rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
@@ -63,6 +66,7 @@ class AdjuvantSynth(Synth):
         self.max_clique_size = max_clique_size
         self.size_penalty = size_penalty
         self.max_no_improve = max_no_improve
+        self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
         self.marginal_min_chunk = marginal_min_chunk
@@ -75,9 +79,27 @@ class AdjuvantSynth(Synth):
     @make_deterministic
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
         self.table = next(iter(meta))
-        self.attrs = meta
         self._n = data[self.table].shape[0]
         self._partitions = len(data[self.table])
+
+        if self.rebalance:
+            rebalance_kwargs = self.rebalance if isinstance(self.rebalance, dict) else {}
+            with MarginalOracle(
+                data,
+                meta,
+                mode=self.marginal_mode,
+                min_chunk_size=self.marginal_min_chunk,
+                max_worker_mult=self.marginal_worker_mult,
+                preprocess=counts_preprocess,
+            ) as o:
+                counts = o.get_counts(desc="Calculating counts for column rebalancing")
+
+            self.attrs = {
+                k: rebalance_attributes(counts[k], v, **rebalance_kwargs)
+                for k, v in meta.items()
+            }
+        else:
+            self.attrs = meta
 
     @make_deterministic
     def bake(self, data: dict[str, LazyFrame]):
@@ -157,7 +179,7 @@ class AdjuvantSynth(Synth):
                 f"nodes, {directed_graph.number_of_edges()} chain edges"
             )
 
-            moral, structure_edges = structure_learn(
+            moral, structure_edges, rho2_remaining = structure_learn(
                 directed_graph,
                 table_attrs,
                 tvd,
@@ -165,6 +187,10 @@ class AdjuvantSynth(Synth):
                 self.size_penalty,
                 self.max_no_improve,
                 rho2_exp,
+            )
+            rho3 += rho2_remaining
+            logger.info(
+                f"Adjuvant: rho2 leftover {rho2_remaining:.4f} -> rho3 now {rho3:.4f}"
             )
 
             # ==================================================
