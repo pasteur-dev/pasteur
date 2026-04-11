@@ -451,14 +451,10 @@ def structure_learn(
     connected_pairs: set[tuple[str, str]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Per-attribute edge limits: 1 to sqrt(d)
+    # Global edge limit: d * sqrt(d) total edges (no per-attribute cap)
     d = len(set(a for pair in attr_pair_map for a in pair))
-    max_edges_per_attr = min(d, 2 * int(sqrt(d) + 0.5))
-    attr_edge_count: dict[str, int] = {}
-    saturated_attrs: set[str] = set()
-
-    max_steps = d * (max_edges_per_attr // 2 + 1)
-    eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
+    max_steps = d * int(sqrt(d))
+    eps_per_step = sqrt(8 * rho2_exp / (max_steps + d)) if max_steps > 0 and rho2_exp > 0 else 0
     rho_spent = 0.0
 
 
@@ -487,28 +483,18 @@ def structure_learn(
             pbar.close()
             raise e
 
-        # Filter to active candidates:
-        # - attribute pair not yet connected
-        # - neither attribute saturated (reached max edges)
+        # Filter to active candidates (attribute pair not yet connected)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            attr_a, attr_b = da["attr"], db["attr"]
-            pair = tuple(sorted([attr_a, attr_b]))
-            if pair in connected_pairs:
-                continue
-            if attr_a in saturated_attrs or attr_b in saturated_attrs:
-                continue
-            active.append((idx, na, nb))
+            pair = tuple(sorted([da["attr"], db["attr"]]))
+            if pair not in connected_pairs:
+                active.append((idx, na, nb))
 
         if not active:
-            n_connected = len(connected_pairs)
-            n_saturated = len(saturated_attrs)
-            n_remaining_pairs = len(attr_pair_map) - n_connected
             logger.info(
                 f"Adjuvant: exit (no active candidates) at iter {it}. "
-                f"pairs={n_connected}, saturated={n_saturated}/{d}, "
-                f"remaining_pairs={n_remaining_pairs} (all connected or saturated)"
+                f"pairs={len(connected_pairs)}/{len(attr_pair_map)}"
             )
             break
 
@@ -576,18 +562,10 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         structure_edges.add(frozenset([na, nb]))
 
-        # Update attribute pair tracking and edge counts
+        # Update attribute pair tracking
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        attr_a, attr_b = da["attr"], db["attr"]
-        pair = tuple(sorted([attr_a, attr_b]))
+        pair = tuple(sorted([da["attr"], db["attr"]]))
         connected_pairs.add(pair)
-
-        attr_edge_count[attr_a] = attr_edge_count.get(attr_a, 0) + 1
-        attr_edge_count[attr_b] = attr_edge_count.get(attr_b, 0) + 1
-        if attr_edge_count[attr_a] >= max_edges_per_attr:
-            saturated_attrs.add(attr_a)
-        if attr_edge_count[attr_b] >= max_edges_per_attr:
-            saturated_attrs.add(attr_b)
 
         logger.info(
             f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): "
@@ -609,7 +587,8 @@ def structure_learn(
         if not data.get("is_common", False):
             all_attrs_in_graph.add(data["attr"])
 
-    disconnected = all_attrs_in_graph - set(attr_edge_count.keys())
+    connected_attrs = set(a for pair in connected_pairs for a in pair)
+    disconnected = all_attrs_in_graph - connected_attrs
     if disconnected:
         logger.info(
             f"Adjuvant: forcing edges for {len(disconnected)} disconnected attrs: "
@@ -632,7 +611,7 @@ def structure_learn(
             if not attr_cands:
                 continue
 
-            # Add stop option to forced-edge EM too
+            # Add stop option: if all candidates are below min_tvd, skip
             scores_arr = np.append(np.array(attr_scores), min_tvd)
             forced_stop_idx = len(attr_scores)
 
@@ -652,8 +631,6 @@ def structure_learn(
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
             pair = tuple(sorted([da["attr"], db["attr"]]))
             connected_pairs.add(pair)
-            attr_edge_count[da["attr"]] = attr_edge_count.get(da["attr"], 0) + 1
-            attr_edge_count[db["attr"]] = attr_edge_count.get(db["attr"], 0) + 1
             logger.info(f"Adj. forced edge: {_fmt_edge(na, nb, moral, attrs)}")
 
     rho_remaining = rho2_exp - rho_spent
