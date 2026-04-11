@@ -10,7 +10,6 @@ Budget allocation: e1 (scaling), e2 (structure learning), e3 (measurement + fitt
 from __future__ import annotations
 
 import logging
-from math import sqrt
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -41,11 +40,11 @@ class AdjuvantSynth(Synth):
         self,
         e: float = 2.0,
         delta: float = 1e-9,
-        e1_frac: float = 0.4,
-        e2_frac: float = 0.10,
-        e3_frac: float = 0.5,
-        theta: float = 4,
-        size_penalty: float = 0.5,
+        e1_frac: float = 0.2,
+        e2_frac: float = 0.1,
+        e3_frac: float = 0.7,
+        size_penalty: float = 0.1,
+        min_tvd: float = 0.02,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -61,8 +60,8 @@ class AdjuvantSynth(Synth):
         self.e1_frac = e1_frac
         self.e2_frac = e2_frac
         self.e3_frac = e3_frac
-        self.theta = theta
         self.size_penalty = size_penalty
+        self.min_tvd = min_tvd
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -110,12 +109,9 @@ class AdjuvantSynth(Synth):
             compute_tvd,
             build_height_chain_graph,
             structure_learn,
-            select_cliques_to_measure,
-            measure_cliques,
+            measure_edges,
             build_1way_observations,
-            _triangulate_simple,
         )
-        import networkx as nx
         from ..sota.common import cdp_rho, get_attr_names
         from ....graph.mirror_descent import (
             MIRROR_DESCENT_DEFAULT,
@@ -140,16 +136,6 @@ class AdjuvantSynth(Synth):
 
         all_attrs = get_attr_names(table_attrs)
         d = len(all_attrs)
-
-        # Estimate max clique domain from theta:
-        # max_domain = n / (estimated_sigma * theta)
-        # estimated_sigma based on ~d measurements with budget rho3
-        est_sigma = sqrt(d / (2 * rho3)) if rho3 > 0 else 1
-        max_clique_size = max(n / (est_sigma * self.theta), 100)
-        logger.info(
-            f"Adjuvant: theta={self.theta}, est_sigma={est_sigma:.2f}, "
-            f"max_clique_size={max_clique_size:_.0f}"
-        )
 
         with MarginalOracle(
             data,
@@ -191,9 +177,9 @@ class AdjuvantSynth(Synth):
                 table_attrs,
                 tvd,
                 n,
-                max_clique_size,
                 self.size_penalty,
                 rho2,
+                self.min_tvd,
             )
             rho3 += rho2_remaining
             logger.info(
@@ -213,24 +199,20 @@ class AdjuvantSynth(Synth):
             logger.info(f"Adjuvant: {len(cliques)} cliques in junction tree")
 
             # ==================================================
-            # Step 3: Select cliques to measure (from triangulated graph,
-            # so heights match the junction tree)
+            # Step 3: Measure 2-way marginals for structure-learning edges
             # ==================================================
-            cliques_to_measure = select_cliques_to_measure(
-                cliques, triangulated, structure_edges
-            )
             logger.info(
-                f"Adjuvant Step 3: Measuring {len(cliques_to_measure)}/{len(cliques)} "
-                f"cliques (rho3={rho3:.4f})"
+                f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
+                f"(rho3={rho3:.4f})"
             )
 
-            clique_obs, sigma3 = measure_cliques(
-                oracle, cliques_to_measure, table_attrs, n, rho3
+            edge_obs, sigma3 = measure_edges(
+                oracle, structure_edges, moral, table_attrs, n, rho3
             )
             oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigma1)
-            all_obs = clique_obs + oneway_obs
+            all_obs = edge_obs + oneway_obs
             logger.info(
-                f"Adjuvant: {len(clique_obs)} clique obs + {len(oneway_obs)} 1-way obs, "
+                f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
                 f"sigma3={sigma3:.2f}, sigma1={sigma1:.2f}"
             )
 

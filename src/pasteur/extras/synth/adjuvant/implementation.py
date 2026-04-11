@@ -338,27 +338,24 @@ def _score_with_one_edge(
     return total_domain, True
 
 
-def compute_height_boost(
+def compute_edge_weight(
     node_a: str,
     node_b: str,
     g: nx.Graph,
     attrs: DatasetAttributes,
+    size_penalty: float = 0.3,
 ) -> float:
-    """Height boost: sqrt(dom_h0 / dom_h) per side. Factor=1 at (0,0)."""
     from ....graph.hugin import get_attrs as _get_attrs
 
-    def _boost_for_node(node: str) -> float:
+    def _weight_for_node(node: str) -> float:
         d = g.nodes[node]
         a = _get_attrs(attrs, d["table"], d["order"])[d["attr"]]
         val = cast(CatValue, a[d["value"]])
         h = d["height"]
-        if h == 0:
-            return 1.0
-        dom_h0 = val.get_domain(0)
         dom_h = val.get_domain(h)
-        return sqrt(dom_h0 / dom_h) if dom_h > 0 else 1.0
+        return 1 / dom_h if dom_h > 0 else 1.0
 
-    return _boost_for_node(node_a) * _boost_for_node(node_b)
+    return 1 / (1 + (_weight_for_node(node_a) * _weight_for_node(node_b))**size_penalty)
 
 
 def score_graph(
@@ -388,7 +385,7 @@ def score_graph(
         na, nb = tuple(edge)
         da, db = moral.nodes[na], moral.nodes[nb]
         base = tvd.get((da["attr"], db["attr"]), 0.0)
-        boost = compute_height_boost(na, nb, moral, attrs)
+        boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         tvd_sum += base * boost
 
     return tvd_sum - size_penalty * total_domain
@@ -402,10 +399,9 @@ def structure_learn(
     attrs: DatasetAttributes,
     tvd: dict[tuple[str, str], float],
     n: int,
-    max_clique_size: float,
     size_penalty: float,
     rho2_exp: float,
-    min_tvd: float = 0.04,
+    min_tvd: float,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
@@ -456,7 +452,7 @@ def structure_learn(
     for idx, (na, nb) in enumerate(candidates):
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
         base = tvd.get((da["attr"], db["attr"]), 0.0)
-        boost = compute_height_boost(na, nb, moral, attrs)
+        boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
     for it in range(max_steps):
@@ -495,70 +491,18 @@ def structure_learn(
         base_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
         base_cliques = list(nx.find_cliques(base_tri))
 
-        # Per-clique domains and node-to-cliques index
-        # Note: don't bail on oversized cliques — they may be fill-edge
-        # artifacts. Only reject candidates that would grow affected cliques.
-        clique_domains: list[int] = []
-        base_domain_total = 0
-        max_base_dom = 0
-        for cl in base_cliques:
-            dom = get_factor_domain(set(cl), base_tri, attrs)
-            max_base_dom = max(max_base_dom, dom)
-            base_domain_total += dom
-            clique_domains.append(dom)
-
+        # Node-to-cliques index (for same-clique fast path)
         node_to_cliques: dict[str, list[int]] = {}
-        clique_node_sets: list[set[str]] = []
         for ci, cl in enumerate(base_cliques):
-            cl_set = set(cl)
-            clique_node_sets.append(cl_set)
             for node in cl:
                 node_to_cliques.setdefault(node, []).append(ci)
 
-        # Compute current measured cells: sum of domains of cliques
-        # that contain at least one structure-learning edge
-        base_measured_cells = 0
-        for ci, cl_set in enumerate(clique_node_sets):
-            if any(edge <= cl_set for edge in structure_edges):
-                base_measured_cells += clique_domains[ci]
-        # Ensure non-zero for division (before any edges are added)
-        base_measured_cells = max(base_measured_cells, 1)
-
-        # Score each candidate
+        # Score each candidate: TVD * edge_weight (1/sqrt(dom_a*dom_b))
+        # Same-clique and cross-clique get the same score since we measure
+        # 2-way edge marginals directly (no clique domain penalty needed).
         scores = np.full(len(active), float("-inf"))
-        base_adj = _build_adj(base_tri)
-        node_data = dict(base_tri.nodes(data=True))
-
         for i, (idx, na, nb) in enumerate(active):
-            cliques_a = set(node_to_cliques.get(na, []))
-            cliques_b = set(node_to_cliques.get(nb, []))
-            shared = cliques_a & cliques_b
-
-            if shared:
-                # Same clique: already measured (or will be), no new cells
-                scores[i] = cand_tvd_boost[idx]
-            else:
-                # Cross-clique: exact re-triangulation via adjacency sets
-                trial_domain, valid = _score_with_one_edge(
-                    base_adj, na, nb, node_data, attrs, max_clique_size
-                )
-                if not valid:
-                    continue  # stays -inf
-
-                # The new edge creates a new measured clique.
-                # Estimate its domain from the common-neighbor clique:
-                # {na, nb} ∪ (N_tri(na) ∩ N_tri(nb))
-                new_clique_dom = get_factor_domain(
-                    {na, nb} | (set(base_tri.neighbors(na)) & set(base_tri.neighbors(nb))),
-                    base_tri, attrs,
-                )
-
-                # Penalty: divide score by (1 + new_cells / prev_cells) ^ size_penalty
-                # size_penalty=1: 20% more cells → picked 20% less
-                # size_penalty=2: 20% more cells → picked 44% less
-                # size_penalty=0: no penalty
-                cell_ratio = new_clique_dom / base_measured_cells
-                scores[i] = cand_tvd_boost[idx] / (1 + cell_ratio) ** size_penalty
+            scores[i] = cand_tvd_boost[idx]
 
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)
@@ -569,7 +513,7 @@ def structure_learn(
             logger.info(
                 f"Adjuvant: exit (no valid candidates) at iter {it}. "
                 f"active={len(active)} (same_clq={n_same}, cross_clq={n_cross}), "
-                f"max_base_dom={max_base_dom:_}"
+                f"edges={len(structure_edges)}"
             )
             break
 
@@ -820,6 +764,93 @@ def measure_cliques(
 
         confidence = n / (n + sigma3 * dom)
         obs_list.append(LinearObservation(clique, None, prob, confidence))
+
+    return obs_list, sigma3
+
+
+def measure_edges(
+    oracle: MarginalOracle,
+    structure_edges: set[frozenset[str]],
+    graph: nx.Graph,
+    attrs: DatasetAttributes,
+    n: int,
+    rho3: float,
+) -> tuple[list, float]:
+    """Measure 2-way marginals for structure-learning edges with Gaussian noise.
+
+    Returns (list of LinearObservation, sigma3)."""
+    from ....graph.hugin import AttrMeta, get_clique_domain, get_attrs as _get_attrs
+    from ....graph.loss import LinearObservation
+    from ....graph.beliefs import convert_sel
+    from ..sota.common import _attr_sel
+
+    edges = list(structure_edges)
+    K = len(edges)
+    if K == 0 or rho3 <= 0:
+        return [], 0.0
+
+    sigma3 = sqrt(K / (2 * rho3))
+
+    # Build oracle requests and CliqueMeta for each edge.
+    # Use the graph node metadata to match create_clique_meta's convention.
+    from collections import defaultdict
+
+    requests = []
+    edge_metas = []
+    for edge in edges:
+        na, nb = tuple(edge)
+
+        # Build AttrMeta from graph nodes (same logic as create_clique_meta)
+        sels: dict[tuple, dict[str, int]] = defaultdict(dict)
+        for node in (na, nb):
+            d = graph.nodes[node]
+            key = (d["table"], d["order"], d["attr"])
+            val = d["value"]
+            h = d["height"]
+            if key in sels and val in sels[key]:
+                h = min(sels[key][val], h)
+            sels[key][val] = h
+
+        source = []
+        for (table, order, attr_name), sel_dict in sels.items():
+            attr = _get_attrs(attrs, table, order)[attr_name]
+            if len(sel_dict) == 1 and attr.common and next(iter(sel_dict)) == attr.common.name:
+                new_sel: int | tuple = sel_dict[attr.common.name]
+            else:
+                cmn = attr.common.name if attr.common else None
+                new_sel = tuple(sorted((v, h) for v, h in sel_dict.items() if v != cmn))
+            source.append(AttrMeta(None, None, attr_name, new_sel))
+        source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
+        edge_metas.append(source_tuple)
+
+        # Oracle request: use the sel from the source
+        requests.append([
+            (attr_name, convert_sel(sel))
+            for _, _, attr_name, sel in source_tuple
+        ])
+
+    results = oracle.process(requests, postprocess=None)
+
+    obs_list = []
+    for source_tuple, result in zip(edge_metas, results):
+        dom = get_clique_domain(source_tuple, attrs)
+
+        # Build shape in source order
+        src_dims = []
+        for _, _, attr_name, sel in source_tuple:
+            a = _get_attrs(attrs, None, None)[attr_name]
+            src_dims.append(a.get_domain(convert_sel(sel)))
+
+        raw = result.astype(np.float64).ravel()
+        if sigma3 > 0:
+            raw = raw + np.random.normal(0, sigma3, size=raw.size)
+        raw = raw.clip(0)
+        s = raw.sum()
+        prob = (raw / s if s > 0 else raw).astype(np.float32)
+        prob = prob.reshape(src_dims)
+
+        confidence = n / (n + sigma3 * dom)
+        obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
     return obs_list, sigma3
 
