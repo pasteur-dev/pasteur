@@ -125,24 +125,26 @@ def _can_match_as_separator_or_mask(
 ) -> str:
     """Classify how a parent/child dim pair should be matched.
 
+    Only called after ``is_same`` confirms both dims refer to the same
+    attribute, so ``_build_mask_map`` (raw-space mask) always works.
+
     Returns:
-      "exact"   — same value names: SeparatorDim (if parent finer) or
-                   domain-based MaskedDim.  index_map is safe.
-      "partial" — overlapping but not equal value names: always MaskedDim.
-                   index_map would collapse extra values.
-      "none"    — no overlap or incompatible types: leave as free sample_dim.
+      "exact"   — same value names (both int or both tuple with equal
+                   names): SeparatorDim (if parent finer) or domain-based
+                   MaskedDim.  ``_build_index_map`` is safe.
+      "partial" — same attribute but different value representation
+                   (int vs tuple, or non-equal value names): always
+                   MaskedDim via raw-space mask.
     """
     if isinstance(parent_sel, int) and isinstance(child_sel, int):
         return "exact"
     if isinstance(parent_sel, int) or isinstance(child_sel, int):
-        return "none"
+        return "partial"
     parent_names = {name for name, _h in parent_sel}
     child_names = {name for name, _h in child_sel}
     if child_names == parent_names:
         return "exact"
-    if child_names & parent_names:
-        return "partial"
-    return "none"
+    return "partial"
 
 
 def create_sampler_meta(
