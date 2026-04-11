@@ -416,12 +416,12 @@ def sample_junction_tree(
             sep_vals.append(child_vals)
             sep_domains.append(meta.dim_info[cidx][sep.child_dim].domain)
 
-        # Collect masked parent values
-        masked_parent_vals = [
-            clique_vals[pidx][md.parent_dim] for md in child_info.masked_dims
-        ]
-
-        # Dims to sample = free dims + masked child dims
+        # Masked dims are sampled freely from the child potential
+        # (conditioned on separators only).  Propagating coarse→fine
+        # constraints through masks cascades BP inconsistency — the same
+        # error that privbayes avoids by using per-node conditionals.
+        # Treating masked dims as free preserves the elimination order
+        # while skipping the lossy intermediate conditioning.
         all_sample_dims = list(child_info.sample_dims) + [
             md.child_dim for md in child_info.masked_dims
         ]
@@ -435,13 +435,9 @@ def sample_junction_tree(
             meta.dim_info[cidx][d].domain for d in all_sample_dims
         )
 
-        # Build group keys from separator + masked parent values
-        all_group_vals = list(sep_vals) + [
-            v.astype(np.int64) for v in masked_parent_vals
-        ]
-        all_group_domains = list(sep_domains) + [
-            md.masks.shape[0] for md in child_info.masked_dims
-        ]
+        # Group keys from separator values only (no masked parent values)
+        all_group_vals = list(sep_vals)
+        all_group_domains = list(sep_domains)
 
         if not all_group_vals:
             group_keys = np.zeros(n, dtype=np.int64)
@@ -472,21 +468,7 @@ def sample_junction_tree(
                 idx[sd] = remaining % dom
                 remaining //= dom
 
-            # Decode masked parent values from group key
-            masked_parent_group = []
-            for md in child_info.masked_dims:
-                masked_parent_group.append(remaining % md.masks.shape[0])
-                remaining //= md.masks.shape[0]
-
             conditional = child_p[tuple(idx)]
-
-            # Apply masks for masked dims
-            for md, parent_val in zip(child_info.masked_dims, masked_parent_group):
-                cond_dim = _cond_dim(md.child_dim, sep_child_dims)
-                dim_mask = md.masks[parent_val]
-                shape = [1] * conditional.ndim
-                shape[cond_dim] = md.child_domain
-                conditional = conditional * dim_mask.reshape(shape)
 
             # Normalize and sample
             cond_flat = conditional.ravel()
