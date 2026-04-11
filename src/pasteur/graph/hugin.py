@@ -177,7 +177,6 @@ def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10)
     from os import cpu_count
 
     start = perf_counter()
-    min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False)
 
     if MULTIPROCESS_ENABLE and not IS_SUBPROCESS:
         # parallelize between real cores
@@ -186,6 +185,8 @@ def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10)
             process_async(_elim_order_search, g, attrs, max_time)
             for _ in range(n_workers)
         ]
+
+        min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False)
         for f in futures:
             order, triag, cost = f.get()
             if cost < min_cost:
