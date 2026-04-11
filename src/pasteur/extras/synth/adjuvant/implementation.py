@@ -414,6 +414,10 @@ def structure_learn(
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
+    Uses local penalty (domain ratio of affected cliques, not total graph size),
+    per-attribute edge limits (1 to sqrt(d)), and forces at least one edge per
+    attribute.
+
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
         structure_edges: Set of frozenset node pairs for structure-learning edges.
@@ -431,9 +435,13 @@ def structure_learn(
     connected_pairs: set[tuple[str, str]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Budget: one exponential mechanism selection per attribute pair (upper bound)
-    # Each selection costs eps^2 / 8 in rho-CDP
-    max_steps = len(attr_pair_map)
+    # Per-attribute edge limits: 1 to sqrt(d)
+    d = len(set(a for pair in attr_pair_map for a in pair))
+    max_edges_per_attr = min(d, 2 * int(sqrt(d) + 0.5))
+    attr_edge_count: dict[str, int] = {}
+    saturated_attrs: set[str] = set()
+
+    max_steps = d * (max_edges_per_attr // 2 + 1) + max_no_improve - 1
     eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
     rho_spent = 0.0
 
@@ -464,83 +472,94 @@ def structure_learn(
             pbar.close()
             raise e
 
-        # Filter to active candidates (attribute pair not yet connected)
+        # Filter to active candidates:
+        # - attribute pair not yet connected
+        # - neither attribute saturated (reached max edges)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            pair = tuple(sorted([da["attr"], db["attr"]]))
-            if pair not in connected_pairs:
-                active.append((idx, na, nb))
+            attr_a, attr_b = da["attr"], db["attr"]
+            pair = tuple(sorted([attr_a, attr_b]))
+            if pair in connected_pairs:
+                continue
+            if attr_a in saturated_attrs or attr_b in saturated_attrs:
+                continue
+            active.append((idx, na, nb))
 
         if not active:
+            n_connected = len(connected_pairs)
+            n_saturated = len(saturated_attrs)
+            n_remaining_pairs = len(attr_pair_map) - n_connected
+            logger.info(
+                f"Adjuvant: exit (no active candidates) at iter {it}. "
+                f"pairs={n_connected}, saturated={n_saturated}/{d}, "
+                f"remaining_pairs={n_remaining_pairs} (all connected or saturated)"
+            )
             break
 
         # Cache base triangulation and clique info for this iteration
         base_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
         base_cliques = list(nx.find_cliques(base_tri))
 
-        # Compute base domain total and check validity
+        # Per-clique domains and node-to-cliques index
+        # Note: don't bail on oversized cliques — they may be fill-edge
+        # artifacts. Only reject candidates that would grow affected cliques.
+        clique_domains: list[int] = []
         base_domain_total = 0
-        base_valid = True
+        max_base_dom = 0
         for cl in base_cliques:
             dom = get_factor_domain(set(cl), base_tri, attrs)
-            if dom > max_clique_size:
-                base_valid = False
-                break
+            max_base_dom = max(max_base_dom, dom)
             base_domain_total += dom
+            clique_domains.append(dom)
 
-        # Build node-to-cliques index
         node_to_cliques: dict[str, list[int]] = {}
         for ci, cl in enumerate(base_cliques):
             for node in cl:
                 node_to_cliques.setdefault(node, []).append(ci)
 
-        # Compute base TVD sum
-        base_tvd_sum = 0.0
-        for edge in structure_edges:
-            ena, enb = tuple(edge)
-            da, db = moral.nodes[ena], moral.nodes[enb]
-            base_val = tvd.get((da["attr"], db["attr"]), 0.0)
-            boost = compute_height_boost(ena, enb, moral, attrs)
-            base_tvd_sum += base_val * boost
-
-        base_score = (base_tvd_sum - size_penalty * base_domain_total) if base_valid else float("-inf")
-
-        # Partition candidates into same-clique (fast) and cross-clique (expensive)
+        # Score each candidate
         scores = np.full(len(active), float("-inf"))
-        cross_clique: list[int] = []
+        base_adj = _build_adj(base_tri)
+        node_data = dict(base_tri.nodes(data=True))
 
         for i, (idx, na, nb) in enumerate(active):
             cliques_a = set(node_to_cliques.get(na, []))
             cliques_b = set(node_to_cliques.get(nb, []))
+            shared = cliques_a & cliques_b
 
-            if (cliques_a & cliques_b) and base_valid:
-                # Fast path: both in same clique, triangulation unchanged
-                scores[i] = base_score + cand_tvd_boost[idx]
+            if shared:
+                # Same clique: no domain change, no penalty
+                scores[i] = cand_tvd_boost[idx]
             else:
-                cross_clique.append(i)
+                # Cross-clique: exact re-triangulation via adjacency sets
+                trial_domain, valid = _score_with_one_edge(
+                    base_adj, na, nb, node_data, attrs, max_clique_size
+                )
+                if not valid:
+                    continue  # stays -inf
 
-        # Cross-clique: score via fast adjacency-based triangulation
-        # (no networkx calls, no graph copies)
-        base_adj = _build_adj(base_tri)
-        node_data = dict(base_tri.nodes(data=True))
-
-        for i in cross_clique:
-            idx, na, nb = active[i]
-            trial_domain, valid = _score_with_one_edge(
-                base_adj, na, nb, node_data, attrs, max_clique_size
-            )
-            if not valid:
-                continue  # scores[i] stays -inf
-
-            trial_tvd = base_tvd_sum + cand_tvd_boost[idx]
-            scores[i] = trial_tvd - size_penalty * trial_domain
+                # Penalty: domain increase relative to base
+                base_local = sum(clique_domains[ci] for ci in cliques_a | cliques_b)
+                domain_increase = max(trial_domain - base_domain_total + base_local, 0)
+                penalty_ratio = domain_increase / max(base_local, 1)
+                scores[i] = cand_tvd_boost[idx] - size_penalty * penalty_ratio
 
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)
         if not np.any(valid_mask):
             no_improve_count += 1
+            n_same = sum(1 for i, (idx, na, nb) in enumerate(active)
+                         if set(node_to_cliques.get(na, [])) & set(node_to_cliques.get(nb, [])))
+            n_cross = len(active) - n_same
+            logger.info(
+                f"Adjuvant: no valid candidates at iter {it} "
+                f"({no_improve_count}/{max_no_improve}). "
+                f"active={len(active)} (same_clq={n_same}, cross_clq={n_cross}), "
+                f"max_base_dom={max_base_dom:_}"
+            )
             if no_improve_count >= max_no_improve:
+                logger.info(f"Adjuvant: exit (max_no_improve={max_no_improve} reached)")
                 break
             pbar.update(1)
             continue
@@ -552,7 +571,7 @@ def structure_learn(
         valid_scores = scores[valid_mask]
 
         if eps_per_step > 0:
-            sensitivity = 1.0  # TVD bounded in [0, 1]
+            sensitivity = 1.0
             sel = exponential_mechanism(valid_scores, eps_per_step, sensitivity)
             rho_spent += eps_per_step ** 2 / 8
         else:
@@ -564,10 +583,18 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         structure_edges.add(frozenset([na, nb]))
 
-        # Remove all height permutations for this attribute pair
+        # Update attribute pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        pair = tuple(sorted([da["attr"], db["attr"]]))
+        attr_a, attr_b = da["attr"], db["attr"]
+        pair = tuple(sorted([attr_a, attr_b]))
         connected_pairs.add(pair)
+
+        attr_edge_count[attr_a] = attr_edge_count.get(attr_a, 0) + 1
+        attr_edge_count[attr_b] = attr_edge_count.get(attr_b, 0) + 1
+        if attr_edge_count[attr_a] >= max_edges_per_attr:
+            saturated_attrs.add(attr_a)
+        if attr_edge_count[attr_b] >= max_edges_per_attr:
+            saturated_attrs.add(attr_b)
 
         logger.info(
             f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): ({na}, {nb})"
@@ -580,6 +607,53 @@ def structure_learn(
         pbar.update(1)
 
     pbar.close()
+
+    # Force at least one edge per attribute: for any attribute with 0 edges,
+    # use exponential mechanism to pick an edge (budget from leftover steps)
+    all_attrs_in_graph = set()
+    for node, data in directed_graph.nodes(data=True):
+        if not data.get("is_common", False):
+            all_attrs_in_graph.add(data["attr"])
+
+    disconnected = all_attrs_in_graph - set(attr_edge_count.keys())
+    if disconnected:
+        logger.info(
+            f"Adjuvant: forcing edges for {len(disconnected)} disconnected attrs: "
+            f"{disconnected}"
+        )
+        for attr in disconnected:
+            # Gather candidates involving this attribute
+            attr_cands: list[tuple[int, str, str]] = []
+            attr_scores: list[float] = []
+            for idx, (na, nb) in enumerate(candidates):
+                da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
+                if da["attr"] != attr and db["attr"] != attr:
+                    continue
+                pair = tuple(sorted([da["attr"], db["attr"]]))
+                if pair in connected_pairs:
+                    continue
+                attr_cands.append((idx, na, nb))
+                attr_scores.append(cand_tvd_boost[idx])
+
+            if not attr_cands:
+                continue
+
+            scores_arr = np.array(attr_scores)
+            if eps_per_step > 0:
+                sel = exponential_mechanism(scores_arr, eps_per_step, 1.0)
+                rho_spent += eps_per_step ** 2 / 8
+            else:
+                sel = int(np.argmax(scores_arr))
+
+            _, na, nb = attr_cands[sel]
+            moral.add_edge(na, nb, structure=True)
+            structure_edges.add(frozenset([na, nb]))
+            da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
+            pair = tuple(sorted([da["attr"], db["attr"]]))
+            connected_pairs.add(pair)
+            attr_edge_count[da["attr"]] = attr_edge_count.get(da["attr"], 0) + 1
+            attr_edge_count[db["attr"]] = attr_edge_count.get(db["attr"], 0) + 1
+            logger.info(f"Adj. forced edge: ({na}, {nb})")
 
     rho_remaining = rho2_exp - rho_spent
     logger.info(

@@ -10,6 +10,7 @@ Budget allocation: e1 (scaling), e2 (structure learning), e3 (measurement + fitt
 from __future__ import annotations
 
 import logging
+from math import sqrt
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -44,7 +45,7 @@ class AdjuvantSynth(Synth):
         e2_frac: float = 0.20,
         e3_frac: float = 0.70,
         e2_tvd_frac: float = 0.50,
-        max_clique_size: float = 1e7,
+        theta: float = 4,
         size_penalty: float = 1e-8,
         max_no_improve: int = 3,
         rebalance: bool | dict = True,
@@ -63,7 +64,7 @@ class AdjuvantSynth(Synth):
         self.e2_frac = e2_frac
         self.e3_frac = e3_frac
         self.e2_tvd_frac = e2_tvd_frac
-        self.max_clique_size = max_clique_size
+        self.theta = theta
         self.size_penalty = size_penalty
         self.max_no_improve = max_no_improve
         self.rebalance = rebalance
@@ -116,7 +117,9 @@ class AdjuvantSynth(Synth):
             select_cliques_to_measure,
             measure_cliques,
             build_1way_observations,
+            _triangulate_simple,
         )
+        import networkx as nx
         from ..sota.common import cdp_rho, get_attr_names
         from ....graph.mirror_descent import (
             MIRROR_DESCENT_DEFAULT,
@@ -142,6 +145,17 @@ class AdjuvantSynth(Synth):
         rho2_exp = (1 - self.e2_tvd_frac) * rho2
 
         all_attrs = get_attr_names(table_attrs)
+        d = len(all_attrs)
+
+        # Estimate max clique domain from theta:
+        # max_domain = n / (estimated_sigma * theta)
+        # estimated_sigma based on ~d measurements with budget rho3
+        est_sigma = sqrt(d / (2 * rho3)) if rho3 > 0 else 1
+        max_clique_size = max(n / (est_sigma * self.theta), 100)
+        logger.info(
+            f"Adjuvant: theta={self.theta}, est_sigma={est_sigma:.2f}, "
+            f"max_clique_size={max_clique_size:_.0f}"
+        )
 
         with MarginalOracle(
             data,
@@ -155,7 +169,7 @@ class AdjuvantSynth(Synth):
             # ==================================================
             logger.info(
                 f"Adjuvant Step 0: Computing all 1-way and 2-way marginals "
-                f"({len(all_attrs)} attrs)"
+                f"({d} attrs)"
             )
             cached = compute_all_marginals(oracle, table_attrs, all_attrs)
 
@@ -183,7 +197,7 @@ class AdjuvantSynth(Synth):
                 directed_graph,
                 table_attrs,
                 tvd,
-                self.max_clique_size,
+                max_clique_size,
                 self.size_penalty,
                 self.max_no_improve,
                 rho2_exp,
@@ -194,7 +208,17 @@ class AdjuvantSynth(Synth):
             )
 
             # ==================================================
+            # Step 3: Select cliques to measure at structure-learning heights
+            # (before cap_heights / final triangulation changes them)
+            # ==================================================
+            moral_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
+            cliques_to_measure = select_cliques_to_measure(
+                moral_tri, table_attrs, structure_edges
+            )
+
+            # ==================================================
             # Step 2e: Finalize graph — proper triangulation + junction tree
+            # (cap_heights may coarsen heights for the junction tree)
             # ==================================================
             logger.info("Adjuvant Step 2e: Triangulation and junction tree")
             _, triangulated, cost = find_elim_order(moral, table_attrs)
@@ -202,14 +226,6 @@ class AdjuvantSynth(Synth):
             junction = get_junction_tree(triangulated, table_attrs)
             cliques = list(junction.nodes())
             logger.info(f"Adjuvant: {len(cliques)} cliques in junction tree")
-
-            # ==================================================
-            # Step 3: Measurement + fitting (budget e3)
-            # ==================================================
-            # Select which cliques to measure (must have structure edges)
-            cliques_to_measure = select_cliques_to_measure(
-                triangulated, table_attrs, structure_edges
-            )
             logger.info(
                 f"Adjuvant Step 3: Measuring {len(cliques_to_measure)}/{len(cliques)} "
                 f"cliques (rho3={rho3:.4f})"
