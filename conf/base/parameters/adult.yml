@@ -1,4 +1,8 @@
 tab_adult:
+  algs:
+    privbayes:
+      marginal_mode: inmemory_copy
+      marginal_min_chunk: 20_000
   tables:
     table:
       metrics:

@@ -489,8 +489,8 @@ def process_in_parallel(
     from multiprocessing import Lock, Pipe
 
     if (
-        # len(per_call_args) < 2 * min_chunk_size
-        not MULTIPROCESS_ENABLE
+        len(per_call_args) < 2 * min_chunk_size
+        or not MULTIPROCESS_ENABLE
         or IS_SUBPROCESS
     ):
         if initializer is not None:
