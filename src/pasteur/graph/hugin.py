@@ -161,16 +161,37 @@ def elimination_order_greedy(
     return order, triangulated, total_cost
 
 
+def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float):
+    """Run stochastic elimination order search for *max_time* seconds."""
+    best = elimination_order_greedy(g, attrs, True)
+    start = perf_counter()
+    while perf_counter() - start < max_time:
+        order, triag, cost = elimination_order_greedy(g, attrs, True)
+        if cost < best[2]:
+            best = (order, triag, cost)
+    return best
+
+
 def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10):
+    from ..utils.progress import MULTIPROCESS_ENABLE, IS_SUBPROCESS, process_async
+    from os import cpu_count
+
     start = perf_counter()
     min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False)
 
-    while perf_counter() - start < max_time:
-        order, triag, cost = elimination_order_greedy(g, attrs, True)
-        if cost < min_cost:
-            min_order = order
-            min_cost = cost
-            min_triag = triag
+    if MULTIPROCESS_ENABLE and not IS_SUBPROCESS:
+        # parallelize between real cores
+        n_workers = max((cpu_count() or 1) // 2, 1)
+        futures = [
+            process_async(_elim_order_search, g, attrs, max_time)
+            for _ in range(n_workers)
+        ]
+        for f in futures:
+            order, triag, cost = f.get()
+            if cost < min_cost:
+                min_order, min_triag, min_cost = order, triag, cost
+    else:
+        min_order, min_triag, min_cost = _elim_order_search(g, attrs, max_time)
 
     return min_order, min_triag, min_cost
 
