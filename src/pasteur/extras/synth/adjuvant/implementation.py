@@ -338,6 +338,31 @@ def _score_with_one_edge(
     return total_domain, True
 
 
+def _fmt_node(node: str, g, attrs) -> str:
+    """Format a graph node as 'attr.val[h] (dom=X)'."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    d = g.nodes[node]
+    val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
+    dom = val.get_domain(d["height"])
+    return f"{d['attr']}.{d['value']}[{d['height']}] (dom={dom})"
+
+
+def _fmt_edge(na: str, nb: str, g, attrs) -> str:
+    """Format a graph edge as 'attr.val[h] x attr.val[h] (domA, domB)'."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    def _info(node):
+        d = g.nodes[node]
+        val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
+        dom = val.get_domain(d["height"])
+        return f"{d['attr']}.{d['value']}[{d['height']}]", dom
+
+    a_str, a_dom = _info(na)
+    b_str, b_dom = _info(nb)
+    return f"{a_str} x {b_str} ({a_dom}x{b_dom}={a_dom*b_dom})"
+
+
 def compute_edge_weight(
     node_a: str,
     node_b: str,
@@ -565,7 +590,8 @@ def structure_learn(
             saturated_attrs.add(attr_b)
 
         logger.info(
-            f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): ({na}, {nb})"
+            f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): "
+            f"{_fmt_edge(na, nb, moral, attrs)}"
         )
 
         pbar.set_description(
@@ -628,7 +654,7 @@ def structure_learn(
             connected_pairs.add(pair)
             attr_edge_count[da["attr"]] = attr_edge_count.get(da["attr"], 0) + 1
             attr_edge_count[db["attr"]] = attr_edge_count.get(db["attr"], 0) + 1
-            logger.info(f"Adj. forced edge: ({na}, {nb})")
+            logger.info(f"Adj. forced edge: {_fmt_edge(na, nb, moral, attrs)}")
 
     rho_remaining = rho2_exp - rho_spent
 
@@ -648,18 +674,15 @@ def structure_learn(
     logger.info("Adjuvant: Connected pairs (by TVD):")
     for val, a, b in all_pairs_tvd:
         pair = tuple(sorted([a, b]))
-        status = "CONNECTED" if pair in connected_pairs else "MISSING"
-        if status == "CONNECTED" or val > 0.01:
-            # Find which candidates existed for this pair
-            n_cands = sum(
-                1 for idx, (na, nb) in enumerate(candidates)
-                if tuple(sorted([directed_graph.nodes[na]["attr"],
-                                  directed_graph.nodes[nb]["attr"]])) == pair
-            )
-            logger.info(
-                f"  {status:>9} TVD={val:.4f} {a} x {b} "
-                f"(candidates={n_cands})"
-            )
+        if pair in connected_pairs:
+            for edge in structure_edges:
+                ena, enb = tuple(edge)
+                da, db = directed_graph.nodes[ena], directed_graph.nodes[enb]
+                if tuple(sorted([da["attr"], db["attr"]])) == pair:
+                    logger.info(f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}")
+                    break
+        else:
+            logger.info(f"    MISSING TVD={val:.4f} {a} x {b}")
 
     return moral, structure_edges, rho_remaining
 
