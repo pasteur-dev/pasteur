@@ -258,3 +258,45 @@ def get_message_passing_order(
                 messages.add_edge((n, a), (a, b))
 
     return tuple(nx.topological_generations(messages))
+
+
+def cap_heights(g: nx.Graph, mode: str = "hugin_unvalley"):
+    """Cap node heights in-place to reduce resolution bottlenecks.
+
+    ``hugin_uncomp``: for each (attr, val), keep at most the 2 lowest
+    heights and collapse everything above to the 2nd-lowest.
+      [0, 2]       → [0, 2]       (no change)
+      [0, 2, 3, 4] → [0, 2, 2, 2] (cap at 2nd-lowest)
+
+    ``hugin_unvalley`` (default): only collapse heights above the first
+    non-consecutive gap in the sorted chain.
+      [0, 2]       → [0, 2]       (no change)
+      [0, 2, 3, 4] → [0, 2, 3, 4] (consecutive, keep)
+      [0, 3, 5]    → [0, 3, 3]    (3→5 gap, cap at 3)
+    """
+    height_sets: dict[tuple, list[int]] = {}
+    for _, data in g.nodes(data=True):
+        key = (data["table"], data["order"], data["attr"], data["value"])
+        height_sets.setdefault(key, []).append(data["height"])
+
+    for key, hs in height_sets.items():
+        unique = sorted(set(hs))
+        if len(unique) <= 2:
+            continue
+
+        if mode == "hugin_uncomp":
+            cap = unique[1]
+        else:
+            # hugin_unvalley: walk chain, cap at first non-consecutive gap
+            cap = unique[1]
+            for i in range(2, len(unique)):
+                if unique[i] != unique[i - 1] + 1:
+                    break
+                cap = unique[i]
+            else:
+                continue  # fully consecutive, no gap
+
+        for _, data in g.nodes(data=True):
+            k = (data["table"], data["order"], data["attr"], data["value"])
+            if k == key and data["height"] > cap:
+                data["height"] = cap

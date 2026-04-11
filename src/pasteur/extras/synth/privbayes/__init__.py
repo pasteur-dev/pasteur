@@ -308,16 +308,8 @@ class PrivBayesSynth(Synth):
             self.md_junction = None
 
     def _fit_mirror_descent(self):
-        from ....graph.beliefs import create_messages
-        from ....graph.hugin import (
-            find_elim_order,
-            get_junction_tree,
-            get_junction_tree_from_cliques,
-            get_message_passing_order,
-            to_moral,
-        )
-        from ....graph.loss import LinearObservation
-        from ....graph.mirror_descent import mirror_descent
+        from ....graph.hugin import to_moral
+        from ....graph.mirror_descent import fit_model
 
         md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
         params = {**MIRROR_DESCENT_DEFAULT, **md}
@@ -327,40 +319,24 @@ class PrivBayesSynth(Synth):
         device = None if params["device"] == "auto" else params["device"]
         params.pop("device", None)
 
-        # Build observations first (needed for maximal tree mode)
+        # Build observations (privbayes-specific: nodes → LinearObservation)
         noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
         obs = derive_obs_from_model(
             self.nodes, self.table_attrs, self.marginals, self.n, noise_scale
         )
 
-        if tree_mode == "maximal":
-            # Build junction tree directly from observation cliques.
-            # No triangulation or fill cliques — fewer cliques, faster BP.
-            obs_cliques = [o.source for o in obs]
-            junction = get_junction_tree_from_cliques(obs_cliques)
-        else:
-            # Build junction tree from moral graph triangulation (hugin).
+        # Build moral graph for hugin modes (privbayes-specific: nodes → graph)
+        mg = None
+        if tree_mode != "maximal":
             g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
             mg = to_moral(g)
 
-            # Cap heights BEFORE triangulation so find_elim_order optimises
-            # for the simplified graph, not the original complex one.
-            if tree_mode != "hugin_comp":
-                _cap_heights(mg, mode=tree_mode)
-
-            _, tri, _ = find_elim_order(mg, self.table_attrs, 10)
-            junction = get_junction_tree(tri, self.table_attrs, compress=compress)
-
-        generations = get_message_passing_order(junction)
-        cliques = list(junction.nodes())
-        messages = create_messages(generations, self.table_attrs)
-
-        # Run mirror descent — returns (fitted clique potentials, loss_fn, raw_theta)
-        potentials, loss_fn, _ = mirror_descent(
-            cliques,
-            messages,
-            obs,
-            self.table_attrs,
+        # Generic pipeline: build junction tree + fit via mirror descent
+        potentials, junction, cliques, messages, loss_fn, _ = fit_model(
+            obs, self.table_attrs,
+            tree_mode=tree_mode,
+            compress=compress,
+            moral_graph=mg,
             device=device,
             **params,
         )
@@ -567,48 +543,6 @@ class PrivBayesSynth(Synth):
             self.t,
             minimum_cutoff=self.minimum_cutoff,
         )
-
-
-def _cap_heights(g, mode: str = "hugin_unvalley"):
-    """Cap node heights in-place to reduce resolution bottlenecks.
-
-    ``hugin_uncomp``: for each (attr, val), keep at most the 2 lowest
-    heights and collapse everything above to the 2nd-lowest.
-      [0, 2]       → [0, 2]       (no change)
-      [0, 2, 3, 4] → [0, 2, 2, 2] (cap at 2nd-lowest)
-
-    ``hugin_unvalley`` (default): only collapse heights above the first
-    non-consecutive gap in the sorted chain.
-      [0, 2]       → [0, 2]       (no change)
-      [0, 2, 3, 4] → [0, 2, 3, 4] (consecutive, keep)
-      [0, 3, 5]    → [0, 3, 3]    (3→5 gap, cap at 3)
-    """
-    height_sets: dict[tuple, list[int]] = {}
-    for _, data in g.nodes(data=True):
-        key = (data["table"], data["order"], data["attr"], data["value"])
-        height_sets.setdefault(key, []).append(data["height"])
-
-    for key, hs in height_sets.items():
-        unique = sorted(set(hs))
-        if len(unique) <= 2:
-            continue
-
-        if mode == "hugin_uncomp":
-            cap = unique[1]
-        else:
-            # hugin_unvalley: walk chain, cap at first non-consecutive gap
-            cap = unique[1]
-            for i in range(2, len(unique)):
-                if unique[i] != unique[i - 1] + 1:
-                    break
-                cap = unique[i]
-            else:
-                continue  # fully consecutive, no gap
-
-        for _, data in g.nodes(data=True):
-            k = (data["table"], data["order"], data["attr"], data["value"])
-            if k == key and data["height"] > cap:
-                data["height"] = cap
 
 
 def derive_graph_from_nodes(

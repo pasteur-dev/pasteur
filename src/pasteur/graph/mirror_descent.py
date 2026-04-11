@@ -224,3 +224,101 @@ def mirror_descent(
             result.append(p)
 
     return result, loss_fn, raw_theta
+
+
+def build_junction_tree(
+    obs: Sequence[LinearObservation],
+    attrs: DatasetAttributes,
+    tree_mode: str = "hugin",
+    compress: bool = True,
+    moral_graph=None,
+    elim_search_time: float = 10,
+):
+    """Build a junction tree and message schedule from observations.
+
+    Args:
+        obs: Linear observations (needed for maximal mode).
+        attrs: Dataset attributes.
+        tree_mode: "maximal", "hugin", "hugin_comp", "hugin_uncomp",
+                   or "hugin_unvalley".
+        compress: Whether to compress clique meta.
+        moral_graph: Pre-built moral graph (required for hugin modes).
+        elim_search_time: Time budget for elimination order search.
+
+    Returns:
+        (junction, cliques, messages)
+    """
+    from .beliefs import create_messages
+    from .hugin import (
+        cap_heights,
+        find_elim_order,
+        get_junction_tree,
+        get_junction_tree_from_cliques,
+        get_message_passing_order,
+    )
+
+    if tree_mode == "maximal":
+        obs_cliques = [o.source for o in obs]
+        junction = get_junction_tree_from_cliques(obs_cliques)
+    else:
+        assert moral_graph is not None, (
+            "moral_graph is required for hugin tree modes"
+        )
+        if tree_mode != "hugin_comp":
+            cap_heights(moral_graph, mode=tree_mode)
+        _, tri, _ = find_elim_order(moral_graph, attrs, elim_search_time)
+        junction = get_junction_tree(tri, attrs, compress=compress)
+
+    generations = get_message_passing_order(junction)
+    cliques = list(junction.nodes())
+    messages = create_messages(generations, attrs)
+
+    return junction, cliques, messages
+
+
+def fit_model(
+    obs: Sequence[LinearObservation],
+    attrs: DatasetAttributes,
+    tree_mode: str = "hugin",
+    compress: bool = True,
+    moral_graph=None,
+    elim_search_time: float = 10,
+    device: torch.device | str | None = None,
+    init_potentials: dict[int, np.ndarray] | None = None,
+    **md_params,
+):
+    """Build junction tree and fit clique potentials via mirror descent.
+
+    This is the generic entry point for any algorithm that produces
+    observations (LinearObservation) and wants fitted clique potentials.
+
+    Args:
+        obs: Linear observations to fit.
+        attrs: Dataset attributes.
+        tree_mode: Junction tree construction mode.
+        compress: Whether to compress clique meta.
+        moral_graph: Pre-built moral graph (required for hugin modes).
+        elim_search_time: Time budget for elimination order search.
+        device: Torch device for mirror descent.
+        init_potentials: Warm-start potentials keyed by clique index.
+        **md_params: Additional mirror descent parameters (lr, max_iters,
+                     ptol, patience, optim, loss_type, etc.).
+
+    Returns:
+        (potentials, junction, cliques, messages, loss_fn, raw_theta)
+    """
+    junction, cliques, messages = build_junction_tree(
+        obs, attrs, tree_mode, compress, moral_graph, elim_search_time,
+    )
+
+    potentials, loss_fn, raw_theta = mirror_descent(
+        cliques,
+        messages,
+        obs,
+        attrs,
+        device=device,
+        init_potentials=init_potentials,
+        **md_params,
+    )
+
+    return potentials, junction, cliques, messages, loss_fn, raw_theta
