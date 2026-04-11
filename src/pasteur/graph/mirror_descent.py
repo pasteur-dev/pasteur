@@ -164,6 +164,10 @@ def mirror_descent(
                     prev_loss = loss
                     prev_mu = mu
 
+                    if alpha < 1e-4:
+                        converged = True
+                        break
+
             if use_adam:
                 adam_opt.step()
                 adam_opt.zero_grad()
