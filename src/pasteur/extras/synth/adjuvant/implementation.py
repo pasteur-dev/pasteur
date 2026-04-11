@@ -327,7 +327,7 @@ def structure_learn(
         rho2_exp_remaining: Unspent exponential mechanism budget.
     """
     from ..sota.common import exponential_mechanism
-    from ....graph.hugin import to_moral
+    from ....graph.hugin import to_moral, get_factor_domain
     from ....utils.progress import piter
 
     # Moralize the directed height-chain graph -> undirected base
@@ -356,6 +356,14 @@ def structure_learn(
         + " [{elapsed}<{remaining}]",
     )
 
+    # Precompute TVD*boost for all candidates (doesn't change across iterations)
+    cand_tvd_boost = np.empty(len(candidates))
+    for idx, (na, nb) in enumerate(candidates):
+        da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
+        base = tvd.get((da["attr"], db["attr"]), 0.0)
+        boost = compute_height_boost(na, nb, moral, attrs)
+        cand_tvd_boost[idx] = base * boost
+
     for it in range(max_steps):
         # Filter to active candidates (attribute pair not yet connected)
         active: list[tuple[int, str, str]] = []
@@ -368,15 +376,56 @@ def structure_learn(
         if not active:
             break
 
-        # Score each candidate by temporarily adding the edge
+        # Cache base triangulation and clique info for this iteration
+        base_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
+        base_cliques = list(nx.find_cliques(base_tri))
+
+        # Compute base domain total and check validity
+        base_domain_total = 0
+        base_valid = True
+        for cl in base_cliques:
+            dom = get_factor_domain(set(cl), base_tri, attrs)
+            if dom > max_clique_size:
+                base_valid = False
+                break
+            base_domain_total += dom
+
+        # Build node-to-cliques index: for each node, which cliques contain it
+        node_to_cliques: dict[str, list[int]] = {}
+        for ci, cl in enumerate(base_cliques):
+            for node in cl:
+                node_to_cliques.setdefault(node, []).append(ci)
+
+        # Compute base TVD sum
+        base_tvd_sum = 0.0
+        for edge in structure_edges:
+            ena, enb = tuple(edge)
+            da, db = moral.nodes[ena], moral.nodes[enb]
+            base_val = tvd.get((da["attr"], db["attr"]), 0.0)
+            boost = compute_height_boost(ena, enb, moral, attrs)
+            base_tvd_sum += base_val * boost
+
+        base_score = (base_tvd_sum - size_penalty * base_domain_total) if base_valid else float("-inf")
+
+        # Score each candidate
         scores = np.full(len(active), float("-inf"))
-        for i, (_, na, nb) in enumerate(active):
-            moral.add_edge(na, nb)
-            trial_edges = structure_edges | {frozenset([na, nb])}
-            scores[i] = score_graph(
-                moral, tvd, attrs, trial_edges, max_clique_size, size_penalty
-            )
-            moral.remove_edge(na, nb)
+        for i, (idx, na, nb) in enumerate(active):
+            # Check if both endpoints share a base clique
+            cliques_a = set(node_to_cliques.get(na, []))
+            cliques_b = set(node_to_cliques.get(nb, []))
+            shared = cliques_a & cliques_b
+
+            if shared and base_valid:
+                # Both in same clique: triangulation unchanged, just add TVD contribution
+                scores[i] = base_score + cand_tvd_boost[idx]
+            else:
+                # Different cliques or base invalid: need full re-triangulation
+                moral.add_edge(na, nb)
+                trial_edges = structure_edges | {frozenset([na, nb])}
+                scores[i] = score_graph(
+                    moral, tvd, attrs, trial_edges, max_clique_size, size_penalty
+                )
+                moral.remove_edge(na, nb)
 
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)
