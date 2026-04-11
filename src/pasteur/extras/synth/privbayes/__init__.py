@@ -295,6 +295,7 @@ class PrivBayesSynth(Synth):
             ):
                 # Special case, when testing sampler do not recreate
                 # potentials to get 1-1 comparison
+                self.md_sample = self.mirror_descent["sample"]
                 return
         if self.mirror_descent:
             self._fit_mirror_descent()
@@ -303,7 +304,7 @@ class PrivBayesSynth(Synth):
             self.md_potentials = None
             self.md_cliques = None
             self.md_loss_fn = None
-            self.md_sample = None
+            self.md_sample = False
             self.md_junction = None
 
     def _fit_mirror_descent(self):
