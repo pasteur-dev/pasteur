@@ -210,7 +210,7 @@ class AdjuvantSynth(Synth):
             md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
             md.pop("compress", None)
             md.pop("sample", None)
-            tree_mode = md.pop("tree", "maximal")
+            tree_mode = md.pop("tree", "hugin")
 
             logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
             mg = moral if tree_mode != "maximal" else None
