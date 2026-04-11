@@ -49,7 +49,7 @@ def mirror_descent(
     max_iters: int = 10_000,
     ptol: float = 2e-4,
     patience: int = 50,
-    checkpoint_every: int = 50,
+    checkpoint_every: int = 100,
     device: torch.device | str | None = None,
     compile: int = 10_000_000,
     optim: str = "sgd",

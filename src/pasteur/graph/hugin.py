@@ -126,9 +126,7 @@ def elimination_order_greedy(
 
         unmarked = list(g)
         for a in unmarked:
-            cls = nx.find_cliques(g, nodes=[a])
-            # @Warning: traversing set, code might not be reproducible
-            new_factor = set(chain.from_iterable(cls))
+            new_factor = {a} | set(g[a])
             costs.append(get_factor_domain(new_factor, g, attrs))
         costs = np.array(costs)
 
