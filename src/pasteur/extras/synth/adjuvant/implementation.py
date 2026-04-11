@@ -346,7 +346,17 @@ def structure_learn(
 
     no_improve_count = 0
 
-    for it in piter(range(max_steps), desc="Adjuvant structure"):
+    pbar = piter(
+        None,
+        total=max_steps,
+        desc="Adjuvant structure [0 edges, score=0.0000]",
+        unit="pair",
+        bar_format=" " * 11
+        + ">>>>>>>  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"
+        + " [{elapsed}<{remaining}]",
+    )
+
+    for it in range(max_steps):
         # Filter to active candidates (attribute pair not yet connected)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
@@ -373,11 +383,8 @@ def structure_learn(
         if not np.any(valid_mask):
             no_improve_count += 1
             if no_improve_count >= max_no_improve:
-                logger.info(
-                    f"Adjuvant: stopping after {max_no_improve} iterations "
-                    f"with no valid candidates"
-                )
                 break
+            pbar.update(1)
             continue
 
         no_improve_count = 0
@@ -405,10 +412,16 @@ def structure_learn(
         connected_pairs.add(pair)
 
         logger.info(
-            f"Adjuvant structure: iter {it}, added ({na}, {nb}), "
-            f"score={scores[valid_indices[sel]]:.4f}, "
-            f"pairs={len(connected_pairs)}/{len(attr_pair_map)}"
+            f"Adj. iter {it+1: 3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): ({na}, {nb})"
         )
+
+        pbar.set_description(
+            f"Adjuvant structure [{len(structure_edges)} edges, "
+            f"score={scores[valid_indices[sel]]:.4f}]"
+        )
+        pbar.update(1)
+
+    pbar.close()
 
     rho_remaining = rho2_exp - rho_spent
     logger.info(
