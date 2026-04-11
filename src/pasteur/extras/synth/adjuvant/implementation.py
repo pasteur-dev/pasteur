@@ -251,6 +251,101 @@ def _triangulate_simple(g: nx.Graph) -> nx.Graph:
     return result
 
 
+def _build_adj(g: nx.Graph) -> dict[str, set[str]]:
+    """Build adjacency sets from a networkx graph (once, then copy for reuse)."""
+    return {v: set(g.neighbors(v)) for v in g.nodes()}
+
+
+def _score_with_one_edge(
+    base_adj: dict[str, set[str]],
+    na: str,
+    nb: str,
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+    max_clique_size: float,
+) -> tuple[float, bool]:
+    """Add one edge to cached adjacency, triangulate, compute total domain.
+
+    Works entirely on dicts/sets — no networkx calls. Extracts maximal cliques
+    from the elimination order directly.
+
+    Returns (total_domain, valid). valid=False if any clique exceeds max_clique_size."""
+    from ....graph.hugin import get_clique_domain, create_clique_meta, AttrMeta
+
+    # Shallow-copy adjacency and add the candidate edge
+    adj = {v: s.copy() for v, s in base_adj.items()}
+    adj[na].add(nb)
+    adj[nb].add(na)
+
+    # Min-degree elimination: collect cliques as we go
+    remaining = set(adj)
+    cliques: list[frozenset[str]] = []
+
+    while remaining:
+        # Pick min-degree node
+        v = min(remaining, key=lambda n: len(adj[n] & remaining))
+        neighbors = adj[v] & remaining
+
+        # The factor {v} ∪ neighbors is a potential clique
+        factor = frozenset(neighbors | {v})
+
+        # Add fill edges between neighbors
+        nb_list = list(neighbors)
+        for i in range(len(nb_list)):
+            for j in range(i + 1, len(nb_list)):
+                u, w = nb_list[i], nb_list[j]
+                if w not in adj[u]:
+                    adj[u].add(w)
+                    adj[w].add(u)
+
+        remaining.discard(v)
+
+        # Factor is maximal if no previously collected clique is a superset
+        is_maximal = True
+        for c in cliques:
+            if factor <= c:
+                is_maximal = False
+                break
+        if is_maximal:
+            cliques.append(factor)
+
+    # Compute total domain, check constraints
+    total_domain = 0
+    for cl in cliques:
+        # Build CliqueMeta inline from node_data (avoid networkx lookups)
+        from collections import defaultdict
+
+        sels: dict[tuple, dict[str, int]] = defaultdict(dict)
+        for var in cl:
+            d = node_data[var]
+            key = (d["table"], d["order"], d["attr"])
+            val = d["value"]
+            h = d["height"]
+            if key in sels and val in sels[key]:
+                h = min(sels[key][val], h)
+            sels[key][val] = h
+
+        meta = []
+        from ....graph.hugin import get_attrs as _get_attrs
+
+        for (table, order, attr_name), sel in sels.items():
+            attr = _get_attrs(attrs, table, order)[attr_name]
+            if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
+                new_sel = sel[attr.common.name]
+            else:
+                cmn = attr.common.name if attr.common else None
+                new_sel = tuple(sorted((v, h) for v, h in sel.items() if v != cmn))
+            meta.append(AttrMeta(table, order, attr_name, new_sel))
+        clique_meta = tuple(sorted(meta, key=lambda x: x[:-1]))
+
+        dom = get_clique_domain(clique_meta, attrs)
+        if dom > max_clique_size:
+            return 0, False
+        total_domain += dom
+
+    return total_domain, True
+
+
 def compute_height_boost(
     node_a: str,
     node_b: str,
@@ -390,7 +485,7 @@ def structure_learn(
                 break
             base_domain_total += dom
 
-        # Build node-to-cliques index: for each node, which cliques contain it
+        # Build node-to-cliques index
         node_to_cliques: dict[str, list[int]] = {}
         for ci, cl in enumerate(base_cliques):
             for node in cl:
@@ -407,25 +502,35 @@ def structure_learn(
 
         base_score = (base_tvd_sum - size_penalty * base_domain_total) if base_valid else float("-inf")
 
-        # Score each candidate
+        # Partition candidates into same-clique (fast) and cross-clique (expensive)
         scores = np.full(len(active), float("-inf"))
+        cross_clique: list[int] = []
+
         for i, (idx, na, nb) in enumerate(active):
-            # Check if both endpoints share a base clique
             cliques_a = set(node_to_cliques.get(na, []))
             cliques_b = set(node_to_cliques.get(nb, []))
-            shared = cliques_a & cliques_b
 
-            if shared and base_valid:
-                # Both in same clique: triangulation unchanged, just add TVD contribution
+            if (cliques_a & cliques_b) and base_valid:
+                # Fast path: both in same clique, triangulation unchanged
                 scores[i] = base_score + cand_tvd_boost[idx]
             else:
-                # Different cliques or base invalid: need full re-triangulation
-                moral.add_edge(na, nb)
-                trial_edges = structure_edges | {frozenset([na, nb])}
-                scores[i] = score_graph(
-                    moral, tvd, attrs, trial_edges, max_clique_size, size_penalty
-                )
-                moral.remove_edge(na, nb)
+                cross_clique.append(i)
+
+        # Cross-clique: score via fast adjacency-based triangulation
+        # (no networkx calls, no graph copies)
+        base_adj = _build_adj(base_tri)
+        node_data = dict(base_tri.nodes(data=True))
+
+        for i in cross_clique:
+            idx, na, nb = active[i]
+            trial_domain, valid = _score_with_one_edge(
+                base_adj, na, nb, node_data, attrs, max_clique_size
+            )
+            if not valid:
+                continue  # scores[i] stays -inf
+
+            trial_tvd = base_tvd_sum + cand_tvd_boost[idx]
+            scores[i] = trial_tvd - size_penalty * trial_domain
 
         # Check if any valid candidate exists
         valid_mask = np.isfinite(scores)
@@ -461,7 +566,7 @@ def structure_learn(
         connected_pairs.add(pair)
 
         logger.info(
-            f"Adj. iter {it+1: 3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): ({na}, {nb})"
+            f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): ({na}, {nb})"
         )
 
         pbar.set_description(
