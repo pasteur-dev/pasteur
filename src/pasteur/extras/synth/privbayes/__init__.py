@@ -284,7 +284,7 @@ class PrivBayesSynth(Synth):
             self.md_marginals = None
 
     def refresh(self, **kwargs):
-        if "mirror_descent" in kwargs and isinstance(kwargs["mirror_descent"], dict):
+        if "mirror_descent" in kwargs:
             self.mirror_descent = kwargs["mirror_descent"]
         if self.mirror_descent:
             self._fit_mirror_descent()
