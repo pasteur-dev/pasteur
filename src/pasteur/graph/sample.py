@@ -145,17 +145,13 @@ def _can_match_as_separator_or_mask(parent_sel, child_sel) -> bool:
     # Child must not introduce new value names
     if not (child_map.keys() <= parent_map.keys()):
         return False
-    # For shared values, parent must be finer or equal (lower or equal h)
+    # Parent must be finer or equal for every shared value (h ≤ child h).
+    # When the parent is coarser, the mask is lossy and cascading
+    # conditioning through inconsistent potentials degrades marginals.
+    # Only allow SeparatorDim (parent finer → deterministic mapping).
     for name in child_map:
         if parent_map[name] > child_map[name]:
-            # Parent is coarser for this value → would need mask
-            # Only allow if ALL shared values go the same direction
-            # (all parent coarser).  Mixed directions create narrow masks.
-            all_coarser = all(
-                parent_map[n] >= child_map[n] for n in child_map
-            )
-            if not all_coarser:
-                return False
+            return False
     return True
 
 
@@ -210,6 +206,7 @@ def create_sampler_meta(
                         if parent_meta.sel == child_meta.sel:
                             # Exact match — fix child value from parent
                             separator.append(SeparatorDim(pi, ci, None))
+                            found = True
                         else:
                             # Check if the child has value names not in
                             # the parent.  When the child's sel contains
@@ -240,17 +237,10 @@ def create_sampler_meta(
                                     masked.append(
                                         MaskedDim(pi, ci, c_dom, mask_map)
                                     )
-                            else:
-                                # Child has extra values — must use mask
-                                c_dom = dim_info[child_idx][ci].domain
-                                mask_map = _build_mask_map(
-                                    parent_meta, child_meta, attrs
-                                )
-                                masked.append(
-                                    MaskedDim(pi, ci, c_dom, mask_map)
-                                )
-                        found = True
-                        break
+                                found = True
+                            # else: can't match — leave as free sample_dim
+                        if found:
+                            break
                 if not found:
                     sample_dims.append(ci)
 
