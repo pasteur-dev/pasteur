@@ -884,27 +884,50 @@ def build_1way_observations(
     n: int,
     sigma1: float,
 ) -> list:
-    """Build LinearObservation objects from noisy 1-way marginals."""
+    """Build per-value LinearObservation objects from noisy 1-way marginals.
+
+    Creates one observation per value (not per attribute), so each observation
+    only requires a single value node in the junction tree — guaranteed to
+    have a parent clique."""
     from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
     from ....graph.loss import LinearObservation
-    from ..sota.common import _attr_sel
+    from ....attribute import CatValue
 
     obs_list = []
     for attr_name, noisy_mar in noisy_1way.items():
-        # Build source AttrMeta (same as what _attr_sel produces)
         attr = _get_attrs(attrs, None, None)[attr_name]
+
         if attr.common:
-            sel: int | tuple = 0
+            # Common-based: one observation for the common value at height 0
+            source = (AttrMeta(None, None, attr_name, 0),)
+            raw = noisy_mar.copy().clip(0)
+            s = raw.sum()
+            prob = (raw / s if s > 0 else raw).astype(np.float32)
+            dom = len(raw)
+            confidence = n / (n + sigma1 * dom) if sigma1 > 0 else 1.0
+            obs_list.append(LinearObservation(source, None, prob, confidence))
         else:
-            sel = tuple(sorted((v, 0) for v in attr.vals))
-        source = (AttrMeta(None, None, attr_name, sel),)
+            # Multi-value: one observation per value at height 0
+            # The noisy marginal is the joint over all values; marginalize
+            # to get per-value marginals.
+            vals = list(attr.vals.keys())
+            val_domains = [
+                cast(CatValue, attr.vals[v]).get_domain(0) for v in vals
+            ]
+            joint = noisy_mar.copy().clip(0).reshape(val_domains)
 
-        raw = noisy_mar.copy().clip(0)
-        s = raw.sum()
-        prob = (raw / s if s > 0 else raw).astype(np.float32)
-        dom = len(raw)
-        confidence = n / (n + sigma1 * dom) if sigma1 > 0 else 1.0
+            for vi, val_name in enumerate(vals):
+                if not isinstance(attr.vals[val_name], CatValue):
+                    continue
+                # Marginalize: sum over all other dimensions
+                axes = tuple(j for j in range(len(vals)) if j != vi)
+                marginal = joint.sum(axis=axes) if axes else joint.ravel()
 
-        obs_list.append(LinearObservation(source, None, prob, confidence))
+                source = (AttrMeta(None, None, attr_name, ((val_name, 0),)),)
+                s = marginal.sum()
+                prob = (marginal / s if s > 0 else marginal).astype(np.float32)
+                dom = len(marginal)
+                confidence = n / (n + sigma1 * dom) if sigma1 > 0 else 1.0
+                obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
