@@ -51,10 +51,13 @@ def make_deterministic(obj_func, /, *, noise_kw: str | None = None):
 
         if hasattr(self, "seed") and getattr(self, "seed") is not None:
             noise_info = f" ('{noise_kw}': {kwargs[noise_kw]:3d})" if noise_kw else ""
+            # Only check np.random — Python's random module is polluted by
+            # Rich's progress bar rendering (Style.__init__ calls randint)
+            # which varies across runs.
             logger.info(
                 f"Deterministic check: random number after "
                 + f"{f'{type(self).__name__}.{obj_func.__name__}':>22s}(): "
-                + f"<np.random> {np.random.random():7.5f} <random> {random.random():7.5f}"
+                + f"<np.random> {np.random.random():7.5f}"
                 + noise_info
             )
         return a
