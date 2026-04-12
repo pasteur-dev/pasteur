@@ -523,10 +523,9 @@ class AdjuvantSynth(Synth):
                 f"sigma3={sigma3:.2f}, sigma1={sigma1:.2f}"
             )
 
-        self._build_jt()
         self._run_md()
 
-    def _build_jt(self):
+    def _run_md(self):
         # ==================================================
         # Build junction tree
         # ==================================================
@@ -543,7 +542,7 @@ class AdjuvantSynth(Synth):
 
         logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
         mg = self.moral if tree_mode != "maximal" else None
-        self.junction, self.cliques, self.messages = build_junction_tree(
+        self.junction, self.cliques, messages = build_junction_tree(
             self.all_obs,
             self.table_attrs,
             tree_mode=tree_mode,
@@ -559,7 +558,6 @@ class AdjuvantSynth(Synth):
             f"{total_params:_} parameters"
         )
 
-    def _run_md(self):
         # ==================================================
         # Mirror descent fitting
         # ==================================================
@@ -573,26 +571,23 @@ class AdjuvantSynth(Synth):
             f"Adjuvant: Running mirror descent "
             f"(max_iters={md.get('max_iters', 1000)})"
         )
-        potentials, loss_fn, raw_theta = mirror_descent(
+        self.potentials, *_ = mirror_descent(
             self.cliques,
-            self.messages,
+            messages,
             self.all_obs,
             self.table_attrs,
             device=device,
             **md,
         )
 
-        self.potentials = potentials
-        self.table_attrs = self.table_attrs
-
     def refresh(self, **kwargs):
-        if "mirror_descent" in kwargs and isinstance(kwargs["mirror_descent"], dict):
+        if "mirror_descent" not in kwargs:
+            return
+
+        if isinstance(kwargs["mirror_descent"], dict):
             self.md_params = kwargs["mirror_descent"]
-        if "mirror_descent" in kwargs:
-            self._build_jt()
-            self._run_md()
-        elif "run_md" in kwargs:
-            self._run_md()
+
+        self._run_md()
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
