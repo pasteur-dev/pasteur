@@ -226,7 +226,9 @@ class AdjuvantSynth(Synth):
             tree_mode=tree_mode,
             moral_graph=mg,
         )
-        total_params = sum(get_clique_domain(cl, self.table_attrs) for cl in self.cliques)
+        total_params = sum(
+            get_clique_domain(cl, self.table_attrs) for cl in self.cliques
+        )
         logger.info(
             f"Adjuvant: junction tree has {len(self.cliques)} cliques, "
             f"{total_params:_} parameters"
@@ -261,9 +263,9 @@ class AdjuvantSynth(Synth):
         self.table_attrs = self.table_attrs
 
     def refresh(self, **kwargs):
+        if "mirror_descent" in kwargs and isinstance(kwargs["mirror_descent"], dict):
+            self.md_params = kwargs["mirror_descent"]
         if "mirror_descent" in kwargs:
-            if isinstance(kwargs["mirror_descent"], dict):
-                self.md_params = kwargs["mirror_descent"]
             self._build_jt()
             self._run_md()
         elif "run_md" in kwargs:
