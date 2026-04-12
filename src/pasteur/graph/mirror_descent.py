@@ -55,6 +55,7 @@ def mirror_descent(
     optim: str = "sgd",
     init_potentials: dict[int, np.ndarray] | None = None,
     loss_type: str = "l2",
+    block_unobserved: bool = True,
     # Backwards compat
     line_search: bool | None = None,
 ) -> list[np.ndarray]:
@@ -70,8 +71,18 @@ def mirror_descent(
         device = torch.device(device)
 
     # Build modules
-    bp = BeliefPropagation(cliques, messages).to(device)
     loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type).to(device)
+
+    # Identify observed cliques (those targeted by at least one observation)
+    observed: set[int] | None = None
+    if block_unobserved:
+        observed = set(loss_fn.cidx)
+
+    bp = BeliefPropagation(
+        cliques, messages,
+        observed=observed,
+        block_unobserved=block_unobserved,
+    ).to(device)
 
     # Initialize potentials (uniform weighted prior in log-space)
     theta = create_cliques(cliques, attrs, device=device)

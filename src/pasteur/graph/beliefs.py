@@ -292,13 +292,19 @@ def create_cliques(
 
 class BeliefPropagation(torch.nn.Module):
     def __init__(
-        self, cliques: Sequence[CliqueMeta], messages: Sequence[Message]
+        self,
+        cliques: Sequence[CliqueMeta],
+        messages: Sequence[Message],
+        observed: set[int] | None = None,
+        block_unobserved: bool = False,
     ) -> None:
         super().__init__()
         self.cliques = cliques
         self.messages = messages
         self.idx = [(cliques.index(m.a), cliques.index(m.b)) for m in messages]
         self.args, self.idx_a, self.idx_b = _torch_gen_args(messages)
+        self.observed = observed
+        self.block_unobserved = block_unobserved
 
     def forward(self, theta: Sequence[torch.Tensor], debug: bool = False):
         theta = list(theta)
@@ -313,8 +319,15 @@ class BeliefPropagation(torch.nn.Module):
             received: dict[int, list[tuple[torch.Tensor, int]]] = {}
 
             for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
-                # Build belief at a excluding message from b
-                proc = theta[a_idx]
+                # For unobserved senders, skip their own potential entirely
+                # so they act as pure pass-throughs for messages from
+                # observed cliques, without injecting uninformed prior.
+                _block = (
+                    self.block_unobserved
+                    and self.observed is not None
+                    and a_idx not in self.observed
+                )
+                proc = torch.zeros_like(theta[a_idx]) if _block else theta[a_idx]
                 if a_idx in received:
                     for msg, from_idx in received[a_idx]:
                         if from_idx != b_idx:
