@@ -56,6 +56,10 @@ def get_run_name(pipeline: str, params: dict[str, Any]):
             val_str = str(val)
         run_name += f" {param}={val_str}"
 
+    flat = dict_to_flat_params(params)
+    if "_mlflow_run_suffix" in flat:
+        run_name += f" {flat['_mlflow_run_suffix']}"
+
     return run_name
 
 

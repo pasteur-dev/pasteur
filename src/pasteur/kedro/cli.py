@@ -287,13 +287,19 @@ def _process_iterables(iterables: dict[str, Iterable]):
     type=str,
 )
 @click.option(
-    "-r",
     "--refresh-processes",
     type=int,
     default=1,
     help="Restarts processes after `n` tasks. Lower numbers help with memory leaks but slower. Set to 0 to disable. Check `pasteur.utils.leaks` to fix.",
 )
 @click.option("-w", "--max-workers", type=int, default=None)
+@click.option(
+    "-r",
+    "--runs",
+    type=int,
+    default=1,
+    help="Run each pipeline multiple times. Appends rN to the run name in mlflow.",
+)
 @click.pass_context
 def sweep(
     ctx,
@@ -311,6 +317,7 @@ def sweep(
     clear_cache,
     max_workers,
     refresh_processes,
+    runs,
 ):
     """Similar to pipe, sweep allows in addition a hyperparameter sweep.
 
@@ -421,6 +428,8 @@ def sweep(
 
     # Configure parent
     parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
+    if runs > 1:
+        parent_name += f" -r {runs}"
     mlflow_dict = {
         "_mlflow_parent_name": parent_name,
     }
@@ -445,7 +454,8 @@ def sweep(
     if refresh_processes == 0:
         refresh_processes = None
 
-    runs = {}
+    num_runs = runs
+    run_results = {}
     ingested = False
     runtime_params = {}
     for iters in _process_iterables(iterable_dict | hyperparam_dict):
@@ -464,51 +474,66 @@ def sweep(
                 if TAG_CHANGES_HYPERPARAMETER in tags:
                     tags.remove(TAG_CHANGES_HYPERPARAMETER)
 
-            with KedroSession.create(
-                runtime_params=runtime_params, env="base"
-            ) as session:
-                session.load_context()
-
-                run_name = get_run_name(pipeline, runtime_params)
-                if alg:
-                    # if alg exists add its name
-                    runs[run_name] = {"_alg": alg, **vals}
-                elif alg is not None:
-                    # ingest pipeline has None and should be skipped from cross-eval
-                    runs[run_name] = vals
-
-                if check_run_done(
-                    run_name,
-                    None if skip_parent else parent_name,
-                    None if skip_parent else get_git_suffix(),
-                ):
-                    logger.warning(f"Run '{run_name}' is complete, skipping...")
-                    continue
-
-                if params_skipped:
-                    logger.warning(
-                        "Skipping ingestion since hyperparameters are the same"
-                    )
-
-                session.run(
-                    tags=tags,
-                    runner=SimpleRunner(
-                        pipeline,
-                        " ".join(f"{n}={v}" for n, v in vals.items()),
-                        max_workers=max_workers,
-                        refresh_processes=refresh_processes,
-                    ),
-                    node_names="",
-                    from_nodes="",
-                    to_nodes="",
-                    from_inputs="",
-                    to_outputs="",
-                    load_versions={},
-                    pipeline_name=pipeline,
+            for run_idx in range(num_runs):
+                suffix_dict = (
+                    {"_mlflow_run_suffix": f"r{run_idx + 1}"}
+                    if num_runs > 1
+                    else {}
                 )
-                ingested = True
+                run_runtime_params = merge_params(
+                    vals | mlflow_dict | suffix_dict
+                )
 
-    if len(runs) <= 1:
+                with KedroSession.create(
+                    runtime_params=run_runtime_params, env="base"
+                ) as session:
+                    session.load_context()
+
+                    run_name = get_run_name(pipeline, run_runtime_params)
+                    run_vals = (
+                        {**vals, "_run": f"r{run_idx + 1}"}
+                        if num_runs > 1
+                        else vals
+                    )
+                    if alg:
+                        # if alg exists add its name
+                        run_results[run_name] = {"_alg": alg, **run_vals}
+                    elif alg is not None:
+                        # ingest pipeline has None and should be skipped from cross-eval
+                        run_results[run_name] = run_vals
+
+                    if check_run_done(
+                        run_name,
+                        None if skip_parent else parent_name,
+                        None if skip_parent else get_git_suffix(),
+                    ):
+                        logger.warning(f"Run '{run_name}' is complete, skipping...")
+                        continue
+
+                    if params_skipped:
+                        logger.warning(
+                            "Skipping ingestion since hyperparameters are the same"
+                        )
+
+                    session.run(
+                        tags=tags,
+                        runner=SimpleRunner(
+                            pipeline,
+                            " ".join(f"{n}={v}" for n, v in vals.items()),
+                            max_workers=max_workers,
+                            refresh_processes=refresh_processes,
+                        ),
+                        node_names="",
+                        from_nodes="",
+                        to_nodes="",
+                        from_inputs="",
+                        to_outputs="",
+                        load_versions={},
+                        pipeline_name=pipeline,
+                    )
+                    ingested = True
+
+    if len(run_results) <= 1:
         logger.info("Only 1 run executed, skipping summary.")
         return
 
@@ -516,7 +541,7 @@ def sweep(
         ctx = session.load_context()
         experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split(".")[0])
         log_parent_run(
-            parent_name, runs, skip_parent=skip_parent, experiment_id=experiment_id
+            parent_name, run_results, skip_parent=skip_parent, experiment_id=experiment_id
         )
 
 
