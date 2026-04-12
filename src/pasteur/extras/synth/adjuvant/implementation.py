@@ -434,7 +434,7 @@ def _fmt_node(node: str, g, attrs) -> str:
     d = g.nodes[node]
     val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
     dom = val.get_domain(d["height"])
-    return f"{d['attr']}.{d['value']}[{d['height']}] (dom={dom})"
+    return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}] (dom={dom})"
 
 
 def _fmt_edge(na: str, nb: str, g, attrs) -> str:
@@ -445,7 +445,7 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
         d = g.nodes[node]
         val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
         dom = val.get_domain(d["height"])
-        return f"{d['attr']}.{d['value']}[{d['height']}]", dom
+        return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}]", dom
 
     a_str, a_dom = _info(na)
     b_str, b_dom = _info(nb)
@@ -773,7 +773,11 @@ def structure_learn(
                     logger.info(f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}")
                     break
         else:
-            logger.info(f"    MISSING TVD={val:.4f} {ca[0]}.{ca[1]} x {cb[0]}.{cb[1]}")
+            logger.info(
+                f"    MISSING TVD={val:.4f} "
+                f"{ca[0] + '.' if ca[0] != ca[1] else ''}{ca[1]} x "
+                f"{cb[0] + '.' if cb[0] != cb[1] else ''}{cb[1]}"
+            )
 
     return moral, structure_edges, rho_remaining
 
