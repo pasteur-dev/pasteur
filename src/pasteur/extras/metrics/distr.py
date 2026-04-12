@@ -458,10 +458,12 @@ def _visualise_2way(
     ores = []
     for v in res.values():
         ores.extend(v)
+    split_order = list(res.keys())
     outs += (
         pd.DataFrame(ores)
         .pivot(index=["table"], columns=["split"], values=["mean_metr_norm"])
         .xs("mean_metr_norm", axis=1)
+        [split_order]
         .sort_index()
         .to_markdown()
     )
