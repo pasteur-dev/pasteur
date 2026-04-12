@@ -242,14 +242,16 @@ def _torch_gen_args(messages: Sequence[Message]):
     for a in _numpy_gen_args(messages):
         if a:
             idx_a_idx = idx_b_idx = None
-            if a.idx_a[-1] != len(a.idx_a) - 1:
+            a_is_identity = np.array_equal(a.idx_a, np.arange(len(a.idx_a)))
+            b_is_identity = np.array_equal(a.idx_b, np.arange(len(a.idx_b)))
+            if not a_is_identity:
                 idx_a_idx = len(idx_a)
                 idx_a.append(
                     torch.nn.Parameter(
                         torch.from_numpy(a.idx_a.astype("int64")), requires_grad=False
                     )
                 )
-            if a.idx_b[-1] != len(a.idx_b) - 1:
+            if not b_is_identity:
                 idx_b_idx = len(idx_b)
                 idx_b.append(
                     torch.nn.Parameter(
