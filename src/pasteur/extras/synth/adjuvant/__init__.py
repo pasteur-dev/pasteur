@@ -111,8 +111,9 @@ class AdjuvantSynth(Synth):
             structure_learn,
             measure_edges,
             build_1way_observations,
+            cdp_rho,
+            get_col_names,
         )
-        from ..sota.common import cdp_rho, get_attr_names
         from ....graph.mirror_descent import (
             MIRROR_DESCENT_DEFAULT,
             mirror_descent,
@@ -132,8 +133,8 @@ class AdjuvantSynth(Synth):
         rho2 = self.e2_frac * rho
         rho3 = self.e3_frac * rho
 
-        all_attrs = get_attr_names(table_attrs)
-        d = len(all_attrs)
+        all_cols = get_col_names(table_attrs)
+        d = len(all_cols)
 
         with MarginalOracle(
             data,
@@ -147,9 +148,9 @@ class AdjuvantSynth(Synth):
             # ==================================================
             logger.info(
                 f"Adjuvant Step 0: Computing all 1-way and 2-way marginals "
-                f"({d} attrs)"
+                f"({d} cols)"
             )
-            cached = compute_all_marginals(oracle, table_attrs, all_attrs)
+            cached = compute_all_marginals(oracle, table_attrs, all_cols)
 
             # ==================================================
             # Step 1: Noisy 1-way marginals (budget e1)

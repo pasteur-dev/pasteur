@@ -7,16 +7,95 @@ mechanism, and measurement/observation building.
 
 import itertools
 import logging
-from math import sqrt
+from math import exp, log1p, sqrt
 from typing import NamedTuple, Sequence, cast
 
 import networkx as nx
 import numpy as np
+from scipy.special import softmax
 
 from ....attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
 from ....marginal import MarginalOracle
 
 logger = logging.getLogger(__name__)
+
+# Column identifier: (attribute_name, value_name)
+Col = tuple[str, str]
+
+
+# ============================================================
+# Local helpers (no dependency on sota/common)
+# ============================================================
+def _cdp_delta(rho: float, eps: float) -> float:
+    if rho == 0:
+        return 0.0
+    amin, amax = 1.01, (eps + 1) / (2 * rho) + 2
+    for _ in range(1000):
+        alpha = (amin + amax) / 2
+        derivative = (2 * alpha - 1) * rho - eps + log1p(-1.0 / alpha)
+        if derivative < 0:
+            amin = alpha
+        else:
+            amax = alpha
+    delta = exp(
+        (alpha - 1) * (alpha * rho - eps) + alpha * log1p(-1 / alpha)
+    ) / (alpha - 1.0)
+    return min(delta, 1.0)
+
+
+def cdp_rho(eps: float, delta: float) -> float:
+    """Find smallest rho such that rho-CDP implies (eps, delta)-DP."""
+    if delta >= 1:
+        return 0.0
+    rhomin, rhomax = 0.0, eps + 1
+    for _ in range(1000):
+        rho = (rhomin + rhomax) / 2
+        if _cdp_delta(rho, eps) <= delta:
+            rhomin = rho
+        else:
+            rhomax = rho
+    return rhomin
+
+
+def exponential_mechanism(
+    qualities: dict | np.ndarray,
+    eps: float,
+    sensitivity: float = 1.0,
+) -> object:
+    """Sample from the exponential mechanism. Returns the selected key."""
+    if isinstance(qualities, dict):
+        keys = list(qualities.keys())
+        q = np.array([qualities[k] for k in keys])
+    else:
+        keys = np.arange(len(qualities))
+        q = np.array(qualities)
+    q = q - q.max()
+    p = softmax(0.5 * eps / sensitivity * q)
+    return keys[np.random.choice(p.size, p=p)]
+
+
+def get_col_names(attrs: DatasetAttributes) -> list[Col]:
+    """Get all (attr_name, val_name) pairs for CatValue columns, including common."""
+    result: list[Col] = []
+    for attr_name, attr in cast(Attributes, attrs[None]).items():
+        if not attr.vals:
+            continue
+        if attr.common:
+            result.append((attr_name, attr.common.name))
+        for val_name, val in attr.vals.items():
+            if isinstance(val, CatValue) and (attr.common is None or val.name != attr.common.name):
+                result.append((attr_name, val_name))
+    return result
+
+
+def _col_sel(attr_name: str, val_name: str, attrs: DatasetAttributes):
+    """Oracle selector for a single column at height 0.
+
+    Common value -> (attr_name, 0). Regular value -> (attr_name, {val_name: 0})."""
+    attr = cast(Attributes, attrs[None])[attr_name]
+    if attr.common and val_name == attr.common.name:
+        return (attr_name, 0)
+    return (attr_name, {val_name: 0})
 
 
 def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
@@ -35,8 +114,8 @@ def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
 class CachedMarginals(NamedTuple):
     """Pre-computed 1-way and 2-way true marginals from a single data pass."""
 
-    one_way: dict[str, np.ndarray]  # attr_name -> count vector (flat)
-    two_way: dict[tuple[str, str], np.ndarray]  # (attr_a, attr_b) -> joint counts
+    one_way: dict[Col, np.ndarray]  # (attr_name, val_name) -> count vector (flat)
+    two_way: dict[tuple[Col, Col], np.ndarray]  # (col_a, col_b) -> joint counts
 
 
 # ============================================================
@@ -45,26 +124,25 @@ class CachedMarginals(NamedTuple):
 def compute_all_marginals(
     oracle: MarginalOracle,
     attrs: DatasetAttributes,
-    all_attrs: list[str],
+    all_cols: list[Col],
 ) -> CachedMarginals:
     """Batch-query all 1-way and 2-way true marginals in one oracle call."""
-    from ..sota.common import _attr_sel
-
-    requests_1 = [[(a, _attr_sel(a, attrs))] for a in all_attrs]
-    pairs = list(itertools.combinations(all_attrs, 2))
+    requests_1 = [[_col_sel(a, v, attrs)] for a, v in all_cols]
+    pairs = list(itertools.combinations(all_cols, 2))
     requests_2 = [
-        [(a, _attr_sel(a, attrs)), (b, _attr_sel(b, attrs))] for a, b in pairs
+        [_col_sel(a1, v1, attrs), _col_sel(a2, v2, attrs)]
+        for (a1, v1), (a2, v2) in pairs
     ]
 
     results = oracle.process(requests_1 + requests_2, postprocess=None)
 
-    one_way: dict[str, np.ndarray] = {}
-    for a, r in zip(all_attrs, results[: len(all_attrs)]):
-        one_way[a] = r.ravel().astype(np.float64)
+    one_way: dict[Col, np.ndarray] = {}
+    for col, r in zip(all_cols, results[: len(all_cols)]):
+        one_way[col] = r.ravel().astype(np.float64)
 
-    two_way: dict[tuple[str, str], np.ndarray] = {}
-    for (a, b), r in zip(pairs, results[len(all_attrs) :]):
-        two_way[a, b] = r.astype(np.float64)
+    two_way: dict[tuple[Col, Col], np.ndarray] = {}
+    for (ca, cb), r in zip(pairs, results[len(all_cols) :]):
+        two_way[ca, cb] = r.astype(np.float64)
 
     return CachedMarginals(one_way, two_way)
 
@@ -75,7 +153,7 @@ def compute_all_marginals(
 def add_noise_1way(
     cached: CachedMarginals,
     rho1: float,
-) -> tuple[dict[str, np.ndarray], float]:
+) -> tuple[dict[Col, np.ndarray], float]:
     """Add Gaussian noise to 1-way marginals with budget rho1.
 
     Returns (noisy_marginals, sigma1)."""
@@ -85,8 +163,8 @@ def add_noise_1way(
 
     sigma = sqrt(d / (2 * rho1))
     noisy = {
-        name: mar + np.random.normal(0, sigma, size=mar.size)
-        for name, mar in cached.one_way.items()
+        col: mar + np.random.normal(0, sigma, size=mar.size)
+        for col, mar in cached.one_way.items()
     }
     return noisy, sigma
 
@@ -96,25 +174,25 @@ def add_noise_1way(
 # ============================================================
 def compute_tvd(
     cached: CachedMarginals,
-) -> dict[tuple[str, str], float]:
+) -> dict[tuple[Col, Col], float]:
     """Compute exact pairwise TVD = ||P(A,B) - P(A)P(B)||_1 / 2.
 
     No noise added — the exponential mechanism provides privacy for selection."""
     # Normalize 1-way to probabilities
-    p1: dict[str, np.ndarray] = {}
-    for a, m in cached.one_way.items():
+    p1: dict[Col, np.ndarray] = {}
+    for col, m in cached.one_way.items():
         s = m.sum()
-        p1[a] = m / s if s > 0 else m
+        p1[col] = m / s if s > 0 else m
 
-    tvd: dict[tuple[str, str], float] = {}
-    for (a, b), joint in cached.two_way.items():
+    tvd: dict[tuple[Col, Col], float] = {}
+    for (ca, cb), joint in cached.two_way.items():
         flat = joint.ravel()
         s = flat.sum()
         p_ab = flat / s if s > 0 else flat
-        indep = np.outer(p1[a], p1[b]).ravel()
+        indep = np.outer(p1[ca], p1[cb]).ravel()
         val = float(np.sum(np.abs(p_ab - indep)) / 2)
-        tvd[a, b] = val
-        tvd[b, a] = val
+        tvd[ca, cb] = val
+        tvd[cb, ca] = val
 
     return tvd
 
@@ -201,37 +279,38 @@ def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
 # ============================================================
 def generate_candidates(
     g: nx.DiGraph,
-) -> tuple[list[tuple[str, str]], dict[tuple[str, str], list[int]]]:
-    """Generate cross-attribute edge candidates at all height combinations.
+) -> tuple[list[tuple[str, str]], dict[tuple[Col, Col], list[int]]]:
+    """Generate edge candidates between non-common value nodes.
 
-    Only non-common value nodes are candidates for cross-attribute edges.
-    Candidates are grouped by attribute pair for batch removal after selection.
+    Candidates are grouped by column pair (attr, value) for tracking.
+    Includes same-attribute pairs (different columns), excludes same-column pairs.
 
     Returns:
         candidates: List of (node_a, node_b) edge candidates.
-        attr_pair_map: Maps sorted (attr_a, attr_b) -> list of indices into candidates.
+        col_pair_map: Maps sorted ((attr_a, val_a), (attr_b, val_b)) -> list of indices.
     """
-    # Group non-common nodes by attribute name
-    attr_nodes: dict[str, list[str]] = {}
+    # Group non-common nodes by column (attr, value)
+    col_nodes: dict[Col, list[str]] = {}
     for node, data in g.nodes(data=True):
         if data.get("is_common", False):
             continue
-        attr_nodes.setdefault(data["attr"], []).append(node)
+        col = (data["attr"], data["value"])
+        col_nodes.setdefault(col, []).append(node)
 
     candidates: list[tuple[str, str]] = []
-    attr_pair_map: dict[tuple[str, str], list[int]] = {}
-    attr_names = sorted(attr_nodes.keys())
+    col_pair_map: dict[tuple[Col, Col], list[int]] = {}
+    col_names = sorted(col_nodes.keys())
 
-    for i, attr_a in enumerate(attr_names):
-        for attr_b in attr_names[i + 1 :]:
-            pair_key = (attr_a, attr_b)
-            attr_pair_map[pair_key] = []
-            for na in attr_nodes[attr_a]:
-                for nb in attr_nodes[attr_b]:
-                    attr_pair_map[pair_key].append(len(candidates))
+    for i, col_a in enumerate(col_names):
+        for col_b in col_names[i + 1 :]:
+            pair_key = (col_a, col_b)
+            col_pair_map[pair_key] = []
+            for na in col_nodes[col_a]:
+                for nb in col_nodes[col_b]:
+                    col_pair_map[pair_key].append(len(candidates))
                     candidates.append((na, nb))
 
-    return candidates, attr_pair_map
+    return candidates, col_pair_map
 
 
 # ============================================================
@@ -395,7 +474,7 @@ def compute_edge_weight(
 
 def score_graph(
     moral: nx.Graph,
-    tvd: dict[tuple[str, str], float],
+    tvd: dict[tuple[Col, Col], float],
     attrs: DatasetAttributes,
     structure_edges: set[frozenset[str]],
     max_clique_size: float,
@@ -419,7 +498,9 @@ def score_graph(
     for edge in structure_edges:
         na, nb = tuple(edge)
         da, db = moral.nodes[na], moral.nodes[nb]
-        base = tvd.get((da["attr"], db["attr"]), 0.0)
+        col_a = (da["attr"], da["value"])
+        col_b = (db["attr"], db["value"])
+        base = tvd.get((col_a, col_b), 0.0)
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         tvd_sum += base * boost
 
@@ -432,7 +513,7 @@ def score_graph(
 def structure_learn(
     directed_graph: nx.DiGraph,
     attrs: DatasetAttributes,
-    tvd: dict[tuple[str, str], float],
+    tvd: dict[tuple[Col, Col], float],
     n: int,
     size_penalty: float,
     rho2_exp: float,
@@ -440,39 +521,36 @@ def structure_learn(
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
-    Uses local penalty (domain ratio of affected cliques, not total graph size),
-    per-attribute edge limits (1 to sqrt(d)), and forces at least one edge per
-    attribute.
+    Operates at column (attr, value) granularity. Forces at least one edge
+    per column.
 
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
         structure_edges: Set of frozenset node pairs for structure-learning edges.
         rho2_exp_remaining: Unspent exponential mechanism budget.
     """
-    from ..sota.common import exponential_mechanism
     from ....graph.hugin import to_moral, get_factor_domain
     from ....utils.progress import piter, check_exit
 
     # Moralize the directed height-chain graph -> undirected base
     moral = to_moral(directed_graph)
 
-    # Generate candidates and group by attribute pair
-    candidates, attr_pair_map = generate_candidates(directed_graph)
-    connected_pairs: set[tuple[str, str]] = set()
+    # Generate candidates and group by column pair
+    candidates, col_pair_map = generate_candidates(directed_graph)
+    connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Global edge limit: d * sqrt(d) total edges (no per-attribute cap)
-    d = len(set(a for pair in attr_pair_map for a in pair))
+    # Global edge limit: d * sqrt(d) total edges
+    d = len(set(c for pair in col_pair_map for c in pair))
     max_steps = d * int(sqrt(d))
     eps_per_step = sqrt(8 * rho2_exp / (max_steps + d)) if max_steps > 0 and rho2_exp > 0 else 0
     rho_spent = 0.0
-
 
     pbar = piter(
         None,
         total=max_steps,
         desc="Adjuvant structure [0 edges, score=0.0000]",
-        unit="pair",
+        unit="col_pair",
         bar_format=" " * 11
         + ">>>>>>>  {desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}"
         + " [{elapsed}<{remaining}]",
@@ -482,7 +560,9 @@ def structure_learn(
     cand_tvd_boost = np.empty(len(candidates))
     for idx, (na, nb) in enumerate(candidates):
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        base = tvd.get((da["attr"], db["attr"]), 0.0)
+        col_a: Col = (da["attr"], da["value"])
+        col_b: Col = (db["attr"], db["value"])
+        base = tvd.get((col_a, col_b), 0.0)
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
@@ -493,18 +573,18 @@ def structure_learn(
             pbar.close()
             raise e
 
-        # Filter to active candidates (attribute pair not yet connected)
+        # Filter to active candidates (column pair not yet connected)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            pair = tuple(sorted([da["attr"], db["attr"]]))
+            pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
             if pair not in connected_pairs:
                 active.append((idx, na, nb))
 
         if not active:
             logger.info(
                 f"Adjuvant: exit (no active candidates) at iter {it}. "
-                f"pairs={len(connected_pairs)}/{len(attr_pair_map)}"
+                f"pairs={len(connected_pairs)}/{len(col_pair_map)}"
             )
             break
 
@@ -518,9 +598,7 @@ def structure_learn(
             for node in cl:
                 node_to_cliques.setdefault(node, []).append(ci)
 
-        # Score each candidate: TVD * edge_weight (1/sqrt(dom_a*dom_b))
-        # Same-clique and cross-clique get the same score since we measure
-        # 2-way edge marginals directly (no clique domain penalty needed).
+        # Score each candidate: TVD * edge_weight
         scores = np.full(len(active), float("-inf"))
         for i, (idx, na, nb) in enumerate(active):
             scores[i] = cand_tvd_boost[idx]
@@ -539,13 +617,9 @@ def structure_learn(
             break
 
         # Exponential mechanism selection among valid candidates + "stop" option.
-        # The stop option has score = min_tvd. If EM picks it, we exit:
-        # all remaining candidates are below the noise floor.
         valid_indices = np.where(valid_mask)[0]
         valid_scores = scores[valid_mask]
 
-        # Append stop option at the end, boosted by log(N) to compensate
-        # for competing against N candidates in the softmax
         sensitivity = 2.0 / n
         log_n_boost = 2 * sensitivity * np.log(max(len(valid_scores), 1)) / eps_per_step if eps_per_step > 0 else 0
         em_scores = np.append(valid_scores, min_tvd + log_n_boost if min_tvd else 0)
@@ -572,9 +646,9 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         structure_edges.add(frozenset([na, nb]))
 
-        # Update attribute pair tracking
+        # Update column pair tracking
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        pair = tuple(sorted([da["attr"], db["attr"]]))
+        pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
         connected_pairs.add(pair)
 
         logger.info(
@@ -590,40 +664,42 @@ def structure_learn(
 
     pbar.close()
 
-    # Force at least one edge per attribute: for any attribute with 0 edges,
+    # Force at least one edge per column: for any column with 0 edges,
     # use exponential mechanism to pick an edge (budget from leftover steps)
-    all_attrs_in_graph = set()
+    all_cols_in_graph: set[Col] = set()
     for node, data in directed_graph.nodes(data=True):
         if not data.get("is_common", False):
-            all_attrs_in_graph.add(data["attr"])
+            all_cols_in_graph.add((data["attr"], data["value"]))
 
-    connected_attrs = set(a for pair in connected_pairs for a in pair)
-    disconnected = all_attrs_in_graph - connected_attrs
+    connected_cols: set[Col] = set(c for pair in connected_pairs for c in pair)
+    disconnected = all_cols_in_graph - connected_cols
     if disconnected:
         logger.info(
-            f"Adjuvant: forcing edges for {len(disconnected)} disconnected attrs: "
+            f"Adjuvant: forcing edges for {len(disconnected)} disconnected cols: "
             f"{disconnected}"
         )
-        for attr in disconnected:
-            # Gather candidates involving this attribute
-            attr_cands: list[tuple[int, str, str]] = []
-            attr_scores: list[float] = []
+        for col in disconnected:
+            # Gather candidates involving this column
+            col_cands: list[tuple[int, str, str]] = []
+            col_scores: list[float] = []
             for idx, (na, nb) in enumerate(candidates):
                 da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-                if da["attr"] != attr and db["attr"] != attr:
+                ca: Col = (da["attr"], da["value"])
+                cb: Col = (db["attr"], db["value"])
+                if ca != col and cb != col:
                     continue
-                pair = tuple(sorted([da["attr"], db["attr"]]))
+                pair = tuple(sorted([ca, cb]))
                 if pair in connected_pairs:
                     continue
-                attr_cands.append((idx, na, nb))
-                attr_scores.append(cand_tvd_boost[idx])
+                col_cands.append((idx, na, nb))
+                col_scores.append(cand_tvd_boost[idx])
 
-            if not attr_cands:
+            if not col_cands:
                 continue
 
             # Add stop option: if all candidates are below min_tvd, skip
-            scores_arr = np.append(np.array(attr_scores), min_tvd)
-            forced_stop_idx = len(attr_scores)
+            scores_arr = np.append(np.array(col_scores), min_tvd)
+            forced_stop_idx = len(col_scores)
 
             if eps_per_step > 0:
                 sel = exponential_mechanism(scores_arr, eps_per_step, 2.0 / n)
@@ -632,44 +708,45 @@ def structure_learn(
                 sel = int(np.argmax(scores_arr))
 
             if sel == forced_stop_idx:
-                logger.info(f"Adj. skip forced edge for {attr} (below min_tvd)")
+                logger.info(f"Adj. skip forced edge for {col} (below min_tvd)")
                 continue
 
-            _, na, nb = attr_cands[sel]
+            _, na, nb = col_cands[sel]
             moral.add_edge(na, nb, structure=True)
             structure_edges.add(frozenset([na, nb]))
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            pair = tuple(sorted([da["attr"], db["attr"]]))
+            pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
             connected_pairs.add(pair)
             logger.info(f"Adj. forced edge: {_fmt_edge(na, nb, moral, attrs)}")
 
     rho_remaining = rho2_exp - rho_spent
 
-    # Diagnostic: show top unconnected pairs by TVD
-    all_pairs_tvd: list[tuple[float, str, str]] = []
-    for (a, b), val in tvd.items():
-        if a < b:  # avoid duplicates
-            all_pairs_tvd.append((val, a, b))
+    # Diagnostic: show top unconnected column pairs by TVD
+    all_pairs_tvd: list[tuple[float, Col, Col]] = []
+    for (ca, cb), val in tvd.items():
+        if ca < cb:  # avoid duplicates
+            all_pairs_tvd.append((val, ca, cb))
     all_pairs_tvd.sort(reverse=True)
 
     logger.info(
         f"Adjuvant: structure learning done, "
         f"{len(structure_edges)} edges, "
-        f"{len(connected_pairs)} attribute pairs connected, "
+        f"{len(connected_pairs)} column pairs connected, "
         f"rho2_exp spent={rho_spent:.4f}, remaining={rho_remaining:.4f}"
     )
-    logger.info("Adjuvant: Connected pairs (by TVD):")
-    for val, a, b in all_pairs_tvd:
-        pair = tuple(sorted([a, b]))
+    logger.info("Adjuvant: Connected column pairs (by TVD):")
+    for val, ca, cb in all_pairs_tvd:
+        pair = tuple(sorted([ca, cb]))
         if pair in connected_pairs:
             for edge in structure_edges:
                 ena, enb = tuple(edge)
                 da, db = directed_graph.nodes[ena], directed_graph.nodes[enb]
-                if tuple(sorted([da["attr"], db["attr"]])) == pair:
+                edge_pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
+                if edge_pair == pair:
                     logger.info(f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}")
                     break
         else:
-            logger.info(f"    MISSING TVD={val:.4f} {a} x {b}")
+            logger.info(f"    MISSING TVD={val:.4f} {ca[0]}.{ca[1]} x {cb[0]}.{cb[1]}")
 
     return moral, structure_edges, rho_remaining
 
@@ -756,22 +833,61 @@ def measure_cliques(
 
     obs_list = []
     for clique, result in zip(cliques_to_measure, results):
-        dom = get_clique_domain(clique, attrs)
-
-        # Build the expected shape in source (CliqueMeta) order
-        src_dims = []
+        # Oracle returns data in naive shape (product of per-value domains)
+        naive_dims = []
         for _, _, attr_name, sel in clique:
             a = _get_attrs(attrs, None, None)[attr_name]
-            src_dims.append(a.get_domain(convert_sel(sel)))
+            sel_d = convert_sel(sel)
+            if isinstance(sel_d, int):
+                naive_dims.append(a.common.get_domain(sel_d))
+            else:
+                nd = 1
+                for vn, h in sel_d.items():
+                    nd *= cast(CatValue, a.vals[vn]).get_domain(h)
+                naive_dims.append(nd)
 
         raw = result.astype(np.float64).ravel()
         if sigma3 > 0:
             raw = raw + np.random.normal(0, sigma3, size=raw.size)
         raw = raw.clip(0)
-        s = raw.sum()
-        prob = (raw / s if s > 0 else raw).astype(np.float32)
-        prob = prob.reshape(src_dims)
+        prob = raw.reshape(naive_dims)
 
+        # Compress naive→compressed for each dim
+        for dim_i, (_, _, attr_name, sel) in enumerate(clique):
+            sel_d = convert_sel(sel)
+            if isinstance(sel_d, int):
+                continue
+            a = _get_attrs(attrs, None, None)[attr_name]
+            naive_dom = prob.shape[dim_i]
+            compressed_dom = a.get_domain(sel_d)
+            if naive_dom == compressed_dom:
+                continue
+
+            raw_naive = a.get_naive_mapping(sel_d)
+            raw_compressed = a.get_mapping(sel_d)
+            _, unique_idx = np.unique(raw_naive, return_index=True)
+            naive_idx = raw_naive[unique_idx]
+            compressed_idx = raw_compressed[unique_idx]
+
+            i_map = tuple(
+                naive_idx if j == dim_i else slice(None)
+                for j in range(len(prob.shape))
+            )
+            o_map = tuple(
+                compressed_idx if j == dim_i else slice(None)
+                for j in range(len(prob.shape))
+            )
+            tmp = np.zeros(
+                [compressed_dom if j == dim_i else d for j, d in enumerate(prob.shape)],
+                dtype=prob.dtype,
+            )
+            np.add.at(tmp, o_map, prob[i_map])
+            prob = tmp
+
+        s = prob.sum()
+        prob = (prob / s if s > 0 else prob).astype(np.float32)
+
+        dom = get_clique_domain(clique, attrs)
         confidence = n / (n + sigma3 * dom)
         obs_list.append(LinearObservation(clique, None, prob, confidence))
 
@@ -792,7 +908,6 @@ def measure_edges(
     from ....graph.hugin import AttrMeta, get_clique_domain, get_attrs as _get_attrs
     from ....graph.loss import LinearObservation
     from ....graph.beliefs import convert_sel
-    from ..sota.common import _attr_sel
 
     edges = list(structure_edges)
     K = len(edges)
@@ -802,7 +917,8 @@ def measure_edges(
     sigma3 = sqrt(K / (2 * rho3))
 
     # Build oracle requests and CliqueMeta for each edge.
-    # Use the graph node metadata to match create_clique_meta's convention.
+    # Columns from the same attribute are merged into a single AttrMeta
+    # with a combined selector (required by junction tree parent matching).
     from collections import defaultdict
 
     requests = []
@@ -810,7 +926,7 @@ def measure_edges(
     for edge in edges:
         na, nb = tuple(edge)
 
-        # Build AttrMeta from graph nodes (same logic as create_clique_meta)
+        # Group by (table, order, attr), merge values from same attribute
         sels: dict[tuple, dict[str, int]] = defaultdict(dict)
         for node in (na, nb):
             d = graph.nodes[node]
@@ -843,22 +959,62 @@ def measure_edges(
 
     obs_list = []
     for source_tuple, result in zip(edge_metas, results):
-        dom = get_clique_domain(source_tuple, attrs)
-
-        # Build shape in source order
-        src_dims = []
+        # Oracle returns data in naive shape (product of per-value domains).
+        # Build naive dims first, then compress to match get_domain.
+        naive_dims = []
         for _, _, attr_name, sel in source_tuple:
             a = _get_attrs(attrs, None, None)[attr_name]
-            src_dims.append(a.get_domain(convert_sel(sel)))
+            sel_d = convert_sel(sel)
+            if isinstance(sel_d, int):
+                naive_dims.append(a.common.get_domain(sel_d))
+            else:
+                nd = 1
+                for vn, h in sel_d.items():
+                    nd *= cast(CatValue, a.vals[vn]).get_domain(h)
+                naive_dims.append(nd)
 
         raw = result.astype(np.float64).ravel()
         if sigma3 > 0:
             raw = raw + np.random.normal(0, sigma3, size=raw.size)
         raw = raw.clip(0)
-        s = raw.sum()
-        prob = (raw / s if s > 0 else raw).astype(np.float32)
-        prob = prob.reshape(src_dims)
+        prob = raw.reshape(naive_dims)
 
+        # Compress naive→compressed for each dim (same pattern as privbayes)
+        for dim_i, (_, _, attr_name, sel) in enumerate(source_tuple):
+            sel_d = convert_sel(sel)
+            if isinstance(sel_d, int):
+                continue
+            a = _get_attrs(attrs, None, None)[attr_name]
+            naive_dom = prob.shape[dim_i]
+            compressed_dom = a.get_domain(sel_d)
+            if naive_dom == compressed_dom:
+                continue
+
+            raw_naive = a.get_naive_mapping(sel_d)
+            raw_compressed = a.get_mapping(sel_d)
+            _, unique_idx = np.unique(raw_naive, return_index=True)
+            naive_idx = raw_naive[unique_idx]
+            compressed_idx = raw_compressed[unique_idx]
+
+            i_map = tuple(
+                naive_idx if j == dim_i else slice(None)
+                for j in range(len(prob.shape))
+            )
+            o_map = tuple(
+                compressed_idx if j == dim_i else slice(None)
+                for j in range(len(prob.shape))
+            )
+            tmp = np.zeros(
+                [compressed_dom if j == dim_i else d for j, d in enumerate(prob.shape)],
+                dtype=prob.dtype,
+            )
+            np.add.at(tmp, o_map, prob[i_map])
+            prob = tmp
+
+        s = prob.sum()
+        prob = (prob / s if s > 0 else prob).astype(np.float32)
+
+        dom = get_clique_domain(source_tuple, attrs)
         confidence = calc_confidence(n, sigma3, dom)
         obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
@@ -866,55 +1022,31 @@ def measure_edges(
 
 
 def build_1way_observations(
-    noisy_1way: dict[str, np.ndarray],
+    noisy_1way: dict[Col, np.ndarray],
     attrs: DatasetAttributes,
     n: int,
     sigma1: float,
 ) -> list:
-    """Build per-value LinearObservation objects from noisy 1-way marginals.
+    """Build per-column LinearObservation objects from noisy 1-way marginals.
 
-    Creates one observation per value (not per attribute), so each observation
-    only requires a single value node in the junction tree — guaranteed to
-    have a parent clique."""
+    Each column already has its own marginal, so no marginalization needed."""
     from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
     from ....graph.loss import LinearObservation
-    from ....attribute import CatValue
 
     obs_list = []
-    for attr_name, noisy_mar in noisy_1way.items():
+    for (attr_name, val_name), noisy_mar in noisy_1way.items():
         attr = _get_attrs(attrs, None, None)[attr_name]
 
-        if attr.common:
-            # Common-based: one observation for the common value at height 0
+        if attr.common and val_name == attr.common.name:
             source = (AttrMeta(None, None, attr_name, 0),)
-            raw = noisy_mar.copy().clip(0)
-            s = raw.sum()
-            prob = (raw / s if s > 0 else raw).astype(np.float32)
-            dom = len(raw)
-            confidence = calc_confidence(n, sigma1, dom)
-            obs_list.append(LinearObservation(source, None, prob, confidence))
         else:
-            # Multi-value: one observation per value at height 0
-            # The noisy marginal is the joint over all values; marginalize
-            # to get per-value marginals.
-            vals = list(attr.vals.keys())
-            val_domains = [
-                cast(CatValue, attr.vals[v]).get_domain(0) for v in vals
-            ]
-            joint = noisy_mar.copy().clip(0).reshape(val_domains)
+            source = (AttrMeta(None, None, attr_name, ((val_name, 0),)),)
 
-            for vi, val_name in enumerate(vals):
-                if not isinstance(attr.vals[val_name], CatValue):
-                    continue
-                # Marginalize: sum over all other dimensions
-                axes = tuple(j for j in range(len(vals)) if j != vi)
-                marginal = joint.sum(axis=axes) if axes else joint.ravel()
-
-                source = (AttrMeta(None, None, attr_name, ((val_name, 0),)),)
-                s = marginal.sum()
-                prob = (marginal / s if s > 0 else marginal).astype(np.float32)
-                dom = len(marginal)
-                confidence = calc_confidence(n, sigma1, dom)
-                obs_list.append(LinearObservation(source, None, prob, confidence))
+        raw = noisy_mar.copy().clip(0)
+        s = raw.sum()
+        prob = (raw / s if s > 0 else raw).astype(np.float32)
+        dom = len(raw)
+        confidence = calc_confidence(n, sigma1, dom)
+        obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
