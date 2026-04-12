@@ -109,6 +109,52 @@ def get_factor_domain(factor: Collection[str], g: nx.Graph, attrs: DatasetAttrib
     return get_clique_domain(meta, attrs)
 
 
+def _factor_domain_direct(factor, g_nodes, attrs):
+    """Compute factor domain directly from graph node data, skipping CliqueMeta."""
+    # Group by (table, order, attr) -> {value: min_height}
+    sels: dict[tuple, dict] = {}
+    for var in factor:
+        data = g_nodes[var]
+        key = (data["table"], data["order"], data["attr"])
+        val = data["value"]
+        height = data["height"]
+        if key in sels:
+            s = sels[key]
+            if val in s:
+                if height < s[val]:
+                    s[val] = height
+            else:
+                s[val] = height
+        else:
+            sels[key] = {val: height}
+
+    dom = 1
+    for (table, order, attr_name), sel in sels.items():
+        attr = get_attrs(attrs, table, order)[attr_name]
+        cmn = attr.common
+
+        if len(sel) == 1 and cmn and cmn.name in sel:
+            dom *= cmn.get_domain(sel[cmn.name])
+        else:
+            cmn_name = cmn.name if cmn else None
+            heights = []
+            vals = []
+            for v, h in sel.items():
+                if v == cmn_name:
+                    continue
+                heights.append(h)
+                vals.append(cast(CatValue, attr[v]))
+            if vals:
+                dom *= CatValue.get_domain_multiple(heights, vals)
+
+    return dom
+
+
+def _node_cost(node, g, attrs, elim_factor_cost):
+    factor = [node] + list(g[node])
+    return _factor_domain_direct(factor, g.nodes, attrs) ** elim_factor_cost
+
+
 def elimination_order_greedy(
     g: nx.Graph,
     attrs: DatasetAttributes,
@@ -117,19 +163,20 @@ def elimination_order_greedy(
     condensed: bool = True,
     elim_factor_cost: float = 1,
 ):
-    triangulated = deepcopy(g)
+    orig = g
     g = deepcopy(g)
 
-    order = []
-    total_cost = 0
-    for _ in range(len(g)):
-        costs = []
+    # Initialize costs for all nodes
+    cost_map = {}
+    for node in g:
+        cost_map[node] = _node_cost(node, g, attrs, elim_factor_cost)
 
-        unmarked = list(g)
-        for a in unmarked:
-            new_factor = {a} | set(g[a])
-            costs.append(get_factor_domain(new_factor, g, attrs)**elim_factor_cost)
-        costs = np.array(costs)
+    order = []
+    fill_edges = []
+    total_cost = 0
+    for _ in range(len(cost_map)):
+        unmarked = list(cost_map)
+        costs = np.array([cost_map[a] for a in unmarked])
 
         if stochastic:
             c = 1 / costs
@@ -140,26 +187,44 @@ def elimination_order_greedy(
         total_cost += costs[idx]
 
         popped = unmarked[idx]
-        for a, b in combinations(g[popped], 2):
+        neighbors = set(g[popped])
+
+        # Add fill edges to working graph, collect for triangulated
+        for a, b in combinations(neighbors, 2):
             if not g.has_edge(a, b):
-                # Apply operations in both the triangulated graph
-                # and standin graph
-                for k in (g, triangulated):
-                    k.add_edge(a, b, triangulated=True)
+                g.add_edge(a, b, triangulated=True)
+                fill_edges.append((a, b))
 
         if display:
             logger.info(f"Removing node `{popped}` with cost: {costs[idx]:_d}")
             g.nodes[popped]["marked"] = True
             display_induced_graph(g, condensed=condensed)
         g.remove_node(popped)
+        del cost_map[popped]
         order.append(popped)
 
+        # Only recompute costs for affected neighbors
+        for nb in neighbors:
+            if nb in cost_map:
+                cost_map[nb] = _node_cost(nb, g, attrs, elim_factor_cost)
+
     if display:
+        triangulated = deepcopy(orig)
+        for a, b in fill_edges:
+            triangulated.add_edge(a, b, triangulated=True)
         logger.info(f"Final cordal graph with cost {total_cost}:")
         display_induced_graph(triangulated, condensed=condensed)
         logger.info(f"Elimination order:\n{order}")
 
-    return order, triangulated, total_cost
+    return order, fill_edges, total_cost
+
+
+def _triangulate(g: nx.Graph, fill_edges: list[tuple[str, str]]):
+    """Build the triangulated graph from original graph + fill edges."""
+    triangulated = deepcopy(g)
+    for a, b in fill_edges:
+        triangulated.add_edge(a, b, triangulated=True)
+    return triangulated
 
 
 def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float, elim_factor_cost: float = 1):
@@ -167,9 +232,9 @@ def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float, e
     best = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
     start = perf_counter()
     while perf_counter() - start < max_time:
-        order, triag, cost = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
+        order, fill, cost = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
         if cost < best[2]:
-            best = (order, triag, cost)
+            best = (order, fill, cost)
     return best
 
 
@@ -187,15 +252,15 @@ def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10,
             for _ in range(n_workers)
         ]
 
-        min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False, elim_factor_cost=elim_factor_cost)
+        min_order, min_fill, min_cost = elimination_order_greedy(g, attrs, False, elim_factor_cost=elim_factor_cost)
         for f in futures:
-            order, triag, cost = f.get()
+            order, fill, cost = f.get()
             if cost < min_cost:
-                min_order, min_triag, min_cost = order, triag, cost
+                min_order, min_fill, min_cost = order, fill, cost
     else:
-        min_order, min_triag, min_cost = _elim_order_search(g, attrs, max_time, elim_factor_cost)
+        min_order, min_fill, min_cost = _elim_order_search(g, attrs, max_time, elim_factor_cost)
 
-    return min_order, min_triag, min_cost
+    return min_order, _triangulate(g, min_fill), min_cost
 
 
 def get_junction_tree_from_cliques(
