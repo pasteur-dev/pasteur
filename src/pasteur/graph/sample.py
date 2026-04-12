@@ -89,11 +89,16 @@ def _build_index_map(
     c_map = attr.get_mapping(convert_sel(child_meta.sel))
     p_dom = attr.get_domain(convert_sel(parent_meta.sel))
 
-    # For each parent compressed index, find a raw index, then look up child compressed
-    index_map = np.zeros(p_dom, dtype=get_dtype(max(1, int(c_map.max()))))
-    for pi in range(p_dom):
-        raw = int(np.argmax(p_map == pi))
-        index_map[pi] = c_map[raw]
+    # For each parent compressed index, find a raw index, then look up child compressed.
+    # Use argsort to find the first raw index for each parent bin in one pass.
+    order = np.argsort(p_map, kind="stable")
+    # order[0] is the raw index of the smallest p_map value (0), etc.
+    # Group boundaries: first occurrence of each parent bin.
+    first_raw = np.empty(p_dom, dtype=np.intp)
+    first_raw[p_map[order]] = order  # last write per bin = last in order = highest raw
+    # Reverse to get first occurrence (stable sort preserves raw order within bin)
+    first_raw[p_map[order[::-1]]] = order[::-1]
+    index_map = c_map[first_raw].astype(get_dtype(max(1, int(c_map.max()))))
 
     return index_map
 
@@ -114,8 +119,7 @@ def _build_mask_map(
     c_dom = attr.get_domain(convert_sel(child_meta.sel))
 
     mask = np.zeros((p_dom, c_dom), dtype=bool)
-    for raw_idx in range(len(p_map)):
-        mask[p_map[raw_idx], c_map[raw_idx]] = True
+    mask[p_map, c_map] = True
 
     return mask
 
@@ -580,40 +584,86 @@ def sample_junction_tree(
                     gate_masks[d2] = _build_mask_map(common_ameta, a2, attrs)
                 break
 
-        # Extend group keys with common categories so rows with
-        # different common values are sampled separately.
-        if gate_cats is not None:
-            loop_keys = group_keys * gate_dom + gate_cats
-        else:
-            loop_keys = group_keys
+        if not gate_masks:
+            # Vectorized path: build a (num_groups, cond_size) matrix from the
+            # potential, normalize each row, compute CDFs, and sample all n
+            # rows at once via inverse-CDF + searchsorted/broadcast.
 
-        cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
+            # Transpose potential: reversed sep dims first (to match the
+            # column-major group_keys encoding), then sample dims.
+            perm = list(reversed(sep_child_dims)) + all_sample_dims
+            child_p_t = child_p.transpose(perm)
+            group_product = (
+                int(np.prod([child_p.shape[d] for d in sep_child_dims]))
+                if sep_child_dims
+                else 1
+            )
+            cond_product = int(np.prod(all_sample_shape))
 
-        # For loop per unique condition value (+ common category)
-        for gk in np.unique(loop_keys):
-            row_mask = loop_keys == gk
-            group_n = int(row_mask.sum())
+            matrix = child_p_t.reshape(group_product, cond_product).astype(
+                np.float64
+            )
 
-            # Decode separator values and common category
-            if gate_cats is not None:
-                common_cat = int(gk % gate_dom)
-                sep_gk = int(gk // gate_dom)
+            # Normalize rows (uniform fallback for zero-sum rows)
+            row_sums = matrix.sum(axis=1, keepdims=True)
+            zero_rows = (row_sums < 1e-12).ravel()
+            if zero_rows.any():
+                matrix[zero_rows] = 1.0
+                row_sums[zero_rows, 0] = cond_product
+            matrix /= row_sums
+
+            # CDF per group
+            cdf = np.cumsum(matrix, axis=1)
+
+            # Inverse-CDF sampling
+            u = np.random.uniform(size=n)
+
+            if cond_product <= 1:
+                flat_indices = np.zeros(n, dtype=np.int64)
+            elif n * cond_product <= 10_000_000:
+                # Broadcast: build (n, cond_product), find first bin >= u
+                row_cdfs = cdf[group_keys]  # (n, cond_product)
+                flat_indices = (row_cdfs < u[:, np.newaxis]).sum(axis=1)
+                np.minimum(flat_indices, cond_product - 1, out=flat_indices)
             else:
-                sep_gk = int(gk)
+                # Large conditional: per-group searchsorted with pre-computed CDF
+                flat_indices = np.empty(n, dtype=np.int64)
+                for gk in np.unique(group_keys):
+                    mask = group_keys == gk
+                    flat_indices[mask] = np.searchsorted(cdf[gk], u[mask]).clip(
+                        0, cond_product - 1
+                    )
 
-            # Slice potential at separator values
-            idx = [slice(None)] * len(child_p.shape)
-            remaining = sep_gk
-            for sd, dom in zip(sep_child_dims, sep_domains):
-                idx[sd] = remaining % dom
-                remaining //= dom
+            per_dim = np.unravel_index(flat_indices, all_sample_shape)
+            for j, dim_idx in enumerate(all_sample_dims):
+                out_dims[dim_idx] = per_dim[j].astype(out_dims[dim_idx].dtype)
+        else:
+            # Gate masks present: use per-group loop to apply per-category masks.
+            if gate_cats is not None:
+                loop_keys = group_keys * gate_dom + gate_cats
+            else:
+                loop_keys = group_keys
 
-            conditional = child_p[tuple(idx)]
+            cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
 
-            # Apply common gate masks: zero out entries incompatible
-            # with the common category along each gated axis.
-            if gate_masks:
-                conditional = conditional.copy()
+            for gk in np.unique(loop_keys):
+                row_mask = loop_keys == gk
+                group_n = int(row_mask.sum())
+
+                if gate_cats is not None:
+                    common_cat = int(gk % gate_dom)
+                    sep_gk = int(gk // gate_dom)
+                else:
+                    sep_gk = int(gk)
+
+                idx = [slice(None)] * len(child_p.shape)
+                remaining = sep_gk
+                for sd, dom in zip(sep_child_dims, sep_domains):
+                    idx[sd] = remaining % dom
+                    remaining //= dom
+
+                conditional = child_p[tuple(idx)].copy()
+
                 for d, mask in gate_masks.items():
                     j = all_sample_dims.index(d)
                     axis = cond_dim_list[j]
@@ -622,19 +672,22 @@ def sample_junction_tree(
                     slicer[axis] = ~valid
                     conditional[tuple(slicer)] = 0
 
-            # Normalize and sample
-            cond_flat = conditional.ravel()
-            cond_sum = cond_flat.sum()
-            if cond_sum < 1e-12:
-                cond_flat = np.ones_like(cond_flat)
+                cond_flat = conditional.ravel()
                 cond_sum = cond_flat.sum()
-            cond_flat /= cond_sum
+                if cond_sum < 1e-12:
+                    cond_flat = np.ones_like(cond_flat)
+                    cond_sum = cond_flat.sum()
+                cond_flat /= cond_sum
 
-            group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
-            group_per_dim = np.unravel_index(group_indices, conditional.shape)
+                group_indices = np.random.choice(
+                    len(cond_flat), size=group_n, p=cond_flat
+                )
+                group_per_dim = np.unravel_index(
+                    group_indices, conditional.shape
+                )
 
-            for j, dim_idx in enumerate(all_sample_dims):
-                out_dims[dim_idx][row_mask] = group_per_dim[cond_dim_list[j]]
+                for j, dim_idx in enumerate(all_sample_dims):
+                    out_dims[dim_idx][row_mask] = group_per_dim[cond_dim_list[j]]
 
         # Store sampled dims
         for dim_idx, arr in out_dims.items():
