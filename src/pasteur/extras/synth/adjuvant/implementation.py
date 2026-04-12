@@ -19,6 +19,16 @@ from ....marginal import MarginalOracle
 logger = logging.getLogger(__name__)
 
 
+def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
+    """Calculate observation confidence from sample size, noise scale, and domain size.
+
+    Returns a value in (0, 1] indicating how much to trust the noisy marginal
+    relative to the prior.  When sigma is 0 (no noise) confidence is 1."""
+    if sigma <= 0:
+        return 1.0
+    return n / (n + sigma * dom)
+
+
 # ============================================================
 # Data structures
 # ============================================================
@@ -849,7 +859,7 @@ def measure_edges(
         prob = (raw / s if s > 0 else raw).astype(np.float32)
         prob = prob.reshape(src_dims)
 
-        confidence = n / (n + sigma3 * dom)
+        confidence = calc_confidence(n, sigma3, dom)
         obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
     return obs_list, sigma3
@@ -881,7 +891,7 @@ def build_1way_observations(
             s = raw.sum()
             prob = (raw / s if s > 0 else raw).astype(np.float32)
             dom = len(raw)
-            confidence = n / (n + sigma1 * dom) if sigma1 > 0 else 1.0
+            confidence = calc_confidence(n, sigma1, dom)
             obs_list.append(LinearObservation(source, None, prob, confidence))
         else:
             # Multi-value: one observation per value at height 0
@@ -904,7 +914,7 @@ def build_1way_observations(
                 s = marginal.sum()
                 prob = (marginal / s if s > 0 else marginal).astype(np.float32)
                 dom = len(marginal)
-                confidence = n / (n + sigma1 * dom) if sigma1 > 0 else 1.0
+                confidence = calc_confidence(n, sigma1, dom)
                 obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
