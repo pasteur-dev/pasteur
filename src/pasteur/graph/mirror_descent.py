@@ -59,7 +59,7 @@ def mirror_descent(
     optim: str = "sgd",
     init_potentials: dict[int, np.ndarray] | None = None,
     loss_type: str = "l2",
-    block_unobserved: bool = True,
+    block_unobserved: bool = False,
     # Backwards compat
     line_search: bool | None = None,
     **_,
