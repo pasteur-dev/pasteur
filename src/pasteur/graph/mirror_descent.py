@@ -82,6 +82,10 @@ def mirror_descent(
     torch.manual_seed(torch_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(torch_seed)
+    torch.use_deterministic_algorithms(True)
+    # Required for deterministic scatter/index ops on CUDA
+    import os
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
     # Build modules
     loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type).to(device)
