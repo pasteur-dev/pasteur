@@ -14,7 +14,7 @@ from typing import NamedTuple, Sequence
 import networkx as nx
 import numpy as np
 
-from ..attribute import DatasetAttributes, get_dtype
+from ..attribute import CatValue, DatasetAttributes, get_dtype
 from .beliefs import convert_sel, is_same
 from .hugin import AttrMeta, CliqueMeta, get_attrs
 
@@ -456,19 +456,89 @@ def sample_junction_tree(
             for d, s in zip(all_sample_dims, all_sample_shape)
         }
 
-        # For loop per unique condition value
-        for gk in np.unique(group_keys):
-            row_mask = group_keys == gk
+        # Common-value gating: if a sample dim belongs to an attribute
+        # with a common value, and a sibling value has already been
+        # generated, derive the common category per row and mask
+        # incompatible values before sampling.  This ensures that e.g.
+        # deathtime_day is null exactly when deathtime_time is null.
+        gate_cats: np.ndarray | None = None
+        gate_masks: dict[int, np.ndarray] = {}  # dim -> (common_dom, dim_dom)
+        gate_dom = 0
+        child_cl = meta.cliques[cidx]
+        for d in all_sample_dims:
+            if gate_cats is not None:
+                break
+            a_meta = child_cl[d]
+            sel = convert_sel(a_meta.sel)
+            if isinstance(sel, int):
+                continue
+            attr = get_attrs(attrs, a_meta.table, a_meta.order)[a_meta.attr]
+            if attr.common is None:
+                continue
+            for sib_name, sib_val in attr.vals.items():
+                if sib_name not in out or not isinstance(sib_val, CatValue):
+                    continue
+                # Derive common category from the already-generated sibling
+                sib_ameta = AttrMeta(a_meta.table, a_meta.order, a_meta.attr, ((sib_name, 0),))
+                common_ameta = AttrMeta(a_meta.table, a_meta.order, a_meta.attr, 0)
+                idx_map = _build_index_map(sib_ameta, common_ameta, attrs)
+                gate_dom = attr.common.get_domain(0)
+                if idx_map is not None:
+                    gate_cats = idx_map[out[sib_name]].astype(np.int64)
+                else:
+                    gate_cats = out[sib_name].astype(np.int64)
+                # Build masks for all dims from the same attribute
+                for d2 in all_sample_dims:
+                    a2 = child_cl[d2]
+                    if (a2.table, a2.order, a2.attr) != (a_meta.table, a_meta.order, a_meta.attr):
+                        continue
+                    s2 = convert_sel(a2.sel)
+                    if isinstance(s2, int):
+                        continue
+                    gate_masks[d2] = _build_mask_map(common_ameta, a2, attrs)
+                break
+
+        # Extend group keys with common categories so rows with
+        # different common values are sampled separately.
+        if gate_cats is not None:
+            loop_keys = group_keys * gate_dom + gate_cats
+        else:
+            loop_keys = group_keys
+
+        cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
+
+        # For loop per unique condition value (+ common category)
+        for gk in np.unique(loop_keys):
+            row_mask = loop_keys == gk
             group_n = int(row_mask.sum())
+
+            # Decode separator values and common category
+            if gate_cats is not None:
+                common_cat = int(gk % gate_dom)
+                sep_gk = int(gk // gate_dom)
+            else:
+                sep_gk = int(gk)
 
             # Slice potential at separator values
             idx = [slice(None)] * len(child_p.shape)
-            remaining = int(gk)
+            remaining = sep_gk
             for sd, dom in zip(sep_child_dims, sep_domains):
                 idx[sd] = remaining % dom
                 remaining //= dom
 
             conditional = child_p[tuple(idx)]
+
+            # Apply common gate masks: zero out entries incompatible
+            # with the common category along each gated axis.
+            if gate_masks:
+                conditional = conditional.copy()
+                for d, mask in gate_masks.items():
+                    j = all_sample_dims.index(d)
+                    axis = cond_dim_list[j]
+                    valid = mask[common_cat]
+                    slicer = [slice(None)] * conditional.ndim
+                    slicer[axis] = ~valid
+                    conditional[tuple(slicer)] = 0
 
             # Normalize and sample
             cond_flat = conditional.ravel()
@@ -481,7 +551,6 @@ def sample_junction_tree(
             group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
             group_per_dim = np.unravel_index(group_indices, conditional.shape)
 
-            cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
             for j, dim_idx in enumerate(all_sample_dims):
                 out_dims[dim_idx][row_mask] = group_per_dim[cond_dim_list[j]]
 
