@@ -202,16 +202,16 @@ class AdjuvantSynth(Synth):
                 f"sigma3={sigma3:.2f}, sigma1={sigma1:.2f}"
             )
 
-            self._fit_mirror_descent()
+        self._build_jt()
+        self._run_md()
 
-    def _fit_mirror_descent(self):
+    def _build_jt(self):
         # ==================================================
         # Build junction tree
         # ==================================================
         from ....graph.hugin import get_clique_domain
-        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
         from ....graph.mirror_descent import build_junction_tree
-        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
+        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT
 
         md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
         md.pop("compress", None)
@@ -220,21 +220,27 @@ class AdjuvantSynth(Synth):
 
         logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
         mg = self.moral if tree_mode != "maximal" else None
-        junction, cliques, messages = build_junction_tree(
+        self.junction, self.cliques, self.messages = build_junction_tree(
             self.all_obs,
             self.table_attrs,
             tree_mode=tree_mode,
             moral_graph=mg,
         )
-        total_params = sum(get_clique_domain(cl, self.table_attrs) for cl in cliques)
+        total_params = sum(get_clique_domain(cl, self.table_attrs) for cl in self.cliques)
         logger.info(
-            f"Adjuvant: junction tree has {len(cliques)} cliques, "
+            f"Adjuvant: junction tree has {len(self.cliques)} cliques, "
             f"{total_params:_} parameters"
         )
 
+    def _run_md(self):
         # ==================================================
         # Mirror descent fitting
         # ==================================================
+        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
+
+        md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
+        md.pop("compress", None)
+        md.pop("sample", None)
         device = md.pop("device", "auto")
         device = None if device == "auto" else device
 
@@ -243,8 +249,8 @@ class AdjuvantSynth(Synth):
             f"(max_iters={md.get('max_iters', 1000)})"
         )
         potentials, loss_fn, raw_theta = mirror_descent(
-            cliques,
-            messages,
+            self.cliques,
+            self.messages,
             self.all_obs,
             self.table_attrs,
             device=device,
@@ -252,15 +258,16 @@ class AdjuvantSynth(Synth):
         )
 
         self.potentials = potentials
-        self.junction = junction
-        self.cliques = cliques
         self.table_attrs = self.table_attrs
 
     def refresh(self, **kwargs):
         if "mirror_descent" in kwargs:
             if isinstance(kwargs["mirror_descent"], dict):
                 self.md_params = kwargs["mirror_descent"]
-            self._fit_mirror_descent()
+            self._build_jt()
+            self._run_md()
+        elif "run_md" in kwargs:
+            self._run_md()
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
