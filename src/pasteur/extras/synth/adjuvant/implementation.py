@@ -540,10 +540,14 @@ def structure_learn(
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Global edge limit: d * sqrt(d) total edges
+    # Per-column edge limits: 1 to sqrt(d)
     d = len(set(c for pair in col_pair_map for c in pair))
-    max_steps = d * int(sqrt(d))
-    eps_per_step = sqrt(8 * rho2_exp / (max_steps + d)) if max_steps > 0 and rho2_exp > 0 else 0
+    max_edges_per_col = min(d, 2 * int(sqrt(d) + 0.5))
+    col_edge_count: dict[Col, int] = {}
+    saturated_cols: set[Col] = set()
+
+    max_steps = d * (max_edges_per_col // 2 + 1)
+    eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
     rho_spent = 0.0
 
     pbar = piter(
@@ -573,18 +577,27 @@ def structure_learn(
             pbar.close()
             raise e
 
-        # Filter to active candidates (column pair not yet connected)
+        # Filter to active candidates:
+        # - column pair not yet connected
+        # - neither column saturated (reached max edges)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
-            if pair not in connected_pairs:
-                active.append((idx, na, nb))
+            col_a: Col = (da["attr"], da["value"])
+            col_b: Col = (db["attr"], db["value"])
+            pair = tuple(sorted([col_a, col_b]))
+            if pair in connected_pairs:
+                continue
+            if col_a in saturated_cols or col_b in saturated_cols:
+                continue
+            active.append((idx, na, nb))
 
         if not active:
             logger.info(
                 f"Adjuvant: exit (no active candidates) at iter {it}. "
-                f"pairs={len(connected_pairs)}/{len(col_pair_map)}"
+                f"pairs={len(connected_pairs)}, saturated={len(saturated_cols)}/{d}, "
+                f"remaining_pairs={len(col_pair_map) - len(connected_pairs)} "
+                f"(all connected or saturated)"
             )
             break
 
@@ -646,10 +659,19 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         structure_edges.add(frozenset([na, nb]))
 
-        # Update column pair tracking
+        # Update column pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
+        col_a = (da["attr"], da["value"])
+        col_b = (db["attr"], db["value"])
+        pair = tuple(sorted([col_a, col_b]))
         connected_pairs.add(pair)
+
+        col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
+        col_edge_count[col_b] = col_edge_count.get(col_b, 0) + 1
+        if col_edge_count[col_a] >= max_edges_per_col:
+            saturated_cols.add(col_a)
+        if col_edge_count[col_b] >= max_edges_per_col:
+            saturated_cols.add(col_b)
 
         logger.info(
             f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): "
@@ -671,8 +693,7 @@ def structure_learn(
         if not data.get("is_common", False):
             all_cols_in_graph.add((data["attr"], data["value"]))
 
-    connected_cols: set[Col] = set(c for pair in connected_pairs for c in pair)
-    disconnected = all_cols_in_graph - connected_cols
+    disconnected = all_cols_in_graph - set(col_edge_count.keys())
     if disconnected:
         logger.info(
             f"Adjuvant: forcing edges for {len(disconnected)} disconnected cols: "
@@ -715,16 +736,22 @@ def structure_learn(
             moral.add_edge(na, nb, structure=True)
             structure_edges.add(frozenset([na, nb]))
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
+            col_a = (da["attr"], da["value"])
+            col_b = (db["attr"], db["value"])
+            pair = tuple(sorted([col_a, col_b]))
             connected_pairs.add(pair)
+            col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
+            col_edge_count[col_b] = col_edge_count.get(col_b, 0) + 1
             logger.info(f"Adj. forced edge: {_fmt_edge(na, nb, moral, attrs)}")
 
     rho_remaining = rho2_exp - rho_spent
 
     # Diagnostic: show top unconnected column pairs by TVD
+    # Only consider pairs that were actual candidates (skip common values)
+    candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val in tvd.items():
-        if ca < cb:  # avoid duplicates
+        if ca < cb and ca in candidate_cols and cb in candidate_cols:
             all_pairs_tvd.append((val, ca, cb))
     all_pairs_tvd.sort(reverse=True)
 
