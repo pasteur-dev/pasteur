@@ -482,6 +482,14 @@ def sweep(
     else:
         base_seed = None
 
+    # Read configured random_state for deriving follow-up run seeds
+    if num_runs > 1 and not stochastic:
+        with KedroSession.create(env="base") as session:
+            ctx = session.load_context()
+            configured_seed = ctx.params.get("random_state", 0)
+    else:
+        configured_seed = None
+
     run_results = {}
     ingested = False
     runtime_params = {}
@@ -512,9 +520,8 @@ def sweep(
                 if stochastic:
                     seed_dict["random_state"] = base_seed + run_idx
                 elif num_runs > 1 and run_idx > 0:
-                    # Pull configured seed and vary for follow-up runs
-                    seed = runtime_params.get("random_state", 0)
-                    seed_dict["random_state"] = seed + run_idx
+                    # Vary configured seed for follow-up runs
+                    seed_dict["random_state"] = configured_seed + run_idx
 
                 run_runtime_params = merge_params(
                     vals | mlflow_dict | suffix_dict | seed_dict
