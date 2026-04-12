@@ -927,4 +927,4 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                 if metr in ASSOC_METRICS:
                     pref = "assoc/"
                 mlflow.log_figure(fig, f"distr/{pref}{metr}_overall/{table}.png")
-                plt.close()
+                plt.close("all")
