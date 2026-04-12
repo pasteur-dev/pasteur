@@ -69,7 +69,9 @@ class AdjuvantSynth(Synth):
         self.seed = seed
         self.n = n
         self.partitions = partitions
-        self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
+        self.md_params = (
+            mirror_descent if mirror_descent and mirror_descent != True else {}
+        )
         self.kwargs = kwargs
 
     @make_deterministic
@@ -79,7 +81,9 @@ class AdjuvantSynth(Synth):
         self._partitions = len(data[self.table])
 
         if self.rebalance:
-            rebalance_kwargs = self.rebalance if isinstance(self.rebalance, dict) else {}
+            rebalance_kwargs = (
+                self.rebalance if isinstance(self.rebalance, dict) else {}
+            )
             with MarginalOracle(
                 data,
                 meta,
@@ -114,11 +118,6 @@ class AdjuvantSynth(Synth):
             cdp_rho,
             get_col_names,
         )
-        from ....graph.mirror_descent import (
-            MIRROR_DESCENT_DEFAULT,
-            mirror_descent,
-        )
-        from ....graph.hugin import get_clique_domain
 
         ids, tables = data_to_tables(data)
         table = tables[self.table]
@@ -161,9 +160,7 @@ class AdjuvantSynth(Synth):
             # ==================================================
             # Step 2: Structure learning (budget e2)
             # ==================================================
-            logger.info(
-                f"Adjuvant Step 2: Structure learning (rho2={rho2:.4f})"
-            )
+            logger.info(f"Adjuvant Step 2: Structure learning (rho2={rho2:.4f})")
             tvd = compute_tvd(cached)
             directed_graph = build_height_chain_graph(table_attrs)
             logger.info(
@@ -197,56 +194,73 @@ class AdjuvantSynth(Synth):
                 oracle, structure_edges, moral, table_attrs, n, rho3
             )
             oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigma1)
-            all_obs = edge_obs + oneway_obs
+            self.all_obs = edge_obs + oneway_obs
+            self.moral = moral
+            self.table_attrs = table_attrs
             logger.info(
                 f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
                 f"sigma3={sigma3:.2f}, sigma1={sigma1:.2f}"
             )
 
-            # ==================================================
-            # Build junction tree
-            # ==================================================
-            from ....graph.mirror_descent import build_junction_tree
+            self._fit_mirror_descent()
 
-            md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
-            md.pop("compress", None)
-            md.pop("sample", None)
-            tree_mode = md.pop("tree", "hugin")
+    def _fit_mirror_descent(self):
+        # ==================================================
+        # Build junction tree
+        # ==================================================
+        from ....graph.hugin import get_clique_domain
+        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
+        from ....graph.mirror_descent import build_junction_tree
+        from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
 
-            logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
-            mg = moral if tree_mode != "maximal" else None
-            junction, cliques, messages = build_junction_tree(
-                all_obs, table_attrs,
-                tree_mode=tree_mode,
-                moral_graph=mg,
-            )
-            total_params = sum(
-                get_clique_domain(cl, table_attrs) for cl in cliques
-            )
-            logger.info(
-                f"Adjuvant: junction tree has {len(cliques)} cliques, "
-                f"{total_params:_} parameters"
-            )
+        md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
+        md.pop("compress", None)
+        md.pop("sample", None)
+        tree_mode = md.pop("tree", "hugin")
 
-            # ==================================================
-            # Mirror descent fitting
-            # ==================================================
-            device = md.pop("device", "auto")
-            device = None if device == "auto" else device
+        logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
+        mg = self.moral if tree_mode != "maximal" else None
+        junction, cliques, messages = build_junction_tree(
+            self.all_obs,
+            self.table_attrs,
+            tree_mode=tree_mode,
+            moral_graph=mg,
+        )
+        total_params = sum(get_clique_domain(cl, self.table_attrs) for cl in cliques)
+        logger.info(
+            f"Adjuvant: junction tree has {len(cliques)} cliques, "
+            f"{total_params:_} parameters"
+        )
 
-            logger.info(
-                f"Adjuvant: Running mirror descent "
-                f"(max_iters={md.get('max_iters', 1000)})"
-            )
-            potentials, loss_fn, raw_theta = mirror_descent(
-                cliques, messages, all_obs, table_attrs,
-                device=device, **md,
-            )
+        # ==================================================
+        # Mirror descent fitting
+        # ==================================================
+        device = md.pop("device", "auto")
+        device = None if device == "auto" else device
 
-            self.potentials = potentials
-            self.junction = junction
-            self.cliques = cliques
-            self.table_attrs = table_attrs
+        logger.info(
+            f"Adjuvant: Running mirror descent "
+            f"(max_iters={md.get('max_iters', 1000)})"
+        )
+        potentials, loss_fn, raw_theta = mirror_descent(
+            cliques,
+            messages,
+            self.all_obs,
+            self.table_attrs,
+            device=device,
+            **md,
+        )
+
+        self.potentials = potentials
+        self.junction = junction
+        self.cliques = cliques
+        self.table_attrs = self.table_attrs
+
+    def refresh(self, **kwargs):
+        if "mirror_descent" in kwargs:
+            if isinstance(kwargs["mirror_descent"], dict):
+                self.md_params = kwargs["mirror_descent"]
+            self._fit_mirror_descent()
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
