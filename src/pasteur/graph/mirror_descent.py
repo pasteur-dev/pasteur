@@ -77,6 +77,12 @@ def mirror_descent(
     elif isinstance(device, str):
         device = torch.device(device)
 
+    # Seed PyTorch from numpy's current RNG state (which make_deterministic controls)
+    torch_seed = int(np.random.randint(0, 2**31))
+    torch.manual_seed(torch_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(torch_seed)
+
     # Build modules
     loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type).to(device)
 
