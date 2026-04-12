@@ -366,6 +366,7 @@ def sample_junction_tree(
     meta: SamplerMeta,
     n: int,
     attrs: DatasetAttributes,
+    evidence: dict[tuple[int, int], np.ndarray] | None = None,
 ) -> dict[str, np.ndarray]:
     """Sample n rows from fitted clique potentials.
 
@@ -375,13 +376,18 @@ def sample_junction_tree(
     the remaining dimensions.  Height-0 values are extracted into the
     output dict as each clique is processed.
 
+    If ``evidence`` is provided, it maps ``(clique_idx, dim_idx)`` to
+    per-row value arrays (compressed indices, shape ``(n,)``).  Evidence
+    dims are fixed rather than sampled, and other dims are conditioned
+    on them, this is used by MARE to condition on hist/parent values.
+
     Returns dict mapping column names to arrays of height-0 indices.
     """
     out: dict[str, np.ndarray] = {}
     # Per-clique sampled dim values: clique_idx -> {dim_idx: array}
     clique_vals: dict[int, dict[int, np.ndarray]] = {}
 
-    # Step 1: Sample root clique from joint distribution
+    # Step 1: Sample root clique (conditioned on evidence if present)
     root_p = potentials[meta.root].copy().clip(min=0)
     root_sum = root_p.sum()
     if root_sum < 1e-12:
@@ -390,10 +396,74 @@ def sample_junction_tree(
         root_sum = root_p.sum()
     root_p /= root_sum
 
-    flat = root_p.ravel()
-    indices = np.random.choice(len(flat), size=n, p=flat)
-    per_dim = np.unravel_index(indices, root_p.shape)
-    clique_vals[meta.root] = {i: arr for i, arr in enumerate(per_dim)}
+    # Collect evidence dims for the root
+    root_ev_dims: list[int] = []
+    root_ev_vals: list[np.ndarray] = []
+    root_ev_domains: list[int] = []
+    if evidence:
+        for di in range(len(root_p.shape)):
+            key = (meta.root, di)
+            if key in evidence:
+                root_ev_dims.append(di)
+                root_ev_vals.append(evidence[key])
+                root_ev_domains.append(root_p.shape[di])
+
+    if not root_ev_dims:
+        # No evidence — original joint sampling
+        flat = root_p.ravel()
+        indices = np.random.choice(len(flat), size=n, p=flat)
+        per_dim = np.unravel_index(indices, root_p.shape)
+        clique_vals[meta.root] = {i: arr for i, arr in enumerate(per_dim)}
+    else:
+        # Condition on evidence dims, sample the rest
+        root_sample_dims = [d for d in range(len(root_p.shape)) if d not in root_ev_dims]
+        root_dims: dict[int, np.ndarray] = {}
+        for di, ev in zip(root_ev_dims, root_ev_vals):
+            root_dims[di] = ev
+
+        # Group by evidence values
+        if len(root_ev_vals) == 1:
+            root_group_keys = root_ev_vals[0].astype(np.int64)
+        else:
+            root_group_keys = np.zeros(n, dtype=np.int64)
+            mul = 1
+            for sv, dom in zip(root_ev_vals, root_ev_domains):
+                root_group_keys += sv.astype(np.int64) * mul
+                mul *= dom
+
+        root_out_dims: dict[int, np.ndarray] = {}
+        for d in root_sample_dims:
+            root_out_dims[d] = np.empty(n, dtype=get_dtype(max(1, root_p.shape[d] - 1)))
+
+        root_cond_dim_list = _cond_dims(root_sample_dims, root_ev_dims)
+
+        for gk in np.unique(root_group_keys):
+            row_mask = root_group_keys == gk
+            group_n = int(row_mask.sum())
+
+            idx = [slice(None)] * len(root_p.shape)
+            remaining = int(gk)
+            for sd, dom in zip(root_ev_dims, root_ev_domains):
+                idx[sd] = remaining % dom
+                remaining //= dom
+
+            conditional = root_p[tuple(idx)]
+            cond_flat = conditional.ravel()
+            cond_sum = cond_flat.sum()
+            if cond_sum < 1e-12:
+                cond_flat = np.ones_like(cond_flat)
+                cond_sum = cond_flat.sum()
+            cond_flat /= cond_sum
+
+            group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
+            group_per_dim = np.unravel_index(group_indices, conditional.shape)
+            for j, dim_idx in enumerate(root_sample_dims):
+                root_out_dims[dim_idx][row_mask] = group_per_dim[root_cond_dim_list[j]]
+
+        for di, arr in root_out_dims.items():
+            root_dims[di] = arr
+        clique_vals[meta.root] = root_dims
+
     _extract_h0(meta.root, meta, attrs, clique_vals[meta.root], out)
 
     # Step 2: Sample children in BFS order
@@ -416,15 +486,27 @@ def sample_junction_tree(
             sep_vals.append(child_vals)
             sep_domains.append(meta.dim_info[cidx][sep.child_dim].domain)
 
+        # Add evidence dims for this clique (not already in separator)
+        if evidence:
+            for di in range(len(child_p.shape)):
+                key = (cidx, di)
+                if key in evidence and di not in sep_child_dims:
+                    dims[di] = evidence[key]
+                    sep_child_dims.append(di)
+                    sep_vals.append(evidence[key])
+                    sep_domains.append(meta.dim_info[cidx][di].domain)
+
         # Masked dims are sampled freely from the child potential
-        # (conditioned on separators only).  Propagating coarse→fine
-        # constraints through masks cascades BP inconsistency — the same
-        # error that privbayes avoids by using per-node conditionals.
-        # Treating masked dims as free preserves the elimination order
-        # while skipping the lossy intermediate conditioning.
+        # (conditioned on separators + evidence only).  Propagating
+        # coarse→fine constraints through masks cascades BP inconsistency
+        # — the same error that privbayes avoids by using per-node
+        # conditionals.  Treating masked dims as free preserves the
+        # elimination order while skipping lossy intermediate conditioning.
         all_sample_dims = list(child_info.sample_dims) + [
             md.child_dim for md in child_info.masked_dims
         ]
+        # Remove any evidence dims that ended up in sample_dims/masked_dims
+        all_sample_dims = [d for d in all_sample_dims if d not in sep_child_dims]
 
         if not all_sample_dims:
             clique_vals[cidx] = dims

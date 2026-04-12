@@ -19,8 +19,9 @@ from ....marginal import MarginalOracle
 
 logger = logging.getLogger(__name__)
 
-# Column identifier: (attribute_name, value_name)
-Col = tuple[str, str]
+# Column identifier: (table, order, attribute_name, value_name)
+# For standalone (single-table) use, table and order are both None.
+Col = tuple[str | None, int | None, str, str]
 
 
 # ============================================================
@@ -74,28 +75,62 @@ def exponential_mechanism(
     return keys[np.random.choice(p.size, p=p)]
 
 
-def get_col_names(attrs: DatasetAttributes) -> list[Col]:
-    """Get all (attr_name, val_name) pairs for CatValue columns, including common."""
+def get_col_names(
+    attrs: DatasetAttributes,
+) -> list[Col]:
+    """Get all (table, order, attr_name, val_name) Col tuples for CatValue columns.
+
+    Iterates all tables in attrs (including hist tables for MARE).
+    For standalone single-table use, table and order are both None."""
     result: list[Col] = []
-    for attr_name, attr in cast(Attributes, attrs[None]).items():
-        if not attr.vals:
-            continue
-        if attr.common:
-            result.append((attr_name, attr.common.name))
-        for val_name, val in attr.vals.items():
-            if isinstance(val, CatValue) and (attr.common is None or val.name != attr.common.name):
-                result.append((attr_name, val_name))
+    for table, tattrs in attrs.items():
+        if isinstance(tattrs, SeqAttributes):
+            attr_sets: dict = {**tattrs.hist, None: tattrs.attrs}
+        else:
+            attr_sets = {None: tattrs}
+
+        for order, attr_set in attr_sets.items():
+            if not attr_set:
+                continue
+            for attr_name, attr in attr_set.items():
+                if not attr.vals:
+                    continue
+                if attr.common:
+                    result.append((table, order, attr_name, attr.common.name))
+                for val_name, val in attr.vals.items():
+                    if isinstance(val, CatValue) and (
+                        attr.common is None or val.name != attr.common.name
+                    ):
+                        result.append((table, order, attr_name, val_name))
     return result
 
 
-def _col_sel(attr_name: str, val_name: str, attrs: DatasetAttributes):
+def get_hist_cols(cols: list[Col]) -> set[Col]:
+    """Return the subset of cols that are from hist/parent tables (table is not None)."""
+    return {c for c in cols if c[0] is not None}
+
+
+def _col_sel(col: Col, attrs: DatasetAttributes):
     """Oracle selector for a single column at height 0.
 
-    Common value -> (attr_name, 0). Regular value -> (attr_name, {val_name: 0})."""
-    attr = cast(Attributes, attrs[None])[attr_name]
+    Returns a 2-tuple (attr_name, sel) for main table columns, or a
+    3-tuple (table_sel, attr_name, sel) for hist/parent table columns.
+
+    Common value -> sel = 0. Regular value -> sel = {val_name: 0}."""
+    table, order, attr_name, val_name = col
+    from ....graph.hugin import get_attrs
+
+    attr_set = get_attrs(attrs, table, order)
+    attr = attr_set[attr_name]
     if attr.common and val_name == attr.common.name:
-        return (attr_name, 0)
-    return (attr_name, {val_name: 0})
+        sel = 0
+    else:
+        sel = {val_name: 0}
+
+    if table is not None:
+        table_sel = (table, order) if order is not None else table
+        return (table_sel, attr_name, sel)
+    return (attr_name, sel)
 
 
 def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
@@ -127,11 +162,11 @@ def compute_all_marginals(
     all_cols: list[Col],
 ) -> CachedMarginals:
     """Batch-query all 1-way and 2-way true marginals in one oracle call."""
-    requests_1 = [[_col_sel(a, v, attrs)] for a, v in all_cols]
+    requests_1 = [[_col_sel(c, attrs)] for c in all_cols]
     pairs = list(itertools.combinations(all_cols, 2))
     requests_2 = [
-        [_col_sel(a1, v1, attrs), _col_sel(a2, v2, attrs)]
-        for (a1, v1), (a2, v2) in pairs
+        [_col_sel(c1, attrs), _col_sel(c2, attrs)]
+        for c1, c2 in pairs
     ]
 
     results = oracle.process(requests_1 + requests_2, postprocess=None)
@@ -279,22 +314,26 @@ def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
 # ============================================================
 def generate_candidates(
     g: nx.DiGraph,
+    frozen_nodes: set[str] | None = None,
 ) -> tuple[list[tuple[str, str]], dict[tuple[Col, Col], list[int]]]:
     """Generate edge candidates between non-common value nodes.
 
-    Candidates are grouped by column pair (attr, value) for tracking.
+    Candidates are grouped by column pair (table, order, attr, value) for tracking.
     Includes same-attribute pairs (different columns), excludes same-column pairs.
+
+    If ``frozen_nodes`` is provided, edges between two frozen nodes are excluded
+    (hist-hist edges are blocked as they represent the prior).
 
     Returns:
         candidates: List of (node_a, node_b) edge candidates.
-        col_pair_map: Maps sorted ((attr_a, val_a), (attr_b, val_b)) -> list of indices.
+        col_pair_map: Maps sorted Col pair -> list of indices.
     """
-    # Group non-common nodes by column (attr, value)
+    # Group non-common nodes by column (table, order, attr, value)
     col_nodes: dict[Col, list[str]] = {}
     for node, data in g.nodes(data=True):
         if data.get("is_common", False):
             continue
-        col = (data["attr"], data["value"])
+        col: Col = (data.get("table"), data.get("order"), data["attr"], data["value"])
         col_nodes.setdefault(col, []).append(node)
 
     candidates: list[tuple[str, str]] = []
@@ -307,6 +346,9 @@ def generate_candidates(
             col_pair_map[pair_key] = []
             for na in col_nodes[col_a]:
                 for nb in col_nodes[col_b]:
+                    # Block edges between two frozen (hist) nodes
+                    if frozen_nodes and na in frozen_nodes and nb in frozen_nodes:
+                        continue
                     col_pair_map[pair_key].append(len(candidates))
                     candidates.append((na, nb))
 
@@ -498,8 +540,8 @@ def score_graph(
     for edge in structure_edges:
         na, nb = tuple(edge)
         da, db = moral.nodes[na], moral.nodes[nb]
-        col_a = (da["attr"], da["value"])
-        col_b = (db["attr"], db["value"])
+        col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+        col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
         base = tvd.get((col_a, col_b), 0.0)
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         tvd_sum += base * boost
@@ -518,11 +560,19 @@ def structure_learn(
     size_penalty: float,
     rho2_exp: float,
     min_tvd: float,
+    frozen_nodes: set[str] | None = None,
+    n_hist_cols: int = 0,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
-    Operates at column (attr, value) granularity. Forces at least one edge
-    per column.
+    Operates at column (table, order, attr, value) granularity.  Forces at
+    least one edge per column.
+
+    If ``frozen_nodes`` is provided, edges between two frozen nodes (hist-hist)
+    are excluded from candidates.
+
+    When ``n_hist_cols > 0``, the per-column edge limit uses sqrt(h+d) instead
+    of sqrt(d) so that data columns can connect to hist columns.
 
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
@@ -536,13 +586,17 @@ def structure_learn(
     moral = to_moral(directed_graph)
 
     # Generate candidates and group by column pair
-    candidates, col_pair_map = generate_candidates(directed_graph)
+    candidates, col_pair_map = generate_candidates(directed_graph, frozen_nodes)
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Per-column edge limits: 1 to sqrt(d)
+    # Per-column edge limits
     d = len(set(c for pair in col_pair_map for c in pair))
-    max_edges_per_col = min(d, 2 * int(sqrt(d) + 0.5))
+    h = n_hist_cols
+    if h > 0:
+        max_edges_per_col = min(d, 2 * int(sqrt(h + d) + 0.5))
+    else:
+        max_edges_per_col = min(d, 2 * int(sqrt(d) + 0.5))
     col_edge_count: dict[Col, int] = {}
     saturated_cols: set[Col] = set()
 
@@ -564,8 +618,8 @@ def structure_learn(
     cand_tvd_boost = np.empty(len(candidates))
     for idx, (na, nb) in enumerate(candidates):
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        col_a: Col = (da["attr"], da["value"])
-        col_b: Col = (db["attr"], db["value"])
+        col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+        col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
         base = tvd.get((col_a, col_b), 0.0)
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
@@ -583,8 +637,8 @@ def structure_learn(
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            col_a: Col = (da["attr"], da["value"])
-            col_b: Col = (db["attr"], db["value"])
+            col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+            col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
             pair = tuple(sorted([col_a, col_b]))
             if pair in connected_pairs:
                 continue
@@ -661,8 +715,8 @@ def structure_learn(
 
         # Update column pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-        col_a = (da["attr"], da["value"])
-        col_b = (db["attr"], db["value"])
+        col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+        col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
         pair = tuple(sorted([col_a, col_b]))
         connected_pairs.add(pair)
 
@@ -691,7 +745,7 @@ def structure_learn(
     all_cols_in_graph: set[Col] = set()
     for node, data in directed_graph.nodes(data=True):
         if not data.get("is_common", False):
-            all_cols_in_graph.add((data["attr"], data["value"]))
+            all_cols_in_graph.add((data.get("table"), data.get("order"), data["attr"], data["value"]))
 
     disconnected = all_cols_in_graph - set(col_edge_count.keys())
     if disconnected:
@@ -705,8 +759,8 @@ def structure_learn(
             col_scores: list[float] = []
             for idx, (na, nb) in enumerate(candidates):
                 da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-                ca: Col = (da["attr"], da["value"])
-                cb: Col = (db["attr"], db["value"])
+                ca: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+                cb: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
                 if ca != col and cb != col:
                     continue
                 pair = tuple(sorted([ca, cb]))
@@ -736,8 +790,8 @@ def structure_learn(
             moral.add_edge(na, nb, structure=True)
             structure_edges.add(frozenset([na, nb]))
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            col_a = (da["attr"], da["value"])
-            col_b = (db["attr"], db["value"])
+            col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+            col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
             pair = tuple(sorted([col_a, col_b]))
             connected_pairs.add(pair)
             col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
@@ -768,15 +822,20 @@ def structure_learn(
             for edge in structure_edges:
                 ena, enb = tuple(edge)
                 da, db = directed_graph.nodes[ena], directed_graph.nodes[enb]
-                edge_pair = tuple(sorted([(da["attr"], da["value"]), (db["attr"], db["value"])]))
+                edge_pair = tuple(sorted([
+                    (da.get("table"), da.get("order"), da["attr"], da["value"]),
+                    (db.get("table"), db.get("order"), db["attr"], db["value"]),
+                ]))
                 if edge_pair == pair:
                     logger.info(f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}")
                     break
         else:
+            _, _, ca_attr, ca_val = ca
+            _, _, cb_attr, cb_val = cb
             logger.info(
                 f"    MISSING TVD={val:.4f} "
-                f"{ca[0] + '.' if ca[0] != ca[1] else ''}{ca[1]} x "
-                f"{cb[0] + '.' if cb[0] != cb[1] else ''}{cb[1]}"
+                f"{ca_attr + '.' if ca_attr != ca_val else ''}{ca_val} x "
+                f"{cb_attr + '.' if cb_attr != cb_val else ''}{cb_val}"
             )
 
     return moral, structure_edges, rho_remaining
@@ -1065,13 +1124,13 @@ def build_1way_observations(
     from ....graph.loss import LinearObservation
 
     obs_list = []
-    for (attr_name, val_name), noisy_mar in noisy_1way.items():
-        attr = _get_attrs(attrs, None, None)[attr_name]
+    for (table, order, attr_name, val_name), noisy_mar in noisy_1way.items():
+        attr = _get_attrs(attrs, table, order)[attr_name]
 
         if attr.common and val_name == attr.common.name:
-            source = (AttrMeta(None, None, attr_name, 0),)
+            source = (AttrMeta(table, order, attr_name, 0),)
         else:
-            source = (AttrMeta(None, None, attr_name, ((val_name, 0),)),)
+            source = (AttrMeta(table, order, attr_name, ((val_name, 0),)),)
 
         raw = noisy_mar.copy().clip(0)
         s = raw.sum()

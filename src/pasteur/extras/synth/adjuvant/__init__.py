@@ -17,7 +17,9 @@ import pandas as pd
 
 from ....attribute import Attributes, DatasetAttributes
 from ....hierarchy import rebalance_attributes
+from ....mare.synth import MareModel
 from ....marginal import MarginalOracle
+from ....marginal.numpy import TableSelector
 from ....marginal.oracle import counts_preprocess
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
@@ -26,6 +28,325 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+class AdjuvantMare(MareModel):
+    """MARE-compatible wrapper for the Adjuvant algorithm.
+
+    Runs the full Adjuvant pipeline (structure learning + mirror descent)
+    within a single MARE model version, including hist/parent columns
+    as evidence for conditioned junction tree sampling.
+    """
+
+    def __init__(
+        self,
+        *,
+        etotal: float | None = None,
+        e: float = 2.0,
+        delta: float = 1e-9,
+        e1_frac: float = 0.2,
+        e2_frac: float = 0.1,
+        e3_frac: float = 0.7,
+        size_penalty: float = 0.1,
+        min_tvd: float = 0.05,
+        mirror_descent: dict | None = None,
+        seed: int | None = None,
+        **kwargs,
+    ) -> None:
+        if etotal is not None:
+            self.e = etotal
+        else:
+            self.e = e
+        self.delta = delta
+        self.e1_frac = e1_frac
+        self.e2_frac = e2_frac
+        self.e3_frac = e3_frac
+        self.size_penalty = size_penalty
+        self.min_tvd = min_tvd
+        self.md_params = mirror_descent if mirror_descent else {}
+        self.seed = seed
+        self.kwargs = kwargs
+
+    @make_deterministic
+    def fit(
+        self,
+        n: int,
+        table: str | None,
+        attrs: DatasetAttributes,
+        oracle: MarginalOracle,
+    ):
+        from .implementation import (
+            compute_all_marginals,
+            add_noise_1way,
+            compute_tvd,
+            build_height_chain_graph,
+            structure_learn,
+            measure_edges,
+            build_1way_observations,
+            cdp_rho,
+            get_col_names,
+            get_hist_cols,
+        )
+
+        self.table_attrs = attrs
+
+        # Privacy budget
+        rho = cdp_rho(self.e, self.delta)
+        rho1 = self.e1_frac * rho
+        rho2 = self.e2_frac * rho
+        rho3 = self.e3_frac * rho
+
+        all_cols = get_col_names(attrs)
+        hist_cols = get_hist_cols(all_cols)
+        d = len(all_cols)
+        h = len(hist_cols)
+
+        # ==================================================
+        # Step 0: Compute all 1-way and 2-way marginals
+        # ==================================================
+        logger.info(
+            f"AdjuvantMare Step 0: Computing marginals "
+            f"({d} cols, {h} hist)"
+        )
+        cached = compute_all_marginals(oracle, attrs, all_cols)
+
+        # ==================================================
+        # Step 1: Noisy 1-way marginals (budget e1)
+        # ==================================================
+        logger.info(f"AdjuvantMare Step 1: Noisy 1-way marginals (rho1={rho1:.4f})")
+        noisy_1way, sigma1 = add_noise_1way(cached, rho1)
+
+        # ==================================================
+        # Step 2: Structure learning (budget e2)
+        # ==================================================
+        logger.info(f"AdjuvantMare Step 2: Structure learning (rho2={rho2:.4f})")
+        tvd = compute_tvd(cached)
+        directed_graph = build_height_chain_graph(attrs)
+        logger.info(
+            f"AdjuvantMare: height-chain graph has "
+            f"{directed_graph.number_of_nodes()} nodes, "
+            f"{directed_graph.number_of_edges()} chain edges"
+        )
+
+        # Identify frozen (hist) nodes in the graph — block hist-hist edges
+        frozen_nodes: set[str] = set()
+        for node, data in directed_graph.nodes(data=True):
+            if data.get("table") is not None:
+                frozen_nodes.add(node)
+
+        moral, structure_edges, rho2_remaining = structure_learn(
+            directed_graph,
+            attrs,
+            tvd,
+            n,
+            self.size_penalty,
+            rho2,
+            self.min_tvd,
+            frozen_nodes=frozen_nodes,
+            n_hist_cols=h,
+        )
+        rho3 += rho2_remaining
+
+        # ==================================================
+        # Step 3: Measure edge marginals (budget e3)
+        # ==================================================
+        logger.info(
+            f"AdjuvantMare Step 3: Measuring {len(structure_edges)} edge "
+            f"marginals (rho3={rho3:.4f})"
+        )
+        edge_obs, sigma3 = measure_edges(
+            oracle, structure_edges, moral, attrs, n, rho3
+        )
+        oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigma1)
+        all_obs = edge_obs + oneway_obs
+
+        # ==================================================
+        # Build junction tree and run mirror descent
+        # ==================================================
+        from ....graph.mirror_descent import (
+            MIRROR_DESCENT_DEFAULT,
+            build_junction_tree,
+            mirror_descent,
+        )
+        from ....graph.hugin import get_clique_domain
+
+        md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
+        md.pop("compress", None)
+        md.pop("sample", None)
+        tree_mode = md.pop("tree", "hugin")
+        elim_factor_cost = md.pop("elim_factor_cost", 1)
+        elim_max_attempts = md.pop("elim_max_attempts", 5000)
+        device = md.pop("device", "auto")
+        device = None if device == "auto" else device
+
+        mg = moral if tree_mode != "maximal" else None
+        self.junction, self.cliques, messages = build_junction_tree(
+            all_obs,
+            attrs,
+            tree_mode=tree_mode,
+            moral_graph=mg,
+            elim_factor_cost=elim_factor_cost,
+            elim_max_attempts=elim_max_attempts,
+        )
+        total_params = sum(
+            get_clique_domain(cl, attrs) for cl in self.cliques
+        )
+        logger.info(
+            f"AdjuvantMare: junction tree has {len(self.cliques)} cliques, "
+            f"{total_params:_} parameters"
+        )
+
+        self.potentials, _, _ = mirror_descent(
+            self.cliques,
+            messages,
+            all_obs,
+            attrs,
+            device=device,
+            **md,
+        )
+
+        # Pre-compute which clique dims correspond to hist columns
+        # for evidence injection during sampling
+        self._hist_evidence_meta = self._build_hist_evidence_meta(attrs)
+
+    def _build_hist_evidence_meta(
+        self, attrs: DatasetAttributes
+    ) -> list[tuple[int, int, TableSelector, str, str]]:
+        """Identify clique dims that correspond to hist columns.
+
+        Returns list of (clique_idx, dim_idx, table_selector, attr_name, val_name)
+        for each hist dim found in the junction tree.
+        """
+        from ....attribute import CatValue
+        from ....graph.beliefs import convert_sel
+        from ....graph.hugin import get_attrs
+
+        meta = []
+        for ci, clique in enumerate(self.cliques):
+            for di, a_meta in enumerate(clique):
+                if a_meta.table is None:
+                    continue  # main table dim, not hist
+                sel = convert_sel(a_meta.sel)
+                if isinstance(sel, int):
+                    continue  # common-only dim, skip
+                # This is a hist dim — record how to look up values
+                table_sel: TableSelector = (
+                    (a_meta.table, a_meta.order)
+                    if a_meta.order is not None
+                    else a_meta.table
+                )
+                for val_name, h in sel.items():
+                    if h == 0:
+                        meta.append((ci, di, table_sel, a_meta.attr, val_name))
+        return meta
+
+    def sample(
+        self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
+    ) -> pd.DataFrame:
+        from ....attribute import CatValue
+        from ....graph.beliefs import convert_sel
+        from ....graph.hugin import get_attrs
+        from ....graph.sample import create_sampler_meta, sample_junction_tree
+
+        n = len(index)
+        sampler_meta = create_sampler_meta(
+            self.junction, self.cliques, self.table_attrs
+        )
+
+        # Build evidence: map hist column values to compressed clique dim indices
+        evidence: dict[tuple[int, int], np.ndarray] = {}
+        for ci, clique in enumerate(self.cliques):
+            for di, a_meta in enumerate(clique):
+                if a_meta.table is None:
+                    continue
+
+                sel = convert_sel(a_meta.sel)
+                if isinstance(sel, int):
+                    # Common-only dim: derive from a sibling value in hist
+                    attr = get_attrs(self.table_attrs, a_meta.table, a_meta.order)[
+                        a_meta.attr
+                    ]
+                    cmn = attr.common
+                    assert cmn is not None
+                    table_sel: TableSelector = (
+                        (a_meta.table, a_meta.order)
+                        if a_meta.order is not None
+                        else a_meta.table
+                    )
+                    if table_sel not in hist:
+                        continue
+
+                    hist_df = hist[table_sel]
+                    # Find a sibling value column in hist to derive common
+                    mapping = None
+                    for sib_name, sib_val in attr.vals.items():
+                        if (
+                            sib_name in hist_df.columns
+                            and isinstance(sib_val, CatValue)
+                        ):
+                            raw_vals = hist_df[sib_name].to_numpy()
+                            mapping = np.array(
+                                cmn.get_mapping(sel), dtype=np.int64
+                            )
+                            sib_mapping = np.array(
+                                sib_val.get_mapping(sib_val.height - 1),
+                                dtype=np.int64,
+                            )
+                            # raw -> sib leaf -> cmn leaf -> cmn compressed
+                            evidence[(ci, di)] = mapping[sib_mapping[raw_vals]]
+                            break
+                    continue
+
+                # Multi-value or single-value hist dim
+                table_sel = (
+                    (a_meta.table, a_meta.order)
+                    if a_meta.order is not None
+                    else a_meta.table
+                )
+                if table_sel not in hist:
+                    continue
+
+                hist_df = hist[table_sel]
+                attr = get_attrs(self.table_attrs, a_meta.table, a_meta.order)[
+                    a_meta.attr
+                ]
+
+                if len(sel) == 1:
+                    # Single-value dim: raw value -> compressed index
+                    val_name, h = next(iter(sel.items()))
+                    if val_name not in hist_df.columns:
+                        continue
+                    raw_vals = hist_df[val_name].to_numpy()
+                    val_meta = attr[val_name]
+                    assert isinstance(val_meta, CatValue)
+                    mapping = np.array(val_meta.get_mapping(h), dtype=np.int64)
+                    evidence[(ci, di)] = mapping[raw_vals]
+                else:
+                    # Multi-value dim: combine per-value mappings
+                    comp_mapping = attr.get_mapping(sel)
+                    # Build flat index from raw values
+                    flat_idx = np.zeros(n, dtype=np.int64)
+                    mul = 1
+                    for val_name, h in sel.items():
+                        if val_name not in hist_df.columns:
+                            break
+                        raw_vals = hist_df[val_name].to_numpy()
+                        val_meta = attr[val_name]
+                        assert isinstance(val_meta, CatValue)
+                        flat_idx += raw_vals.astype(np.int64) * mul
+                        mul *= val_meta.get_domain(0)
+                    else:
+                        # Map raw flat index -> compressed index
+                        evidence[(ci, di)] = comp_mapping[flat_idx]
+
+        columns = sample_junction_tree(
+            self.potentials,
+            sampler_meta,
+            n,
+            self.table_attrs,
+            evidence=evidence if evidence else None,
+        )
+        return pd.DataFrame(columns, index=index)
 
 
 class AdjuvantSynth(Synth):
