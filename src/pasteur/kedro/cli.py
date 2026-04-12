@@ -126,6 +126,11 @@ def create_session(
     default=None,
     help="Session ID to use. Allows reusing artifacts from a previous run.",
 )
+@click.option(
+    "--stochastic",
+    is_flag=True,
+    help="Override random_state with a random seed.",
+)
 @click.pass_context
 def pipe(
     ctx,
@@ -140,6 +145,7 @@ def pipe(
     refresh_processes,
     continue_from,
     session_id,
+    stochastic,
 ):
     """pipe(line) is a modified version of run with minified logging and shorter syntax"""
 
@@ -155,6 +161,11 @@ def pipe(
     assert sum([all, pre, synth, metrics, sample]) <= 1
 
     param_dict = str_params_to_dict(params)
+
+    if stochastic:
+        import random
+        param_dict["random_state"] = random.randint(0, 2**31 - 1)
+        logger.info(f"Stochastic mode: random_state={param_dict['random_state']}")
 
     cmd: str = ctx.info_name
     if cmd.startswith("i"):
@@ -300,6 +311,12 @@ def _process_iterables(iterables: dict[str, Iterable]):
     default=1,
     help="Run each pipeline multiple times. Appends rN to the run name in mlflow.",
 )
+@click.option(
+    "-s",
+    "--stochastic",
+    is_flag=True,
+    help="Override random_state with a random seed for each run.",
+)
 @click.pass_context
 def sweep(
     ctx,
@@ -318,6 +335,7 @@ def sweep(
     max_workers,
     refresh_processes,
     runs,
+    stochastic,
 ):
     """Similar to pipe, sweep allows in addition a hyperparameter sweep.
 
@@ -454,7 +472,16 @@ def sweep(
     if refresh_processes == 0:
         refresh_processes = None
 
+    import random
+
     num_runs = runs
+    # Determine base seed for reproducible multi-run sweeps
+    if stochastic:
+        base_seed = random.randint(0, 2**31 - 1)
+        logger.info(f"Stochastic mode: base random_state={base_seed}")
+    else:
+        base_seed = None
+
     run_results = {}
     ingested = False
     runtime_params = {}
@@ -480,8 +507,17 @@ def sweep(
                     if num_runs > 1
                     else {}
                 )
+                # Determine seed for this run
+                seed_dict = {}
+                if stochastic:
+                    seed_dict["random_state"] = base_seed + run_idx
+                elif num_runs > 1 and run_idx > 0:
+                    # Pull configured seed and vary for follow-up runs
+                    seed = runtime_params.get("random_state", 0)
+                    seed_dict["random_state"] = seed + run_idx
+
                 run_runtime_params = merge_params(
-                    vals | mlflow_dict | suffix_dict
+                    vals | mlflow_dict | suffix_dict | seed_dict
                 )
 
                 with KedroSession.create(
