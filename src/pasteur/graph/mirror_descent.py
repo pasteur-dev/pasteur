@@ -26,6 +26,8 @@ class MirrorDescentParams(TypedDict, total=False):
     compile: int | bool
     optim: str  # "sgd", "line_search", or "adam"
     loss_type: str  # "l2", "l1", or "l1l2"
+    elim_factor_cost: float  # Cost factor for elimination order clique domain
+    tree: str  # "hugin", "maximal", "hugin_comp"
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
@@ -36,6 +38,8 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "device": "auto",
     "compile": 10_000_000,
     "optim": "line_search",
+    "elim_factor_cost": 1.15,
+    "tree": "hugin",
 }
 
 
@@ -58,6 +62,7 @@ def mirror_descent(
     block_unobserved: bool = True,
     # Backwards compat
     line_search: bool | None = None,
+    **_,
 ) -> list[np.ndarray]:
     # Backwards compat: line_search=True -> optim="line_search"
     if line_search is not None:
@@ -248,6 +253,7 @@ def build_junction_tree(
     compress: bool = True,
     moral_graph=None,
     elim_search_time: float = 10,
+    elim_factor_cost: float = 1,
 ):
     """Build a junction tree and message schedule from observations.
 
@@ -281,7 +287,7 @@ def build_junction_tree(
         )
         if tree_mode != "hugin_comp":
             cap_heights(moral_graph, mode=tree_mode)
-        _, tri, _ = find_elim_order(moral_graph, attrs, elim_search_time)
+        _, tri, _ = find_elim_order(moral_graph, attrs, elim_search_time, elim_factor_cost)
         junction = get_junction_tree(tri, attrs, compress=compress)
 
     generations = get_message_passing_order(junction)

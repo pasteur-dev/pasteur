@@ -217,6 +217,7 @@ class AdjuvantSynth(Synth):
         md.pop("compress", None)
         md.pop("sample", None)
         tree_mode = md.pop("tree", "hugin")
+        elim_factor_cost = md.pop("elim_factor_cost", 1)
 
         logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
         mg = self.moral if tree_mode != "maximal" else None
@@ -225,6 +226,7 @@ class AdjuvantSynth(Synth):
             self.table_attrs,
             tree_mode=tree_mode,
             moral_graph=mg,
+            elim_factor_cost=elim_factor_cost,
         )
         total_params = sum(
             get_clique_domain(cl, self.table_attrs) for cl in self.cliques
@@ -241,8 +243,6 @@ class AdjuvantSynth(Synth):
         from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT, mirror_descent
 
         md = {**MIRROR_DESCENT_DEFAULT, **self.md_params}
-        md.pop("compress", None)
-        md.pop("sample", None)
         device = md.pop("device", "auto")
         device = None if device == "auto" else device
 

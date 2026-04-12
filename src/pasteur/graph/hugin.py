@@ -115,6 +115,7 @@ def elimination_order_greedy(
     stochastic: bool = False,
     display: bool = False,
     condensed: bool = True,
+    elim_factor_cost: float = 1,
 ):
     triangulated = deepcopy(g)
     g = deepcopy(g)
@@ -127,7 +128,7 @@ def elimination_order_greedy(
         unmarked = list(g)
         for a in unmarked:
             new_factor = {a} | set(g[a])
-            costs.append(get_factor_domain(new_factor, g, attrs))
+            costs.append(get_factor_domain(new_factor, g, attrs)**elim_factor_cost)
         costs = np.array(costs)
 
         if stochastic:
@@ -161,18 +162,18 @@ def elimination_order_greedy(
     return order, triangulated, total_cost
 
 
-def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float):
+def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float, elim_factor_cost: float = 1):
     """Run stochastic elimination order search for *max_time* seconds."""
-    best = elimination_order_greedy(g, attrs, True)
+    best = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
     start = perf_counter()
     while perf_counter() - start < max_time:
-        order, triag, cost = elimination_order_greedy(g, attrs, True)
+        order, triag, cost = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
         if cost < best[2]:
             best = (order, triag, cost)
     return best
 
 
-def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10):
+def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10, elim_factor_cost: float = 1):
     from ..utils.progress import MULTIPROCESS_ENABLE, IS_SUBPROCESS, process_async
     from os import cpu_count
 
@@ -182,17 +183,17 @@ def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10)
         # parallelize between real cores
         n_workers = max((cpu_count() or 1) // 2, 1)
         futures = [
-            process_async(_elim_order_search, g, attrs, max_time)
+            process_async(_elim_order_search, g, attrs, max_time, elim_factor_cost)
             for _ in range(n_workers)
         ]
 
-        min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False)
+        min_order, min_triag, min_cost = elimination_order_greedy(g, attrs, False, elim_factor_cost=elim_factor_cost)
         for f in futures:
             order, triag, cost = f.get()
             if cost < min_cost:
                 min_order, min_triag, min_cost = order, triag, cost
     else:
-        min_order, min_triag, min_cost = _elim_order_search(g, attrs, max_time)
+        min_order, min_triag, min_cost = _elim_order_search(g, attrs, max_time, elim_factor_cost)
 
     return min_order, min_triag, min_cost
 
