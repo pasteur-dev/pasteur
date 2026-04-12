@@ -549,7 +549,6 @@ def greedy_bayes(
         import time
 
         start = time.perf_counter()
-        loops = 0
         for (val, sels), psets in zip(info, node_psets):
             for pset in psets:
                 cand_hash = list(EMPTY_HASH)
@@ -575,7 +574,7 @@ def greedy_bayes(
                 candidates.append((val, [], (val, EMPTY_HASH)))
 
         logger.info(
-            f"({cnter:>2d}) Time: {time.perf_counter() - start:.3}s Loops: {loops:_d} Marginals: {len(candidates):_d}"
+            f"({cnter:>2d}) Time: {time.perf_counter() - start:6.3f}s Marginals: {len(candidates):_d}"
         )
         x, pset = pick_candidate(candidates)
         attr = val_to_attr[x]
