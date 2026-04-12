@@ -914,8 +914,8 @@ class Attribute:
             if isinstance(height, int)
             else tuple(sorted(height.items(), key=lambda v: v[0]))
         )
-        # if key in self.mapping_lru:
-        #     return self.mapping_lru[key]
+        if key in self.mapping_lru:
+            return self.mapping_lru[key]
 
         if isinstance(height, int):
             out = CatValue.get_mapping_multiple(
