@@ -368,7 +368,7 @@ def compute_edge_weight(
     node_b: str,
     g: nx.Graph,
     attrs: DatasetAttributes,
-    size_penalty: float = 0.3,
+    size_penalty: float,
 ) -> float:
     from ....graph.hugin import get_attrs as _get_attrs
 
@@ -380,7 +380,7 @@ def compute_edge_weight(
         dom_h = val.get_domain(h)
         return 1 / dom_h if dom_h > 0 else 1.0
 
-    return 1 / (1 + (_weight_for_node(node_a) * _weight_for_node(node_b))**size_penalty)
+    return 1 / (1 + (_weight_for_node(node_a) * _weight_for_node(node_b))*size_penalty)
 
 
 def score_graph(
