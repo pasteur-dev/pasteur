@@ -27,6 +27,7 @@ class MirrorDescentParams(TypedDict, total=False):
     optim: str  # "sgd", "line_search", or "adam"
     loss_type: str  # "l2", "l1", or "l1l2"
     elim_factor_cost: float  # Cost factor for elimination order clique domain
+    elim_max_attempts: int  # Number of stochastic elimination order attempts
     tree: str  # "hugin", "maximal", "hugin_comp"
 
 
@@ -39,6 +40,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "compile": 10_000_000,
     "optim": "line_search",
     "elim_factor_cost": 1.15,
+    "elim_max_attempts": 5000,
     "tree": "hugin",
 }
 
@@ -252,7 +254,7 @@ def build_junction_tree(
     tree_mode: str = "hugin",
     compress: bool = True,
     moral_graph=None,
-    elim_search_time: float = 10,
+    elim_max_attempts: int = 5000,
     elim_factor_cost: float = 1,
 ):
     """Build a junction tree and message schedule from observations.
@@ -264,7 +266,7 @@ def build_junction_tree(
                    or "hugin_unvalley".
         compress: Whether to compress clique meta.
         moral_graph: Pre-built moral graph (required for hugin modes).
-        elim_search_time: Time budget for elimination order search.
+        elim_max_attempts: Number of stochastic elimination order attempts.
 
     Returns:
         (junction, cliques, messages)
@@ -287,7 +289,7 @@ def build_junction_tree(
         )
         if tree_mode != "hugin_comp":
             cap_heights(moral_graph, mode=tree_mode)
-        _, tri, _ = find_elim_order(moral_graph, attrs, elim_search_time, elim_factor_cost)
+        _, tri, _ = find_elim_order(moral_graph, attrs, elim_max_attempts, elim_factor_cost)
         junction = get_junction_tree(tri, attrs, compress=compress)
 
     generations = get_message_passing_order(junction)
@@ -303,7 +305,6 @@ def fit_model(
     tree_mode: str = "hugin",
     compress: bool = True,
     moral_graph=None,
-    elim_search_time: float = 10,
     device: torch.device | str | None = None,
     init_potentials: dict[int, np.ndarray] | None = None,
     **md_params,
@@ -319,17 +320,20 @@ def fit_model(
         tree_mode: Junction tree construction mode.
         compress: Whether to compress clique meta.
         moral_graph: Pre-built moral graph (required for hugin modes).
-        elim_search_time: Time budget for elimination order search.
         device: Torch device for mirror descent.
         init_potentials: Warm-start potentials keyed by clique index.
         **md_params: Additional mirror descent parameters (lr, max_iters,
                      ptol, patience, optim, loss_type, etc.).
+            Also accepts elim_max_attempts and elim_factor_cost.
 
     Returns:
         (potentials, junction, cliques, messages, loss_fn, raw_theta)
     """
+    elim_max_attempts = md_params.pop("elim_max_attempts", 5000)
+    elim_factor_cost = md_params.pop("elim_factor_cost", 1)
     junction, cliques, messages = build_junction_tree(
-        obs, attrs, tree_mode, compress, moral_graph, elim_search_time,
+        obs, attrs, tree_mode, compress, moral_graph, elim_max_attempts,
+        elim_factor_cost,
     )
 
     potentials, loss_fn, raw_theta = mirror_descent(

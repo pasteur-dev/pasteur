@@ -218,6 +218,7 @@ class AdjuvantSynth(Synth):
         md.pop("sample", None)
         tree_mode = md.pop("tree", "hugin")
         elim_factor_cost = md.pop("elim_factor_cost", 1)
+        elim_max_attempts = md.pop("elim_max_attempts", 5000)
 
         logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
         mg = self.moral if tree_mode != "maximal" else None
@@ -227,6 +228,7 @@ class AdjuvantSynth(Synth):
             tree_mode=tree_mode,
             moral_graph=mg,
             elim_factor_cost=elim_factor_cost,
+            elim_max_attempts=elim_max_attempts,
         )
         total_params = sum(
             get_clique_domain(cl, self.table_attrs) for cl in self.cliques

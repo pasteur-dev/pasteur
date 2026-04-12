@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from copy import deepcopy
 from itertools import chain, combinations
-from time import perf_counter
+
 from typing import Collection, Literal, NamedTuple, Sequence, cast
 
 import networkx as nx
@@ -162,9 +162,11 @@ def elimination_order_greedy(
     display: bool = False,
     condensed: bool = True,
     elim_factor_cost: float = 1,
+    seed: int | None = None,
 ):
     orig = g
     g = deepcopy(g)
+    rng = np.random.RandomState(seed) if stochastic else None
 
     # Initialize costs for all nodes
     cost_map = {}
@@ -178,10 +180,10 @@ def elimination_order_greedy(
         unmarked = list(cost_map)
         costs = np.array([cost_map[a] for a in unmarked])
 
-        if stochastic:
+        if rng is not None:
             c = 1 / costs
             p = c / c.sum()
-            idx = np.random.choice(len(p), p=p)
+            idx = rng.choice(len(p), p=p)
         else:
             idx = np.argmin(costs)
         total_cost += costs[idx]
@@ -227,38 +229,55 @@ def _triangulate(g: nx.Graph, fill_edges: list[tuple[str, str]]):
     return triangulated
 
 
-def _elim_order_search(g: nx.Graph, attrs: DatasetAttributes, max_time: float, elim_factor_cost: float = 1):
-    """Run stochastic elimination order search for *max_time* seconds."""
-    best = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
-    start = perf_counter()
-    while perf_counter() - start < max_time:
-        order, fill, cost = elimination_order_greedy(g, attrs, True, elim_factor_cost=elim_factor_cost)
-        if cost < best[2]:
+def _elim_order_search(
+    g: nx.Graph, attrs: DatasetAttributes, seeds: Sequence[int], elim_factor_cost: float = 1
+):
+    """Run stochastic elimination order search over the given seeds."""
+    best = None
+    for seed in seeds:
+        order, fill, cost = elimination_order_greedy(
+            g, attrs, True, elim_factor_cost=elim_factor_cost, seed=seed
+        )
+        if best is None or cost < best[2]:
             best = (order, fill, cost)
     return best
 
 
-def find_elim_order(g: nx.Graph, attrs: DatasetAttributes, max_time: float = 10, elim_factor_cost: float = 1):
+def find_elim_order(
+    g: nx.Graph, attrs: DatasetAttributes, max_attempts: int = 5000, elim_factor_cost: float = 1
+):
     from ..utils.progress import MULTIPROCESS_ENABLE, IS_SUBPROCESS, process_async
     from os import cpu_count
 
-    start = perf_counter()
+    # Greedy (deterministic) baseline
+    min_order, min_fill, min_cost = elimination_order_greedy(
+        g, attrs, False, elim_factor_cost=elim_factor_cost
+    )
+
+    if max_attempts <= 0:
+        return min_order, _triangulate(g, min_fill), min_cost
+
+    # Precompute deterministic seeds for all stochastic attempts
+    seed_rng = np.random.RandomState(0)
+    all_seeds = seed_rng.randint(0, 2**31, size=max_attempts)
 
     if MULTIPROCESS_ENABLE and not IS_SUBPROCESS:
-        # parallelize between real cores
         n_workers = max((cpu_count() or 1) // 2, 1)
+        # Split seeds evenly across workers
+        seed_chunks = np.array_split(all_seeds, n_workers)
         futures = [
-            process_async(_elim_order_search, g, attrs, max_time, elim_factor_cost)
-            for _ in range(n_workers)
+            process_async(_elim_order_search, g, attrs, chunk, elim_factor_cost)
+            for chunk in seed_chunks
         ]
 
-        min_order, min_fill, min_cost = elimination_order_greedy(g, attrs, False, elim_factor_cost=elim_factor_cost)
         for f in futures:
             order, fill, cost = f.get()
             if cost < min_cost:
                 min_order, min_fill, min_cost = order, fill, cost
     else:
-        min_order, min_fill, min_cost = _elim_order_search(g, attrs, max_time, elim_factor_cost)
+        result = _elim_order_search(g, attrs, all_seeds, elim_factor_cost)
+        if result[2] < min_cost:
+            min_order, min_fill, min_cost = result
 
     return min_order, _triangulate(g, min_fill), min_cost
 
