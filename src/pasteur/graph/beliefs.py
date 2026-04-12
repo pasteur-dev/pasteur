@@ -155,13 +155,8 @@ def get_clique_weights(cliques: Sequence[CliqueMeta], attrs: DatasetAttributes):
         weight = []
         for meta in cl:
             attr = get_attrs(attrs, meta.table, meta.order)[meta.attr]
-            mapping = attr.get_mapping(convert_sel(meta.sel))
             dom = attr.get_domain(convert_sel(meta.sel))
-
-            w = np.zeros(dom)
-            np.add.at(w, mapping, 1)
-            w /= len(mapping)
-            weight.append(w)
+            weight.append(np.ones(dom) / dom)
         weights.append(weight)
     return weights
 
