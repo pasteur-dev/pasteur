@@ -72,16 +72,12 @@ def cdp_rho(eps: float, delta: float) -> float:
     return rhomin
 
 
-def compute_rho_for_theta(
+def _sigma_for_theta(
     dom: int, n: int | float, theta: float, sigma_floor: float
 ) -> float | None:
-    """Compute rho budget to achieve confidence theta/(theta+1) for a marginal of domain `dom`.
+    """Compute DP noise std dev to achieve confidence theta/(theta+1).
 
-    The target is sigma_eff * dom = n / theta, where
-    sigma_eff^2 = sigma_dp^2 + n/(dom * sigma_floor).
-
-    Returns rho = 1/(2*sigma_dp^2), or None if unachievable
-    (sampling noise alone exceeds the target)."""
+    Returns None if sampling noise alone exceeds the target (no DP noise needed)."""
     if theta <= 0 or dom <= 0:
         return 0.0
     target_seff2 = (n / (theta * dom)) ** 2
@@ -89,7 +85,64 @@ def compute_rho_for_theta(
     sigma_dp2 = target_seff2 - sampling_var
     if sigma_dp2 <= 0:
         return None
-    return 1.0 / (2.0 * sigma_dp2)
+    return sqrt(sigma_dp2)
+
+
+def _sigma_to_budget(sigma: float, dp_type: str = "cdp") -> float:
+    """Convert noise std dev to budget cost (rho for CDP, epsilon for DP)."""
+    if sigma <= 0:
+        return 0.0
+    if dp_type == "cdp":
+        return 1.0 / (2.0 * sigma * sigma)
+    else:
+        return sqrt(2.0) / sigma
+
+
+def _budget_to_sigma(budget: float, dp_type: str = "cdp") -> float:
+    """Convert budget (rho for CDP, epsilon for DP) to noise std dev."""
+    if budget <= 0:
+        return 0.0
+    if dp_type == "cdp":
+        return sqrt(1.0 / (2.0 * budget))
+    else:
+        return sqrt(2.0) / budget
+
+
+def _add_dp_noise(data: np.ndarray, sigma: float, dp_type: str = "cdp") -> np.ndarray:
+    """Add Gaussian (CDP) or Laplace (DP) noise with std dev sigma."""
+    if sigma <= 0:
+        return data.copy()
+    if dp_type == "cdp":
+        return data + np.random.normal(0, sigma, size=data.shape)
+    else:
+        return data + np.random.laplace(0, sigma / sqrt(2), size=data.shape)
+
+
+def _em_budget_cost(eps: float, dp_type: str = "cdp") -> float:
+    """Convert exponential mechanism epsilon to budget cost."""
+    if dp_type == "cdp":
+        return eps * eps / 8.0
+    else:
+        return eps
+
+
+def compute_budget_for_theta(
+    dom: int, n: int | float, theta: float, sigma_floor: float,
+    dp_type: str = "cdp",
+) -> float | None:
+    """Compute budget to achieve confidence theta/(theta+1) for a marginal of domain `dom`.
+
+    Returns rho (CDP) or epsilon (DP), or None if sampling noise alone suffices."""
+    sigma = _sigma_for_theta(dom, n, theta, sigma_floor)
+    if sigma is None:
+        return None
+    if sigma == 0.0:
+        return 0.0
+    return _sigma_to_budget(sigma, dp_type)
+
+
+# Keep backward-compatible alias
+compute_rho_for_theta = compute_budget_for_theta
 
 
 def exponential_mechanism(
@@ -231,67 +284,63 @@ def compute_1way_budget(
     n: int | float,
     theta_1w: float,
     sigma_floor: float,
-    rho_max: float | None = None,
+    budget_max: float | None = None,
+    dp_type: str = "cdp",
 ) -> tuple[dict[Col, float], float, float]:
-    """Compute per-column DP noise sigma and total rho for 1-way marginals.
+    """Compute per-column DP noise sigma and total budget for 1-way marginals.
 
     Each column gets noise calibrated so that its confidence achieves theta_1w.
-    If total rho exceeds rho_max, theta_1w is reduced via binary search.
+    If total budget exceeds budget_max, theta_1w is reduced via binary search.
 
-    Returns (sigma_per_col, total_rho1, effective_theta_1w)."""
+    Returns (sigma_per_col, total_budget1, effective_theta_1w)."""
 
-    def _total_rho(theta):
+    def _total_budget(theta):
         total = 0.0
         for mar in cached.one_way.values():
-            rho = compute_rho_for_theta(mar.size, n, theta, sigma_floor)
-            if rho is not None:
-                total += rho
+            b = compute_budget_for_theta(mar.size, n, theta, sigma_floor, dp_type)
+            if b is not None:
+                total += b
         return total
 
     # Check if requested theta_1w fits within budget
-    rho1 = _total_rho(theta_1w)
-    if rho_max is not None and rho1 > rho_max and rho_max > 0:
+    budget1 = _total_budget(theta_1w)
+    if budget_max is not None and budget1 > budget_max and budget_max > 0:
         # Binary search for max achievable theta
         lo, hi = 1.0, theta_1w
         for _ in range(64):
             mid = (lo + hi) / 2
-            if _total_rho(mid) <= rho_max:
+            if _total_budget(mid) <= budget_max:
                 lo = mid
             else:
                 hi = mid
         theta_1w = lo
-        rho1 = _total_rho(theta_1w)
+        budget1 = _total_budget(theta_1w)
         logger.info(
             f"Adjuvant: theta_1w capped to {theta_1w:.1f} "
-            f"(rho1={rho1:.6f}, rho_max={rho_max:.6f})"
+            f"(budget1={budget1:.6f}, budget_max={budget_max:.6f})"
         )
 
-    # Compute per-column sigma_dp
+    # Compute per-column sigma_dp (sigma is mechanism-independent, determined by theta)
     sigmas: dict[Col, float] = {}
     for col, mar in cached.one_way.items():
-        rho = compute_rho_for_theta(mar.size, n, theta_1w, sigma_floor)
-        if rho is not None and rho > 0:
-            sigmas[col] = sqrt(1.0 / (2.0 * rho))
-        else:
-            sigmas[col] = 0.0
+        sigma = _sigma_for_theta(mar.size, n, theta_1w, sigma_floor)
+        sigmas[col] = sigma if sigma is not None else 0.0
 
-    return sigmas, rho1, theta_1w
+    return sigmas, budget1, theta_1w
 
 
 def add_noise_1way(
     cached: CachedMarginals,
     sigmas: dict[Col, float],
+    dp_type: str = "cdp",
 ) -> dict[Col, np.ndarray]:
-    """Add Gaussian noise to 1-way marginals with per-column sigma.
+    """Add noise to 1-way marginals with per-column sigma.
 
-    Returns noisy_marginals."""
+    Uses Gaussian (CDP) or Laplace (DP) noise. Returns noisy_marginals."""
     noisy = {}
     for col, mar in cached.one_way.items():
         sigma = sigmas.get(col, 0.0)
-        if sigma > 0:
-            noisy[col] = mar + np.random.normal(0, sigma, size=mar.size)
-        else:
-            noisy[col] = mar.copy()
+        noisy[col] = _add_dp_noise(mar, sigma, dp_type)
     return noisy
 
 
@@ -698,7 +747,7 @@ def compute_edge_weight(
 # ============================================================
 # Step 2d: Structure learning main loop
 # ============================================================
-def _compute_cand_edge_rho(
+def _compute_cand_edge_budget(
     idx: int,
     candidates: list[tuple[str, str]],
     directed_graph: nx.DiGraph,
@@ -706,8 +755,9 @@ def _compute_cand_edge_rho(
     n: int | float,
     theta_2w: float,
     sigma_floor: float,
+    dp_type: str = "cdp",
 ) -> float:
-    """Compute the measurement rho cost for candidate edge at index idx.
+    """Compute the measurement budget cost for candidate edge at index idx.
 
     Returns float('inf') if the edge cannot achieve theta_2w confidence."""
     from ....graph.hugin import get_attrs as _ga
@@ -721,8 +771,8 @@ def _compute_cand_edge_rho(
         CatValue, _ga(attrs, db["table"], db["order"])[db["attr"]][db["value"]]
     )
     dom = val_a.get_domain(da["height"]) * val_b.get_domain(db["height"])
-    rho = compute_rho_for_theta(dom, n, theta_2w, sigma_floor)
-    return rho if rho is not None else float("inf")
+    b = compute_budget_for_theta(dom, n, theta_2w, sigma_floor, dp_type)
+    return b if b is not None else float("inf")
 
 
 def structure_learn(
@@ -739,19 +789,20 @@ def structure_learn(
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
+    dp_type: str = "cdp",
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
-    Each EM step costs a fixed rho derived from em_z.  Each selected edge
+    Each EM step costs budget derived from em_z.  Each selected edge
     commits measurement budget derived from theta_2w and the edge's domain.
     The loop exits when the remaining budget cannot cover the next step.
 
-    Forces at least one edge per column (budget permitting).
+    Budget is rho (CDP) or epsilon (DP) depending on dp_type.
 
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
         structure_edges: Set of frozenset node pairs for structure-learning edges.
-        rho_remaining: Unspent budget (for measurement + leftover).
+        budget_remaining: Unspent budget (for measurement + leftover).
     """
     from ....graph.hugin import to_moral, get_factor_domain
     from ....utils.progress import piter, check_exit
@@ -769,17 +820,18 @@ def structure_learn(
     # Budget cost uses eps = em_z * 4/N_cands, scaling with candidate count.
     sensitivity = 2.0 / n
 
-    # Pre-compute per-candidate measurement rho and theta-filter
-    cand_rho_edge = np.zeros(len(candidates))
+    # Pre-compute per-candidate measurement budget and theta-filter
+    cand_bdg_edge = np.zeros(len(candidates))
     cand_valid = np.ones(len(candidates), dtype=bool)
     if rho_avail > 0:
         n_filtered = 0
         for idx in range(len(candidates)):
-            rho = _compute_cand_edge_rho(
-                idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor
+            b = _compute_cand_edge_budget(
+                idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor,
+                dp_type,
             )
-            cand_rho_edge[idx] = rho
-            if np.isinf(rho):
+            cand_bdg_edge[idx] = b
+            if np.isinf(b):
                 cand_valid[idx] = False
                 n_filtered += 1
         if n_filtered:
@@ -799,18 +851,17 @@ def structure_learn(
     saturated_cols: set[Col] = set()
 
     max_steps = d * (max_edges_per_col // 2 + 1)
-    rho_em = 0.0  # cumulative EM selection budget spent
-    rho_committed = 0.0  # cumulative edge measurement budget committed
+    bdg_em = 0.0  # cumulative EM selection budget spent
+    bdg_committed = 0.0  # cumulative edge measurement budget committed
 
     def _em_cost(n_cands: int) -> tuple[float, float]:
-        """Compute (eps, rho) for EM over n_cands candidates.
+        """Compute (eps, budget_cost) for EM over n_cands candidates.
 
-        eps = em_z * 4 / n_cands; the EM call uses sensitivity = 2/n
-        giving discrimination factor em_z * n / n_cands."""
+        eps = em_z * 4 / n_cands; budget cost is rho=eps²/8 (CDP) or eps (DP)."""
         if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
             return 0.0, 0.0
         eps = em_z * 4.0 / n_cands
-        return eps, eps * eps / 8.0
+        return eps, _em_budget_cost(eps, dp_type)
 
     pbar = piter(
         None,
@@ -905,14 +956,14 @@ def structure_learn(
 
         # --- Two-pass EM cost + affordability filter ---
         # Pass 1: estimate EM cost from full active set
-        _, rho_em_est = _em_cost(len(active))
-        rho_after_em = rho_avail - rho_em - rho_committed - rho_em_est
+        _, bdg_em_est = _em_cost(len(active))
+        bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_est
 
-        if rho_avail > 0 and rho_after_em < 0:
+        if rho_avail > 0 and bdg_after_em < 0:
             logger.info(
                 f"Adjuvant: exit (budget exhausted) at iter {it}. "
-                f"rho_avail={rho_avail:.6f}, rho_em={rho_em:.6f}, "
-                f"rho_committed={rho_committed:.6f}"
+                f"budget_avail={rho_avail:.6f}, bdg_em={bdg_em:.6f}, "
+                f"bdg_committed={bdg_committed:.6f}"
             )
             break
 
@@ -921,7 +972,7 @@ def structure_learn(
             affordable = [
                 (idx, na, nb)
                 for idx, na, nb in active
-                if cand_rho_edge[idx] <= rho_after_em
+                if cand_bdg_edge[idx] <= bdg_after_em
             ]
         else:
             affordable = active
@@ -929,12 +980,12 @@ def structure_learn(
         if not affordable:
             logger.info(
                 f"Adjuvant: exit (no affordable candidates) at iter {it}. "
-                f"active={len(active)}, rho_after_em={rho_after_em:.6f}"
+                f"active={len(active)}, bdg_after_em={bdg_after_em:.6f}"
             )
             break
 
         # Pass 2: recompute EM cost with the filtered candidate count
-        eps_step, rho_em_step = _em_cost(len(affordable))
+        eps_step, bdg_em_step = _em_cost(len(affordable))
 
         # Score affordable candidates
         scores = np.array([cand_tvd_boost[idx] for idx, _, _ in affordable])
@@ -950,7 +1001,7 @@ def structure_learn(
 
         if eps_step > 0:
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
-            rho_em += rho_em_step
+            bdg_em += bdg_em_step
         else:
             sel = int(np.argmax(em_scores))
 
@@ -964,14 +1015,14 @@ def structure_learn(
             break
 
         cand_idx, na, nb = affordable[sel]
-        edge_rho = cand_rho_edge[cand_idx]
+        edge_bdg = cand_bdg_edge[cand_idx]
 
         # Accept edge
         moral.add_edge(na, nb, structure=True)
         base_adj[na].add(nb)
         base_adj[nb].add(na)
         structure_edges.add(frozenset([na, nb]))
-        rho_committed += edge_rho
+        bdg_committed += edge_bdg
 
         # Invalidate clique cache for candidates touching either endpoint's
         # extended neighborhood (nodes whose triangulation could change)
@@ -998,7 +1049,7 @@ def structure_learn(
             f"-> {it+1:3d}/{max_steps} "
             + f"(score={scores[sel]:.4f}"
             + (
-                f", budget={rho_avail - rho_em - rho_committed:.6f}"
+                f", budget={rho_avail - bdg_em - bdg_committed:.6f}"
                 if rho_avail > 0
                 else ""
             )
@@ -1017,15 +1068,16 @@ def structure_learn(
         pbar.update(1)
 
     pbar.close()
-    rho_remaining = rho_avail - rho_em - rho_committed
+    bdg_remaining = rho_avail - bdg_em - bdg_committed
 
+    bdg_label = "rho" if dp_type == "cdp" else "eps"
     logger.info(
         f"Adjuvant: structure learning done, "
         + f"{len(structure_edges)} edges, "
         + f"{len(connected_pairs)} column pairs connected, "
         + (
-            f"rho_em={rho_em:.6f}, rho_measure={rho_committed:.6f}, "
-            + f"rho_remaining={rho_remaining:.6f}"
+            f"{bdg_label}_em={bdg_em:.6f}, {bdg_label}_measure={bdg_committed:.6f}, "
+            + f"{bdg_label}_remaining={bdg_remaining:.6f}"
             if rho_avail > 0
             else "no budget tracking"
         )
@@ -1038,7 +1090,7 @@ def structure_learn(
     for line in diag.splitlines():
         logger.info(line)
 
-    return moral, structure_edges, rho_remaining
+    return moral, structure_edges, bdg_remaining
 
 
 def format_tvd_diagnostic(
@@ -1120,13 +1172,15 @@ def print_adjuvant(
     theta_2w: float,
     em_z: float,
     n_obs: int,
+    dp_type: str = "cdp",
 ) -> str:
     """Format a summary string for an Adjuvant model."""
     from ....graph.hugin import get_attrs as _get_attrs
 
-    s = "Adjuvant Graphical Model:\n"
+    bdg_label = "rho" if dp_type == "cdp" else "eps"
+    s = f"Adjuvant Graphical Model ({dp_type.upper()}):\n"
     s += (
-        f"(rho={rho:.6f}, rho_remaining={rho_remaining:.6f}, "
+        f"({bdg_label}={rho:.6f}, {bdg_label}_remaining={rho_remaining:.6f}, "
         f"theta_1w={theta_1w:.1f}, theta_2w={theta_2w:.1f}, em_z={em_z:.1f}, "
         f"{n_obs} observations)\n"
     )
@@ -1256,8 +1310,9 @@ def measure_cliques(
     n: int,
     rho3: float,
     sigma_floor: float = 1.0,
+    dp_type: str = "cdp",
 ) -> tuple[list, float]:
-    """Measure selected clique marginals with Gaussian noise.
+    """Measure selected clique marginals with DP noise.
 
     Returns (list of LinearObservation, sigma3)."""
     from ....graph.hugin import get_clique_domain, get_attrs as _get_attrs
@@ -1268,7 +1323,7 @@ def measure_cliques(
     if K == 0:
         return [], 0.0
 
-    sigma3 = 0.0 if rho3 <= 0 else sqrt(K / (2 * rho3))
+    sigma3 = 0.0 if rho3 <= 0 else _budget_to_sigma(rho3 / K, dp_type)
 
     # Build oracle requests from CliqueMeta
     requests = [_clique_to_request(cl) for cl in cliques_to_measure]
@@ -1291,7 +1346,7 @@ def measure_cliques(
 
         raw = result.astype(np.float64).ravel()
         if sigma3 > 0:
-            raw = raw + np.random.normal(0, sigma3, size=raw.size)
+            raw = _add_dp_noise(raw, sigma3, dp_type)
         raw = raw.clip(0)
         prob = raw.reshape(naive_dims)
 
@@ -1345,6 +1400,7 @@ def measure_edges(
     theta_2w: float,
     sigma_floor: float = 1.0,
     rho_extra: float = 0.0,
+    dp_type: str = "cdp",
 ) -> tuple[list, float]:
     """Measure 2-way marginals with per-edge noise calibrated to theta_2w.
 
@@ -1420,25 +1476,25 @@ def measure_edges(
     eff_theta = theta_2w
     if rho_extra > 0 and K > 0:
 
-        def _total_rho_2w(theta):
+        def _total_bdg_2w(theta):
             total = 0.0
             for dom in edge_doms:
-                r = compute_rho_for_theta(dom, n, theta, sigma_floor)
+                r = compute_budget_for_theta(dom, n, theta, sigma_floor, dp_type)
                 if r is not None:
                     total += r
             return total
 
-        base_rho = _total_rho_2w(theta_2w)
-        target_rho = base_rho + rho_extra
-        # Binary search for max theta that fits within target_rho
+        base_bdg = _total_bdg_2w(theta_2w)
+        target_bdg = base_bdg + rho_extra
+        # Binary search for max theta that fits within target budget
         lo, hi = theta_2w, theta_2w * 1000
         # First check if hi is enough
-        if _total_rho_2w(hi) <= target_rho:
+        if _total_bdg_2w(hi) <= target_bdg:
             eff_theta = hi
         else:
             for _ in range(64):
                 mid = (lo + hi) / 2
-                if _total_rho_2w(mid) <= target_rho:
+                if _total_bdg_2w(mid) <= target_bdg:
                     lo = mid
                 else:
                     hi = mid
@@ -1446,17 +1502,14 @@ def measure_edges(
         if eff_theta > theta_2w:
             logger.info(
                 f"Adjuvant: boosted theta_2w {theta_2w:.1f} -> {eff_theta:.1f} "
-                f"(rho_extra={rho_extra:.6f})"
+                f"(budget_extra={rho_extra:.6f})"
             )
 
-    # Compute per-edge sigma from effective theta
+    # Compute per-edge sigma from effective theta (sigma is mechanism-independent)
     edge_sigmas: list[float] = []
     for dom in edge_doms:
-        rho_edge = compute_rho_for_theta(dom, n, eff_theta, sigma_floor)
-        if rho_edge is not None and rho_edge > 0:
-            edge_sigmas.append(sqrt(1.0 / (2.0 * rho_edge)))
-        else:
-            edge_sigmas.append(0.0)
+        sigma = _sigma_for_theta(dom, n, eff_theta, sigma_floor)
+        edge_sigmas.append(sigma if sigma is not None else 0.0)
 
     obs_list = []
     max_sigma = 0.0
@@ -1489,7 +1542,7 @@ def measure_edges(
 
         raw = result.astype(np.float64).ravel()
         if sigma_edge > 0:
-            raw = raw + np.random.normal(0, sigma_edge, size=raw.size)
+            raw = _add_dp_noise(raw, sigma_edge, dp_type)
         raw = raw.clip(0)
         prob = raw.reshape(naive_dims)
 
@@ -1621,38 +1674,42 @@ def adjuvant_fit(
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     rescale: bool = True,
+    dp_type: str = "cdp",
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
-    Returns (all_obs, moral, rho_remaining) where all_obs is a list of
-    LinearObservation, moral is the moralized graph with structure-learning
-    edges, and rho_remaining is the unspent CDP budget."""
+    Budget parameter `rho` is rho (CDP) or epsilon (DP) depending on dp_type.
 
+    Returns (all_obs, moral, budget_remaining) where all_obs is a list of
+    LinearObservation, moral is the moralized graph with structure-learning
+    edges, and budget_remaining is the unspent budget."""
+
+    bdg_label = "rho" if dp_type == "cdp" else "eps"
     all_cols = get_col_names(attrs)
     hist_cols = get_hist_cols(all_cols)
     d = len(all_cols)
     h = n_hist_cols or len(hist_cols)
 
     # Step 0: Compute all 1-way and 2-way marginals
-    logger.info(f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows)")
+    logger.info(f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows, {dp_type})")
     cached = compute_all_marginals(oracle, attrs, all_cols)
 
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
-    rho1_max = ew_ratio * rho if rho > 0 else None
-    sigmas_1w, rho1, eff_theta_1w = compute_1way_budget(
-        cached, n, theta_1w, sigma_floor, rho1_max
+    bdg1_max = ew_ratio * rho if rho > 0 else None
+    sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
+        cached, n, theta_1w, sigma_floor, bdg1_max, dp_type
     )
     logger.info(
         f"Adjuvant Step 1: Noisy 1-way marginals "
-        f"(theta_1w={eff_theta_1w:.1f}, rho1={rho1:.6f})"
+        f"(theta_1w={eff_theta_1w:.1f}, {bdg_label}1={bdg1:.6f})"
     )
-    noisy_1way = add_noise_1way(cached, sigmas_1w)
+    noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type)
 
     # Step 2: Structure learning (remaining budget)
-    rho_avail = rho - rho1
+    bdg_avail = rho - bdg1
     logger.info(
         f"Adjuvant Step 2: Structure learning "
-        f"(rho_avail={rho_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
+        f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
     )
     tvd = compute_tvd(cached, attrs, all_cols)
     directed_graph = build_height_chain_graph(attrs)
@@ -1661,13 +1718,13 @@ def adjuvant_fit(
         f"nodes, {directed_graph.number_of_edges()} chain edges"
     )
 
-    moral, structure_edges, rho_remaining = structure_learn(
+    moral, structure_edges, bdg_remaining = structure_learn(
         directed_graph,
         attrs,
         tvd,
         n,
         size_penalty,
-        rho_avail,
+        bdg_avail,
         min_tvd,
         em_z=em_z,
         theta_2w=theta_2w,
@@ -1675,12 +1732,13 @@ def adjuvant_fit(
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
         max_clique_size=max_clique_size,
+        dp_type=dp_type,
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
     logger.info(
         f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
-        f"(theta_2w={theta_2w}, rho_remaining={rho_remaining:.6f})"
+        f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
     )
     edge_obs, max_sigma = measure_edges(
         oracle,
@@ -1690,7 +1748,8 @@ def adjuvant_fit(
         n,
         theta_2w,
         sigma_floor,
-        rho_extra=rho_remaining if rescale else 0.0,
+        rho_extra=bdg_remaining if rescale else 0.0,
+        dp_type=dp_type,
     )
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
     all_obs = edge_obs + oneway_obs
@@ -1699,7 +1758,7 @@ def adjuvant_fit(
         f"max_sigma_2w={max_sigma:.2f}"
     )
 
-    return all_obs, moral, rho_remaining
+    return all_obs, moral, bdg_remaining
 
 
 def adjuvant_run_md(

@@ -36,14 +36,19 @@ class AdjuvantMare(MareModel):
     Runs the full Adjuvant pipeline (structure learning + mirror descent)
     within a single MARE model version, including hist/parent columns
     as evidence for conditioned junction tree sampling.
+
+    dp_type controls the privacy mechanism:
+      "dp"  -> Laplace noise, epsilon budget (linear composition)
+      "cdp" -> Gaussian noise, rho budget (zCDP composition)
     """
 
-    dp_type: Literal["dp", "cdp"] = "cdp"
+    dp_type: Literal["dp", "cdp"] = "dp"
 
     def __init__(
         self,
         *,
         rho: float = 0.0,
+        etotal: float | None = None,
         ew_ratio: float = 0.4,
         theta_1w: float = 10,
         theta_2w: float = 2,
@@ -58,7 +63,8 @@ class AdjuvantMare(MareModel):
         seed: int | None = None,
         **kwargs,
     ) -> None:
-        self.rho = rho
+        # MARE passes rho= for CDP, etotal= for DP; accept either
+        self.budget = etotal if etotal is not None else rho
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.em_z = em_z
@@ -100,11 +106,11 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        all_obs, moral, rho_remaining = adjuvant_fit(
+        all_obs, moral, bdg_remaining = adjuvant_fit(
             oracle,
             attrs,
             n,
-            rho=self.rho,
+            rho=self.budget,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             em_z=self.em_z,
@@ -116,9 +122,10 @@ class AdjuvantMare(MareModel):
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
             rescale=self.rescale,
+            dp_type=self.dp_type,
         )
 
-        self.rho_remaining = rho_remaining
+        self.bdg_remaining = bdg_remaining
         self.all_obs = all_obs
         self.moral = moral
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
@@ -129,7 +136,7 @@ class AdjuvantMare(MareModel):
         # for evidence injection during sampling
         self._hist_evidence_meta = self._build_hist_evidence_meta(attrs)
 
-        return rho_remaining
+        return bdg_remaining
 
     def __str__(self) -> str:
         from .implementation import print_adjuvant
@@ -137,12 +144,13 @@ class AdjuvantMare(MareModel):
         return print_adjuvant(
             self.table_attrs,
             self.moral,
-            rho=self.rho,
-            rho_remaining=self.rho_remaining,
+            rho=self.budget,
+            rho_remaining=self.bdg_remaining,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             em_z=self.em_z,
             n_obs=len(self.all_obs),
+            dp_type=self.dp_type,
         )
 
     def _build_hist_evidence_meta(
@@ -291,6 +299,7 @@ class AdjuvantSynth(Synth):
     multimodal = False
     timeseries = False
     parallel = True
+    dp_type: Literal["dp", "cdp"] = "dp"
 
     def __init__(
         self,
@@ -382,11 +391,15 @@ class AdjuvantSynth(Synth):
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
         n = table.shape[0]
-        if self.delta == "tenth":
-            self.delta = 1.0 / (10 * n)
-            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         self.table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
-        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+
+        if self.dp_type == "cdp":
+            if self.delta == "tenth":
+                self.delta = 1.0 / (10 * n)
+                logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
+            budget = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+        else:
+            budget = self.e
 
         with MarginalOracle(
             data,
@@ -395,11 +408,11 @@ class AdjuvantSynth(Synth):
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            self.all_obs, self.moral, self.rho_remaining = adjuvant_fit(
+            self.all_obs, self.moral, self.bdg_remaining = adjuvant_fit(
                 oracle,
                 self.table_attrs,
                 n,
-                rho=rho,
+                rho=budget,
                 theta_1w=self.theta_1w,
                 theta_2w=self.theta_2w,
                 em_z=self.em_z,
@@ -409,6 +422,7 @@ class AdjuvantSynth(Synth):
                 sigma_floor=self.sigma_floor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
+                dp_type=self.dp_type,
             )
 
         self._run_md()
@@ -432,16 +446,20 @@ class AdjuvantSynth(Synth):
     def __str__(self) -> str:
         from .implementation import print_adjuvant, cdp_rho
 
-        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+        if self.dp_type == "cdp":
+            budget = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+        else:
+            budget = self.e
         return print_adjuvant(
             self.table_attrs,
             self.moral,
-            rho=rho,
-            rho_remaining=self.rho_remaining,
+            rho=budget,
+            rho_remaining=self.bdg_remaining,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             em_z=self.em_z,
             n_obs=len(self.all_obs),
+            dp_type=self.dp_type,
         )
 
     @make_deterministic("i")
@@ -459,3 +477,16 @@ class AdjuvantSynth(Synth):
             {self.table: df},
             partition=i if self.partitions > 1 else None,
         )
+
+
+class AdjuvantMareCdp(AdjuvantMare):
+    """AdjuvantMare using zCDP (Gaussian noise, rho budget)."""
+
+    dp_type: Literal["dp", "cdp"] = "cdp"
+
+
+class AdjuvantSynthCdp(AdjuvantSynth):
+    """AdjuvantSynth using zCDP (Gaussian noise, rho budget)."""
+
+    name = "adjuvant_cdp"
+    dp_type: Literal["dp", "cdp"] = "cdp"

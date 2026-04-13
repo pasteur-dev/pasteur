@@ -221,7 +221,7 @@ class MareSynth(Synth):
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
-        is_cdp = getattr(self.model_cls, "dp_type", "dp") == "cdp"
+        is_cdp = self.kwargs.get("dp_type", getattr(self.model_cls, "dp_type", "dp")) == "cdp"
 
         if self.delta == "tenth":
             self.delta = 1.0 / (10 * self._n)
