@@ -287,6 +287,41 @@ def create_cliques(
     return out
 
 
+class _ScatterInfo(NamedTuple):
+    """Pre-computed, sorted scatter indices for one message."""
+
+    # Combined gather index: selects + reorders proc rows so that
+    # the subsequent scatter writes are sequential (sorted by target group).
+    # If idx_a exists: gather_idx = idx_a[sort_perm]
+    # If idx_a is None: gather_idx = sort_perm (reorder identity rows)
+    gather_idx: torch.Tensor  # (n_pairs,) int64
+    # Sorted idx_b and its expansion for scatter ops
+    idx_b_sorted: torch.Tensor  # (n_pairs,) int64
+    idx_exp_sorted: torch.Tensor  # (n_pairs, rest_dom) int64
+
+
+class _MsgCache(NamedTuple):
+    """Pre-computed invariants for one message in the BP loop."""
+
+    a_idx: int
+    b_idx: int
+    blocked: bool  # whether sender is unobserved (block_unobserved mode)
+    sum_dims: tuple[int, ...]
+
+    # Index remapping (None if no remapping needed)
+    transpose: tuple[int, ...] | None
+    transpose_undo: tuple[int, ...] | None
+    a_idx_dom: int
+    b_idx_dom: int
+    rest_dom: int
+    idx_a_key: int | None  # index into self.idx_a ParameterList (non-scatter only)
+    scatter: _ScatterInfo | None  # pre-sorted scatter info (replaces idx_b + idx_exp)
+    new_shape: tuple[int, ...]  # shape after scatter, before final permute
+
+    # Final broadcast reshape
+    broadcast_shape: tuple[int, ...]
+
+
 class BeliefPropagation(torch.nn.Module):
     def __init__(
         self,
@@ -303,10 +338,138 @@ class BeliefPropagation(torch.nn.Module):
         self.observed = observed
         self.block_unobserved = block_unobserved
 
+        # Lazily populated on first forward() call once theta shapes are known.
+        self._cache: list[_MsgCache] | None = None
+        self._norm_dims: list[tuple[int, ...]] | None = None
+
+    def _apply(self, fn, recurse=True):
+        # Invalidate lazy cache on .to(device) / .cuda() / etc.
+        self._cache = None
+        return super()._apply(fn, recurse)
+
+    def _precompute(self, theta: Sequence[torch.Tensor]):
+        """Pre-compute all shape-dependent invariants from the first forward call."""
+        from math import prod
+
+        clique_shapes = [t.shape for t in theta]
+        cache: list[_MsgCache] = []
+
+        for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
+            blocked = (
+                self.block_unobserved
+                and self.observed is not None
+                and a_idx not in self.observed
+            )
+
+            src_shape = clique_shapes[a_idx]
+
+            # Shape after logsumexp: drop sum_dims
+            if m.sum_dims:
+                remaining = [
+                    d for d in range(len(src_shape)) if d not in m.sum_dims
+                ]
+                shape_after_lse = tuple(src_shape[d] for d in remaining)
+            else:
+                shape_after_lse = src_shape
+
+            arg = self.args[i]
+            transpose = transpose_undo = None
+            a_idx_dom = b_idx_dom = rest_dom = 0
+            idx_a_key: int | None = None
+            scatter: _ScatterInfo | None = None
+            new_shape: tuple[int, ...] = ()
+
+            if arg:
+                transpose = arg.transpose
+                transpose_undo = arg.transpose_undo
+
+                # Shape after permute
+                og_shape = tuple(shape_after_lse[j] for j in arg.transpose)
+                n_b = len(arg.b_doms)
+                a_idx_dom = prod(og_shape[:n_b]) if n_b > 0 else 1
+                b_idx_dom = prod(arg.b_doms) if arg.b_doms else 1
+                rest_dom = prod(og_shape[n_b:]) if n_b < len(og_shape) else 1
+
+                if arg.idx_b is not None:
+                    # Pre-sort indices by target group so scatter writes are
+                    # sequential (much better CPU cache behaviour).
+                    idx_b_tensor = self.idx_b[arg.idx_b]
+                    sort_perm = idx_b_tensor.argsort(stable=True)
+                    idx_b_sorted = idx_b_tensor[sort_perm]
+
+                    # Combine idx_a gather with sort permutation into one index
+                    if arg.idx_a is not None:
+                        gather_idx = self.idx_a[arg.idx_a][sort_perm]
+                    else:
+                        gather_idx = sort_perm
+
+                    idx_exp_sorted = idx_b_sorted.unsqueeze(1).expand(
+                        len(idx_b_sorted), rest_dom
+                    )
+                    scatter = _ScatterInfo(
+                        gather_idx=gather_idx,
+                        idx_b_sorted=idx_b_sorted,
+                        idx_exp_sorted=idx_exp_sorted,
+                    )
+                else:
+                    idx_a_key = arg.idx_a
+
+                new_shape = tuple(arg.b_doms) + og_shape[n_b:]
+
+            # Pre-compute broadcast reshape shape
+            if arg:
+                permuted = list(new_shape)
+                after_perm = [0] * len(permuted)
+                for j, p in enumerate(arg.transpose_undo):
+                    after_perm[j] = permuted[p]
+                proc_final_shape = tuple(after_perm)
+            else:
+                proc_final_shape = shape_after_lse
+
+            broadcast = []
+            ofs = 0
+            for is_common in m.reshape_dims:
+                if is_common:
+                    broadcast.append(proc_final_shape[ofs])
+                    ofs += 1
+                else:
+                    broadcast.append(1)
+            broadcast_shape = tuple(broadcast)
+
+            cache.append(
+                _MsgCache(
+                    a_idx=a_idx,
+                    b_idx=b_idx,
+                    blocked=blocked,
+                    sum_dims=m.sum_dims,
+                    transpose=transpose,
+                    transpose_undo=transpose_undo,
+                    a_idx_dom=a_idx_dom,
+                    b_idx_dom=b_idx_dom,
+                    rest_dom=rest_dom,
+                    idx_a_key=idx_a_key,
+                    scatter=scatter,
+                    new_shape=new_shape,
+                    broadcast_shape=broadcast_shape,
+                )
+            )
+
+        self._cache = cache
+        self._norm_dims = [
+            tuple(range(len(s))) for s in clique_shapes
+        ]
+
     def forward(self, theta: Sequence[torch.Tensor], debug: bool = False):
         theta = list(theta)
         if debug:
             print("A: ", [float(t.logsumexp(list(range(len(t.shape))))) for t in theta])
+
+        if self._cache is None:
+            self._precompute(theta)
+        cache = self._cache
+        assert cache is not None
+        norm_dims = self._norm_dims
+        assert norm_dims is not None
 
         with torch.no_grad():
             # Shafer-Shenoy: for message a→b, build belief at a from
@@ -315,81 +478,64 @@ class BeliefPropagation(torch.nn.Module):
             # subtraction of the Hugin algorithm.
             received: dict[int, list[tuple[torch.Tensor, int]]] = {}
 
-            for i, (m, (a_idx, b_idx)) in enumerate(zip(self.messages, self.idx)):
-                # For unobserved senders, skip their own potential entirely
-                # so they act as pure pass-throughs for messages from
-                # observed cliques, without injecting uninformed prior.
-                _block = (
-                    self.block_unobserved
-                    and self.observed is not None
-                    and a_idx not in self.observed
+            for mc in cache:
+                proc = (
+                    torch.zeros_like(theta[mc.a_idx])
+                    if mc.blocked
+                    else theta[mc.a_idx]
                 )
-                proc = torch.zeros_like(theta[a_idx]) if _block else theta[a_idx]
-                if a_idx in received:
-                    for msg, from_idx in received[a_idx]:
-                        if from_idx != b_idx:
+                if mc.a_idx in received:
+                    for msg, from_idx in received[mc.a_idx]:
+                        if from_idx != mc.b_idx:
                             proc = proc + msg
 
-                if m.sum_dims:
-                    proc = torch.logsumexp(proc, dim=m.sum_dims)
+                if mc.sum_dims:
+                    proc = torch.logsumexp(proc, dim=mc.sum_dims)
 
-                arg = self.args[i]
-                if arg:
-                    proc = proc.permute(arg.transpose)
-                    og_shape = proc.shape
+                if mc.transpose is not None:
+                    proc = proc.permute(mc.transpose)
+                    proc = proc.reshape((mc.a_idx_dom, -1))
 
-                    a_idx_dom = reduce(lambda a, b: a * b, og_shape[: len(arg.b_doms)])
-                    b_idx_dom = reduce(lambda a, b: a * b, arg.b_doms)
-                    rest_dom = reduce(
-                        lambda a, b: a * b, og_shape[len(arg.b_doms) :], 1
-                    )
+                    if mc.scatter is not None:
+                        # Gather + sort in one step: selects source rows and
+                        # reorders them so scatter target indices are sorted,
+                        # giving sequential write access.
+                        sc = mc.scatter
+                        proc = torch.index_select(proc, 0, sc.gather_idx)
+                        b_rest = (mc.b_idx_dom, mc.rest_dom)
 
-                    proc = proc.reshape((a_idx_dom, -1))
-                    if arg.idx_a is not None:
-                        proc = torch.index_select(proc, 0, self.idx_a[arg.idx_a])
-                    if arg.idx_b is not None:
-                        # Stable scatter logsumexp: subtract per-group max
-                        # before exp to avoid float32 underflow, then add back.
-                        idx_b = self.idx_b[arg.idx_b]
-                        idx_exp = idx_b.unsqueeze(1).expand_as(proc)
-                        max_vals = proc.new_full(
-                            (b_idx_dom, rest_dom), float("-inf")
-                        )
+                        # Stable scatter logsumexp
+                        max_vals = proc.new_full(b_rest, float("-inf"))
                         max_vals.scatter_reduce_(
-                            0, idx_exp, proc, reduce="amax", include_self=True
+                            0, sc.idx_exp_sorted, proc,
+                            reduce="amax", include_self=True,
                         )
-                        shifted = proc - max_vals.gather(0, idx_exp)
-                        shifted = shifted.nan_to_num(0.0)  # -inf - (-inf) -> 0
-                        result = proc.new_zeros((b_idx_dom, rest_dom))
-                        result.index_add_(0, idx_b, shifted.exp())
+                        shifted = proc - max_vals.gather(0, sc.idx_exp_sorted)
+                        shifted = shifted.nan_to_num(0.0)
+                        result = proc.new_zeros(b_rest)
+                        result.index_add_(0, sc.idx_b_sorted, shifted.exp())
                         proc = result.log() + max_vals
+                    elif mc.idx_a_key is not None:
+                        proc = torch.index_select(
+                            proc, 0, self.idx_a[mc.idx_a_key]
+                        )
 
-                    new_shape = list(arg.b_doms) + list(og_shape[len(arg.b_doms) :])
-                    proc = proc.reshape(new_shape).permute(arg.transpose_undo)
+                    proc = proc.reshape(mc.new_shape).permute(mc.transpose_undo)
 
-                # Broadcast reshape to target clique shape
-                shape = proc.shape
-                new_shape = []
-                ofs = 0
-                for is_common in m.reshape_dims:
-                    if is_common:
-                        new_shape.append(shape[ofs])
-                        ofs += 1
-                    else:
-                        new_shape.append(1)
-                proc = proc.reshape(new_shape)
+                proc = proc.reshape(mc.broadcast_shape)
 
                 if debug:
                     print(
-                        a_idx,
-                        b_idx,
-                        proc.logsumexp(list(range(len(proc.shape)))).cpu().numpy(),
-                        m.forward,
+                        mc.a_idx,
+                        mc.b_idx,
+                        proc.logsumexp(
+                            list(range(len(proc.shape)))
+                        ).cpu().numpy(),
                     )
 
-                if b_idx not in received:
-                    received[b_idx] = []
-                received[b_idx].append((proc, a_idx))
+                if mc.b_idx not in received:
+                    received[mc.b_idx] = []
+                received[mc.b_idx].append((proc, mc.a_idx))
 
             # Compute final beliefs: original potential + all received messages
             theta = list(theta)
@@ -402,10 +548,13 @@ class BeliefPropagation(torch.nn.Module):
             if debug:
                 print(
                     "Z: ",
-                    [float(t.logsumexp(list(range(len(t.shape))))) for t in theta],
+                    [
+                        float(t.logsumexp(list(range(len(t.shape)))))
+                        for t in theta
+                    ],
                 )
             for i in range(len(theta)):
-                Z = theta[i].logsumexp(list(range(len(theta[i].shape))))
+                Z = theta[i].logsumexp(norm_dims[i])
                 theta[i] = theta[i] - Z
 
         return theta
