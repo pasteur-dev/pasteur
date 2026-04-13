@@ -378,6 +378,7 @@ class AdjuvantSynth(Synth):
     def __init__(
         self,
         e: float = 2.0,
+        etotal: float | None = None,
         delta: float = 1e-9,
         e1_frac: float = 0.2,
         e2_frac: float = 0.1,
@@ -396,7 +397,10 @@ class AdjuvantSynth(Synth):
         mirror_descent: dict | None = None,
         **kwargs,
     ) -> None:
-        self.e = e
+        if etotal is not None:
+            self.e = etotal
+        else:
+            self.e = e
         self.delta = delta
         self.e1_frac = e1_frac
         self.e2_frac = e2_frac
