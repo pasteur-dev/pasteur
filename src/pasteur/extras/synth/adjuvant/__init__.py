@@ -296,7 +296,7 @@ class AdjuvantSynth(Synth):
         self,
         e: float = 2.0,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         ew_ratio: float = 0.7,
         theta_1w: float = 50,
         theta_2w: float = 2,
@@ -382,6 +382,9 @@ class AdjuvantSynth(Synth):
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
         n = table.shape[0]
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         self.table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
         rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
 

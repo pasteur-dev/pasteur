@@ -112,7 +112,7 @@ class MareSynth(Synth):
         max_vers: int = 20,
         rebalance: bool = False,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         accountant: bool = True,
         no_seq: bool = False,
         no_hist: bool = False,
@@ -222,6 +222,10 @@ class MareSynth(Synth):
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
         is_cdp = getattr(self.model_cls, "dp_type", "dp") == "cdp"
+
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * self._n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={self._n})")
 
         # For CDP this is rho, for DP this is epsilon
         if self.etotal:
