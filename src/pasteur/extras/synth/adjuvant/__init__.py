@@ -45,9 +45,9 @@ class AdjuvantMare(MareModel):
         *,
         rho: float = 0.0,
         ew_ratio: float = 0.4,
-        theta_1w: float = 50,
+        theta_1w: float = 10,
         theta_2w: float = 2,
-        em_z: float = 4.0,
+        em_z: float = 1.0,
         size_penalty: float = 0,
         min_tvd: float = 0.05,
         sigma_floor: float = 1.0,
@@ -253,9 +253,8 @@ class AdjuvantMare(MareModel):
                     if val_name not in hist_df.columns:
                         continue
                     raw_vals = hist_df[val_name].to_numpy()
-                    val_meta = attr[val_name]
-                    assert isinstance(val_meta, CatValue)
-                    mapping = np.array(val_meta.get_mapping(h), dtype=np.int64)
+                    # Use attribute-level mapping to handle common values
+                    mapping = np.array(attr.get_mapping(sel), dtype=np.int64)
                     evidence[(ci, di)] = mapping[raw_vals]
                 else:
                     # Multi-value dim: combine per-value mappings
