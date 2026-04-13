@@ -50,6 +50,7 @@ class AdjuvantMare(MareModel):
         size_penalty: float = 0.1,
         min_tvd: float = 0.05,
         theta: float = 4,
+        sigma_floor: float = 1.0,
         mirror_descent: dict | None = None,
         seed: int | None = None,
         **kwargs,
@@ -65,6 +66,7 @@ class AdjuvantMare(MareModel):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.theta = theta
+        self.sigma_floor = sigma_floor
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -138,11 +140,14 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        # Theta filter: exclude edges whose 2-way domain exceeds what e3 can
-        # support.  Worst case: d measurements with rho3 budget.
-        # sigma3_worst = sqrt(d / (2*rho3)), max_dom = n / (theta * sigma3_worst)
-        if self.theta > 0 and rho3 > 0 and d > 0:
-            max_edge_dom = n * sqrt(2 * rho3 / d) / self.theta
+        # Theta filter: exclude edges whose 2-way domain exceeds what the
+        # effective noise level can support.  sigma_eff combines DP noise
+        # (worst case: d measurements with rho3 budget) and the Poisson
+        # sampling floor (self.sigma_floor) in quadrature.
+        if self.theta > 0:
+            sigma3_worst = sqrt(d / (2 * rho3)) if rho3 > 0 and d > 0 else 0.0
+            sigma3_eff = sqrt(sigma3_worst ** 2 + self.sigma_floor ** 2)
+            max_edge_dom = n / (self.theta * sigma3_eff)
         else:
             max_edge_dom = None
 
@@ -168,9 +173,9 @@ class AdjuvantMare(MareModel):
             f"marginals (rho3={rho3:.4f})"
         )
         edge_obs, sigma3 = measure_edges(
-            oracle, structure_edges, moral, attrs, n, rho3
+            oracle, structure_edges, moral, attrs, n, rho3, self.sigma_floor
         )
-        oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigma1)
+        oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigma1, self.sigma_floor)
         all_obs = edge_obs + oneway_obs
 
         # ==================================================
@@ -380,6 +385,7 @@ class AdjuvantSynth(Synth):
         size_penalty: float = 0,
         min_tvd: float = 0.05,
         theta: float = 4,
+        sigma_floor: float = 1.0,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -398,6 +404,7 @@ class AdjuvantSynth(Synth):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.theta = theta
+        self.sigma_floor = sigma_floor
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -506,11 +513,14 @@ class AdjuvantSynth(Synth):
                 f"nodes, {directed_graph.number_of_edges()} chain edges"
             )
 
-            # Theta filter: exclude edges whose 2-way domain exceeds what e3 can
-            # support.  Worst case: d measurements with rho3 budget.
-            # sigma3_worst = sqrt(d / (2*rho3)), max_dom = n / (theta * sigma3_worst)
-            if self.theta > 0 and rho3 > 0 and d > 0:
-                max_edge_dom = n * sqrt(2 * rho3 / d) / self.theta
+            # Theta filter: exclude edges whose 2-way domain exceeds what the
+            # effective noise level can support.  sigma_eff combines DP noise
+            # (worst case: d measurements with rho3 budget) and the Poisson
+            # sampling floor (self.sigma_floor) in quadrature.
+            if self.theta > 0:
+                sigma3_worst = sqrt(d / (2 * rho3)) if rho3 > 0 and d > 0 else 0.0
+                sigma3_eff = sqrt(sigma3_worst ** 2 + self.sigma_floor ** 2)
+                max_edge_dom = n / (self.theta * sigma3_eff)
             else:
                 max_edge_dom = None
 
@@ -538,9 +548,9 @@ class AdjuvantSynth(Synth):
             )
 
             edge_obs, sigma3 = measure_edges(
-                oracle, structure_edges, moral, table_attrs, n, rho3
+                oracle, structure_edges, moral, table_attrs, n, rho3, self.sigma_floor
             )
-            oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigma1)
+            oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigma1, self.sigma_floor)
             self.all_obs = edge_obs + oneway_obs
             self.moral = moral
             self.table_attrs = table_attrs

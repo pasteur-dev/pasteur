@@ -133,14 +133,14 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
     return (attr_name, sel)
 
 
-def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
+def calc_confidence(n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0) -> float:
     """Calculate observation confidence from sample size, noise scale, and domain size.
 
     Returns a value in (0, 1] indicating how much to trust the noisy marginal
-    relative to the prior.  When sigma is 0 (no noise) confidence is 1."""
-    if sigma <= 0:
-        return 1.0
-    return n / (n + sigma * dom)
+    relative to the prior.  Uses sqrt(sigma^2 + sigma_floor^2) to account for
+    both DP noise and inherent sampling noise (Poisson floor)."""
+    sigma_eff = sqrt(sigma * sigma + sigma_floor * sigma_floor)
+    return n / (n + sigma_eff * dom)
 
 
 # ============================================================
@@ -929,6 +929,7 @@ def measure_cliques(
     attrs: DatasetAttributes,
     n: int,
     rho3: float,
+    sigma_floor: float = 1.0,
 ) -> tuple[list, float]:
     """Measure selected clique marginals with Gaussian noise.
 
@@ -938,10 +939,10 @@ def measure_cliques(
     from ....graph.beliefs import convert_sel
 
     K = len(cliques_to_measure)
-    if K == 0 or rho3 <= 0:
+    if K == 0:
         return [], 0.0
 
-    sigma3 = sqrt(K / (2 * rho3))
+    sigma3 = 0.0 if rho3 <= 0 else sqrt(K / (2 * rho3))
 
     # Build oracle requests from CliqueMeta
     requests = [_clique_to_request(cl) for cl in cliques_to_measure]
@@ -1004,7 +1005,7 @@ def measure_cliques(
         prob = (prob / s if s > 0 else prob).astype(np.float32)
 
         dom = get_clique_domain(clique, attrs)
-        confidence = n / (n + sigma3 * dom)
+        confidence = calc_confidence(n, sigma3, dom, sigma_floor)
         obs_list.append(LinearObservation(clique, None, prob, confidence))
 
     return obs_list, sigma3
@@ -1017,6 +1018,7 @@ def measure_edges(
     attrs: DatasetAttributes,
     n: int,
     rho3: float,
+    sigma_floor: float = 1.0,
 ) -> tuple[list, float]:
     """Measure 2-way marginals for structure-learning edges with Gaussian noise.
 
@@ -1027,10 +1029,10 @@ def measure_edges(
 
     edges = list(structure_edges)
     K = len(edges)
-    if K == 0 or rho3 <= 0:
+    if K == 0:
         return [], 0.0
 
-    sigma3 = sqrt(K / (2 * rho3))
+    sigma3 = 0.0 if rho3 <= 0 else sqrt(K / (2 * rho3))
 
     # Build oracle requests and CliqueMeta for each edge.
     # Columns from the same attribute are merged into a single AttrMeta
@@ -1131,7 +1133,7 @@ def measure_edges(
         prob = (prob / s if s > 0 else prob).astype(np.float32)
 
         dom = get_clique_domain(source_tuple, attrs)
-        confidence = calc_confidence(n, sigma3, dom)
+        confidence = calc_confidence(n, sigma3, dom, sigma_floor)
         obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
     return obs_list, sigma3
@@ -1142,6 +1144,7 @@ def build_1way_observations(
     attrs: DatasetAttributes,
     n: int,
     sigma1: float,
+    sigma_floor: float = 1.0,
 ) -> list:
     """Build per-column LinearObservation objects from noisy 1-way marginals.
 
@@ -1162,7 +1165,7 @@ def build_1way_observations(
         s = raw.sum()
         prob = (raw / s if s > 0 else raw).astype(np.float32)
         dom = len(raw)
-        confidence = calc_confidence(n, sigma1, dom)
+        confidence = calc_confidence(n, sigma1, dom, sigma_floor)
         obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
