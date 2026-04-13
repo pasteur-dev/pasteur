@@ -562,6 +562,7 @@ def structure_learn(
     min_tvd: float,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
+    max_edge_dom: float | None = None,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism.
 
@@ -589,6 +590,26 @@ def structure_learn(
     candidates, col_pair_map = generate_candidates(directed_graph, frozen_nodes)
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
+
+    # Theta pre-filter: mark candidates whose 2-way domain exceeds max_edge_dom
+    cand_valid = np.ones(len(candidates), dtype=bool)
+    if max_edge_dom is not None:
+        from ....graph.hugin import get_attrs as _get_attrs_theta
+
+        n_filtered = 0
+        for idx, (na, nb) in enumerate(candidates):
+            da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
+            val_a = cast(CatValue, _get_attrs_theta(attrs, da["table"], da["order"])[da["attr"]][da["value"]])
+            val_b = cast(CatValue, _get_attrs_theta(attrs, db["table"], db["order"])[db["attr"]][db["value"]])
+            dom = val_a.get_domain(da["height"]) * val_b.get_domain(db["height"])
+            if dom > max_edge_dom:
+                cand_valid[idx] = False
+                n_filtered += 1
+        if n_filtered:
+            logger.info(
+                f"Adjuvant: theta filter excluded {n_filtered}/{len(candidates)} "
+                f"candidates (max_edge_dom={max_edge_dom:.0f})"
+            )
 
     # Per-column edge limits
     d = len(set(c for pair in col_pair_map for c in pair))
@@ -632,10 +653,13 @@ def structure_learn(
             raise e
 
         # Filter to active candidates:
+        # - not excluded by theta filter
         # - column pair not yet connected
         # - neither column saturated (reached max edges)
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
+            if not cand_valid[idx]:
+                continue
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
             col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
             col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
@@ -758,6 +782,8 @@ def structure_learn(
             col_cands: list[tuple[int, str, str]] = []
             col_scores: list[float] = []
             for idx, (na, nb) in enumerate(candidates):
+                if not cand_valid[idx]:
+                    continue
                 da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
                 ca: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
                 cb: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])

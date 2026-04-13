@@ -49,6 +49,7 @@ class AdjuvantMare(MareModel):
         e3_frac: float = 0.7,
         size_penalty: float = 0.1,
         min_tvd: float = 0.05,
+        theta: float = 4,
         mirror_descent: dict | None = None,
         seed: int | None = None,
         **kwargs,
@@ -63,6 +64,7 @@ class AdjuvantMare(MareModel):
         self.e3_frac = e3_frac
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
+        self.theta = theta
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -75,6 +77,8 @@ class AdjuvantMare(MareModel):
         attrs: DatasetAttributes,
         oracle: MarginalOracle,
     ):
+        from math import sqrt
+
         from .implementation import (
             compute_all_marginals,
             add_noise_1way,
@@ -134,6 +138,14 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
+        # Theta filter: exclude edges whose 2-way domain exceeds what e3 can
+        # support.  Worst case: d measurements with rho3 budget.
+        # sigma3_worst = sqrt(d / (2*rho3)), max_dom = n / (theta * sigma3_worst)
+        if self.theta > 0 and rho3 > 0 and d > 0:
+            max_edge_dom = n * sqrt(2 * rho3 / d) / self.theta
+        else:
+            max_edge_dom = None
+
         moral, structure_edges, rho2_remaining = structure_learn(
             directed_graph,
             attrs,
@@ -144,6 +156,7 @@ class AdjuvantMare(MareModel):
             self.min_tvd,
             frozen_nodes=frozen_nodes,
             n_hist_cols=h,
+            max_edge_dom=max_edge_dom,
         )
         rho3 += rho2_remaining
 
@@ -366,6 +379,7 @@ class AdjuvantSynth(Synth):
         e3_frac: float = 0.7,
         size_penalty: float = 0.1,
         min_tvd: float = 0.05,
+        theta: float = 4,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -383,6 +397,7 @@ class AdjuvantSynth(Synth):
         self.e3_frac = e3_frac
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
+        self.theta = theta
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -428,6 +443,8 @@ class AdjuvantSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
+        from math import sqrt
+
         from .implementation import (
             compute_all_marginals,
             add_noise_1way,
@@ -489,6 +506,14 @@ class AdjuvantSynth(Synth):
                 f"nodes, {directed_graph.number_of_edges()} chain edges"
             )
 
+            # Theta filter: exclude edges whose 2-way domain exceeds what e3 can
+            # support.  Worst case: d measurements with rho3 budget.
+            # sigma3_worst = sqrt(d / (2*rho3)), max_dom = n / (theta * sigma3_worst)
+            if self.theta > 0 and rho3 > 0 and d > 0:
+                max_edge_dom = n * sqrt(2 * rho3 / d) / self.theta
+            else:
+                max_edge_dom = None
+
             moral, structure_edges, rho2_remaining = structure_learn(
                 directed_graph,
                 table_attrs,
@@ -497,6 +522,7 @@ class AdjuvantSynth(Synth):
                 self.size_penalty,
                 rho2,
                 self.min_tvd,
+                max_edge_dom=max_edge_dom,
             )
             rho3 += rho2_remaining
             logger.info(
