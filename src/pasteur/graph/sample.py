@@ -350,6 +350,11 @@ def _extract_h0(
     for dim_idx, a_meta in enumerate(cl):
         if dim_idx not in clique_vals:
             continue
+        # Only extract main-table dims into output columns.
+        # Hist-table dims (a_meta.table is not None) use a different encoding
+        # and should not overwrite main-table values.
+        if a_meta.table is not None:
+            continue
 
         combined_idx = clique_vals[dim_idx]
         sel = convert_sel(a_meta.sel)
@@ -436,48 +441,52 @@ def sample_junction_tree(
         for di, ev in zip(root_ev_dims, root_ev_vals):
             root_dims[di] = ev
 
-        # Group by evidence values
-        if len(root_ev_vals) == 1:
-            root_group_keys = root_ev_vals[0].astype(np.int64)
+        if not root_sample_dims:
+            # All dims are evidence — nothing to sample
+            clique_vals[meta.root] = root_dims
         else:
-            root_group_keys = np.zeros(n, dtype=np.int64)
-            mul = 1
-            for sv, dom in zip(root_ev_vals, root_ev_domains):
-                root_group_keys += sv.astype(np.int64) * mul
-                mul *= dom
+            # Group by evidence values
+            if len(root_ev_vals) == 1:
+                root_group_keys = root_ev_vals[0].astype(np.int64)
+            else:
+                root_group_keys = np.zeros(n, dtype=np.int64)
+                mul = 1
+                for sv, dom in zip(root_ev_vals, root_ev_domains):
+                    root_group_keys += sv.astype(np.int64) * mul
+                    mul *= dom
 
-        root_out_dims: dict[int, np.ndarray] = {}
-        for d in root_sample_dims:
-            root_out_dims[d] = np.empty(n, dtype=get_dtype(max(1, root_p.shape[d] - 1)))
+            root_out_dims: dict[int, np.ndarray] = {}
+            for d in root_sample_dims:
+                root_out_dims[d] = np.empty(n, dtype=get_dtype(max(1, root_p.shape[d] - 1)))
 
-        root_cond_dim_list = _cond_dims(root_sample_dims, root_ev_dims)
+            root_cond_dim_list = _cond_dims(root_sample_dims, root_ev_dims)
 
-        for gk in np.unique(root_group_keys):
-            row_mask = root_group_keys == gk
-            group_n = int(row_mask.sum())
+            for gk in np.unique(root_group_keys):
+                row_mask = root_group_keys == gk
+                group_n = int(row_mask.sum())
 
-            idx = [slice(None)] * len(root_p.shape)
-            remaining = int(gk)
-            for sd, dom in zip(root_ev_dims, root_ev_domains):
-                idx[sd] = remaining % dom
-                remaining //= dom
+                idx = [slice(None)] * len(root_p.shape)
+                remaining = int(gk)
+                for sd, dom in zip(root_ev_dims, root_ev_domains):
+                    idx[sd] = remaining % dom
+                    remaining //= dom
 
-            conditional = root_p[tuple(idx)]
-            cond_flat = conditional.ravel()
-            cond_sum = cond_flat.sum()
-            if cond_sum < 1e-12:
-                cond_flat = np.ones_like(cond_flat)
+                conditional = root_p[tuple(idx)]
+                cond_flat = conditional.ravel()
                 cond_sum = cond_flat.sum()
-            cond_flat /= cond_sum
+                if cond_sum < 1e-12:
+                    cond_flat = np.ones_like(cond_flat)
+                    cond_sum = cond_flat.sum()
+                cond_flat /= cond_sum
 
-            group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
-            group_per_dim = np.unravel_index(group_indices, conditional.shape)
-            for j, dim_idx in enumerate(root_sample_dims):
-                root_out_dims[dim_idx][row_mask] = group_per_dim[root_cond_dim_list[j]]
+                group_indices = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
+                group_per_dim = np.unravel_index(group_indices, conditional.shape)
+                for j, dim_idx in enumerate(root_sample_dims):
+                    root_out_dims[dim_idx][row_mask] = group_per_dim[root_cond_dim_list[j]]
 
-        for di, arr in root_out_dims.items():
-            root_dims[di] = arr
-        clique_vals[meta.root] = root_dims
+            for di, arr in root_out_dims.items():
+                root_dims[di] = arr
+            clique_vals[meta.root] = root_dims
 
     _extract_h0(meta.root, meta, attrs, clique_vals[meta.root], out)
 

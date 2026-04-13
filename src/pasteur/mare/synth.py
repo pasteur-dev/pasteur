@@ -278,7 +278,7 @@ class MareSynth(Synth):
                     if is_cdp:
                         adj_budget = budgets[ver] / (sens ** 2)
                         logger.info(
-                            f"Using rho budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
+                            f"Using rho budget {budgets[ver]:.5f}/{budget_remaining_init:.5f} with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
                         )
                         kwargs["rho"] = adj_budget
                     else:
@@ -318,7 +318,7 @@ class MareSynth(Synth):
                 else:
                     n = ver.ver.rows
 
-                rho_returned = model.fit(ver.ver.rows, ver.ver.name, attrs, o)
+                rho_returned = model.fit(n, ver.ver.name, attrs, o)
                 self.models[ver] = model
 
                 if not self.accountant and self.etotal and rho_returned is not None:
