@@ -1005,14 +1005,6 @@ def structure_learn(
     pbar.close()
     rho_remaining = rho_avail - rho_em - rho_committed
 
-    # Diagnostic: show top unconnected column pairs by TVD
-    candidate_cols = set(c for pair in col_pair_map for c in pair)
-    all_pairs_tvd: list[tuple[float, Col, Col]] = []
-    for (ca, cb), val_arr in tvd.items():
-        if ca < cb and ca in candidate_cols and cb in candidate_cols:
-            all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
-    all_pairs_tvd.sort(reverse=True)
-
     logger.info(
         f"Adjuvant: structure learning done, "
         + f"{len(structure_edges)} edges, "
@@ -1024,7 +1016,36 @@ def structure_learn(
             else "no budget tracking"
         )
     )
-    logger.info("Adjuvant: Connected column pairs (by TVD):")
+
+    diag = format_tvd_diagnostic(
+        tvd, structure_edges, connected_pairs, col_pair_map,
+        directed_graph, moral, attrs, min_tvd,
+    )
+    for line in diag.splitlines():
+        logger.info(line)
+
+    return moral, structure_edges, rho_remaining
+
+
+def format_tvd_diagnostic(
+    tvd: dict[tuple[Col, Col], np.ndarray],
+    structure_edges: set[frozenset[str]],
+    connected_pairs: set[tuple[Col, Col]],
+    col_pair_map: dict,
+    directed_graph: "nx.DiGraph",
+    moral: "nx.Graph",
+    attrs: DatasetAttributes,
+    min_tvd: float,
+) -> str:
+    """Format TVD diagnostic showing connected and missing column pairs."""
+    candidate_cols = set(c for pair in col_pair_map for c in pair)
+    all_pairs_tvd: list[tuple[float, Col, Col]] = []
+    for (ca, cb), val_arr in tvd.items():
+        if ca < cb and ca in candidate_cols and cb in candidate_cols:
+            all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
+    all_pairs_tvd.sort(reverse=True)
+
+    lines = ["Connected column pairs (by TVD):"]
     for val, ca, cb in all_pairs_tvd:
         pair = tuple(sorted([ca, cb]))
         if pair in connected_pairs:
@@ -1055,7 +1076,7 @@ def structure_learn(
                     )
                     tvd_arr = tvd.get((col_a_t, col_b_t))
                     tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
-                    logger.info(
+                    lines.append(
                         f"  CONNECTED TVD={tvd_at_h:.4f}{f'/{val:.4f}' if ha != 0 or hb != 0 else ''} "
                         f"{_fmt_edge(ena, enb, moral, attrs)}"
                     )
@@ -1063,13 +1084,94 @@ def structure_learn(
         elif val >= min_tvd:
             _, _, ca_attr, ca_val = ca
             _, _, cb_attr, cb_val = cb
-            logger.info(
+            lines.append(
                 f"    MISSING TVD={val:.4f} "
                 f"{ca_attr + '.' if ca_attr != ca_val else ''}{ca_val} x "
                 f"{cb_attr + '.' if cb_attr != cb_val else ''}{cb_val}"
             )
 
-    return moral, structure_edges, rho_remaining
+    return "\n".join(lines)
+
+
+def print_adjuvant(
+    attrs: DatasetAttributes,
+    moral: "nx.Graph",
+    rho: float,
+    rho_remaining: float,
+    theta_1w: float,
+    theta_2w: float,
+    em_z: float,
+    n_obs: int,
+) -> str:
+    """Format a summary string for an Adjuvant model."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    s = "Adjuvant Graphical Model:\n"
+    s += (
+        f"(rho={rho:.6f}, rho_remaining={rho_remaining:.6f}, "
+        f"theta_1w={theta_1w:.1f}, theta_2w={theta_2w:.1f}, em_z={em_z:.1f}, "
+        f"{n_obs} observations)\n"
+    )
+
+    # Collect structure-learning edges
+    structure_edges: list[tuple[str, str]] = []
+    for na, nb, data in moral.edges(data=True):
+        if data.get("structure"):
+            structure_edges.append((na, nb))
+
+    if not structure_edges:
+        s += "No structure-learning edges.\n"
+        return s
+
+    # Format edge table
+    edge_len = 55
+    s += f"┌{'─' * 8}┬{'─' * edge_len}┐\n"
+    s += f"│{'TVD':>7s} │ {'Edge':{edge_len - 2}s} │\n"
+    s += f"├{'─' * 8}┼{'─' * edge_len}┤\n"
+
+    edge_info: list[tuple[float, str]] = []
+    for na, nb in structure_edges:
+        da, db = moral.nodes[na], moral.nodes[nb]
+
+        val_a = cast(
+            CatValue, _get_attrs(attrs, da.get("table"), da.get("order"))[da["attr"]][da["value"]]
+        )
+        val_b = cast(
+            CatValue, _get_attrs(attrs, db.get("table"), db.get("order"))[db["attr"]][db["value"]]
+        )
+        dom_a = val_a.get_domain(da["height"])
+        dom_b = val_b.get_domain(db["height"])
+
+        def _node_str(d):
+            if d["attr"] != d["value"]:
+                return f"{d['attr']}.{d['value'].replace(d['attr'] + '_', '')}[{d['height']}]"
+            return f"{d['value']}[{d['height']}]"
+
+        edge_str = f"{_node_str(da)} x {_node_str(db)} ({dom_a}x{dom_b}={dom_a * dom_b})"
+        edge_info.append((0.0, edge_str))
+
+    edge_info.sort(key=lambda x: -x[0])
+    for tvd_val, edge_str in edge_info:
+        s += f"│ {tvd_val:6.4f} │ {edge_str:{edge_len - 2}s} │\n"
+
+    s += f"└{'─' * 8}┴{'─' * edge_len}┘\n"
+
+    # Multi-value attrs
+    tattrs = cast(Attributes, attrs[None])
+    if any(len(attr.vals) > 1 for attr in tattrs.values()):
+        tlen = max(len(name) for name in tattrs) + 1
+        s += f"┌{'─' * tlen}┬{'─' * 6}┬{'─' * 40}┐\n"
+        s += f"│{'Multi-Val Attrs':>{tlen - 1}s} │  Cmn │ {'Values':<38s} │\n"
+        s += f"├{'─' * tlen}┼{'─' * 6}┼{'─' * 40}┤\n"
+        for name, attr in tattrs.items():
+            if len(attr.vals) <= 1:
+                continue
+            cmn = str(attr.common.domain) if attr.common else "NIL"
+            vals_str = " ".join(attr.vals.keys())
+            s += f"│{name:>{tlen - 1}s} │ {cmn:>4s} │ {vals_str:<38s} │\n"
+        s += f"└{'─' * tlen}┴{'─' * 6}┴{'─' * 40}┘\n"
+
+    return s
 
 
 # ============================================================

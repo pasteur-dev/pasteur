@@ -119,6 +119,8 @@ class AdjuvantMare(MareModel):
         )
 
         self.rho_remaining = rho_remaining
+        self.all_obs = all_obs
+        self.moral = moral
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
             all_obs, attrs, moral, self.md_params
         )
@@ -128,6 +130,20 @@ class AdjuvantMare(MareModel):
         self._hist_evidence_meta = self._build_hist_evidence_meta(attrs)
 
         return rho_remaining
+
+    def __str__(self) -> str:
+        from .implementation import print_adjuvant
+
+        return print_adjuvant(
+            self.table_attrs,
+            self.moral,
+            rho=self.rho,
+            rho_remaining=self.rho_remaining,
+            theta_1w=self.theta_1w,
+            theta_2w=self.theta_2w,
+            em_z=self.em_z,
+            n_obs=len(self.all_obs),
+        )
 
     def _build_hist_evidence_meta(
         self, attrs: DatasetAttributes
@@ -410,6 +426,21 @@ class AdjuvantSynth(Synth):
             self.md_params = kwargs["mirror_descent"]
 
         self._run_md()
+
+    def __str__(self) -> str:
+        from .implementation import print_adjuvant, cdp_rho
+
+        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+        return print_adjuvant(
+            self.table_attrs,
+            self.moral,
+            rho=rho,
+            rho_remaining=self.rho_remaining,
+            theta_1w=self.theta_1w,
+            theta_2w=self.theta_2w,
+            em_z=self.em_z,
+            n_obs=len(self.all_obs),
+        )
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
