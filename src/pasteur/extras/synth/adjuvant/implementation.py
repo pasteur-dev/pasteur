@@ -1773,6 +1773,22 @@ def adjuvant_run_md(
         mirror_descent,
     )
 
+    # If all observations are 1-way (no edge obs), skip MD entirely.
+    # Each 1-way obs is already a valid potential for its single-column clique.
+    has_multiway = any(len(obs.source) > 1 for obs in all_obs)
+    if not has_multiway:
+        logger.info(
+            f"Adjuvant: only 1-way observations ({len(all_obs)}), "
+            f"skipping junction tree and mirror descent"
+        )
+        cliques = [obs.source for obs in all_obs]
+        potentials = [obs.obs for obs in all_obs]
+        # Junction tree: isolated nodes (one per clique, no edges)
+        junction = nx.Graph()
+        for cl in cliques:
+            junction.add_node(cl)
+        return junction, cliques, potentials
+
     md = {**MIRROR_DESCENT_DEFAULT, **md_params}
     md.pop("compress", None)
     md.pop("sample", None)
