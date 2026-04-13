@@ -4,7 +4,7 @@ Combines PrivMRF-style greedy edge addition (scored by noisy pairwise TVD)
 with PrivBayes-style height-chain nodes and exponential mechanism selection.
 Fits clique potentials via mirror descent and samples from the junction tree.
 
-Budget allocation: e1 (scaling), e2 (structure learning), e3 (measurement + fitting).
+Budget allocation: theta_1w (1-way marginals), theta_2w + em_z (structure learning + measurement).
 """
 
 from __future__ import annotations
@@ -44,12 +44,12 @@ class AdjuvantMare(MareModel):
         etotal: float | None = None,
         e: float = 2.0,
         delta: float = 1e-9,
-        e1_frac: float = 0.2,
-        e2_frac: float = 0.1,
-        e3_frac: float = 0.7,
+        theta_1w: float = 20,
+        theta_2w: float = 4,
+        em_z: float = 2.0,
+        ew_ratio: float = 0.8,
         size_penalty: float = 0.1,
         min_tvd: float = 0.05,
-        theta: float = 4,
         sigma_floor: float = 1.0,
         mirror_descent: dict | None = None,
         seed: int | None = None,
@@ -60,12 +60,12 @@ class AdjuvantMare(MareModel):
         else:
             self.e = e
         self.delta = delta
-        self.e1_frac = e1_frac
-        self.e2_frac = e2_frac
-        self.e3_frac = e3_frac
+        self.theta_1w = theta_1w
+        self.theta_2w = theta_2w
+        self.em_z = em_z
+        self.ew_ratio = ew_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
-        self.theta = theta
         self.sigma_floor = sigma_floor
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
@@ -79,10 +79,9 @@ class AdjuvantMare(MareModel):
         attrs: DatasetAttributes,
         oracle: MarginalOracle,
     ):
-        from math import sqrt
-
         from .implementation import (
             compute_all_marginals,
+            compute_1way_budget,
             add_noise_1way,
             compute_tvd,
             build_height_chain_graph,
@@ -98,9 +97,6 @@ class AdjuvantMare(MareModel):
 
         # Privacy budget (e <= 0 means no DP)
         rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
-        rho1 = self.e1_frac * rho
-        rho2 = self.e2_frac * rho
-        rho3 = self.e3_frac * rho
 
         all_cols = get_col_names(attrs)
         hist_cols = get_hist_cols(all_cols)
@@ -117,15 +113,26 @@ class AdjuvantMare(MareModel):
         cached = compute_all_marginals(oracle, attrs, all_cols)
 
         # ==================================================
-        # Step 1: Noisy 1-way marginals (budget e1)
+        # Step 1: Noisy 1-way marginals (budget from theta_1w)
         # ==================================================
-        logger.info(f"AdjuvantMare Step 1: Noisy 1-way marginals (rho1={rho1:.4f})")
-        noisy_1way, sigma1 = add_noise_1way(cached, rho1)
+        rho1_max = self.ew_ratio * rho if rho > 0 else None
+        sigmas_1w, rho1, eff_theta_1w = compute_1way_budget(
+            cached, n, self.theta_1w, self.sigma_floor, rho1_max
+        )
+        logger.info(
+            f"AdjuvantMare Step 1: Noisy 1-way marginals "
+            f"(theta_1w={eff_theta_1w:.1f}, rho1={rho1:.6f})"
+        )
+        noisy_1way = add_noise_1way(cached, sigmas_1w)
 
         # ==================================================
-        # Step 2: Structure learning (budget e2)
+        # Step 2: Structure learning + measurement (remaining budget)
         # ==================================================
-        logger.info(f"AdjuvantMare Step 2: Structure learning (rho2={rho2:.4f})")
+        rho_avail = rho - rho1
+        logger.info(
+            f"AdjuvantMare Step 2: Structure learning "
+            f"(rho_avail={rho_avail:.6f}, em_z={self.em_z}, theta_2w={self.theta_2w})"
+        )
         tvd = compute_tvd(cached)
         directed_graph = build_height_chain_graph(attrs)
         logger.info(
@@ -140,53 +147,33 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        # Theta filter: exclude edges whose 2-way domain exceeds what the
-        # effective noise can support.  sigma_eff combines DP noise (worst
-        # case: d measurements with rho3 budget) and uniform-bin sampling
-        # noise (variance = n/(dom * sigma_floor)) in quadrature.
-        # Solving sigma_eff * dom = n/theta for dom gives:
-        #   sigma_dp^2 * dom^2 + (n/sf) * dom - (n/theta)^2 = 0
-        if self.theta > 0:
-            sw2 = d / (2 * rho3) if rho3 > 0 and d > 0 else 0.0  # sigma3_worst^2
-            c = (n / self.theta) ** 2
-            if self.sigma_floor > 0:
-                b = n / self.sigma_floor
-                if sw2 > 0:
-                    max_edge_dom = (-b + sqrt(b * b + 4 * sw2 * c)) / (2 * sw2)
-                else:
-                    max_edge_dom = c / b  # n * sigma_floor / theta^2
-            elif sw2 > 0:
-                max_edge_dom = sqrt(c / sw2)  # n / (theta * sigma_worst)
-            else:
-                max_edge_dom = None
-        else:
-            max_edge_dom = None
-
-        moral, structure_edges, rho2_remaining = structure_learn(
+        moral, structure_edges, rho_remaining = structure_learn(
             directed_graph,
             attrs,
             tvd,
             n,
             self.size_penalty,
-            rho2,
+            rho_avail,
             self.min_tvd,
+            em_z=self.em_z,
+            theta_2w=self.theta_2w,
+            sigma_floor=self.sigma_floor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=h,
-            max_edge_dom=max_edge_dom,
         )
-        rho3 += rho2_remaining
 
         # ==================================================
-        # Step 3: Measure edge marginals (budget e3)
+        # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
         # ==================================================
         logger.info(
             f"AdjuvantMare Step 3: Measuring {len(structure_edges)} edge "
-            f"marginals (rho3={rho3:.4f})"
+            f"marginals (theta_2w={self.theta_2w}, rho_remaining={rho_remaining:.6f})"
         )
-        edge_obs, sigma3 = measure_edges(
-            oracle, structure_edges, moral, attrs, n, rho3, self.sigma_floor
+        edge_obs, max_sigma = measure_edges(
+            oracle, structure_edges, moral, attrs, n, self.theta_2w, self.sigma_floor,
+            rho_extra=rho_remaining,
         )
-        oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigma1, self.sigma_floor)
+        oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, self.sigma_floor)
         all_obs = edge_obs + oneway_obs
 
         # ==================================================
@@ -391,12 +378,12 @@ class AdjuvantSynth(Synth):
         e: float = 2.0,
         etotal: float | None = None,
         delta: float = 1e-9,
-        e1_frac: float = 0.2,
-        e2_frac: float = 0.1,
-        e3_frac: float = 0.7,
+        theta_1w: float = 50,
+        theta_2w: float = 4,
+        em_z: float = 2.0,
+        ew_ratio: float = 0.8,
         size_penalty: float = 0,
         min_tvd: float = 0.05,
-        theta: float = 4,
         sigma_floor: float = 1.0,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
@@ -413,12 +400,12 @@ class AdjuvantSynth(Synth):
         else:
             self.e = e
         self.delta = delta
-        self.e1_frac = e1_frac
-        self.e2_frac = e2_frac
-        self.e3_frac = e3_frac
+        self.theta_1w = theta_1w
+        self.theta_2w = theta_2w
+        self.em_z = em_z
+        self.ew_ratio = ew_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
-        self.theta = theta
         self.sigma_floor = sigma_floor
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
@@ -465,10 +452,9 @@ class AdjuvantSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
-        from math import sqrt
-
         from .implementation import (
             compute_all_marginals,
+            compute_1way_budget,
             add_noise_1way,
             compute_tvd,
             build_height_chain_graph,
@@ -488,9 +474,6 @@ class AdjuvantSynth(Synth):
 
         # Privacy budget (e <= 0 means no DP)
         rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
-        rho1 = self.e1_frac * rho
-        rho2 = self.e2_frac * rho
-        rho3 = self.e3_frac * rho
 
         all_cols = get_col_names(table_attrs)
         d = len(all_cols)
@@ -512,15 +495,26 @@ class AdjuvantSynth(Synth):
             cached = compute_all_marginals(oracle, table_attrs, all_cols)
 
             # ==================================================
-            # Step 1: Noisy 1-way marginals (budget e1)
+            # Step 1: Noisy 1-way marginals (budget from theta_1w)
             # ==================================================
-            logger.info(f"Adjuvant Step 1: Noisy 1-way marginals (rho1={rho1:.4f})")
-            noisy_1way, sigma1 = add_noise_1way(cached, rho1)
+            rho1_max = self.ew_ratio * rho if rho > 0 else None
+            sigmas_1w, rho1, eff_theta_1w = compute_1way_budget(
+                cached, n, self.theta_1w, self.sigma_floor, rho1_max
+            )
+            logger.info(
+                f"Adjuvant Step 1: Noisy 1-way marginals "
+                f"(theta_1w={eff_theta_1w:.1f}, rho1={rho1:.6f})"
+            )
+            noisy_1way = add_noise_1way(cached, sigmas_1w)
 
             # ==================================================
-            # Step 2: Structure learning (budget e2)
+            # Step 2: Structure learning + measurement (remaining budget)
             # ==================================================
-            logger.info(f"Adjuvant Step 2: Structure learning (rho2={rho2:.4f})")
+            rho_avail = rho - rho1
+            logger.info(
+                f"Adjuvant Step 2: Structure learning "
+                f"(rho_avail={rho_avail:.6f}, em_z={self.em_z}, theta_2w={self.theta_2w})"
+            )
             tvd = compute_tvd(cached)
             directed_graph = build_height_chain_graph(table_attrs)
             logger.info(
@@ -528,61 +522,37 @@ class AdjuvantSynth(Synth):
                 f"nodes, {directed_graph.number_of_edges()} chain edges"
             )
 
-            # Theta filter: exclude edges whose 2-way domain exceeds what the
-            # effective noise can support.  sigma_eff combines DP noise (worst
-            # case: d measurements with rho3 budget) and uniform-bin sampling
-            # noise (variance = n/(dom * sigma_floor)) in quadrature.
-            # Solving sigma_eff * dom = n/theta for dom gives:
-            #   sigma_dp^2 * dom^2 + (n/sf) * dom - (n/theta)^2 = 0
-            if self.theta > 0:
-                sw2 = d / (2 * rho3) if rho3 > 0 and d > 0 else 0.0  # sigma3_worst^2
-                c = (n / self.theta) ** 2
-                if self.sigma_floor > 0:
-                    b = n / self.sigma_floor
-                    if sw2 > 0:
-                        max_edge_dom = (-b + sqrt(b * b + 4 * sw2 * c)) / (2 * sw2)
-                    else:
-                        max_edge_dom = c / b  # n * sigma_floor / theta^2
-                elif sw2 > 0:
-                    max_edge_dom = sqrt(c / sw2)  # n / (theta * sigma_worst)
-                else:
-                    max_edge_dom = None
-            else:
-                max_edge_dom = None
-
-            moral, structure_edges, rho2_remaining = structure_learn(
+            moral, structure_edges, rho_remaining = structure_learn(
                 directed_graph,
                 table_attrs,
                 tvd,
                 n,
                 self.size_penalty,
-                rho2,
+                rho_avail,
                 self.min_tvd,
-                max_edge_dom=max_edge_dom,
-            )
-            rho3 += rho2_remaining
-            logger.info(
-                f"Adjuvant: rho2 leftover {rho2_remaining:.4f} -> rho3 now {rho3:.4f}"
+                em_z=self.em_z,
+                theta_2w=self.theta_2w,
+                sigma_floor=self.sigma_floor,
             )
 
             # ==================================================
-            # Step 3: Measure 2-way marginals for structure-learning edges
+            # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
             # ==================================================
             logger.info(
                 f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
-                f"(rho3={rho3:.4f})"
+                f"(theta_2w={self.theta_2w}, rho_remaining={rho_remaining:.6f})"
             )
 
-            edge_obs, sigma3 = measure_edges(
-                oracle, structure_edges, moral, table_attrs, n, rho3, self.sigma_floor
+            edge_obs, max_sigma = measure_edges(
+                oracle, structure_edges, moral, table_attrs, n, self.theta_2w, self.sigma_floor
             )
-            oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigma1, self.sigma_floor)
+            oneway_obs = build_1way_observations(noisy_1way, table_attrs, n, sigmas_1w, self.sigma_floor)
             self.all_obs = edge_obs + oneway_obs
             self.moral = moral
             self.table_attrs = table_attrs
             logger.info(
                 f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
-                f"sigma3={sigma3:.2f}, sigma1={sigma1:.2f}"
+                f"max_sigma_2w={max_sigma:.2f}"
             )
 
         self._run_md()

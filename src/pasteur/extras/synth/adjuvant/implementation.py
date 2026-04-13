@@ -38,9 +38,9 @@ def _cdp_delta(rho: float, eps: float) -> float:
             amin = alpha
         else:
             amax = alpha
-    delta = exp(
-        (alpha - 1) * (alpha * rho - eps) + alpha * log1p(-1 / alpha)
-    ) / (alpha - 1.0)
+    delta = exp((alpha - 1) * (alpha * rho - eps) + alpha * log1p(-1 / alpha)) / (
+        alpha - 1.0
+    )
     return min(delta, 1.0)
 
 
@@ -56,6 +56,26 @@ def cdp_rho(eps: float, delta: float) -> float:
         else:
             rhomax = rho
     return rhomin
+
+
+def compute_rho_for_theta(
+    dom: int, n: int | float, theta: float, sigma_floor: float
+) -> float | None:
+    """Compute rho budget to achieve confidence theta/(theta+1) for a marginal of domain `dom`.
+
+    The target is sigma_eff * dom = n / theta, where
+    sigma_eff^2 = sigma_dp^2 + n/(dom * sigma_floor).
+
+    Returns rho = 1/(2*sigma_dp^2), or None if unachievable
+    (sampling noise alone exceeds the target)."""
+    if theta <= 0 or dom <= 0:
+        return 0.0
+    target_seff2 = (n / (theta * dom)) ** 2
+    sampling_var = n / (dom * sigma_floor) if sigma_floor > 0 else 0.0
+    sigma_dp2 = target_seff2 - sampling_var
+    if sigma_dp2 <= 0:
+        return None
+    return 1.0 / (2.0 * sigma_dp2)
 
 
 def exponential_mechanism(
@@ -133,7 +153,9 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
     return (attr_name, sel)
 
 
-def calc_confidence(n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0) -> float:
+def calc_confidence(
+    n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0
+) -> float:
     """Calculate observation confidence from sample size, noise scale, and domain size.
 
     Uses a uniform-bin model for sampling noise: each cell has probability
@@ -172,10 +194,7 @@ def compute_all_marginals(
     """Batch-query all 1-way and 2-way true marginals in one oracle call."""
     requests_1 = [[_col_sel(c, attrs)] for c in all_cols]
     pairs = list(itertools.combinations(all_cols, 2))
-    requests_2 = [
-        [_col_sel(c1, attrs), _col_sel(c2, attrs)]
-        for c1, c2 in pairs
-    ]
+    requests_2 = [[_col_sel(c1, attrs), _col_sel(c2, attrs)] for c1, c2 in pairs]
 
     results = oracle.process(requests_1 + requests_2, postprocess=None)
 
@@ -193,23 +212,73 @@ def compute_all_marginals(
 # ============================================================
 # Step 1: Noisy 1-way marginals
 # ============================================================
+def compute_1way_budget(
+    cached: CachedMarginals,
+    n: int | float,
+    theta_1w: float,
+    sigma_floor: float,
+    rho_max: float | None = None,
+) -> tuple[dict[Col, float], float, float]:
+    """Compute per-column DP noise sigma and total rho for 1-way marginals.
+
+    Each column gets noise calibrated so that its confidence achieves theta_1w.
+    If total rho exceeds rho_max, theta_1w is reduced via binary search.
+
+    Returns (sigma_per_col, total_rho1, effective_theta_1w)."""
+
+    def _total_rho(theta):
+        total = 0.0
+        for mar in cached.one_way.values():
+            rho = compute_rho_for_theta(mar.size, n, theta, sigma_floor)
+            if rho is not None:
+                total += rho
+        return total
+
+    # Check if requested theta_1w fits within budget
+    rho1 = _total_rho(theta_1w)
+    if rho_max is not None and rho1 > rho_max and rho_max > 0:
+        # Binary search for max achievable theta
+        lo, hi = 1.0, theta_1w
+        for _ in range(64):
+            mid = (lo + hi) / 2
+            if _total_rho(mid) <= rho_max:
+                lo = mid
+            else:
+                hi = mid
+        theta_1w = lo
+        rho1 = _total_rho(theta_1w)
+        logger.info(
+            f"Adjuvant: theta_1w capped to {theta_1w:.1f} "
+            f"(rho1={rho1:.6f}, rho_max={rho_max:.6f})"
+        )
+
+    # Compute per-column sigma_dp
+    sigmas: dict[Col, float] = {}
+    for col, mar in cached.one_way.items():
+        rho = compute_rho_for_theta(mar.size, n, theta_1w, sigma_floor)
+        if rho is not None and rho > 0:
+            sigmas[col] = sqrt(1.0 / (2.0 * rho))
+        else:
+            sigmas[col] = 0.0
+
+    return sigmas, rho1, theta_1w
+
+
 def add_noise_1way(
     cached: CachedMarginals,
-    rho1: float,
-) -> tuple[dict[Col, np.ndarray], float]:
-    """Add Gaussian noise to 1-way marginals with budget rho1.
+    sigmas: dict[Col, float],
+) -> dict[Col, np.ndarray]:
+    """Add Gaussian noise to 1-way marginals with per-column sigma.
 
-    Returns (noisy_marginals, sigma1)."""
-    d = len(cached.one_way)
-    if rho1 <= 0 or d == 0:
-        return {k: v.copy() for k, v in cached.one_way.items()}, 0.0
-
-    sigma = sqrt(d / (2 * rho1))
-    noisy = {
-        col: mar + np.random.normal(0, sigma, size=mar.size)
-        for col, mar in cached.one_way.items()
-    }
-    return noisy, sigma
+    Returns noisy_marginals."""
+    noisy = {}
+    for col, mar in cached.one_way.items():
+        sigma = sigmas.get(col, 0.0)
+        if sigma > 0:
+            noisy[col] = mar + np.random.normal(0, sigma, size=mar.size)
+        else:
+            noisy[col] = mar.copy()
+    return noisy
 
 
 # ============================================================
@@ -482,7 +551,9 @@ def _fmt_node(node: str, g, attrs) -> str:
     from ....graph.hugin import get_attrs as _get_attrs
 
     d = g.nodes[node]
-    val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
+    val = cast(
+        CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]]
+    )
     dom = val.get_domain(d["height"])
     return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}] (dom={dom})"
 
@@ -493,9 +564,14 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
 
     def _info(node):
         d = g.nodes[node]
-        val = cast(CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]])
+        val = cast(
+            CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]]
+        )
         dom = val.get_domain(d["height"])
-        return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}]", dom
+        return (
+            f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}]",
+            dom,
+        )
 
     a_str, a_dom = _info(na)
     b_str, b_dom = _info(nb)
@@ -519,7 +595,9 @@ def compute_edge_weight(
         dom_h = val.get_domain(h)
         return 1 / dom_h if dom_h > 0 else 1.0
 
-    return 1 / (1 + (_weight_for_node(node_a) * _weight_for_node(node_b))*size_penalty)
+    return 1 / (
+        1 + (_weight_for_node(node_a) * _weight_for_node(node_b)) * size_penalty
+    )
 
 
 def score_graph(
@@ -560,33 +638,59 @@ def score_graph(
 # ============================================================
 # Step 2d: Structure learning main loop
 # ============================================================
+def _compute_cand_edge_rho(
+    idx: int,
+    candidates: list[tuple[str, str]],
+    directed_graph: nx.DiGraph,
+    attrs: DatasetAttributes,
+    n: int | float,
+    theta_2w: float,
+    sigma_floor: float,
+) -> float:
+    """Compute the measurement rho cost for candidate edge at index idx.
+
+    Returns float('inf') if the edge cannot achieve theta_2w confidence."""
+    from ....graph.hugin import get_attrs as _ga
+
+    na, nb = candidates[idx]
+    da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
+    val_a = cast(
+        CatValue, _ga(attrs, da["table"], da["order"])[da["attr"]][da["value"]]
+    )
+    val_b = cast(
+        CatValue, _ga(attrs, db["table"], db["order"])[db["attr"]][db["value"]]
+    )
+    dom = val_a.get_domain(da["height"]) * val_b.get_domain(db["height"])
+    rho = compute_rho_for_theta(dom, n, theta_2w, sigma_floor)
+    return rho if rho is not None else float("inf")
+
+
 def structure_learn(
     directed_graph: nx.DiGraph,
     attrs: DatasetAttributes,
     tvd: dict[tuple[Col, Col], float],
     n: int,
     size_penalty: float,
-    rho2_exp: float,
+    rho_avail: float,
     min_tvd: float,
+    em_z: float,
+    theta_2w: float,
+    sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
-    max_edge_dom: float | None = None,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
-    """Greedy edge addition with exponential mechanism.
+    """Greedy edge addition with exponential mechanism and budget tracking.
 
-    Operates at column (table, order, attr, value) granularity.  Forces at
-    least one edge per column.
+    Each EM step costs a fixed rho derived from em_z.  Each selected edge
+    commits measurement budget derived from theta_2w and the edge's domain.
+    The loop exits when the remaining budget cannot cover the next step.
 
-    If ``frozen_nodes`` is provided, edges between two frozen nodes (hist-hist)
-    are excluded from candidates.
-
-    When ``n_hist_cols > 0``, the per-column edge limit uses sqrt(h+d) instead
-    of sqrt(d) so that data columns can connect to hist columns.
+    Forces at least one edge per column (budget permitting).
 
     Returns:
         moral: Undirected moralized graph with structure-learning edges added.
         structure_edges: Set of frozenset node pairs for structure-learning edges.
-        rho2_exp_remaining: Unspent exponential mechanism budget.
+        rho_remaining: Unspent budget (for measurement + leftover).
     """
     from ....graph.hugin import to_moral, get_factor_domain
     from ....utils.progress import piter, check_exit
@@ -599,25 +703,28 @@ def structure_learn(
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # Theta pre-filter: mark candidates whose 2-way domain exceeds max_edge_dom
-    cand_valid = np.ones(len(candidates), dtype=bool)
-    if max_edge_dom is not None:
-        from ....graph.hugin import get_attrs as _get_attrs_theta
+    # EM uses the real TVD sensitivity (2/n) for the mechanism call,
+    # giving a high discrimination factor (em_z * n / N_cands).
+    # Budget cost uses eps = em_z * 4/N_cands, scaling with candidate count.
+    sensitivity = 2.0 / n
 
-        n_filtered = 0
-        for idx, (na, nb) in enumerate(candidates):
-            da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            val_a = cast(CatValue, _get_attrs_theta(attrs, da["table"], da["order"])[da["attr"]][da["value"]])
-            val_b = cast(CatValue, _get_attrs_theta(attrs, db["table"], db["order"])[db["attr"]][db["value"]])
-            dom = val_a.get_domain(da["height"]) * val_b.get_domain(db["height"])
-            if dom > max_edge_dom:
-                cand_valid[idx] = False
-                n_filtered += 1
-        if n_filtered:
-            logger.info(
-                f"Adjuvant: theta filter excluded {n_filtered}/{len(candidates)} "
-                f"candidates (max_edge_dom={max_edge_dom:.0f})"
-            )
+    # Pre-compute per-candidate measurement rho and theta-filter
+    cand_rho_edge = np.empty(len(candidates))
+    cand_valid = np.ones(len(candidates), dtype=bool)
+    n_filtered = 0
+    for idx in range(len(candidates)):
+        rho = _compute_cand_edge_rho(
+            idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor
+        )
+        cand_rho_edge[idx] = rho
+        if np.isinf(rho):
+            cand_valid[idx] = False
+            n_filtered += 1
+    if n_filtered:
+        logger.info(
+            f"Adjuvant: theta_2w filter excluded {n_filtered}/{len(candidates)} "
+            f"candidates (unachievable at theta_2w={theta_2w})"
+        )
 
     # Per-column edge limits
     d = len(set(c for pair in col_pair_map for c in pair))
@@ -630,8 +737,18 @@ def structure_learn(
     saturated_cols: set[Col] = set()
 
     max_steps = d * (max_edges_per_col // 2 + 1)
-    eps_per_step = sqrt(8 * rho2_exp / max_steps) if max_steps > 0 and rho2_exp > 0 else 0
-    rho_spent = 0.0
+    rho_em = 0.0  # cumulative EM selection budget spent
+    rho_committed = 0.0  # cumulative edge measurement budget committed
+
+    def _em_cost(n_cands: int) -> tuple[float, float]:
+        """Compute (eps, rho) for EM over n_cands candidates.
+
+        eps = em_z * 4 / n_cands; the EM call uses sensitivity = 2/n
+        giving discrimination factor em_z * n / n_cands."""
+        if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
+            return 0.0, 0.0
+        eps = em_z * 4.0 / n_cands
+        return eps, eps * eps / 8.0
 
     pbar = piter(
         None,
@@ -653,6 +770,7 @@ def structure_learn(
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
+    exhausted = True
     for it in range(max_steps):
         try:
             check_exit()
@@ -687,51 +805,61 @@ def structure_learn(
             )
             break
 
-        # Cache base triangulation and clique info for this iteration
-        base_tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
-        base_cliques = list(nx.find_cliques(base_tri))
+        # --- Two-pass EM cost + affordability filter ---
+        # Pass 1: estimate EM cost from full active set
+        _, rho_em_est = _em_cost(len(active))
+        rho_after_em = rho_avail - rho_em - rho_committed - rho_em_est
 
-        # Node-to-cliques index (for same-clique fast path)
-        node_to_cliques: dict[str, list[int]] = {}
-        for ci, cl in enumerate(base_cliques):
-            for node in cl:
-                node_to_cliques.setdefault(node, []).append(ci)
-
-        # Score each candidate: TVD * edge_weight
-        scores = np.full(len(active), float("-inf"))
-        for i, (idx, na, nb) in enumerate(active):
-            scores[i] = cand_tvd_boost[idx]
-
-        # Check if any valid candidate exists
-        valid_mask = np.isfinite(scores)
-        if not np.any(valid_mask):
-            n_same = sum(1 for i, (idx, na, nb) in enumerate(active)
-                         if set(node_to_cliques.get(na, [])) & set(node_to_cliques.get(nb, [])))
-            n_cross = len(active) - n_same
+        if rho_avail > 0 and rho_after_em < 0:
             logger.info(
-                f"Adjuvant: exit (no valid candidates) at iter {it}. "
-                f"active={len(active)} (same_clq={n_same}, cross_clq={n_cross}), "
-                f"edges={len(structure_edges)}"
+                f"Adjuvant: exit (budget exhausted) at iter {it}. "
+                f"rho_avail={rho_avail:.6f}, rho_em={rho_em:.6f}, "
+                f"rho_committed={rho_committed:.6f}"
+            )
+            exhausted = True
+            break
+
+        # Drop candidates whose edge measurement exceeds the remaining budget
+        if rho_avail > 0:
+            affordable = [
+                (idx, na, nb)
+                for idx, na, nb in active
+                if cand_rho_edge[idx] <= rho_after_em
+            ]
+        else:
+            affordable = active
+
+        if not affordable:
+            exhausted = True
+            logger.info(
+                f"Adjuvant: exit (no affordable candidates) at iter {it}. "
+                f"active={len(active)}, rho_after_em={rho_after_em:.6f}"
             )
             break
 
-        # Exponential mechanism selection among valid candidates + "stop" option.
-        valid_indices = np.where(valid_mask)[0]
-        valid_scores = scores[valid_mask]
+        # Pass 2: recompute EM cost with the filtered candidate count
+        eps_step, rho_em_step = _em_cost(len(affordable))
 
-        sensitivity = 2.0 / n
-        log_n_boost = 2 * sensitivity * np.log(max(len(valid_scores), 1)) / eps_per_step if eps_per_step > 0 else 0
-        em_scores = np.append(valid_scores, min_tvd + log_n_boost if min_tvd else 0)
-        stop_idx = len(valid_scores)
+        # Score affordable candidates
+        scores = np.array([cand_tvd_boost[idx] for idx, _, _ in affordable])
 
-        if eps_per_step > 0:
-            sensitivity = 2.0 / n  # TVD sensitivity
-            sel = exponential_mechanism(em_scores, eps_per_step, sensitivity)
-            rho_spent += eps_per_step ** 2 / 8
+        # Exponential mechanism selection among affordable candidates + "stop" option.
+        log_n_boost = (
+            2 * sensitivity * np.log(max(len(scores), 1)) / eps_step
+            if eps_step > 0
+            else 0
+        )
+        em_scores = np.append(scores, min_tvd + log_n_boost if min_tvd else 0)
+        stop_idx = len(scores)
+
+        if eps_step > 0:
+            sel = exponential_mechanism(em_scores, eps_step, sensitivity)
+            rho_em += rho_em_step
         else:
             sel = int(np.argmax(em_scores))
 
         if sel == stop_idx:
+            # Selected one of the N stop slots
             logger.info(
                 f"Adjuvant: exit (EM picked stop option, min_tvd={min_tvd}) "
                 f"at iter {it}, edges={len(structure_edges)}"
@@ -739,11 +867,13 @@ def structure_learn(
             pbar.update(1)
             break
 
-        _, na, nb = active[valid_indices[sel]]
+        cand_idx, na, nb = affordable[sel]
+        edge_rho = cand_rho_edge[cand_idx]
 
         # Accept edge
         moral.add_edge(na, nb, structure=True)
         structure_edges.add(frozenset([na, nb]))
+        rho_committed += edge_rho
 
         # Update column pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
@@ -760,35 +890,40 @@ def structure_learn(
             saturated_cols.add(col_b)
 
         logger.info(
-            f"Adj. iter {it+1:3d}/{max_steps} (score={scores[valid_indices[sel]]:.4f}): "
+            f"Adj. iter {it+1:3d}/{max_steps} "
+            f"(score={scores[sel]:.4f}, "
+            f"rho_edge={edge_rho:.6f}, "
+            f"budget={rho_avail - rho_em - rho_committed:.6f}): "
             f"{_fmt_edge(na, nb, moral, attrs)}"
         )
 
         pbar.set_description(
             f"Adjuvant structure [{len(structure_edges)} edges, "
-            f"score={scores[valid_indices[sel]]:.4f}]"
+            f"score={scores[sel]:.4f}]"
         )
         pbar.update(1)
 
     pbar.close()
 
-    # Force at least one edge per column: for any column with 0 edges,
-    # use exponential mechanism to pick an edge (budget from leftover steps)
+    # Force at least one edge per column (budget permitting)
     all_cols_in_graph: set[Col] = set()
     for node, data in directed_graph.nodes(data=True):
         if not data.get("is_common", False):
-            all_cols_in_graph.add((data.get("table"), data.get("order"), data["attr"], data["value"]))
+            all_cols_in_graph.add(
+                (data.get("table"), data.get("order"), data["attr"], data["value"])
+            )
 
     disconnected = all_cols_in_graph - set(col_edge_count.keys())
-    if disconnected:
+    if disconnected and not exhausted:
         logger.info(
             f"Adjuvant: forcing edges for {len(disconnected)} disconnected cols: "
             f"{disconnected}"
         )
         for col in disconnected:
-            # Gather candidates involving this column
+            # Gather affordable candidates involving this column
             col_cands: list[tuple[int, str, str]] = []
             col_scores: list[float] = []
+            rho_budget = rho_avail - rho_em - rho_committed
             for idx, (na, nb) in enumerate(candidates):
                 if not cand_valid[idx]:
                     continue
@@ -800,19 +935,28 @@ def structure_learn(
                 pair = tuple(sorted([ca, cb]))
                 if pair in connected_pairs:
                     continue
+                if rho_avail > 0 and cand_rho_edge[idx] > rho_budget:
+                    continue
                 col_cands.append((idx, na, nb))
                 col_scores.append(cand_tvd_boost[idx])
 
             if not col_cands:
                 continue
 
+            eps_forced, rho_em_forced = _em_cost(len(col_cands))
+
+            # Budget check for EM + cheapest edge
+            if rho_avail > 0 and rho_em_forced > rho_budget:
+                logger.info(f"Adj. skip forced edges (budget exhausted)")
+                break
+
             # Add stop option: if all candidates are below min_tvd, skip
             scores_arr = np.append(np.array(col_scores), min_tvd)
             forced_stop_idx = len(col_scores)
 
-            if eps_per_step > 0:
-                sel = exponential_mechanism(scores_arr, eps_per_step, 2.0 / n)
-                rho_spent += eps_per_step ** 2 / 8
+            if eps_forced > 0:
+                sel = exponential_mechanism(scores_arr, eps_forced, sensitivity)
+                rho_em += rho_em_forced
             else:
                 sel = int(np.argmax(scores_arr))
 
@@ -820,9 +964,17 @@ def structure_learn(
                 logger.info(f"Adj. skip forced edge for {col} (below min_tvd)")
                 continue
 
-            _, na, nb = col_cands[sel]
+            cand_idx, na, nb = col_cands[sel]
+            edge_rho = cand_rho_edge[cand_idx]
+
+            # Final budget check for this edge's measurement
+            if rho_avail > 0 and rho_em + rho_committed + edge_rho > rho_avail:
+                logger.info(f"Adj. skip forced edge for {col} (budget exhausted)")
+                continue
+
             moral.add_edge(na, nb, structure=True)
             structure_edges.add(frozenset([na, nb]))
+            rho_committed += edge_rho
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
             col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
             col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
@@ -830,12 +982,14 @@ def structure_learn(
             connected_pairs.add(pair)
             col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
             col_edge_count[col_b] = col_edge_count.get(col_b, 0) + 1
-            logger.info(f"Adj. forced edge: {_fmt_edge(na, nb, moral, attrs)}")
+            logger.info(
+                f"Adj. forced edge (rho_edge={edge_rho:.6f}): "
+                f"{_fmt_edge(na, nb, moral, attrs)}"
+            )
 
-    rho_remaining = rho2_exp - rho_spent
+    rho_remaining = rho_avail - rho_em - rho_committed
 
     # Diagnostic: show top unconnected column pairs by TVD
-    # Only consider pairs that were actual candidates (skip common values)
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val in tvd.items():
@@ -845,9 +999,14 @@ def structure_learn(
 
     logger.info(
         f"Adjuvant: structure learning done, "
-        f"{len(structure_edges)} edges, "
-        f"{len(connected_pairs)} column pairs connected, "
-        f"rho2_exp spent={rho_spent:.4f}, remaining={rho_remaining:.4f}"
+        + f"{len(structure_edges)} edges, "
+        + f"{len(connected_pairs)} column pairs connected, "
+        + (
+            f"rho_em={rho_em:.6f}, rho_measure={rho_committed:.6f}, "
+            + f"rho_remaining={rho_remaining:.6f}"
+            if rho_avail > 0
+            else "no budget tracking"
+        )
     )
     logger.info("Adjuvant: Connected column pairs (by TVD):")
     for val, ca, cb in all_pairs_tvd:
@@ -856,12 +1015,18 @@ def structure_learn(
             for edge in structure_edges:
                 ena, enb = tuple(edge)
                 da, db = directed_graph.nodes[ena], directed_graph.nodes[enb]
-                edge_pair = tuple(sorted([
-                    (da.get("table"), da.get("order"), da["attr"], da["value"]),
-                    (db.get("table"), db.get("order"), db["attr"], db["value"]),
-                ]))
+                edge_pair = tuple(
+                    sorted(
+                        [
+                            (da.get("table"), da.get("order"), da["attr"], da["value"]),
+                            (db.get("table"), db.get("order"), db["attr"], db["value"]),
+                        ]
+                    )
+                )
                 if edge_pair == pair:
-                    logger.info(f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}")
+                    logger.info(
+                        f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}"
+                    )
                     break
         else:
             _, _, ca_attr, ca_val = ca
@@ -882,10 +1047,7 @@ def _clique_to_request(clique):
     """Convert CliqueMeta to oracle request format."""
     from ....graph.beliefs import convert_sel
 
-    return [
-        (attr_name, convert_sel(sel))
-        for _, _, attr_name, sel in clique
-    ]
+    return [(attr_name, convert_sel(sel)) for _, _, attr_name, sel in clique]
 
 
 def select_cliques_to_measure(
@@ -916,11 +1078,15 @@ def select_cliques_to_measure(
         for am in clique_meta:
             if isinstance(am.sel, int):
                 # Common value at height h: find matching nodes
-                for node in attr_val_to_nodes.get((am.table, am.order, am.attr, am.attr), set()):
+                for node in attr_val_to_nodes.get(
+                    (am.table, am.order, am.attr, am.attr), set()
+                ):
                     clique_nodes.add(node)
             else:
                 for val, h in am.sel:
-                    for node in attr_val_to_nodes.get((am.table, am.order, am.attr, val), set()):
+                    for node in attr_val_to_nodes.get(
+                        (am.table, am.order, am.attr, val), set()
+                    ):
                         clique_nodes.add(node)
 
         # Check if any structure-learning edge has both endpoints in this clique
@@ -995,8 +1161,7 @@ def measure_cliques(
             compressed_idx = raw_compressed[unique_idx]
 
             i_map = tuple(
-                naive_idx if j == dim_i else slice(None)
-                for j in range(len(prob.shape))
+                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
             )
             o_map = tuple(
                 compressed_idx if j == dim_i else slice(None)
@@ -1025,12 +1190,17 @@ def measure_edges(
     graph: nx.Graph,
     attrs: DatasetAttributes,
     n: int,
-    rho3: float,
+    theta_2w: float,
     sigma_floor: float = 1.0,
+    rho_extra: float = 0.0,
 ) -> tuple[list, float]:
-    """Measure 2-way marginals for structure-learning edges with Gaussian noise.
+    """Measure 2-way marginals with per-edge noise calibrated to theta_2w.
 
-    Returns (list of LinearObservation, sigma3)."""
+    Each edge gets its own sigma_dp derived from its domain and theta_2w.
+    If rho_extra > 0, the effective theta is raised (via binary search)
+    to exhaust the leftover budget, improving all edge measurements.
+
+    Returns (list of LinearObservation, max_sigma)."""
     from ....graph.hugin import AttrMeta, get_clique_domain, get_attrs as _get_attrs
     from ....graph.loss import LinearObservation
     from ....graph.beliefs import convert_sel
@@ -1039,8 +1209,6 @@ def measure_edges(
     K = len(edges)
     if K == 0:
         return [], 0.0
-
-    sigma3 = 0.0 if rho3 <= 0 else sqrt(K / (2 * rho3))
 
     # Build oracle requests and CliqueMeta for each edge.
     # Columns from the same attribute are merged into a single AttrMeta
@@ -1066,7 +1234,11 @@ def measure_edges(
         source = []
         for (table, order, attr_name), sel_dict in sels.items():
             attr = _get_attrs(attrs, table, order)[attr_name]
-            if len(sel_dict) == 1 and attr.common and next(iter(sel_dict)) == attr.common.name:
+            if (
+                len(sel_dict) == 1
+                and attr.common
+                and next(iter(sel_dict)) == attr.common.name
+            ):
                 new_sel: int | tuple = sel_dict[attr.common.name]
             else:
                 cmn = attr.common.name if attr.common else None
@@ -1076,15 +1248,62 @@ def measure_edges(
         edge_metas.append(source_tuple)
 
         # Oracle request: use the sel from the source
-        requests.append([
-            (attr_name, convert_sel(sel))
-            for _, _, attr_name, sel in source_tuple
-        ])
+        requests.append(
+            [(attr_name, convert_sel(sel)) for _, _, attr_name, sel in source_tuple]
+        )
 
     results = oracle.process(requests, postprocess=None)
 
+    # Collect per-edge domains for sigma computation
+    edge_doms = [get_clique_domain(st, attrs) for st in edge_metas]
+
+    # If there is leftover budget, boost the effective theta via binary search
+    eff_theta = theta_2w
+    if rho_extra > 0 and K > 0:
+
+        def _total_rho_2w(theta):
+            total = 0.0
+            for dom in edge_doms:
+                r = compute_rho_for_theta(dom, n, theta, sigma_floor)
+                if r is not None:
+                    total += r
+            return total
+
+        base_rho = _total_rho_2w(theta_2w)
+        target_rho = base_rho + rho_extra
+        # Binary search for max theta that fits within target_rho
+        lo, hi = theta_2w, theta_2w * 1000
+        # First check if hi is enough
+        if _total_rho_2w(hi) <= target_rho:
+            eff_theta = hi
+        else:
+            for _ in range(64):
+                mid = (lo + hi) / 2
+                if _total_rho_2w(mid) <= target_rho:
+                    lo = mid
+                else:
+                    hi = mid
+            eff_theta = lo
+        if eff_theta > theta_2w:
+            logger.info(
+                f"Adjuvant: boosted theta_2w {theta_2w:.1f} -> {eff_theta:.1f} "
+                f"(rho_extra={rho_extra:.6f})"
+            )
+
+    # Compute per-edge sigma from effective theta
+    edge_sigmas: list[float] = []
+    for dom in edge_doms:
+        rho_edge = compute_rho_for_theta(dom, n, eff_theta, sigma_floor)
+        if rho_edge is not None and rho_edge > 0:
+            edge_sigmas.append(sqrt(1.0 / (2.0 * rho_edge)))
+        else:
+            edge_sigmas.append(0.0)
+
     obs_list = []
-    for source_tuple, result in zip(edge_metas, results):
+    max_sigma = 0.0
+    for source_tuple, result, sigma_edge in zip(edge_metas, results, edge_sigmas):
+        max_sigma = max(max_sigma, sigma_edge)
+
         # Oracle returns data in naive shape (product of per-value domains).
         # Build naive dims first, then compress to match get_domain.
         naive_dims = []
@@ -1100,8 +1319,8 @@ def measure_edges(
                 naive_dims.append(nd)
 
         raw = result.astype(np.float64).ravel()
-        if sigma3 > 0:
-            raw = raw + np.random.normal(0, sigma3, size=raw.size)
+        if sigma_edge > 0:
+            raw = raw + np.random.normal(0, sigma_edge, size=raw.size)
         raw = raw.clip(0)
         prob = raw.reshape(naive_dims)
 
@@ -1123,8 +1342,7 @@ def measure_edges(
             compressed_idx = raw_compressed[unique_idx]
 
             i_map = tuple(
-                naive_idx if j == dim_i else slice(None)
-                for j in range(len(prob.shape))
+                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
             )
             o_map = tuple(
                 compressed_idx if j == dim_i else slice(None)
@@ -1141,27 +1359,28 @@ def measure_edges(
         prob = (prob / s if s > 0 else prob).astype(np.float32)
 
         dom = get_clique_domain(source_tuple, attrs)
-        confidence = calc_confidence(n, sigma3, dom, sigma_floor)
+        confidence = calc_confidence(n, sigma_edge, dom, sigma_floor)
         obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
-    return obs_list, sigma3
+    return obs_list, max_sigma
 
 
 def build_1way_observations(
     noisy_1way: dict[Col, np.ndarray],
     attrs: DatasetAttributes,
     n: int,
-    sigma1: float,
+    sigmas: dict[Col, float],
     sigma_floor: float = 1.0,
 ) -> list:
     """Build per-column LinearObservation objects from noisy 1-way marginals.
 
-    Each column already has its own marginal, so no marginalization needed."""
+    Each column already has its own marginal and sigma, so no marginalization needed."""
     from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
     from ....graph.loss import LinearObservation
 
     obs_list = []
-    for (table, order, attr_name, val_name), noisy_mar in noisy_1way.items():
+    for col, noisy_mar in noisy_1way.items():
+        table, order, attr_name, val_name = col
         attr = _get_attrs(attrs, table, order)[attr_name]
 
         if attr.common and val_name == attr.common.name:
@@ -1173,7 +1392,8 @@ def build_1way_observations(
         s = raw.sum()
         prob = (raw / s if s > 0 else raw).astype(np.float32)
         dom = len(raw)
-        confidence = calc_confidence(n, sigma1, dom, sigma_floor)
+        sigma_col = sigmas.get(col, 0.0)
+        confidence = calc_confidence(n, sigma_col, dom, sigma_floor)
         obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
