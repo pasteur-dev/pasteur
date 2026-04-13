@@ -711,20 +711,6 @@ def structure_learn(
     # Pre-compute per-candidate measurement rho and theta-filter
     cand_rho_edge = np.empty(len(candidates))
     cand_valid = np.ones(len(candidates), dtype=bool)
-    n_filtered = 0
-    for idx in range(len(candidates)):
-        rho = _compute_cand_edge_rho(
-            idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor
-        )
-        cand_rho_edge[idx] = rho
-        if np.isinf(rho):
-            cand_valid[idx] = False
-            n_filtered += 1
-    if n_filtered:
-        logger.info(
-            f"Adjuvant: theta_2w filter excluded {n_filtered}/{len(candidates)} "
-            f"candidates (unachievable at theta_2w={theta_2w})"
-        )
 
     # Per-column edge limits
     d = len(set(c for pair in col_pair_map for c in pair))
@@ -1028,7 +1014,7 @@ def structure_learn(
                         f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}"
                     )
                     break
-        else:
+        elif val >= min_tvd:
             _, _, ca_attr, ca_val = ca
             _, _, cb_attr, cb_val = cb
             logger.info(
@@ -1397,3 +1383,150 @@ def build_1way_observations(
         obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
+
+
+# ============================================================
+# High-level pipeline functions
+# ============================================================
+def adjuvant_fit(
+    oracle: MarginalOracle,
+    attrs: DatasetAttributes,
+    n: int,
+    *,
+    e: float = 2.0,
+    delta: float = 1e-9,
+    theta_1w: float = 50,
+    theta_2w: float = 4,
+    em_z: float = 2.0,
+    ew_ratio: float = 0.8,
+    size_penalty: float = 0.0,
+    min_tvd: float = 0.05,
+    sigma_floor: float = 1.0,
+    frozen_nodes: set[str] | None = None,
+    n_hist_cols: int = 0,
+) -> tuple[list, "nx.Graph"]:
+    """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
+
+    Returns (all_obs, moral) where all_obs is a list of LinearObservation
+    and moral is the moralized graph with structure-learning edges."""
+    rho = cdp_rho(e, delta) if e > 0 else 0.0
+
+    all_cols = get_col_names(attrs)
+    hist_cols = get_hist_cols(all_cols)
+    d = len(all_cols)
+    h = n_hist_cols or len(hist_cols)
+
+    # Step 0: Compute all 1-way and 2-way marginals
+    logger.info(f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows)")
+    cached = compute_all_marginals(oracle, attrs, all_cols)
+
+    # Step 1: Noisy 1-way marginals (budget from theta_1w)
+    rho1_max = ew_ratio * rho if rho > 0 else None
+    sigmas_1w, rho1, eff_theta_1w = compute_1way_budget(
+        cached, n, theta_1w, sigma_floor, rho1_max
+    )
+    logger.info(
+        f"Adjuvant Step 1: Noisy 1-way marginals "
+        f"(theta_1w={eff_theta_1w:.1f}, rho1={rho1:.6f})"
+    )
+    noisy_1way = add_noise_1way(cached, sigmas_1w)
+
+    # Step 2: Structure learning (remaining budget)
+    rho_avail = rho - rho1
+    logger.info(
+        f"Adjuvant Step 2: Structure learning "
+        f"(rho_avail={rho_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
+    )
+    tvd = compute_tvd(cached)
+    directed_graph = build_height_chain_graph(attrs)
+    logger.info(
+        f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
+        f"nodes, {directed_graph.number_of_edges()} chain edges"
+    )
+
+    moral, structure_edges, rho_remaining = structure_learn(
+        directed_graph,
+        attrs,
+        tvd,
+        n,
+        size_penalty,
+        rho_avail,
+        min_tvd,
+        em_z=em_z,
+        theta_2w=theta_2w,
+        sigma_floor=sigma_floor,
+        frozen_nodes=frozen_nodes,
+        n_hist_cols=h,
+    )
+
+    # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
+    logger.info(
+        f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
+        f"(theta_2w={theta_2w}, rho_remaining={rho_remaining:.6f})"
+    )
+    edge_obs, max_sigma = measure_edges(
+        oracle, structure_edges, moral, attrs, n, theta_2w, sigma_floor,
+        rho_extra=rho_remaining,
+    )
+    oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
+    all_obs = edge_obs + oneway_obs
+    logger.info(
+        f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
+        f"max_sigma_2w={max_sigma:.2f}"
+    )
+
+    return all_obs, moral
+
+
+def adjuvant_run_md(
+    all_obs: list,
+    attrs: DatasetAttributes,
+    moral: "nx.Graph | None",
+    md_params: dict,
+) -> tuple:
+    """Build junction tree and run mirror descent.
+
+    Returns (junction, cliques, potentials)."""
+    from ....graph.hugin import get_clique_domain
+    from ....graph.mirror_descent import (
+        MIRROR_DESCENT_DEFAULT,
+        build_junction_tree,
+        mirror_descent,
+    )
+
+    md = {**MIRROR_DESCENT_DEFAULT, **md_params}
+    md.pop("compress", None)
+    md.pop("sample", None)
+    tree_mode = md.pop("tree", "hugin")
+    elim_factor_cost = md.pop("elim_factor_cost", 1)
+    elim_max_attempts = md.pop("elim_max_attempts", 5000)
+    device = md.pop("device", "auto")
+    device = None if device == "auto" else device
+
+    mg = moral if tree_mode != "maximal" else None
+    logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
+    junction, cliques, messages = build_junction_tree(
+        all_obs,
+        attrs,
+        tree_mode=tree_mode,
+        moral_graph=mg,
+        elim_factor_cost=elim_factor_cost,
+        elim_max_attempts=elim_max_attempts,
+    )
+    total_params = sum(get_clique_domain(cl, attrs) for cl in cliques)
+    logger.info(
+        f"Adjuvant: junction tree has {len(cliques)} cliques, "
+        f"{total_params:_} parameters"
+    )
+
+    logger.info(f"Adjuvant: running mirror descent (max_iters={md.get('max_iters', 1000)})")
+    potentials, *_ = mirror_descent(
+        cliques,
+        messages,
+        all_obs,
+        attrs,
+        device=device,
+        **md,
+    )
+
+    return junction, cliques, potentials
