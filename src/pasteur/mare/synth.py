@@ -1,6 +1,6 @@
 import logging
 from collections import defaultdict
-from typing import Any, Type, cast
+from typing import Any, Literal, Type, cast
 
 import pandas as pd
 import numpy as np
@@ -37,13 +37,15 @@ logger = logging.getLogger(__name__)
 
 
 class MareModel:
+    dp_type: Literal["dp", "cdp"] = "dp"
+
     def fit(
         self,
         n: int,
         table: str | None,
         attrs: DatasetAttributes,
         oracle: MarginalOracle,
-    ): ...
+    ) -> float | None: ...
 
     def sample(
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]

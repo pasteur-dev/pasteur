@@ -52,6 +52,7 @@ class AdjuvantMare(MareModel):
         min_tvd: float = 0.05,
         sigma_floor: float = 1.0,
         max_clique_size: float = 1e5,
+        rescale: bool = True,
         mirror_descent: dict | None = None,
         seed: int | None = None,
         **kwargs,
@@ -69,6 +70,7 @@ class AdjuvantMare(MareModel):
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
+        self.rescale = rescale
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -80,7 +82,7 @@ class AdjuvantMare(MareModel):
         table: str | None,
         attrs: DatasetAttributes,
         oracle: MarginalOracle,
-    ):
+    ) -> float:
         from .implementation import (
             adjuvant_fit,
             adjuvant_run_md,
@@ -101,7 +103,7 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        all_obs, moral = adjuvant_fit(
+        all_obs, moral, rho_remaining = adjuvant_fit(
             oracle,
             attrs,
             n,
@@ -117,8 +119,10 @@ class AdjuvantMare(MareModel):
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
+            rescale=self.rescale,
         )
 
+        self.rho_remaining = rho_remaining
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
             all_obs, attrs, moral, self.md_params
         )
@@ -126,6 +130,8 @@ class AdjuvantMare(MareModel):
         # Pre-compute which clique dims correspond to hist columns
         # for evidence injection during sampling
         self._hist_evidence_meta = self._build_hist_evidence_meta(attrs)
+
+        return rho_remaining
 
     def _build_hist_evidence_meta(
         self, attrs: DatasetAttributes
@@ -288,6 +294,7 @@ class AdjuvantSynth(Synth):
         min_tvd: float = 0.05,
         sigma_floor: float = 5.0,
         max_clique_size: float = 1e5,
+        rescale: bool = True,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -311,6 +318,7 @@ class AdjuvantSynth(Synth):
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
+        self.rescale = rescale
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -372,7 +380,7 @@ class AdjuvantSynth(Synth):
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            self.all_obs, self.moral = adjuvant_fit(
+            self.all_obs, self.moral, self.rho_remaining = adjuvant_fit(
                 oracle,
                 self.table_attrs,
                 n,
@@ -386,6 +394,7 @@ class AdjuvantSynth(Synth):
                 min_tvd=self.min_tvd,
                 sigma_floor=self.sigma_floor,
                 max_clique_size=self.max_clique_size,
+                rescale=self.rescale,
             )
 
         self._run_md()

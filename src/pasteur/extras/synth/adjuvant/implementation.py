@@ -1451,11 +1451,13 @@ def adjuvant_fit(
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
-) -> tuple[list, "nx.Graph"]:
+    rescale: bool = True,
+) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
-    Returns (all_obs, moral) where all_obs is a list of LinearObservation
-    and moral is the moralized graph with structure-learning edges."""
+    Returns (all_obs, moral, rho_remaining) where all_obs is a list of
+    LinearObservation, moral is the moralized graph with structure-learning
+    edges, and rho_remaining is the unspent CDP budget."""
     rho = cdp_rho(e, delta) if e > 0 else 0.0
 
     all_cols = get_col_names(attrs)
@@ -1520,7 +1522,7 @@ def adjuvant_fit(
         n,
         theta_2w,
         sigma_floor,
-        rho_extra=rho_remaining,
+        rho_extra=rho_remaining if rescale else 0.0,
     )
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
     all_obs = edge_obs + oneway_obs
@@ -1529,7 +1531,7 @@ def adjuvant_fit(
         f"max_sigma_2w={max_sigma:.2f}"
     )
 
-    return all_obs, moral
+    return all_obs, moral, rho_remaining
 
 
 def adjuvant_run_md(
