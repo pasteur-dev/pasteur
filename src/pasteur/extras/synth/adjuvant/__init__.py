@@ -53,6 +53,7 @@ class AdjuvantMare(MareModel):
         sigma_floor: float = 1.0,
         max_clique_size: float = 1e5,
         rescale: bool = True,
+        accountant: bool = True,
         mirror_descent: dict | None = None,
         seed: int | None = None,
         **kwargs,
@@ -66,7 +67,7 @@ class AdjuvantMare(MareModel):
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
-        self.rescale = rescale
+        self.rescale = rescale if accountant else False
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
         self.kwargs = kwargs

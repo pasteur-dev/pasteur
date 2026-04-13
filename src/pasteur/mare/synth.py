@@ -1,5 +1,6 @@
 import logging
 from collections import defaultdict
+from math import exp, log1p
 from typing import Any, Literal, Type, cast
 
 import pandas as pd
@@ -31,9 +32,54 @@ from .unroll import (
     recurse_unroll_attr,
     get_parents as get_parents_upwards,
 )
-from .privacy import calc_privacy_budgets
+from .privacy import calc_privacy_budgets, calc_sens
 
 logger = logging.getLogger(__name__)
+
+
+def _cdp_delta(rho: float, eps: float) -> float:
+    if rho == 0:
+        return 0.0
+    amin, amax = 1.01, (eps + 1) / (2 * rho) + 2
+    for _ in range(1000):
+        alpha = (amin + amax) / 2
+        derivative = (2 * alpha - 1) * rho - eps + log1p(-1.0 / alpha)
+        if derivative < 0:
+            amin = alpha
+        else:
+            amax = alpha
+    delta = exp((alpha - 1) * (alpha * rho - eps) + alpha * log1p(-1 / alpha)) / (
+        alpha - 1.0
+    )
+    return min(delta, 1.0)
+
+
+def cdp_rho(eps: float, delta: float) -> float:
+    """Find smallest rho such that rho-CDP implies (eps, delta)-DP."""
+    if delta >= 1:
+        return 0.0
+    rhomin, rhomax = 0.0, eps + 1
+    for _ in range(1000):
+        rho = (rhomin + rhomax) / 2
+        if _cdp_delta(rho, eps) <= delta:
+            rhomin = rho
+        else:
+            rhomax = rho
+    return rhomin
+
+
+def cdp_eps(rho: float, delta: float) -> float:
+    """Find smallest eps such that rho-CDP implies (eps, delta)-DP."""
+    if rho == 0:
+        return 0.0
+    epsmin, epsmax = 0.0, rho + 2 * (rho * abs(log1p(-1.0 / delta))) ** 0.5 + 1
+    for _ in range(1000):
+        eps = (epsmin + epsmax) / 2
+        if _cdp_delta(rho, eps) <= delta:
+            epsmax = eps
+        else:
+            epsmin = eps
+    return epsmax
 
 
 class MareModel:
@@ -66,6 +112,8 @@ class MareSynth(Synth):
         max_vers: int = 20,
         rebalance: bool = False,
         etotal: float | None = None,
+        delta: float = 1e-9,
+        accountant: bool = True,
         no_seq: bool = False,
         no_hist: bool = False,
         max_sens: int | None = None,
@@ -79,6 +127,8 @@ class MareSynth(Synth):
         self.max_vers = max_vers
         self.rebalance = rebalance
         self.etotal = etotal
+        self.delta = delta
+        self.accountant = accountant
         self.no_seq = no_seq
         self.no_hist = no_hist
         self.max_sens = max_sens
@@ -146,6 +196,8 @@ class MareSynth(Synth):
         out += (
             f"MARE synthesis algorithm encapsulating model type '{self.model_cls}'.\n"
         )
+        if self.budget_used is not None:
+            out += f"Budget used: rho={self.budget_used:.6f}, eps={self.eps_used:.5f} (delta={self.delta:.2e})\n"
         out += f"Created {len(self.models)} models, which synthesize the following {len(set(v.ver.name for v in self.models))} tables:\n"
         out += str(sorted(set(v.ver.name for v in self.models))) + "\n"
 
@@ -169,20 +221,38 @@ class MareSynth(Synth):
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
         self.models: dict[ModelVersion, MareModel] = {}
+        is_cdp = getattr(self.model_cls, "dp_type", "dp") == "cdp"
+
+        # For CDP this is rho, for DP this is epsilon
         if self.etotal:
-            budgets, sensitivities = calc_privacy_budgets(
-                self.etotal,
-                self.versions,
-                params={
-                    "rake": self.kwargs.get("rake", True),
-                    "no_hist": self.no_hist,
-                    "no_seq": self.no_seq,
-                    "max_sens": self.max_sens,
-                },
-            )
+            if is_cdp:
+                budget_remaining = cdp_rho(self.etotal, self.delta) if self.etotal > 0 else 0.0
+                logger.info(
+                    f"Converting etotal={self.etotal:.5f} (delta={self.delta:.2e}) to rho={budget_remaining:.6f}"
+                )
+            else:
+                budget_remaining = self.etotal
+
+            if self.accountant:
+                budgets, sensitivities = calc_privacy_budgets(
+                    budget_remaining,
+                    self.versions,
+                    params={
+                        "rake": self.kwargs.get("rake", True),
+                        "no_hist": self.no_hist,
+                        "no_seq": self.no_seq,
+                        "max_sens": self.max_sens,
+                    },
+                )
+            else:
+                budgets = None
+                sensitivities = None
         else:
+            budget_remaining = 0.0
             budgets = None
             sensitivities = None
+
+        budget_remaining_init = budget_remaining
 
         for i, (ver, (attrs, load)) in enumerate(self.versions.items()):
             logger.info(
@@ -204,21 +274,38 @@ class MareSynth(Synth):
             ) as o:
                 kwargs = dict(self.kwargs)
                 if budgets and sensitivities:
-                    adj_budget = budgets[ver] / sensitivities[ver]
-                    logger.info(
-                        f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sensitivities[ver]}, adjusted to e_adj = {adj_budget:.5f}"
-                    )
-                    kwargs["etotal"] = adj_budget
-                # if sensitivities:
-                #     prev = kwargs["minimum_cutoff"] if "minimum_cutoff" in kwargs else 3
-                #     if prev:
-                #         kwargs["minimum_cutoff"] = prev * sensitivities[ver]
-                #         logger.info(
-                #             f"Adjusting minimum cutoff from {prev} to {kwargs['minimum_cutoff']} due to sensitivity {sensitivities[ver]}."
-                #         )
+                    sens = sensitivities[ver]
+                    if is_cdp:
+                        adj_budget = budgets[ver] / (sens ** 2)
+                        logger.info(
+                            f"Using rho budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
+                        )
+                        kwargs["rho"] = adj_budget
+                    else:
+                        adj_budget = budgets[ver] / sens
+                        logger.info(
+                            f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sens}, adjusted to e_adj = {adj_budget:.5f}"
+                        )
+                        kwargs["etotal"] = adj_budget
+                elif not self.accountant and self.etotal:
+                    sens = calc_sens(ver.ver, ctx=ver.ctx)
+                    if smax := self.max_sens:
+                        sens = min(sens, smax)
+                    if is_cdp:
+                        adj_budget = budget_remaining / (sens ** 2)
+                        logger.info(
+                            f"Sequential: rho_remaining={budget_remaining:.6f} with sensitivity {sens}, giving rho_adj = {adj_budget:.5f}"
+                        )
+                        kwargs["rho"] = adj_budget
+                    else:
+                        adj_budget = budget_remaining / sens
+                        logger.info(
+                            f"Sequential: e_remaining={budget_remaining:.6f} with sensitivity {sens}, giving e_adj = {adj_budget:.5f}"
+                        )
+                        kwargs["etotal"] = adj_budget
 
                 model = self.model_cls(**kwargs)
-                
+
                 if ver.ctx:
                     # Use biggest parent instead
                     n = -1
@@ -230,9 +317,35 @@ class MareSynth(Synth):
                     assert n != -1, f"No parents found for context model {ver.ver.name}"
                 else:
                     n = ver.ver.rows
-                
-                model.fit(ver.ver.rows, ver.ver.name, attrs, o)
+
+                rho_returned = model.fit(ver.ver.rows, ver.ver.name, attrs, o)
                 self.models[ver] = model
+
+                if not self.accountant and self.etotal and rho_returned is not None:
+                    sens = calc_sens(ver.ver, ctx=ver.ctx)
+                    if smax := self.max_sens:
+                        sens = min(sens, smax)
+                    if is_cdp:
+                        budget_remaining = rho_returned * (sens ** 2)
+                    else:
+                        budget_remaining = rho_returned * sens
+                    logger.info(
+                        f"Sequential: model returned {rho_returned:.6f}, "
+                        f"scaled back to budget_remaining={budget_remaining:.6f}"
+                    )
+
+        if is_cdp and self.etotal:
+            budget_used = budget_remaining_init - budget_remaining
+            eps_used = cdp_eps(budget_used, self.delta)
+            logger.info(
+                f"Total rho used: {budget_used:.6f}/{budget_remaining_init:.6f}, "
+                f"equivalent to eps={eps_used:.5f} (delta={self.delta:.2e})"
+            )
+            self.budget_used = budget_used
+            self.eps_used = eps_used
+        else:
+            self.budget_used = None
+            self.eps_used = None
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0):

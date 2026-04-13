@@ -90,7 +90,7 @@ PASTEUR_MODULES = get_recommended_modules() + [
     MimicCore(),
     MimicIcu(),
     MareSynth.get_factory(PrivBayesMare),
-    MareSynth.get_factory(AdjuvantMare, name="mare_adj"),
+    MareSynth.get_factory(AdjuvantMare, name="mare_adj", accountant=False),
     # SynthEvalMetric.get_factory(),
     JsonEncoder.get_factory(),
     AmalgamSynth.get_factory(PrivBayesMare),
