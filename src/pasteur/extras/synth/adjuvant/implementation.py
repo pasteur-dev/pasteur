@@ -282,29 +282,116 @@ def add_noise_1way(
 
 
 # ============================================================
-# Step 2b: Noisy TVD
+# Step 2b: Noisy TVD (per height combination)
 # ============================================================
+def _build_transition_mappings(
+    val: "CatValue", h_range: int
+) -> list[np.ndarray]:
+    """Build transition mappings from height h to height h+1.
+
+    Returns a list of length h_range-1, where transitions[i] maps
+    group indices at height i to group indices at height i+1."""
+    transitions: list[np.ndarray] = []
+    dom_0 = val.get_domain(0)
+    prev_map: np.ndarray | None = None
+    for h in range(1, h_range):
+        cur_map = np.asarray(val.get_mapping(h))
+        if h == 1:
+            # h=0 groups are individual leaves, transition is just the mapping
+            transitions.append(cur_map)
+        else:
+            assert prev_map is not None
+            dom_prev = val.get_domain(h - 1)
+            trans = np.empty(dom_prev, dtype=cur_map.dtype)
+            seen = np.zeros(dom_prev, dtype=bool)
+            for leaf in range(dom_0):
+                g = prev_map[leaf]
+                if not seen[g]:
+                    trans[g] = cur_map[leaf]
+                    seen[g] = True
+            transitions.append(trans)
+        prev_map = np.asarray(val.get_mapping(h))
+    return transitions
+
+
 def compute_tvd(
     cached: CachedMarginals,
-) -> dict[tuple[Col, Col], float]:
-    """Compute exact pairwise TVD = ||P(A,B) - P(A)P(B)||_1 / 2.
+    attrs: DatasetAttributes,
+    all_cols: list[Col],
+) -> dict[tuple[Col, Col], np.ndarray]:
+    """Compute exact pairwise TVD at every height combination.
 
-    No noise added — the exponential mechanism provides privacy for selection."""
-    # Normalize 1-way to probabilities
-    p1: dict[Col, np.ndarray] = {}
-    for col, m in cached.one_way.items():
-        s = m.sum()
-        p1[col] = m / s if s > 0 else m
+    Grabs 2-way histograms at full resolution (height 0), then iteratively
+    aggregates using transition mappings to compute TVD at all (ha, hb) combos.
 
-    tvd: dict[tuple[Col, Col], float] = {}
-    for (ca, cb), joint in cached.two_way.items():
-        flat = joint.ravel()
-        s = flat.sum()
-        p_ab = flat / s if s > 0 else flat
-        indep = np.outer(p1[ca], p1[cb]).ravel()
-        val = float(np.sum(np.abs(p_ab - indep)) / 2)
-        tvd[ca, cb] = val
-        tvd[cb, ca] = val
+    No noise added — the exponential mechanism provides privacy for selection.
+
+    Returns dict mapping (col_a, col_b) -> 2D array of shape (Ha, Hb)
+    where Ha, Hb are the number of graph heights for each column.
+    Both (ca, cb) and (cb, ca) are stored (the latter transposed)."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    # Build per-column metadata
+    col_meta: dict[Col, tuple[CatValue, int]] = {}
+    col_transitions: dict[Col, list[np.ndarray]] = {}
+
+    for col in all_cols:
+        table, order, attr_name, val_name = col
+        attr = _get_attrs(attrs, table, order)[attr_name]
+        cmn = attr.common
+        if cmn and val_name == cmn.name:
+            val = cmn
+            h_range = cmn.height
+        else:
+            val = cast(CatValue, attr[val_name])
+            h_range = val.height if cmn is None else val.height - 1
+        col_meta[col] = (val, h_range)
+        col_transitions[col] = _build_transition_mappings(val, h_range)
+
+    tvd: dict[tuple[Col, Col], np.ndarray] = {}
+
+    for (ca, cb), joint_raw in cached.two_way.items():
+        val_a, ha_range = col_meta[ca]
+        val_b, hb_range = col_meta[cb]
+        dom_a0 = val_a.get_domain(0)
+        dom_b0 = val_b.get_domain(0)
+        joint_00 = joint_raw.reshape(dom_a0, dom_b0).astype(np.float64)
+        n_total = joint_00.sum()
+
+        if n_total == 0:
+            tvd[ca, cb] = np.zeros((ha_range, hb_range))
+            tvd[cb, ca] = np.zeros((hb_range, ha_range))
+            continue
+
+        result = np.zeros((ha_range, hb_range))
+        trans_a = col_transitions[ca]
+        trans_b = col_transitions[cb]
+
+        # Iteratively aggregate dim_a, then for each ha iterate dim_b
+        joint_ha_0 = joint_00
+        for ha in range(ha_range):
+            if ha > 0:
+                t = trans_a[ha - 1]
+                new_joint = np.zeros((val_a.get_domain(ha), joint_ha_0.shape[1]))
+                np.add.at(new_joint, (t, slice(None)), joint_ha_0)
+                joint_ha_0 = new_joint
+
+            joint_ha_hb = joint_ha_0
+            for hb in range(hb_range):
+                if hb > 0:
+                    t = trans_b[hb - 1]
+                    new_joint = np.zeros((joint_ha_hb.shape[0], val_b.get_domain(hb)))
+                    np.add.at(new_joint, (slice(None), t), joint_ha_hb)
+                    joint_ha_hb = new_joint
+
+                p_ab = joint_ha_hb / n_total
+                p_a = p_ab.sum(axis=1)
+                p_b = p_ab.sum(axis=0)
+                indep = np.outer(p_a, p_b)
+                result[ha, hb] = float(np.abs(p_ab - indep).sum() / 2)
+
+        tvd[ca, cb] = result
+        tvd[cb, ca] = result.T
 
     return tvd
 
@@ -587,52 +674,13 @@ def compute_edge_weight(
 ) -> float:
     from ....graph.hugin import get_attrs as _get_attrs
 
-    def _weight_for_node(node: str) -> float:
+    def _dom_for_node(node: str) -> float:
         d = g.nodes[node]
         a = _get_attrs(attrs, d["table"], d["order"])[d["attr"]]
         val = cast(CatValue, a[d["value"]])
-        h = d["height"]
-        dom_h = val.get_domain(h)
-        return 1 / dom_h if dom_h > 0 else 1.0
+        return float(val.get_domain(d["height"]))
 
-    return 1 / (
-        1 + (_weight_for_node(node_a) * _weight_for_node(node_b)) * size_penalty
-    )
-
-
-def score_graph(
-    moral: nx.Graph,
-    tvd: dict[tuple[Col, Col], float],
-    attrs: DatasetAttributes,
-    structure_edges: set[frozenset[str]],
-    max_clique_size: float,
-    size_penalty: float,
-) -> float:
-    """Score: sum(TVD * boost for structure edges) - penalty * total_domain.
-
-    Returns -inf if any clique exceeds max_clique_size."""
-    from ....graph.hugin import get_factor_domain
-
-    tri = moral if nx.is_chordal(moral) else _triangulate_simple(moral)
-
-    total_domain = 0
-    for clique in nx.find_cliques(tri):
-        dom = get_factor_domain(set(clique), tri, attrs)
-        if dom > max_clique_size:
-            return float("-inf")
-        total_domain += dom
-
-    tvd_sum = 0.0
-    for edge in structure_edges:
-        na, nb = tuple(edge)
-        da, db = moral.nodes[na], moral.nodes[nb]
-        col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
-        col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-        base = tvd.get((col_a, col_b), 0.0)
-        boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
-        tvd_sum += base * boost
-
-    return tvd_sum - size_penalty * total_domain
+    return 1 / ((_dom_for_node(node_a) * _dom_for_node(node_b)) ** size_penalty)
 
 
 # ============================================================
@@ -668,7 +716,7 @@ def _compute_cand_edge_rho(
 def structure_learn(
     directed_graph: nx.DiGraph,
     attrs: DatasetAttributes,
-    tvd: dict[tuple[Col, Col], float],
+    tvd: dict[tuple[Col, Col], np.ndarray],
     n: int,
     size_penalty: float,
     rho_avail: float,
@@ -768,7 +816,8 @@ def structure_learn(
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
         col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
         col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-        base = tvd.get((col_a, col_b), 0.0)
+        tvd_arr = tvd.get((col_a, col_b))
+        base = float(tvd_arr[da["height"], db["height"]]) if tvd_arr is not None else 0.0
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
@@ -958,12 +1007,12 @@ def structure_learn(
     pbar.close()
     rho_remaining = rho_avail - rho_em - rho_committed
 
-    # Diagnostic: show top unconnected column pairs by TVD
+    # Diagnostic: show top unconnected column pairs by TVD (at h=0,0)
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
-    for (ca, cb), val in tvd.items():
+    for (ca, cb), val_arr in tvd.items():
         if ca < cb and ca in candidate_cols and cb in candidate_cols:
-            all_pairs_tvd.append((val, ca, cb))
+            all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
     all_pairs_tvd.sort(reverse=True)
 
     logger.info(
@@ -993,8 +1042,14 @@ def structure_learn(
                     )
                 )
                 if edge_pair == pair:
+                    ha, hb = da["height"], db["height"]
+                    col_a_t: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
+                    col_b_t: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
+                    tvd_arr = tvd.get((col_a_t, col_b_t))
+                    tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
                     logger.info(
-                        f"  CONNECTED TVD={val:.4f} {_fmt_edge(ena, enb, moral, attrs)}"
+                        f"  CONNECTED TVD[0,0]={val:.4f} TVD[{ha},{hb}]={tvd_at_h:.4f} "
+                        f"{_fmt_edge(ena, enb, moral, attrs)}"
                     )
                     break
         elif val >= min_tvd:
@@ -1421,7 +1476,7 @@ def adjuvant_fit(
         f"Adjuvant Step 2: Structure learning "
         f"(rho_avail={rho_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
     )
-    tvd = compute_tvd(cached)
+    tvd = compute_tvd(cached, attrs, all_cols)
     directed_graph = build_height_chain_graph(attrs)
     logger.info(
         f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
