@@ -284,9 +284,7 @@ def add_noise_1way(
 # ============================================================
 # Step 2b: Noisy TVD (per height combination)
 # ============================================================
-def _build_transition_mappings(
-    val: "CatValue", h_range: int
-) -> list[np.ndarray]:
+def _build_transition_mappings(val: "CatValue", h_range: int) -> list[np.ndarray]:
     """Build transition mappings from height h to height h+1.
 
     Returns a list of length h_range-1, where transitions[i] maps
@@ -817,7 +815,9 @@ def structure_learn(
         col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
         col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
         tvd_arr = tvd.get((col_a, col_b))
-        base = float(tvd_arr[da["height"], db["height"]]) if tvd_arr is not None else 0.0
+        base = (
+            float(tvd_arr[da["height"], db["height"]]) if tvd_arr is not None else 0.0
+        )
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
@@ -990,8 +990,12 @@ def structure_learn(
                 if rho_avail > 0
                 else ""
             )
-            + f"): {_fmt_edge(na, nb, moral, attrs)}"
-            + (f" excl. {n_clique_filtered} out of {len(active)}" if n_clique_filtered else "")
+            + (
+                f", excl. {n_clique_filtered} out of {len(active)}"
+                if n_clique_filtered
+                else ""
+            )
+            + f"):\n -> {_fmt_edge(na, nb, moral, attrs)}"
         )
 
         pbar.set_description(
@@ -1039,8 +1043,18 @@ def structure_learn(
                 )
                 if edge_pair == pair:
                     ha, hb = da["height"], db["height"]
-                    col_a_t: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
-                    col_b_t: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
+                    col_a_t: Col = (
+                        da.get("table"),
+                        da.get("order"),
+                        da["attr"],
+                        da["value"],
+                    )
+                    col_b_t: Col = (
+                        db.get("table"),
+                        db.get("order"),
+                        db["attr"],
+                        db["value"],
+                    )
                     tvd_arr = tvd.get((col_a_t, col_b_t))
                     tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
                     logger.info(
@@ -1501,7 +1515,13 @@ def adjuvant_fit(
         f"(theta_2w={theta_2w}, rho_remaining={rho_remaining:.6f})"
     )
     edge_obs, max_sigma = measure_edges(
-        oracle, structure_edges, moral, attrs, n, theta_2w, sigma_floor,
+        oracle,
+        structure_edges,
+        moral,
+        attrs,
+        n,
+        theta_2w,
+        sigma_floor,
         rho_extra=rho_remaining,
     )
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
@@ -1555,7 +1575,9 @@ def adjuvant_run_md(
         f"{total_params:_} parameters"
     )
 
-    logger.info(f"Adjuvant: running mirror descent (max_iters={md.get('max_iters', 1000)})")
+    logger.info(
+        f"Adjuvant: running mirror descent (max_iters={md.get('max_iters', 1000)})"
+    )
     potentials, *_ = mirror_descent(
         cliques,
         messages,
