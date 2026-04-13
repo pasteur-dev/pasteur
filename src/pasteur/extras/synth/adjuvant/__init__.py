@@ -141,13 +141,24 @@ class AdjuvantMare(MareModel):
                 frozen_nodes.add(node)
 
         # Theta filter: exclude edges whose 2-way domain exceeds what the
-        # effective noise level can support.  sigma_eff combines DP noise
-        # (worst case: d measurements with rho3 budget) and the Poisson
-        # sampling floor (self.sigma_floor) in quadrature.
+        # effective noise can support.  sigma_eff combines DP noise (worst
+        # case: d measurements with rho3 budget) and uniform-bin sampling
+        # noise (variance = n/(dom * sigma_floor)) in quadrature.
+        # Solving sigma_eff * dom = n/theta for dom gives:
+        #   sigma_dp^2 * dom^2 + (n/sf) * dom - (n/theta)^2 = 0
         if self.theta > 0:
-            sigma3_worst = sqrt(d / (2 * rho3)) if rho3 > 0 and d > 0 else 0.0
-            sigma3_eff = sqrt(sigma3_worst ** 2 + self.sigma_floor ** 2)
-            max_edge_dom = n / (self.theta * sigma3_eff)
+            sw2 = d / (2 * rho3) if rho3 > 0 and d > 0 else 0.0  # sigma3_worst^2
+            c = (n / self.theta) ** 2
+            if self.sigma_floor > 0:
+                b = n / self.sigma_floor
+                if sw2 > 0:
+                    max_edge_dom = (-b + sqrt(b * b + 4 * sw2 * c)) / (2 * sw2)
+                else:
+                    max_edge_dom = c / b  # n * sigma_floor / theta^2
+            elif sw2 > 0:
+                max_edge_dom = sqrt(c / sw2)  # n / (theta * sigma_worst)
+            else:
+                max_edge_dom = None
         else:
             max_edge_dom = None
 
@@ -518,13 +529,24 @@ class AdjuvantSynth(Synth):
             )
 
             # Theta filter: exclude edges whose 2-way domain exceeds what the
-            # effective noise level can support.  sigma_eff combines DP noise
-            # (worst case: d measurements with rho3 budget) and the Poisson
-            # sampling floor (self.sigma_floor) in quadrature.
+            # effective noise can support.  sigma_eff combines DP noise (worst
+            # case: d measurements with rho3 budget) and uniform-bin sampling
+            # noise (variance = n/(dom * sigma_floor)) in quadrature.
+            # Solving sigma_eff * dom = n/theta for dom gives:
+            #   sigma_dp^2 * dom^2 + (n/sf) * dom - (n/theta)^2 = 0
             if self.theta > 0:
-                sigma3_worst = sqrt(d / (2 * rho3)) if rho3 > 0 and d > 0 else 0.0
-                sigma3_eff = sqrt(sigma3_worst ** 2 + self.sigma_floor ** 2)
-                max_edge_dom = n / (self.theta * sigma3_eff)
+                sw2 = d / (2 * rho3) if rho3 > 0 and d > 0 else 0.0  # sigma3_worst^2
+                c = (n / self.theta) ** 2
+                if self.sigma_floor > 0:
+                    b = n / self.sigma_floor
+                    if sw2 > 0:
+                        max_edge_dom = (-b + sqrt(b * b + 4 * sw2 * c)) / (2 * sw2)
+                    else:
+                        max_edge_dom = c / b  # n * sigma_floor / theta^2
+                elif sw2 > 0:
+                    max_edge_dom = sqrt(c / sw2)  # n / (theta * sigma_worst)
+                else:
+                    max_edge_dom = None
             else:
                 max_edge_dom = None
 

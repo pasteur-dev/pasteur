@@ -136,11 +136,19 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
 def calc_confidence(n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0) -> float:
     """Calculate observation confidence from sample size, noise scale, and domain size.
 
-    Returns a value in (0, 1] indicating how much to trust the noisy marginal
-    relative to the prior.  Uses sqrt(sigma^2 + sigma_floor^2) to account for
-    both DP noise and inherent sampling noise (Poisson floor)."""
-    sigma_eff = sqrt(sigma * sigma + sigma_floor * sigma_floor)
-    return n / (n + sigma_eff * dom)
+    Uses a uniform-bin model for sampling noise: each cell has probability
+    p = 1/(dom * sigma_floor), so variance = n * p * (1-p) ≈ n / (dom * sigma_floor).
+    The effective sigma combines DP noise and sampling noise in quadrature:
+    sigma_eff = sqrt(sigma_dp^2 + n / (dom * sigma_floor)).
+
+    When sigma_floor is 0, sampling noise is ignored (pure DP confidence)."""
+    dom = max(dom, 1)
+    s2 = sigma * sigma
+    if sigma_floor > 0:
+        s2 += n / (dom * sigma_floor)
+    if s2 == 0:
+        return 1.0
+    return n / (n + sqrt(s2) * dom)
 
 
 # ============================================================
