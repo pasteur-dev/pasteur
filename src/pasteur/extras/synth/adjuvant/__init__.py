@@ -96,8 +96,8 @@ class AdjuvantMare(MareModel):
 
         self.table_attrs = attrs
 
-        # Privacy budget
-        rho = cdp_rho(self.e, self.delta)
+        # Privacy budget (e <= 0 means no DP)
+        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
         rho1 = self.e1_frac * rho
         rho2 = self.e2_frac * rho
         rho3 = self.e3_frac * rho
@@ -475,8 +475,8 @@ class AdjuvantSynth(Synth):
         n = self.n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
-        # Privacy budget
-        rho = cdp_rho(self.e, self.delta)
+        # Privacy budget (e <= 0 means no DP)
+        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
         rho1 = self.e1_frac * rho
         rho2 = self.e2_frac * rho
         rho3 = self.e3_frac * rho
