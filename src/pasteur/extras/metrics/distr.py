@@ -515,6 +515,281 @@ def _visualise_2way(
     return res
 
 
+def _parse_pretty_names(names: list[str]):
+    """Parse prettified run names into (algorithm, step_label, run_idx) tuples.
+
+    Pretty names follow the convention from `prettify_run_names`:
+      - ``_alg`` produces the algorithm token (first, no ``=``)
+      - ``_run`` produces ``rN`` (value-only param)
+      - regular params produce ``param=value``
+      - boolean params produce ``flag`` / ``no_flag``
+      - other ``_``-prefixed value params produce bare values
+
+    Returns a dict mapping each name to ``(algorithm, step, run_idx)``.
+    ``step`` is ``None`` when there is no sweep hyperparameter and
+    ``run_idx`` is ``None`` when ``-r`` was not used.
+    """
+    import re
+
+    parsed = {}
+    for name in names:
+        tokens = name.split()
+        if not tokens:
+            parsed[name] = ("default", None, None)
+            continue
+
+        # First token is the algorithm name when it doesn't look like a
+        # param=value or a run suffix (rN).
+        if "=" not in tokens[0] and not re.match(r"^r\d+$", tokens[0]):
+            alg = tokens[0]
+            rest = tokens[1:]
+        else:
+            alg = "syn"
+            rest = tokens
+
+        run_idx = None
+        step_parts = []
+
+        for token in rest:
+            if re.match(r"^r\d+$", token):
+                run_idx = int(token[1:])
+            else:
+                step_parts.append(token)
+
+        step = " ".join(step_parts) if step_parts else None
+        parsed[name] = (alg, step, run_idx)
+
+    return parsed
+
+
+def _visualise_multiplot(overall_metr: dict):
+    """Create a combined HTML page with one subplot per metric.
+
+    X-axis: discrete hyperparameter steps (from the sweep).
+    Each line: an algorithm.
+    When ``-r N`` is used, individual runs are shown as dots and a
+    box-plot style CI overlay (IQR bar + min/max whisker) is drawn.
+    """
+    from collections import defaultdict
+    from io import BytesIO
+
+    import matplotlib.pyplot as plt
+    import mlflow
+    import numpy as np
+
+    from ...utils.styles import use_style
+
+    use_style("mlflow")
+
+    # ------------------------------------------------------------------
+    # 1. Compute a single overall score per (metric, split) the same way
+    #    the ``_overall_single`` bar chart does.
+    # ------------------------------------------------------------------
+    metric_split_scores: dict[str, dict[str, float]] = {}
+
+    for metr in METRICS:
+        if metr not in overall_metr:
+            continue
+        split_cats: dict[str, dict[str, list[float]]] = defaultdict(
+            lambda: {"intra": [], "seq": [], "hist": []}
+        )
+
+        for _table, table_res in overall_metr[metr].items():
+            for split, split_res in table_res.items():
+                for entry in split_res:
+                    if entry["table"] == "!":
+                        split_cats[split]["intra"].append(entry["mean_metr_norm"])
+                    elif entry["table"].startswith("-"):
+                        split_cats[split]["seq"].append(entry["mean_metr_norm"])
+                    else:
+                        split_cats[split]["hist"].append(entry["mean_metr_norm"])
+
+        metric_split_scores[metr] = {}
+        for split, cats in split_cats.items():
+            cat_means = [np.nanmean(v) for v in cats.values() if len(v)]
+            metric_split_scores[metr][split] = (
+                float(np.nanmean(cat_means)) if cat_means else float("nan")
+            )
+
+    if not metric_split_scores:
+        return
+
+    # ------------------------------------------------------------------
+    # 2. Parse pretty names → (algorithm, step, run_idx)
+    # ------------------------------------------------------------------
+    split_names = [
+        k for k in next(iter(metric_split_scores.values())).keys() if k != "ref"
+    ]
+    parsed = _parse_pretty_names(split_names)
+
+    algorithms = list(dict.fromkeys(alg for alg, _, _ in parsed.values()))
+    steps = list(dict.fromkeys(step for _, step, _ in parsed.values()))
+
+    has_runs = any(r is not None for _, _, r in parsed.values())
+    has_steps = len(steps) > 1 or (len(steps) == 1 and steps[0] is not None)
+
+    if not has_steps and len(algorithms) <= 1 and not has_runs:
+        return  # nothing interesting to plot
+
+    # When there are no hyperparameter steps, use a single position.
+    if not has_steps:
+        steps = [None]
+
+    # ------------------------------------------------------------------
+    # 3. Build the figure
+    # ------------------------------------------------------------------
+    metrics_list = list(metric_split_scores.keys())
+    n_metrics = len(metrics_list)
+    ncols = min(n_metrics, 2)
+    nrows = (n_metrics + ncols - 1) // ncols
+
+    fig_w = max(6, 3 + 1.2 * len(steps)) * ncols
+    fig_h = 4.5 * nrows
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_w, fig_h), squeeze=False)
+
+    cmap = plt.cm.tab10.colors  # type: ignore[attr-defined]
+    n_alg = len(algorithms)
+
+    for idx, metr in enumerate(metrics_list):
+        row, col = divmod(idx, ncols)
+        ax = axes[row][col]
+
+        for alg_idx, alg in enumerate(algorithms):
+            color = cmap[alg_idx % len(cmap)]
+
+            pos_list: list[int] = []
+            mean_list: list[float] = []
+            vals_list: list[list[float]] = []
+
+            for step_idx, step in enumerate(steps):
+                run_values = []
+                for name, (a, s, _r) in parsed.items():
+                    if a == alg and s == step:
+                        score = metric_split_scores[metr].get(name, float("nan"))
+                        if not np.isnan(score):
+                            run_values.append(score)
+
+                if not run_values:
+                    continue
+
+                pos_list.append(step_idx)
+                mean_list.append(float(np.mean(run_values)))
+                vals_list.append(run_values)
+
+            if not pos_list:
+                continue
+
+            # --- Line through means ---
+            ax.plot(
+                pos_list,
+                mean_list,
+                color=color,
+                label=alg,
+                marker="o",
+                markersize=5,
+                linewidth=1.5,
+                zorder=4,
+            )
+
+            # --- Individual run dots + CI overlay ---
+            if has_runs:
+                offset = (alg_idx - (n_alg - 1) / 2) * 0.06
+                for pos, vals in zip(pos_list, vals_list):
+                    if len(vals) > 1:
+                        q25, q75 = np.percentile(vals, [25, 75])
+                        vmin, vmax = float(np.min(vals)), float(np.max(vals))
+
+                        # Thin whisker: full range
+                        ax.plot(
+                            [pos + offset, pos + offset],
+                            [vmin, vmax],
+                            color=color,
+                            linewidth=1,
+                            alpha=0.4,
+                            zorder=2,
+                        )
+                        # Thick bar: IQR
+                        ax.plot(
+                            [pos + offset, pos + offset],
+                            [q25, q75],
+                            color=color,
+                            linewidth=4,
+                            alpha=0.3,
+                            zorder=2,
+                        )
+
+                    # Scatter individual dots with slight jitter
+                    jitter = np.linspace(-0.03, 0.03, len(vals)) + offset
+                    ax.scatter(
+                        [pos + j for j in jitter],
+                        vals,
+                        color=color,
+                        alpha=0.5,
+                        s=15,
+                        zorder=3,
+                    )
+
+        # --- Horizontal reference line ---
+        ref_score = metric_split_scores[metr].get("ref", float("nan"))
+        if not np.isnan(ref_score):
+            ax.axhline(
+                ref_score,
+                color="grey",
+                linestyle="--",
+                linewidth=1,
+                alpha=0.7,
+                zorder=1,
+                label="ref",
+            )
+
+        # --- Axes formatting ---
+        ax.set_xticks(range(len(steps)))
+        step_labels = [s if s is not None else "default" for s in steps]
+        if any(len(str(lb)) > 10 for lb in step_labels) or len(step_labels) > 6:
+            ax.set_xticklabels(step_labels, rotation=45, ha="right", fontsize=8)
+        else:
+            ax.set_xticklabels(step_labels, fontsize=8)
+
+        fancy = {
+            "kl": "KL Divergence",
+            "cramer": "Cramér's V",
+            "tschuprow": "Tschuprow's T",
+            "pearson": "Pearson",
+        }
+        ax.set_title(fancy.get(metr, metr.upper()), fontweight="bold", fontsize=11)
+        ax.set_ylabel("Overall Score", fontsize=9)
+        ax.legend(fontsize=7, loc="best")
+        ax.grid(True, alpha=0.3, linewidth=0.5)
+
+    # Hide empty subplot slots
+    for idx in range(n_metrics, nrows * ncols):
+        row, col = divmod(idx, ncols)
+        axes[row][col].set_visible(False)
+
+    plt.tight_layout()
+
+    # ------------------------------------------------------------------
+    # 4. Embed as SVG inside a minimal HTML page
+    # ------------------------------------------------------------------
+    buf = BytesIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight")
+    buf.seek(0)
+    svg = buf.read().decode("utf-8")
+    plt.close(fig)
+
+    html = (
+        "<!DOCTYPE html>\n<html>\n<head><style>\n"
+        "body { margin: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }\n"
+        "svg { max-width: 100%%; height: auto; }\n"
+        "h2 { color: #333; }\n"
+        "</style></head>\n<body>\n"
+        "<h2>Distribution Metrics Sweep Overview</h2>\n"
+        f"{svg}\n"
+        "</body>\n</html>"
+    )
+    mlflow.log_text(html, "distr/multiplot.html")
+
+
 def _process_marginals_chunk(
     name: str,
     domain: dict[str, dict[str, int]],
@@ -928,3 +1203,5 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     pref = "assoc/"
                 mlflow.log_figure(fig, f"distr/{pref}{metr}_overall/{table}.png")
                 plt.close("all")
+
+        _visualise_multiplot(overall_metr)
