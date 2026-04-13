@@ -883,11 +883,6 @@ def structure_learn(
         if n_clique_filtered:
             # Rebuild active list after filtering
             active = [(idx, na, nb) for idx, na, nb in active if cand_valid[idx]]
-            logger.info(
-                f"Adjuvant: clique filter excluded {n_clique_filtered} candidates "
-                f"at iter {it} (max_clique_size={max_clique_size:.0f}), "
-                f"{len(active)} remaining"
-            )
             if not active:
                 logger.info(
                     f"Adjuvant: exit (no candidates after clique filter) at iter {it}."
@@ -996,6 +991,7 @@ def structure_learn(
                 else ""
             )
             + f"): {_fmt_edge(na, nb, moral, attrs)}"
+            + (f" excl. {n_clique_filtered} out of {len(active)}" if n_clique_filtered else "")
         )
 
         pbar.set_description(
@@ -1048,7 +1044,7 @@ def structure_learn(
                     tvd_arr = tvd.get((col_a_t, col_b_t))
                     tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
                     logger.info(
-                        f"  CONNECTED TVD[0,0]={val:.4f} TVD[{ha},{hb}]={tvd_at_h:.4f} "
+                        f"  CONNECTED TVD={tvd_at_h:.4f}{f'/{val:.4f}' if ha != 0 or hb != 0 else ''} "
                         f"{_fmt_edge(ena, enb, moral, attrs)}"
                     )
                     break
