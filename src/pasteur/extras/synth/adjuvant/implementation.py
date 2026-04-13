@@ -286,17 +286,21 @@ def compute_1way_budget(
     sigma_floor: float,
     budget_max: float | None = None,
     dp_type: str = "cdp",
+    skip_cols: set[Col] | None = None,
 ) -> tuple[dict[Col, float], float, float]:
     """Compute per-column DP noise sigma and total budget for 1-way marginals.
 
     Each column gets noise calibrated so that its confidence achieves theta_1w.
     If total budget exceeds budget_max, theta_1w is reduced via binary search.
+    Columns in skip_cols (e.g. hist columns) get sigma=0 and cost no budget.
 
     Returns (sigma_per_col, total_budget1, effective_theta_1w)."""
 
     def _total_budget(theta):
         total = 0.0
-        for mar in cached.one_way.values():
+        for col, mar in cached.one_way.items():
+            if skip_cols and col in skip_cols:
+                continue
             b = compute_budget_for_theta(mar.size, n, theta, sigma_floor, dp_type)
             if b is not None:
                 total += b
@@ -323,6 +327,9 @@ def compute_1way_budget(
     # Compute per-column sigma_dp (sigma is mechanism-independent, determined by theta)
     sigmas: dict[Col, float] = {}
     for col, mar in cached.one_way.items():
+        if skip_cols and col in skip_cols:
+            sigmas[col] = 0.0
+            continue
         sigma = _sigma_for_theta(mar.size, n, theta_1w, sigma_floor)
         sigmas[col] = sigma if sigma is not None else 0.0
 
@@ -333,12 +340,16 @@ def add_noise_1way(
     cached: CachedMarginals,
     sigmas: dict[Col, float],
     dp_type: str = "cdp",
+    skip_cols: set[Col] | None = None,
 ) -> dict[Col, np.ndarray]:
     """Add noise to 1-way marginals with per-column sigma.
 
+    Columns in skip_cols are omitted from the result entirely.
     Uses Gaussian (CDP) or Laplace (DP) noise. Returns noisy_marginals."""
     noisy = {}
     for col, mar in cached.one_way.items():
+        if skip_cols and col in skip_cols:
+            continue
         sigma = sigmas.get(col, 0.0)
         noisy[col] = _add_dp_noise(mar, sigma, dp_type)
     return noisy
@@ -1662,15 +1673,18 @@ def adjuvant_fit(
     cached = compute_all_marginals(oracle, attrs, all_cols)
 
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
+    # Skip hist columns — they are provided as evidence, not generated
     bdg1_max = ew_ratio * rho if rho > 0 else None
     sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
-        cached, n, theta_1w, sigma_floor, bdg1_max, dp_type
+        cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
+        skip_cols=hist_cols if hist_cols else None,
     )
     logger.info(
         f"Adjuvant Step 1: Noisy 1-way marginals "
         f"(theta_1w={eff_theta_1w:.1f}, {bdg_label}1={bdg1:.6f})"
     )
-    noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type)
+    noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type,
+                                skip_cols=hist_cols if hist_cols else None)
 
     # Step 2: Structure learning (remaining budget)
     bdg_avail = rho - bdg1
