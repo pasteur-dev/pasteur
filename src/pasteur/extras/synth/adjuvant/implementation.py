@@ -14,7 +14,7 @@ import networkx as nx
 import numpy as np
 from scipy.special import softmax
 
-from ....attribute import Attributes, CatValue, DatasetAttributes, SeqAttributes
+from ....attribute import CatValue, DatasetAttributes, SeqAttributes
 from ....marginal import MarginalOracle
 
 logger = logging.getLogger(__name__)
@@ -1113,7 +1113,7 @@ def structure_learn(
     for line in diag.splitlines():
         logger.info(line)
 
-    return moral, structure_edges, bdg_remaining
+    return moral, structure_edges, bdg_remaining, diag
 
 
 def format_tvd_diagnostic(
@@ -1196,10 +1196,9 @@ def print_adjuvant(
     em_z: float,
     n_obs: int,
     dp_type: str = "cdp",
+    tvd_diag: str = "",
 ) -> str:
     """Format a summary string for an Adjuvant model."""
-    from ....graph.hugin import get_attrs as _get_attrs
-
     bdg_label = "rho" if dp_type == "cdp" else "eps"
     s = f"Adjuvant Graphical Model ({dp_type.upper()}):\n"
     s += (
@@ -1208,58 +1207,11 @@ def print_adjuvant(
         f"{n_obs} observations)\n"
     )
 
-    # Collect structure-learning edges
-    structure_edges: list[tuple[str, str]] = []
-    for na, nb, data in moral.edges(data=True):
-        if data.get("structure"):
-            structure_edges.append((na, nb))
-
-    if not structure_edges:
-        s += "No structure-learning edges.\n"
-        return s
-
-    # Format edge table
-    edge_len = 55
-    s += f"┌{'─' * 8}┬{'─' * edge_len}┐\n"
-    s += f"│{'TVD':>7s} │ {'Edge':{edge_len - 2}s} │\n"
-    s += f"├{'─' * 8}┼{'─' * edge_len}┤\n"
-
-    edge_info: list[tuple[float, str]] = []
-    for na, nb in structure_edges:
-        da, db = moral.nodes[na], moral.nodes[nb]
-
-        val_a = cast(
-            CatValue, _get_attrs(attrs, da.get("table"), da.get("order"))[da["attr"]][da["value"]]
-        )
-        val_b = cast(
-            CatValue, _get_attrs(attrs, db.get("table"), db.get("order"))[db["attr"]][db["value"]]
-        )
-        dom_a = val_a.get_domain(da["height"])
-        dom_b = val_b.get_domain(db["height"])
-
-        edge_str = f"{_fmt_node(da)} x {_fmt_node(db)} ({dom_a}x{dom_b}={dom_a * dom_b})"
-        edge_info.append((0.0, edge_str))
-
-    edge_info.sort(key=lambda x: -x[0])
-    for tvd_val, edge_str in edge_info:
-        s += f"│ {tvd_val:6.4f} │ {edge_str:{edge_len - 2}s} │\n"
-
-    s += f"└{'─' * 8}┴{'─' * edge_len}┘\n"
-
-    # Multi-value attrs
-    tattrs = cast(Attributes, attrs[None])
-    if any(len(attr.vals) > 1 for attr in tattrs.values()):
-        tlen = max(len(name) for name in tattrs) + 1
-        s += f"┌{'─' * tlen}┬{'─' * 6}┬{'─' * 40}┐\n"
-        s += f"│{'Multi-Val Attrs':>{tlen - 1}s} │  Cmn │ {'Values':<38s} │\n"
-        s += f"├{'─' * tlen}┼{'─' * 6}┼{'─' * 40}┤\n"
-        for name, attr in tattrs.items():
-            if len(attr.vals) <= 1:
-                continue
-            cmn = str(attr.common.domain) if attr.common else "NIL"
-            vals_str = " ".join(attr.vals.keys())
-            s += f"│{name:>{tlen - 1}s} │ {cmn:>4s} │ {vals_str:<38s} │\n"
-        s += f"└{'─' * tlen}┴{'─' * 6}┴{'─' * 40}┘\n"
+    if tvd_diag:
+        s += tvd_diag + "\n"
+    else:
+        n_edges = sum(1 for _, _, d in moral.edges(data=True) if d.get("structure"))
+        s += f"{n_edges} structure-learning edges (no TVD diagnostic available).\n"
 
     return s
 
@@ -1714,7 +1666,7 @@ def adjuvant_fit(
         f"nodes, {directed_graph.number_of_edges()} chain edges"
     )
 
-    moral, structure_edges, bdg_remaining = structure_learn(
+    moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
         directed_graph,
         attrs,
         tvd,
@@ -1754,7 +1706,7 @@ def adjuvant_fit(
         f"max_sigma_2w={max_sigma:.2f}"
     )
 
-    return all_obs, moral, bdg_remaining
+    return all_obs, moral, bdg_remaining, tvd_diag
 
 
 def adjuvant_run_md(

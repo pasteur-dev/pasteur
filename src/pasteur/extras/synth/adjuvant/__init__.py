@@ -106,7 +106,7 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        all_obs, moral, bdg_remaining = adjuvant_fit(
+        all_obs, moral, bdg_remaining, tvd_diag = adjuvant_fit(
             oracle,
             attrs,
             n,
@@ -128,6 +128,7 @@ class AdjuvantMare(MareModel):
         self.bdg_remaining = bdg_remaining
         self.all_obs = all_obs
         self.moral = moral
+        self.tvd_diag = tvd_diag
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
             all_obs, attrs, moral, self.md_params
         )
@@ -151,6 +152,7 @@ class AdjuvantMare(MareModel):
             em_z=self.em_z,
             n_obs=len(self.all_obs),
             dp_type=self.dp_type,
+            tvd_diag=self.tvd_diag,
         )
 
     def _build_hist_evidence_meta(
@@ -408,7 +410,7 @@ class AdjuvantSynth(Synth):
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            self.all_obs, self.moral, self.bdg_remaining = adjuvant_fit(
+            self.all_obs, self.moral, self.bdg_remaining, self.tvd_diag = adjuvant_fit(
                 oracle,
                 self.table_attrs,
                 n,
@@ -460,6 +462,7 @@ class AdjuvantSynth(Synth):
             em_z=self.em_z,
             n_obs=len(self.all_obs),
             dp_type=self.dp_type,
+            tvd_diag=self.tvd_diag,
         )
 
     @make_deterministic("i")
