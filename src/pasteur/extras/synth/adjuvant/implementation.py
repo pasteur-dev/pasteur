@@ -1557,50 +1557,17 @@ def measure_edges(
             if oracle_dom == compressed_dom:
                 continue
 
-            # Build oracle→compressed mapping by iterating over raw
-            # combinations.  The oracle uses common-aware linearization:
-            #   bin = v_last_full + v_prev_noncommon * stride ...
-            from ....marginal.numpy import _calc_common
-            cmn_c = min(
-                _calc_common(cast(CatValue, a.vals[vn]), a.common)
-                for vn in sel_d
-            )
-            val_items = list(sel_d.items())
-            val_doms = [
-                cast(CatValue, a.vals[vn]).get_domain(h)
-                for vn, h in val_items
-            ]
-            raw_total = int(np.prod(val_doms))
-
-            # Per-value indices for every raw combination
-            per_val = []
-            remaining = np.arange(raw_total, dtype=np.int64)
-            for d in reversed(val_doms):
-                per_val.append(remaining % d)
-                remaining //= d
-            per_val.reverse()
-
-            # Oracle flat index for each raw combination
-            oracle_bins = np.zeros(raw_total, dtype=np.int64)
-            o_stride = 1
-            for vi_rev in range(len(val_items)):
-                vi = len(val_items) - 1 - vi_rev
-                gv = per_val[vi]
-                if cmn_c == 0 or vi_rev == 0:
-                    oracle_bins += gv * o_stride
-                else:
-                    oracle_bins += np.maximum(0, gv - cmn_c) * o_stride
-                o_stride *= val_doms[vi] - cmn_c
-
-            comp_mapping = np.array(a.get_mapping(sel_d), dtype=np.int64)
-            o2c = np.zeros(oracle_dom, dtype=np.int64)
-            o2c[oracle_bins] = comp_mapping
+            raw_naive = a.get_naive_mapping(sel_d)
+            raw_compressed = a.get_mapping(sel_d)
+            _, unique_idx = np.unique(raw_naive, return_index=True)
+            naive_idx = raw_naive[unique_idx]
+            compressed_idx = raw_compressed[unique_idx]
 
             i_map = tuple(
-                slice(None) for _ in range(len(prob.shape))
+                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
             )
             o_map = tuple(
-                o2c if j == dim_i else slice(None)
+                compressed_idx if j == dim_i else slice(None)
                 for j in range(len(prob.shape))
             )
             tmp = np.zeros(
