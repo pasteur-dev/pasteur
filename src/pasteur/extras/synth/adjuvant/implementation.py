@@ -900,7 +900,6 @@ def structure_learn(
                 f"rho_avail={rho_avail:.6f}, rho_em={rho_em:.6f}, "
                 f"rho_committed={rho_committed:.6f}"
             )
-            exhausted = True
             break
 
         # Drop candidates whose edge measurement exceeds the remaining budget
@@ -914,7 +913,6 @@ def structure_learn(
             affordable = active
 
         if not affordable:
-            exhausted = True
             logger.info(
                 f"Adjuvant: exit (no affordable candidates) at iter {it}. "
                 f"active={len(active)}, rho_after_em={rho_after_em:.6f}"
@@ -1007,7 +1005,7 @@ def structure_learn(
     pbar.close()
     rho_remaining = rho_avail - rho_em - rho_committed
 
-    # Diagnostic: show top unconnected column pairs by TVD (at h=0,0)
+    # Diagnostic: show top unconnected column pairs by TVD
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val_arr in tvd.items():
