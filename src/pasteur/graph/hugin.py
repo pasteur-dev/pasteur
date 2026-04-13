@@ -70,7 +70,7 @@ def create_clique_meta(
             new_sel = tuple(sorted(new_sel))
         out.append(AttrMeta(table, order, attr_name, new_sel))
 
-    return tuple(sorted(out, key=lambda x: x[:-1]))
+    return tuple(sorted(out, key=lambda x: tuple((0, "") if v is None else (1, v) for v in x[:-1])))
 
 
 def to_moral(g: nx.DiGraph, to_undirected=True):

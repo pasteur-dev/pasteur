@@ -44,7 +44,7 @@ class AdjuvantMare(MareModel):
         self,
         *,
         rho: float = 0.0,
-        ew_ratio: float = 0.7,
+        ew_ratio: float = 0.4,
         theta_1w: float = 50,
         theta_2w: float = 2,
         em_z: float = 4.0,

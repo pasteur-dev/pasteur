@@ -24,6 +24,20 @@ logger = logging.getLogger(__name__)
 Col = tuple[str | None, int | None, str, str]
 
 
+def _none_safe_key(c):
+    """Sort key that handles None and mixed str/int fields."""
+    return tuple((0, "") if x is None else (1, x) for x in c)
+
+
+def _col_sort_key(c: Col):
+    return _none_safe_key(c)
+
+
+def _attr_meta_sort_key(m):
+    """Sort key for AttrMeta tuples, handling None in table/order fields."""
+    return _none_safe_key(m[:-1])
+
+
 # ============================================================
 # Local helpers (no dependency on sota/common)
 # ============================================================
@@ -500,7 +514,7 @@ def generate_candidates(
 
     candidates: list[tuple[str, str]] = []
     col_pair_map: dict[tuple[Col, Col], list[int]] = {}
-    col_names = sorted(col_nodes.keys())
+    col_names = sorted(col_nodes.keys(), key=_col_sort_key)
 
     for i, col_a in enumerate(col_names):
         for col_b in col_names[i + 1 :]:
@@ -621,7 +635,7 @@ def _score_with_one_edge(
                 cmn = attr.common.name if attr.common else None
                 new_sel = tuple(sorted((v, h) for v, h in sel.items() if v != cmn))
             meta.append(AttrMeta(table, order, attr_name, new_sel))
-        clique_meta = tuple(sorted(meta, key=lambda x: x[:-1]))
+        clique_meta = tuple(sorted(meta, key=_attr_meta_sort_key))
 
         dom = get_clique_domain(clique_meta, attrs)
         if dom > max_clique_size:
@@ -849,7 +863,7 @@ def structure_learn(
             da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
             col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
             col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-            pair = tuple(sorted([col_a, col_b]))
+            pair = tuple(sorted([col_a, col_b], key=_col_sort_key))
             if pair in connected_pairs:
                 continue
             if col_a in saturated_cols or col_b in saturated_cols:
@@ -970,7 +984,7 @@ def structure_learn(
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
         col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
         col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-        pair = tuple(sorted([col_a, col_b]))
+        pair = tuple(sorted([col_a, col_b], key=_col_sort_key))
         connected_pairs.add(pair)
 
         col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
@@ -1041,13 +1055,13 @@ def format_tvd_diagnostic(
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val_arr in tvd.items():
-        if ca < cb and ca in candidate_cols and cb in candidate_cols:
+        if _col_sort_key(ca) < _col_sort_key(cb) and ca in candidate_cols and cb in candidate_cols:
             all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
-    all_pairs_tvd.sort(reverse=True)
+    all_pairs_tvd.sort(key=lambda x: (-x[0], _col_sort_key(x[1]), _col_sort_key(x[2])))
 
     lines = ["Connected column pairs (by TVD):"]
     for val, ca, cb in all_pairs_tvd:
-        pair = tuple(sorted([ca, cb]))
+        pair = tuple(sorted([ca, cb], key=_col_sort_key))
         if pair in connected_pairs:
             for edge in structure_edges:
                 ena, enb = tuple(edge)
@@ -1057,7 +1071,8 @@ def format_tvd_diagnostic(
                         [
                             (da.get("table"), da.get("order"), da["attr"], da["value"]),
                             (db.get("table"), db.get("order"), db["attr"], db["value"]),
-                        ]
+                        ],
+                        key=_col_sort_key,
                     )
                 )
                 if edge_pair == pair:
@@ -1082,8 +1097,11 @@ def format_tvd_diagnostic(
                     )
                     break
         elif val >= min_tvd:
-            _, _, ca_attr, ca_val = ca
-            _, _, cb_attr, cb_val = cb
+            ca_tbl, ca_ord, ca_attr, ca_val = ca
+            cb_tbl, cb_ord, cb_attr, cb_val = cb
+            # Skip hist-table pairs (they are frozen, not candidates)
+            if ca_tbl is not None or cb_tbl is not None:
+                continue
             lines.append(
                 f"    MISSING TVD={val:.4f} "
                 f"{ca_attr + '.' if ca_attr != ca_val else ''}{ca_val} x "
@@ -1377,14 +1395,21 @@ def measure_edges(
             else:
                 cmn = attr.common.name if attr.common else None
                 new_sel = tuple(sorted((v, h) for v, h in sel_dict.items() if v != cmn))
-            source.append(AttrMeta(None, None, attr_name, new_sel))
-        source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
+            source.append(AttrMeta(table, order, attr_name, new_sel))
+        source_tuple = tuple(sorted(source, key=_attr_meta_sort_key))
         edge_metas.append(source_tuple)
 
         # Oracle request: use the sel from the source
-        requests.append(
-            [(attr_name, convert_sel(sel)) for _, _, attr_name, sel in source_tuple]
-        )
+        # For hist table columns, include (table, order) selector prefix.
+        req = []
+        for tbl, ord_, attr_name, sel in source_tuple:
+            sel_d = convert_sel(sel)
+            if tbl is not None:
+                table_sel = (tbl, ord_) if ord_ is not None else tbl
+                req.append((table_sel, attr_name, sel_d))
+            else:
+                req.append((attr_name, sel_d))
+        requests.append(req)
 
     results = oracle.process(requests, postprocess=None)
 
@@ -1438,19 +1463,16 @@ def measure_edges(
     for source_tuple, result, sigma_edge in zip(edge_metas, results, edge_sigmas):
         max_sigma = max(max_sigma, sigma_edge)
 
-        # Oracle returns data in naive shape (product of per-value domains).
-        # Build naive dims first, then compress to match get_domain.
+        # Oracle returns data linearized with common-aware encoding whose
+        # per-attribute size equals the compressed domain (get_domain).
         naive_dims = []
-        for _, _, attr_name, sel in source_tuple:
-            a = _get_attrs(attrs, None, None)[attr_name]
+        for tbl, ord_, attr_name, sel in source_tuple:
+            a = _get_attrs(attrs, tbl, ord_)[attr_name]
             sel_d = convert_sel(sel)
             if isinstance(sel_d, int):
                 naive_dims.append(a.common.get_domain(sel_d))
             else:
-                nd = 1
-                for vn, h in sel_d.items():
-                    nd *= cast(CatValue, a.vals[vn]).get_domain(h)
-                naive_dims.append(nd)
+                naive_dims.append(a.get_domain(sel_d))
 
         raw = result.astype(np.float64).ravel()
         if sigma_edge > 0:
@@ -1459,11 +1481,11 @@ def measure_edges(
         prob = raw.reshape(naive_dims)
 
         # Compress naive→compressed for each dim (same pattern as privbayes)
-        for dim_i, (_, _, attr_name, sel) in enumerate(source_tuple):
+        for dim_i, (tbl, ord_, attr_name, sel) in enumerate(source_tuple):
             sel_d = convert_sel(sel)
             if isinstance(sel_d, int):
                 continue
-            a = _get_attrs(attrs, None, None)[attr_name]
+            a = _get_attrs(attrs, tbl, ord_)[attr_name]
             naive_dom = prob.shape[dim_i]
             compressed_dom = a.get_domain(sel_d)
             if naive_dom == compressed_dom:
