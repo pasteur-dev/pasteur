@@ -678,6 +678,7 @@ def structure_learn(
     sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
+    max_clique_size: float = 1e5,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -709,8 +710,23 @@ def structure_learn(
     sensitivity = 2.0 / n
 
     # Pre-compute per-candidate measurement rho and theta-filter
-    cand_rho_edge = np.empty(len(candidates))
+    cand_rho_edge = np.zeros(len(candidates))
     cand_valid = np.ones(len(candidates), dtype=bool)
+    if rho_avail > 0:
+        n_filtered = 0
+        for idx in range(len(candidates)):
+            rho = _compute_cand_edge_rho(
+                idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor
+            )
+            cand_rho_edge[idx] = rho
+            if np.isinf(rho):
+                cand_valid[idx] = False
+                n_filtered += 1
+        if n_filtered:
+            logger.info(
+                f"Adjuvant: theta_2w filter excluded {n_filtered}/{len(candidates)} "
+                f"candidates (unachievable at theta_2w={theta_2w})"
+            )
 
     # Per-column edge limits
     d = len(set(c for pair in col_pair_map for c in pair))
@@ -756,7 +772,16 @@ def structure_learn(
         boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
         cand_tvd_boost[idx] = base * boost
 
-    exhausted = True
+    # Cache node data for clique-size checks (immutable, built once)
+    node_data = {n: d for n, d in directed_graph.nodes(data=True)}
+    # Maintained adjacency dict (updated incrementally, avoids rebuilding from nx)
+    base_adj = _build_adj(moral)
+    # Track which candidates have been validated against the current graph.
+    # When an edge is added, candidates touching either endpoint's extended
+    # neighborhood are invalidated and must be re-checked.
+    cand_clique_checked = np.zeros(len(candidates), dtype=bool)
+    cand_clique_ok = np.ones(len(candidates), dtype=bool)
+
     for it in range(max_steps):
         try:
             check_exit()
@@ -790,6 +815,35 @@ def structure_learn(
                 f"(all connected or saturated)"
             )
             break
+
+        # Clique-size filter: check candidates via exact triangulation.
+        # Cached: only re-check candidates whose neighborhoods changed
+        # since last validation (touched by a newly added edge).
+        n_clique_filtered = 0
+        for idx, na, nb in active:
+            if cand_clique_checked[idx] and cand_clique_ok[idx]:
+                continue  # still valid from a previous iteration
+            _, valid = _score_with_one_edge(
+                base_adj, na, nb, node_data, attrs, max_clique_size
+            )
+            cand_clique_checked[idx] = True
+            cand_clique_ok[idx] = valid
+            if not valid:
+                cand_valid[idx] = False
+                n_clique_filtered += 1
+        if n_clique_filtered:
+            # Rebuild active list after filtering
+            active = [(idx, na, nb) for idx, na, nb in active if cand_valid[idx]]
+            logger.info(
+                f"Adjuvant: clique filter excluded {n_clique_filtered} candidates "
+                f"at iter {it} (max_clique_size={max_clique_size:.0f}), "
+                f"{len(active)} remaining"
+            )
+            if not active:
+                logger.info(
+                    f"Adjuvant: exit (no candidates after clique filter) at iter {it}."
+                )
+                break
 
         # --- Two-pass EM cost + affordability filter ---
         # Pass 1: estimate EM cost from full active set
@@ -858,8 +912,17 @@ def structure_learn(
 
         # Accept edge
         moral.add_edge(na, nb, structure=True)
+        base_adj[na].add(nb)
+        base_adj[nb].add(na)
         structure_edges.add(frozenset([na, nb]))
         rho_committed += edge_rho
+
+        # Invalidate clique cache for candidates touching either endpoint's
+        # extended neighborhood (nodes whose triangulation could change)
+        affected = base_adj[na] | base_adj[nb] | {na, nb}
+        for idx, (ca, cb) in enumerate(candidates):
+            if cand_clique_checked[idx] and (ca in affected or cb in affected):
+                cand_clique_checked[idx] = False
 
         # Update column pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
@@ -877,10 +940,13 @@ def structure_learn(
 
         logger.info(
             f"Adj. iter {it+1:3d}/{max_steps} "
-            f"(score={scores[sel]:.4f}, "
-            f"rho_edge={edge_rho:.6f}, "
-            f"budget={rho_avail - rho_em - rho_committed:.6f}): "
-            f"{_fmt_edge(na, nb, moral, attrs)}"
+            + f"(score={scores[sel]:.4f}"
+            + (
+                f", budget={rho_avail - rho_em - rho_committed:.6f}"
+                if rho_avail > 0
+                else ""
+            )
+            + f"): {_fmt_edge(na, nb, moral, attrs)}"
         )
 
         pbar.set_description(
@@ -890,89 +956,6 @@ def structure_learn(
         pbar.update(1)
 
     pbar.close()
-
-    # Force at least one edge per column (budget permitting)
-    all_cols_in_graph: set[Col] = set()
-    for node, data in directed_graph.nodes(data=True):
-        if not data.get("is_common", False):
-            all_cols_in_graph.add(
-                (data.get("table"), data.get("order"), data["attr"], data["value"])
-            )
-
-    disconnected = all_cols_in_graph - set(col_edge_count.keys())
-    if disconnected and not exhausted:
-        logger.info(
-            f"Adjuvant: forcing edges for {len(disconnected)} disconnected cols: "
-            f"{disconnected}"
-        )
-        for col in disconnected:
-            # Gather affordable candidates involving this column
-            col_cands: list[tuple[int, str, str]] = []
-            col_scores: list[float] = []
-            rho_budget = rho_avail - rho_em - rho_committed
-            for idx, (na, nb) in enumerate(candidates):
-                if not cand_valid[idx]:
-                    continue
-                da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-                ca: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
-                cb: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-                if ca != col and cb != col:
-                    continue
-                pair = tuple(sorted([ca, cb]))
-                if pair in connected_pairs:
-                    continue
-                if rho_avail > 0 and cand_rho_edge[idx] > rho_budget:
-                    continue
-                col_cands.append((idx, na, nb))
-                col_scores.append(cand_tvd_boost[idx])
-
-            if not col_cands:
-                continue
-
-            eps_forced, rho_em_forced = _em_cost(len(col_cands))
-
-            # Budget check for EM + cheapest edge
-            if rho_avail > 0 and rho_em_forced > rho_budget:
-                logger.info(f"Adj. skip forced edges (budget exhausted)")
-                break
-
-            # Add stop option: if all candidates are below min_tvd, skip
-            scores_arr = np.append(np.array(col_scores), min_tvd)
-            forced_stop_idx = len(col_scores)
-
-            if eps_forced > 0:
-                sel = exponential_mechanism(scores_arr, eps_forced, sensitivity)
-                rho_em += rho_em_forced
-            else:
-                sel = int(np.argmax(scores_arr))
-
-            if sel == forced_stop_idx:
-                logger.info(f"Adj. skip forced edge for {col} (below min_tvd)")
-                continue
-
-            cand_idx, na, nb = col_cands[sel]
-            edge_rho = cand_rho_edge[cand_idx]
-
-            # Final budget check for this edge's measurement
-            if rho_avail > 0 and rho_em + rho_committed + edge_rho > rho_avail:
-                logger.info(f"Adj. skip forced edge for {col} (budget exhausted)")
-                continue
-
-            moral.add_edge(na, nb, structure=True)
-            structure_edges.add(frozenset([na, nb]))
-            rho_committed += edge_rho
-            da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-            col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
-            col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
-            pair = tuple(sorted([col_a, col_b]))
-            connected_pairs.add(pair)
-            col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
-            col_edge_count[col_b] = col_edge_count.get(col_b, 0) + 1
-            logger.info(
-                f"Adj. forced edge (rho_edge={edge_rho:.6f}): "
-                f"{_fmt_edge(na, nb, moral, attrs)}"
-            )
-
     rho_remaining = rho_avail - rho_em - rho_committed
 
     # Diagnostic: show top unconnected column pairs by TVD
@@ -1404,6 +1387,7 @@ def adjuvant_fit(
     sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
+    max_clique_size: float = 1e5,
 ) -> tuple[list, "nx.Graph"]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
@@ -1457,6 +1441,7 @@ def adjuvant_fit(
         sigma_floor=sigma_floor,
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
+        max_clique_size=max_clique_size,
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)

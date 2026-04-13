@@ -51,6 +51,7 @@ class AdjuvantMare(MareModel):
         size_penalty: float = 0.1,
         min_tvd: float = 0.05,
         sigma_floor: float = 1.0,
+        max_clique_size: float = 1e5,
         mirror_descent: dict | None = None,
         seed: int | None = None,
         **kwargs,
@@ -67,6 +68,7 @@ class AdjuvantMare(MareModel):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
+        self.max_clique_size = max_clique_size
         self.md_params = mirror_descent if mirror_descent else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -114,6 +116,7 @@ class AdjuvantMare(MareModel):
             sigma_floor=self.sigma_floor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
+            max_clique_size=self.max_clique_size,
         )
 
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
@@ -281,9 +284,10 @@ class AdjuvantSynth(Synth):
         theta_1w: float = 50,
         theta_2w: float = 2,
         em_z: float = 2.0,
-        size_penalty: float = 0,
+        size_penalty: float = 0.15,
         min_tvd: float = 0.05,
-        sigma_floor: float = 1.0,
+        sigma_floor: float = 5.0,
+        max_clique_size: float = 1e5,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -306,6 +310,7 @@ class AdjuvantSynth(Synth):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
+        self.max_clique_size = max_clique_size
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -380,6 +385,7 @@ class AdjuvantSynth(Synth):
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 sigma_floor=self.sigma_floor,
+                max_clique_size=self.max_clique_size,
             )
 
         self._run_md()
