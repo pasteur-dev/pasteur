@@ -133,12 +133,14 @@ def _can_match_as_separator_or_mask(
     attribute, so ``_build_mask_map`` (raw-space mask) always works.
 
     Returns:
-      "exact"   — same value names (both int or both tuple with equal
-                   names): SeparatorDim (if parent finer) or domain-based
-                   MaskedDim.  ``_build_index_map`` is safe.
+      "exact"   — same value names with parent at least as fine as
+                   child in every value: SeparatorDim (if parent finer)
+                   or domain-based MaskedDim.  ``_build_index_map`` is
+                   safe.
       "partial" — same attribute but different value representation
-                   (int vs tuple, or non-equal value names): always
-                   MaskedDim via raw-space mask.
+                   (int vs tuple, non-equal value names, or parent
+                   coarser than child in some values): always MaskedDim
+                   via raw-space mask.
     """
     if isinstance(parent_sel, int) and isinstance(child_sel, int):
         return "exact"
@@ -146,9 +148,18 @@ def _can_match_as_separator_or_mask(
         return "partial"
     parent_names = {name for name, _h in parent_sel}
     child_names = {name for name, _h in child_sel}
-    if child_names == parent_names:
-        return "exact"
-    return "partial"
+    if child_names != parent_names:
+        return "partial"
+    # Same value names — check per-value heights.  If the parent is
+    # coarser (higher height) in any value, _build_index_map would
+    # collapse multiple child bins into one (first-leaf-wins), losing
+    # information.  Use MaskedDim instead.
+    parent_h = {name: h for name, h in parent_sel}
+    child_h = {name: h for name, h in child_sel}
+    for name in parent_names:
+        if parent_h[name] > child_h[name]:
+            return "partial"
+    return "exact"
 
 
 def create_sampler_meta(
