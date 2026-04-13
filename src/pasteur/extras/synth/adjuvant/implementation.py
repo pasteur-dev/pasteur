@@ -1463,16 +1463,29 @@ def measure_edges(
     for source_tuple, result, sigma_edge in zip(edge_metas, results, edge_sigmas):
         max_sigma = max(max_sigma, sigma_edge)
 
-        # Oracle returns data linearized with common-aware encoding whose
-        # per-attribute size equals the compressed domain (get_domain).
+        # Oracle returns data with per-attribute domain that accounts for
+        # common values: product(d_i - common) + common for multi-value
+        # selectors.  For single-value selectors, oracle dim = val domain.
         naive_dims = []
         for tbl, ord_, attr_name, sel in source_tuple:
             a = _get_attrs(attrs, tbl, ord_)[attr_name]
             sel_d = convert_sel(sel)
             if isinstance(sel_d, int):
                 naive_dims.append(a.common.get_domain(sel_d))
+            elif len(sel_d) == 1:
+                vn, h = next(iter(sel_d.items()))
+                naive_dims.append(cast(CatValue, a.vals[vn]).get_domain(h))
             else:
-                naive_dims.append(a.get_domain(sel_d))
+                from ....marginal.numpy import _calc_common
+                cmn = min(
+                    _calc_common(cast(CatValue, a.vals[vn]), a.common)
+                    for vn in sel_d
+                )
+                nd = 1
+                for vn, h in sel_d.items():
+                    nd *= cast(CatValue, a.vals[vn]).get_domain(h) - cmn
+                nd += cmn
+                naive_dims.append(nd)
 
         raw = result.astype(np.float64).ravel()
         if sigma_edge > 0:
@@ -1480,28 +1493,61 @@ def measure_edges(
         raw = raw.clip(0)
         prob = raw.reshape(naive_dims)
 
-        # Compress naive→compressed for each dim (same pattern as privbayes)
+        # Compress oracle→compressed for each dim
         for dim_i, (tbl, ord_, attr_name, sel) in enumerate(source_tuple):
             sel_d = convert_sel(sel)
-            if isinstance(sel_d, int):
+            if isinstance(sel_d, int) or len(sel_d) <= 1:
                 continue
             a = _get_attrs(attrs, tbl, ord_)[attr_name]
-            naive_dom = prob.shape[dim_i]
+            oracle_dom = prob.shape[dim_i]
             compressed_dom = a.get_domain(sel_d)
-            if naive_dom == compressed_dom:
+            if oracle_dom == compressed_dom:
                 continue
 
-            raw_naive = a.get_naive_mapping(sel_d)
-            raw_compressed = a.get_mapping(sel_d)
-            _, unique_idx = np.unique(raw_naive, return_index=True)
-            naive_idx = raw_naive[unique_idx]
-            compressed_idx = raw_compressed[unique_idx]
+            # Build oracle→compressed mapping by iterating over raw
+            # combinations.  The oracle uses common-aware linearization:
+            #   bin = v_last_full + v_prev_noncommon * stride ...
+            from ....marginal.numpy import _calc_common
+            cmn_c = min(
+                _calc_common(cast(CatValue, a.vals[vn]), a.common)
+                for vn in sel_d
+            )
+            val_items = list(sel_d.items())
+            val_doms = [
+                cast(CatValue, a.vals[vn]).get_domain(h)
+                for vn, h in val_items
+            ]
+            raw_total = int(np.prod(val_doms))
+
+            # Per-value indices for every raw combination
+            per_val = []
+            remaining = np.arange(raw_total, dtype=np.int64)
+            for d in reversed(val_doms):
+                per_val.append(remaining % d)
+                remaining //= d
+            per_val.reverse()
+
+            # Oracle flat index for each raw combination
+            oracle_bins = np.zeros(raw_total, dtype=np.int64)
+            o_stride = 1
+            for vi_rev in range(len(val_items)):
+                vi = len(val_items) - 1 - vi_rev
+                gv = per_val[vi]
+                if cmn_c == 0 or vi_rev == 0:
+                    oracle_bins += gv * o_stride
+                else:
+                    oracle_bins += np.maximum(0, gv - cmn_c) * o_stride
+                o_stride *= val_doms[vi] - cmn_c
+
+            comp_mapping = np.array(a.get_mapping(sel_d), dtype=np.int64)
+            o2c = np.zeros(oracle_dom, dtype=np.int64)
+            o2c[oracle_bins] = comp_mapping
 
             i_map = tuple(
-                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
+                slice(None) for _ in range(len(prob.shape))
             )
             o_map = tuple(
-                compressed_idx if j == dim_i else slice(None)
+                o2c if j == dim_i else slice(None)
                 for j in range(len(prob.shape))
             )
             tmp = np.zeros(
