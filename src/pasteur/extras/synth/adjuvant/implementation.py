@@ -717,6 +717,21 @@ def _fmt_node(node: str, g, attrs) -> str:
     return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}] (dom={dom})"
 
 
+def _fmt_node(d: dict) -> str:
+    """Format a graph node as '[table.]attr.val[h]', with table prefix for evidence vars."""
+    prefix = ""
+    if d.get("table") is not None:
+        table = d["table"]
+        order = d.get("order")
+        if order is not None:
+            prefix = f"{table}[-{1 + order}]."
+        else:
+            prefix = f"{table}."
+    if d["attr"] != d["value"]:
+        return f"{prefix}{d['attr']}.{d['value'].replace(d['attr'] + '_', '')}[{d['height']}]"
+    return f"{prefix}{d['value']}[{d['height']}]"
+
+
 def _fmt_edge(na: str, nb: str, g, attrs) -> str:
     """Format a graph edge as 'attr.val[h] x attr.val[h] (domA, domB)'."""
     from ....graph.hugin import get_attrs as _get_attrs
@@ -727,10 +742,7 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
             CatValue, _get_attrs(attrs, d["table"], d["order"])[d["attr"]][d["value"]]
         )
         dom = val.get_domain(d["height"])
-        return (
-            f"{d['attr'] + '.' + d['value'].replace(d['attr'] + '_', '') if d['attr'] != d['value'] else d['value']}[{d['height']}]",
-            dom,
-        )
+        return _fmt_node(d), dom
 
     a_str, a_dom = _info(na)
     b_str, b_dom = _info(nb)
@@ -1225,12 +1237,7 @@ def print_adjuvant(
         dom_a = val_a.get_domain(da["height"])
         dom_b = val_b.get_domain(db["height"])
 
-        def _node_str(d):
-            if d["attr"] != d["value"]:
-                return f"{d['attr']}.{d['value'].replace(d['attr'] + '_', '')}[{d['height']}]"
-            return f"{d['value']}[{d['height']}]"
-
-        edge_str = f"{_node_str(da)} x {_node_str(db)} ({dom_a}x{dom_b}={dom_a * dom_b})"
+        edge_str = f"{_fmt_node(da)} x {_fmt_node(db)} ({dom_a}x{dom_b}={dom_a * dom_b})"
         edge_info.append((0.0, edge_str))
 
     edge_info.sort(key=lambda x: -x[0])
@@ -1497,9 +1504,17 @@ def measure_edges(
 
         base_bdg = _total_bdg_2w(theta_2w)
         target_bdg = base_bdg + rho_extra
+        # Cap hi at the max theta where all edges still need DP noise.
+        # Beyond this, edges start returning None and the cost function
+        # becomes non-monotonic (drops to 0), breaking the binary search.
+        # theta_max per edge: sigma_dp2 = 0 when theta = sqrt(n * sigma_floor / dom)
+        if sigma_floor > 0:
+            max_useful = min(sqrt(n * sigma_floor / dom) for dom in edge_doms)
+            hi = min(theta_2w * 1000, max_useful * 0.95)
+        else:
+            hi = theta_2w * 1000
+        hi = max(hi, theta_2w)  # never go below base
         # Binary search for max theta that fits within target budget
-        lo, hi = theta_2w, theta_2w * 1000
-        # First check if hi is enough
         if _total_bdg_2w(hi) <= target_bdg:
             eff_theta = hi
         else:
