@@ -10,7 +10,7 @@ Budget allocation: theta_1w (1-way marginals), theta_2w + em_z (structure learni
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -38,12 +38,12 @@ class AdjuvantMare(MareModel):
     as evidence for conditioned junction tree sampling.
     """
 
+    dp_type: Literal["dp", "cdp"] = "cdp"
+
     def __init__(
         self,
         *,
-        etotal: float | None = None,
-        e: float = 2.0,
-        delta: float = 1e-9,
+        rho: float = 0.0,
         ew_ratio: float = 0.7,
         theta_1w: float = 50,
         theta_2w: float = 2,
@@ -57,11 +57,7 @@ class AdjuvantMare(MareModel):
         seed: int | None = None,
         **kwargs,
     ) -> None:
-        if etotal is not None:
-            self.e = etotal
-        else:
-            self.e = e
-        self.delta = delta
+        self.rho = rho
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.em_z = em_z
@@ -107,8 +103,7 @@ class AdjuvantMare(MareModel):
             oracle,
             attrs,
             n,
-            e=self.e,
-            delta=self.delta,
+            rho=self.rho,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             em_z=self.em_z,
@@ -364,7 +359,7 @@ class AdjuvantSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
-        from .implementation import adjuvant_fit, adjuvant_run_md
+        from .implementation import adjuvant_fit, adjuvant_run_md, cdp_rho
 
         ids, tables = data_to_tables(data)
         table = tables[self.table]
@@ -372,6 +367,7 @@ class AdjuvantSynth(Synth):
         self.n = self.n or (table.shape[0] // self.partitions)
         n = table.shape[0]
         self.table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
+        rho = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
 
         with MarginalOracle(
             data,
@@ -384,8 +380,7 @@ class AdjuvantSynth(Synth):
                 oracle,
                 self.table_attrs,
                 n,
-                e=self.e,
-                delta=self.delta,
+                rho=rho,
                 theta_1w=self.theta_1w,
                 theta_2w=self.theta_2w,
                 em_z=self.em_z,

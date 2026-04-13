@@ -1439,8 +1439,7 @@ def adjuvant_fit(
     attrs: DatasetAttributes,
     n: int,
     *,
-    e: float = 2.0,
-    delta: float = 1e-9,
+    rho: float = 0.0,
     theta_1w: float = 50,
     theta_2w: float = 4,
     em_z: float = 2.0,
@@ -1458,7 +1457,6 @@ def adjuvant_fit(
     Returns (all_obs, moral, rho_remaining) where all_obs is a list of
     LinearObservation, moral is the moralized graph with structure-learning
     edges, and rho_remaining is the unspent CDP budget."""
-    rho = cdp_rho(e, delta) if e > 0 else 0.0
 
     all_cols = get_col_names(attrs)
     hist_cols = get_hist_cols(all_cols)
