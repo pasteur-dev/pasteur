@@ -654,7 +654,7 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
         )
         dom = val.get_domain(d["height"])
         return (
-            f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}]",
+            f"{d['attr'] + '.' + d['value'].replace(d['attr'] + '_', '') if d['attr'] != d['value'] else d['value']}[{d['height']}]",
             dom,
         )
 
@@ -983,7 +983,7 @@ def structure_learn(
             saturated_cols.add(col_b)
 
         logger.info(
-            f"Adj. iter {it+1:3d}/{max_steps} "
+            f"-> {it+1:3d}/{max_steps} "
             + f"(score={scores[sel]:.4f}"
             + (
                 f", budget={rho_avail - rho_em - rho_committed:.6f}"
@@ -991,11 +991,11 @@ def structure_learn(
                 else ""
             )
             + (
-                f", excl. {n_clique_filtered} out of {len(active)}"
+                f", rm {n_clique_filtered}/{len(active)}"
                 if n_clique_filtered
                 else ""
             )
-            + f"):\n -> {_fmt_edge(na, nb, moral, attrs)}"
+            + f"): {_fmt_edge(na, nb, moral, attrs)}"
         )
 
         pbar.set_description(
