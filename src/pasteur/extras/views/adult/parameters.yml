@@ -27,6 +27,7 @@ tables:
       hours-per-week: numerical
       native-country:
         type: categorical
+        unknown_value: UKN
         metrics:
           y_log: True
       income: categorical
