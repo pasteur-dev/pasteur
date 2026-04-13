@@ -493,23 +493,24 @@ def sweep(
     run_results = {}
     ingested = False
     runtime_params = {}
-    for iters in _process_iterables(iterable_dict | hyperparam_dict):
-        param_dict = eval_params(params, iters)
-        hyper_dict = {n: iters[n] for n in hyperparam_dict}
-        vals = param_dict | hyper_dict
-        runtime_params = merge_params(vals | mlflow_dict)
 
-        alg_only_hyper = builtins_all([n.startswith("alg") for n in vals])
+    for run_idx in range(num_runs):
+        for iters in _process_iterables(iterable_dict | hyperparam_dict):
+            param_dict = eval_params(params, iters)
+            hyper_dict = {n: iters[n] for n in hyperparam_dict}
+            vals = param_dict | hyper_dict
+            runtime_params = merge_params(vals | mlflow_dict)
 
-        for i, (pipeline, tags) in enumerate(pipelines_tags):
-            tags = list(tags)
-            params_skipped = False
-            if (alg_only_hyper and ingested) or i:
-                params_skipped = True
-                if TAG_CHANGES_HYPERPARAMETER in tags:
-                    tags.remove(TAG_CHANGES_HYPERPARAMETER)
+            alg_only_hyper = builtins_all([n.startswith("alg") for n in vals])
 
-            for run_idx in range(num_runs):
+            for i, (pipeline, tags) in enumerate(pipelines_tags):
+                tags = list(tags)
+                params_skipped = False
+                if (alg_only_hyper and ingested) or i:
+                    params_skipped = True
+                    if TAG_CHANGES_HYPERPARAMETER in tags:
+                        tags.remove(TAG_CHANGES_HYPERPARAMETER)
+
                 suffix_dict = (
                     {"_mlflow_run_suffix": f"r{run_idx + 1}"}
                     if num_runs > 1
