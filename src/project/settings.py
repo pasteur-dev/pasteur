@@ -60,7 +60,7 @@ CONFIG_LOADER_ARGS = {}
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM as RefAIM, MST as RefMST
 from pasteur.extras.synth.sota import AIM, MST, PrivMRF
-from pasteur.extras.synth.adjuvant import AdjuvantMare, AdjuvantSynth
+from pasteur.extras.synth.adjuvant import AdjuvantMare, AdjuvantSynth, AdjuvantMareCdp, AdjuvantSynthCdp
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 
