@@ -1371,12 +1371,14 @@ def measure_edges(
     sigma_floor: float = 1.0,
     rho_extra: float = 0.0,
     dp_type: str = "cdp",
+    no_noise: bool = False,
 ) -> tuple[list, float]:
     """Measure 2-way marginals with per-edge noise calibrated to theta_2w.
 
     Each edge gets its own sigma_dp derived from its domain and theta_2w.
     If rho_extra > 0, the effective theta is raised (via binary search)
     to exhaust the leftover budget, improving all edge measurements.
+    If no_noise is True, all sigmas are forced to 0 (no DP budget).
 
     Returns (list of LinearObservation, max_sigma)."""
     from ....graph.hugin import AttrMeta, get_clique_domain, get_attrs as _get_attrs
@@ -1486,9 +1488,12 @@ def measure_edges(
 
     # Compute per-edge sigma from effective theta (sigma is mechanism-independent)
     edge_sigmas: list[float] = []
-    for dom in edge_doms:
-        sigma = _sigma_for_theta(dom, n, eff_theta, sigma_floor)
-        edge_sigmas.append(sigma if sigma is not None else 0.0)
+    if no_noise:
+        edge_sigmas = [0.0] * K
+    else:
+        for dom in edge_doms:
+            sigma = _sigma_for_theta(dom, n, eff_theta, sigma_floor)
+            edge_sigmas.append(sigma if sigma is not None else 0.0)
 
     obs_list = []
     max_sigma = 0.0
@@ -1698,17 +1703,29 @@ def adjuvant_fit(
 
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
     # Skip hist columns — they are provided as evidence, not generated
-    bdg1_max = ew_ratio * rho if rho > 0 else None
-    sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
-        cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
-        skip_cols=hist_cols if hist_cols else None,
-    )
+    # When rho=0 (no DP), skip noise entirely — theta-based sigma would
+    # add spurious noise independent of the privacy budget.
+    if rho > 0:
+        bdg1_max = ew_ratio * rho
+        sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
+            cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
+            skip_cols=hist_cols if hist_cols else None,
+        )
+        noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type,
+                                    skip_cols=hist_cols if hist_cols else None)
+    else:
+        bdg1 = 0.0
+        eff_theta_1w = theta_1w
+        sigmas_1w = {col: 0.0 for col in cached.one_way}
+        noisy_1way = {
+            col: mar.copy()
+            for col, mar in cached.one_way.items()
+            if not (hist_cols and col in hist_cols)
+        }
     logger.info(
         f"Adjuvant Step 1: Noisy 1-way marginals "
         f"(theta_1w={eff_theta_1w:.1f}, {bdg_label}1={bdg1:.6f})"
     )
-    noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type,
-                                skip_cols=hist_cols if hist_cols else None)
 
     # Step 2: Structure learning (remaining budget)
     bdg_avail = rho - bdg1
@@ -1741,6 +1758,7 @@ def adjuvant_fit(
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
+    # When rho=0, measure without noise (theta_2w would add spurious noise).
     logger.info(
         f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
         f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
@@ -1755,6 +1773,7 @@ def adjuvant_fit(
         sigma_floor,
         rho_extra=bdg_remaining if rescale else 0.0,
         dp_type=dp_type,
+        no_noise=rho <= 0,
     )
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
     all_obs = edge_obs + oneway_obs

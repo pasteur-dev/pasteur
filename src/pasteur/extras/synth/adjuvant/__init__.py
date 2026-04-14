@@ -55,7 +55,7 @@ class AdjuvantMare(MareModel):
         em_z: float = 1.0,
         size_penalty: float = 0,
         min_tvd: float = 0.05,
-        sigma_floor: float = 1.0,
+        sigma_floor: float = 5.0,
         max_clique_size: float = 1e5,
         rescale: bool = True,
         accountant: bool = True,
