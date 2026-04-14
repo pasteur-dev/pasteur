@@ -294,20 +294,28 @@ def _decompose_dim(
 ) -> dict[str, np.ndarray]:
     """Decompose a combined compressed dim index into per-value arrays.
 
-    ``attr.get_mapping(sel)`` (multi-value) and ``attr.get_mapping({vn: h})``
-    (single-value) both dispatch to the same ``CatValue.get_mapping_multiple``
-    implementation, so they share the same raw-index ordering.  We exploit
-    this: for each compressed bin we find the per-value encoded index by
-    pairing the multi-value and single-value mappings at the same raw index.
+    Uses ``get_naive_mapping_multiple`` to obtain per-value indices that
+    share the same raw-index ordering as ``get_mapping`` (compressed).
+    For each compressed bin we find the per-value encoded index by pairing
+    the compressed mapping and per-value naive indices at the same raw index.
     """
+    from ..attribute import CatValue, cast
+
     comp_map = attr.get_mapping(sel)  # raw → comp_bin
     comp_dom = attr.get_domain(sel)
 
-    # For each value in sel, compute a single-value mapping that uses the
-    # SAME raw-index ordering as comp_map.
-    val_maps: dict[str, np.ndarray] = {}
-    for vn, h in sel.items():
-        val_maps[vn] = attr.get_mapping({vn: h})  # raw → encoded_vn
+    # Build per-value index arrays sharing the same raw ordering as comp_map.
+    # get_naive_mapping_multiple with the same heights produces tuples of
+    # per-value indices in the same raw order as get_mapping_multiple.
+    all_val_names = [n for n, v in attr.vals.items() if isinstance(v, CatValue)]
+    all_vals = [v for v in attr.vals.values() if isinstance(v, CatValue)]
+    heights = [sel[n] if n in sel else -1 for n in all_val_names]
+
+    data = CatValue.get_naive_mapping_multiple(heights, attr.common, all_vals)
+    per_val_arrs = {
+        all_val_names[i]: np.array([d[i] for d in data])
+        for i in range(len(all_val_names))
+    }
 
     # Build comp_bin → per_value_encoded lookup (first-seen wins; within
     # a bin all raw indices share the same per-value encoded index because
@@ -322,7 +330,7 @@ def _decompose_dim(
             continue
         seen[c] = True
         for vn in sel:
-            lookup[vn][c] = int(val_maps[vn][r])
+            lookup[vn][c] = int(per_val_arrs[vn][r])
         if seen.all():
             break
 
