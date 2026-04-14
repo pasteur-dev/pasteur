@@ -1422,7 +1422,14 @@ def measure_edges(
                 new_sel: int | tuple = sel_dict[attr.common.name]
             else:
                 cmn = attr.common.name if attr.common else None
-                new_sel = tuple(sorted((v, h) for v, h in sel_dict.items() if v != cmn))
+                # Order values by attr.vals insertion order (not alphabetical)
+                # so that the sel matches the ordering used by
+                # get_mapping_multiple and calc_marginal consistently.
+                val_order = {vn: i for i, vn in enumerate(attr.vals)}
+                new_sel = tuple(sorted(
+                    ((v, h) for v, h in sel_dict.items() if v != cmn),
+                    key=lambda x: val_order.get(x[0], 0),
+                ))
             source.append(AttrMeta(table, order, attr_name, new_sel))
         source_tuple = tuple(sorted(source, key=_attr_meta_sort_key))
         edge_metas.append(source_tuple)

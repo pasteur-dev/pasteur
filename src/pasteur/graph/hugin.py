@@ -62,12 +62,15 @@ def create_clique_meta(
             new_sel = sel[attr.common.name]
         else:
             cmn = attr.common.name if attr.common else None
+            # Order by attr.vals insertion order so sel matches
+            # get_mapping_multiple's reversed-product ordering.
+            val_order = {vn: i for i, vn in enumerate(attr.vals)}
             new_sel = []
             for val, h in sel.items():
                 if val == cmn:
                     continue  # skip common
                 new_sel.append((val, h))
-            new_sel = tuple(sorted(new_sel))
+            new_sel = tuple(sorted(new_sel, key=lambda x: val_order.get(x[0], 0)))
         out.append(AttrMeta(table, order, attr_name, new_sel))
 
     return tuple(sorted(out, key=lambda x: tuple((0, "") if v is None else (1, v) for v in x[:-1])))
