@@ -60,7 +60,12 @@ CONFIG_LOADER_ARGS = {}
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM as RefAIM, MST as RefMST
 from pasteur.extras.synth.sota import AIM, MST, PrivMRF
-from pasteur.extras.synth.adjuvant import AdjuvantMare, AdjuvantSynth, AdjuvantMareCdp, AdjuvantSynthCdp
+from pasteur.extras.synth.adjuvant import (
+    AdjuvantMare,
+    AdjuvantSynth,
+    AdjuvantMareCdp,
+    AdjuvantSynthCdp,
+)
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 
@@ -95,10 +100,13 @@ PASTEUR_MODULES = get_recommended_modules() + [
     MareSynth.get_factory(AdjuvantMareCdp, name="mare_adj_cdp"),
     # SynthEvalMetric.get_factory(),
     JsonEncoder.get_factory(),
-    AmalgamSynth.get_factory(PrivBayesMare),
     FlatEncoder.get_factory(),
 ]
 
-if not IS_AGENT:
+SKIP_LLM = os.environ.get("PASTEUR_NO_LLM_EVAL", False)
+
+if not IS_AGENT and not SKIP_LLM:
     # LLM Evaluator takes 10-30 minutes to run, not needed when benching with LLMs
     PASTEUR_MODULES.append(LlmEvaluatorMetric.get_factory())
+if not SKIP_LLM:
+    PASTEUR_MODULES.append(AmalgamSynth.get_factory(PrivBayesMare))
