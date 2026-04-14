@@ -178,19 +178,49 @@ class Grouping(list["Grouping | str"]):
                 out += out_g
                 ofs = ofs_g
         else:
-            groupings = []
-            for h, g in zip(heights, groups):
+            # Always iterate at leaf level (height 0) so that the raw-leaf
+            # ordering is the same regardless of which dimensions are
+            # collapsed (h == -1).  Collapsed dims don't affect ofs; only
+            # non-collapsed dims contribute to the output index.
+            leaf_groups = []
+            nc_indices = []  # indices of non-collapsed dims
+            nc_doms = []     # domain of each non-collapsed dim at its height
+            for i, (h, g) in enumerate(zip(heights, groups)):
                 if isinstance(g, Grouping):
-                    if h == -1:
-                        groupings.append([g.get_groups(0)])
-                    else:
-                        groupings.append(g.get_groups(h - int(has_common)))
+                    leaf_groups.append(range(g.get_domain(0)))
+                    if h != -1:
+                        nc_indices.append(i)
+                        nc_doms.append(g.get_domain(h - int(has_common)))
                 else:
-                    groupings.append([[g]])
-            for combos in product(*groupings):
-                for _ in product(*[c if isinstance(c, list) else [c] for c in combos]):
-                    out.append(ofs)
-                ofs += 1
+                    leaf_groups.append(range(1))
+
+            # Pre-compute per-leaf-index → group-index mapping for
+            # non-collapsed dims (identity when h == 0).
+            nc_mappings = []
+            for ni, i in enumerate(nc_indices):
+                h = heights[i]
+                g = groups[i]
+                h_eff = h - int(has_common)
+                if h_eff == 0:
+                    nc_mappings.append(None)  # identity
+                else:
+                    nc_mappings.append(g.get_mapping(h_eff))
+
+            total_bins = 1
+            for d in nc_doms:
+                total_bins *= d
+
+            for combo in product(*leaf_groups):
+                ofs_val = 0
+                mul = 1
+                for ni in reversed(range(len(nc_indices))):
+                    leaf_idx = combo[nc_indices[ni]]
+                    m = nc_mappings[ni]
+                    group_idx = int(m[leaf_idx]) if m is not None else leaf_idx
+                    ofs_val += group_idx * mul
+                    mul *= nc_doms[ni]
+                out.append(ofs + ofs_val)
+            ofs += total_bins
 
         return out, ofs
 
