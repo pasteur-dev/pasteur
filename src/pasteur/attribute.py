@@ -247,21 +247,19 @@ class Grouping(list["Grouping | str"]):
                 out += out_g
                 ofs = ofs_g
         else:
+            # Always iterate at leaf level (height 0) for consistent
+            # raw-leaf ordering (same fix as get_mapping_multiple).
+            # Non-collapsed dims use their requested height for the
+            # per-value index; collapsed dims iterate at leaf level
+            # but their index is unused by callers.
             groupings = []
             for i, (h, g) in enumerate(zip(heights, groups)):
                 if isinstance(g, Grouping):
-                    if h == -1:
-                        # Collapsed dim: wrap all groups into a single
-                        # outer-product element (same as get_mapping_multiple).
-                        new_groups, new_ofs = g._get_groups_by_height(0, ofs=ofs[i])
-                        groupings.append([new_groups])
-                    else:
-                        # Non-collapsed dim: each group is a separate element
-                        # in the outer product (matching get_mapping_multiple).
-                        new_groups, new_ofs = g._get_groups_by_height(
-                            h - int(has_common), ofs=ofs[i]
-                        )
-                        groupings.append(new_groups)
+                    h_eff = 0 if h == -1 else h - int(has_common)
+                    new_groups, new_ofs = g._get_groups_by_height(
+                        h_eff, ofs=ofs[i]
+                    )
+                    groupings.append(new_groups)
                     ofs[i] = new_ofs
                 else:
                     groupings.append([[ofs[i]]])
