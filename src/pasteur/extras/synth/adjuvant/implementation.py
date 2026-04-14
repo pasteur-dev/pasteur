@@ -1495,20 +1495,23 @@ def measure_edges(
     for source_tuple, result, sigma_edge in zip(edge_metas, results, edge_sigmas):
         max_sigma = max(max_sigma, sigma_edge)
 
-        # Oracle returns data with per-attribute domain that accounts for
-        # common values: product(d_i - common) + common for multi-value
-        # selectors.  For single-value selectors, oracle dim = val domain.
-        naive_dims = []
+        # Oracle returns data in packed shape.  For multi-value selectors
+        # with common overlap c the per-attr dim is (d1-c)*(d2-c)+c,
+        # otherwise it equals the product of individual value domains.
+        from ....marginal.numpy import _calc_common
+        oracle_dims = []
+        attr_commons = []  # per-attr common count (0 for int/single-val)
         for tbl, ord_, attr_name, sel in source_tuple:
             a = _get_attrs(attrs, tbl, ord_)[attr_name]
             sel_d = convert_sel(sel)
             if isinstance(sel_d, int):
-                naive_dims.append(a.common.get_domain(sel_d))
+                oracle_dims.append(a.common.get_domain(sel_d))
+                attr_commons.append(0)
             elif len(sel_d) == 1:
                 vn, h = next(iter(sel_d.items()))
-                naive_dims.append(cast(CatValue, a.vals[vn]).get_domain(h))
+                oracle_dims.append(cast(CatValue, a.vals[vn]).get_domain(h))
+                attr_commons.append(0)
             else:
-                from ....marginal.numpy import _calc_common
                 cmn = min(
                     _calc_common(cast(CatValue, a.vals[vn]), a.common)
                     for vn in sel_d
@@ -1517,44 +1520,97 @@ def measure_edges(
                 for vn, h in sel_d.items():
                     nd *= cast(CatValue, a.vals[vn]).get_domain(h) - cmn
                 nd += cmn
-                naive_dims.append(nd)
+                oracle_dims.append(nd)
+                attr_commons.append(cmn)
 
         raw = result.astype(np.float64).ravel()
         if sigma_edge > 0:
             raw = _add_dp_noise(raw, sigma_edge, dp_type)
         raw = raw.clip(0)
-        prob = raw.reshape(naive_dims)
+        prob = raw.reshape(oracle_dims)
 
-        # Compress oracle→compressed for each dim
+        # Compress oracle→compressed for each multi-value dim with common.
+        # Single-value dims and dims with common=0 have oracle == compressed.
         for dim_i, (tbl, ord_, attr_name, sel) in enumerate(source_tuple):
             sel_d = convert_sel(sel)
             if isinstance(sel_d, int) or len(sel_d) <= 1:
                 continue
+            cmn = attr_commons[dim_i]
             a = _get_attrs(attrs, tbl, ord_)[attr_name]
             oracle_dom = prob.shape[dim_i]
             compressed_dom = a.get_domain(sel_d)
             if oracle_dom == compressed_dom:
                 continue
 
-            raw_naive = a.get_naive_mapping(sel_d)
-            raw_compressed = a.get_mapping(sel_d)
-            _, unique_idx = np.unique(raw_naive, return_index=True)
-            naive_idx = raw_naive[unique_idx]
-            compressed_idx = raw_compressed[unique_idx]
+            if cmn == 0:
+                # No common: oracle == naive, use standard naive→compressed
+                raw_naive = a.get_naive_mapping(sel_d)
+                raw_compressed = a.get_mapping(sel_d)
+                _, unique_idx = np.unique(raw_naive, return_index=True)
+                naive_idx = raw_naive[unique_idx]
+                compressed_idx = raw_compressed[unique_idx]
 
-            i_map = tuple(
-                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
-            )
-            o_map = tuple(
-                compressed_idx if j == dim_i else slice(None)
-                for j in range(len(prob.shape))
-            )
-            tmp = np.zeros(
-                [compressed_dom if j == dim_i else d for j, d in enumerate(prob.shape)],
-                dtype=prob.dtype,
-            )
-            np.add.at(tmp, o_map, prob[i_map])
-            prob = tmp
+                i_map = tuple(
+                    naive_idx if j == dim_i else slice(None)
+                    for j in range(prob.ndim)
+                )
+                o_map = tuple(
+                    compressed_idx if j == dim_i else slice(None)
+                    for j in range(prob.ndim)
+                )
+                tmp = np.zeros(
+                    [compressed_dom if j == dim_i else d
+                     for j, d in enumerate(prob.shape)],
+                    dtype=prob.dtype,
+                )
+                np.add.at(tmp, o_map, prob[i_map])
+                prob = tmp
+            else:
+                # Common > 0: oracle uses packed encoding.
+                # Build oracle_bin → compressed_bin mapping by iterating
+                # over all per-value group combinations.
+                val_items = list(sel_d.items())
+                val_doms = [
+                    cast(CatValue, a.vals[vn]).get_domain(h)
+                    for vn, h in val_items
+                ]
+                raw_total = int(np.prod(val_doms))
+
+                # Per-value indices for every raw combination
+                per_val = []
+                rem = np.arange(raw_total, dtype=np.int64)
+                for d in reversed(val_doms):
+                    per_val.append(rem % d)
+                    rem //= d
+                per_val.reverse()
+
+                # Oracle flat index for each raw combination
+                oracle_bins = np.zeros(raw_total, dtype=np.int64)
+                o_stride = 1
+                for vi_rev in range(len(val_items)):
+                    vi = len(val_items) - 1 - vi_rev
+                    gv = per_val[vi]
+                    if cmn == 0 or vi_rev == 0:
+                        oracle_bins += gv * o_stride
+                    else:
+                        oracle_bins += np.maximum(0, gv - cmn) * o_stride
+                    o_stride *= val_doms[vi] - cmn
+
+                comp_mapping = np.array(a.get_mapping(sel_d), dtype=np.int64)
+                o2c = np.zeros(oracle_dom, dtype=np.int64)
+                o2c[oracle_bins] = comp_mapping
+
+                o_map = tuple(
+                    o2c if j == dim_i else slice(None)
+                    for j in range(prob.ndim)
+                )
+                tmp = np.zeros(
+                    [compressed_dom if j == dim_i else d
+                     for j, d in enumerate(prob.shape)],
+                    dtype=prob.dtype,
+                )
+                np.add.at(tmp, o_map, prob)
+                prob = tmp
 
         s = prob.sum()
         prob = (prob / s if s > 0 else prob).astype(np.float32)
