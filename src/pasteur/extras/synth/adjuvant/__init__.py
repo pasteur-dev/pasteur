@@ -10,7 +10,7 @@ Budget allocation: theta_1w (1-way marginals), theta_2w + em_z (structure learni
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -267,22 +267,57 @@ class AdjuvantMare(MareModel):
                     mapping = np.array(attr.get_mapping(sel), dtype=np.int64)
                     evidence[(ci, di)] = mapping[raw_vals]
                 else:
-                    # Multi-value dim: combine per-value mappings
-                    comp_mapping = attr.get_mapping(sel)
-                    # Build flat index from raw values
+                    # Multi-value dim: build a lookup from per-value indices
+                    # to compressed bin using _decompose_dim's inverse.
+                    from ....graph.sample import _decompose_dim
+
+                    comp_dom = attr.get_domain(sel)
+                    all_comp = np.arange(comp_dom)
+                    decomposed = _decompose_dim(attr, sel, all_comp)
+
+                    # Build reverse lookup: per-value tuple -> comp bin
+                    # Use a flat product of per-value domains as key
+                    val_names_sorted = list(sel.keys())
+                    val_doms = [
+                        cast(CatValue, attr.vals[vn]).get_domain(sel[vn])
+                        for vn in val_names_sorted
+                    ]
+
+                    # Build lookup array: flat_key -> comp_bin
+                    flat_dom = 1
+                    for d in val_doms:
+                        flat_dom *= d
+                    lookup = np.full(flat_dom, 0, dtype=np.int64)
+                    for c in range(comp_dom):
+                        flat_key = 0
+                        mul_k = 1
+                        for vi, vn in enumerate(val_names_sorted):
+                            flat_key += int(decomposed[vn][c]) * mul_k
+                            mul_k *= val_doms[vi]
+                        if flat_key < flat_dom:
+                            lookup[flat_key] = c
+
+                    # Encode each row's per-value data into flat key
+                    all_found = True
                     flat_idx = np.zeros(n, dtype=np.int64)
                     mul = 1
-                    for val_name, h in sel.items():
+                    for vi, (val_name, h) in enumerate(sel.items()):
                         if val_name not in hist_df.columns:
+                            all_found = False
                             break
                         raw_vals = hist_df[val_name].to_numpy()
-                        val_meta = attr[val_name]
+                        val_meta = attr.vals[val_name]
                         assert isinstance(val_meta, CatValue)
-                        flat_idx += raw_vals.astype(np.int64) * mul
-                        mul *= val_meta.get_domain(0)
-                    else:
-                        # Map raw flat index -> compressed index
-                        evidence[(ci, di)] = comp_mapping[flat_idx]
+                        # Map raw leaf indices through per-value mapping
+                        val_mapping = np.array(
+                            val_meta.get_mapping(h), dtype=np.int64
+                        )
+                        flat_idx += val_mapping[raw_vals] * mul
+                        mul *= val_doms[vi]
+
+                    if all_found:
+                        np.clip(flat_idx, 0, flat_dom - 1, out=flat_idx)
+                        evidence[(ci, di)] = lookup[flat_idx]
 
         columns = sample_junction_tree(
             self.potentials,
