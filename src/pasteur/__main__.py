@@ -8,7 +8,6 @@ def main():
 
     log_fn = os.path.join(os.curdir, "conf/base/logging.yml")
     if os.path.exists(log_fn):
-        print(f"Overriding kedro config with '{log_fn}'")
         os.environ["KEDRO_LOGGING_CONFIG"] = log_fn
     from kedro.framework.cli import main as kedro_main
 
