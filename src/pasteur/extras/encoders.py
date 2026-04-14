@@ -88,7 +88,7 @@ class DiscretizationColumnTransformer:
         dtype = get_dtype(len(self.centers) + 1)
         if not np.all(pd.isna(data)):
             ofs = int(self.nullable)
-            midx = len(self.centers) - 1  # clip digitize out of bounds values
+            midx = len(self.centers)  # clip digitize out of bounds values
 
             digits = (
                 np.digitize(data, bins=self.edges).astype(dtype).clip(1, midx) - 1 + ofs

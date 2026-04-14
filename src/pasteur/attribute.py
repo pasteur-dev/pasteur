@@ -734,10 +734,13 @@ class NumValue(Value):
                 bins is not None and min is not None and max is not None
             ), f"Please provide 'min' and 'max' when 'bins' is an int."
             if is_int:
-                kwargs = {"dtype": np.int64}
+                # Use max + 1 as the upper bound so that integer rounding
+                # in linspace never creates degenerate zero-width bins.
+                # E.g. linspace(0, 63, 65, int64) → [0,0,1,...] (bad),
+                #      linspace(0, 64, 65, int64) → [0,1,2,...,64] (good).
+                self.bins = np.linspace(min, max + 1, bins + 1, dtype=np.int64)
             else:
-                kwargs = {}
-            self.bins = np.linspace(min, max, bins + 1, **kwargs)
+                self.bins = np.linspace(min, max, bins + 1)
         self.nullable = nullable
         self.ignore_nan = ignore_nan
 
