@@ -221,13 +221,17 @@ class Grouping(list["Grouping | str"]):
             for i, (h, g) in enumerate(zip(heights, groups)):
                 if isinstance(g, Grouping):
                     if h == -1:
+                        # Collapsed dim: wrap all groups into a single
+                        # outer-product element (same as get_mapping_multiple).
                         new_groups, new_ofs = g._get_groups_by_height(0, ofs=ofs[i])
                         groupings.append([new_groups])
                     else:
+                        # Non-collapsed dim: each group is a separate element
+                        # in the outer product (matching get_mapping_multiple).
                         new_groups, new_ofs = g._get_groups_by_height(
                             h - int(has_common), ofs=ofs[i]
                         )
-                        groupings.append([new_groups])
+                        groupings.append(new_groups)
                     ofs[i] = new_ofs
                 else:
                     groupings.append([[ofs[i]]])
