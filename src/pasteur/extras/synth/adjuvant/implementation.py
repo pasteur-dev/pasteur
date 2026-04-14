@@ -1466,6 +1466,7 @@ def measure_edges(
         else:
             hi = theta_2w * 1000
         hi = max(hi, theta_2w)  # never go below base
+        lo = 1.0
         # Binary search for max theta that fits within target budget
         if _total_bdg_2w(hi) <= target_bdg:
             eff_theta = hi
