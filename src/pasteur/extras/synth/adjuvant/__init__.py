@@ -74,7 +74,7 @@ class AdjuvantMare(MareModel):
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
-        self.md_params = mirror_descent if mirror_descent else {}
+        self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.seed = seed
         self.kwargs = kwargs
 
