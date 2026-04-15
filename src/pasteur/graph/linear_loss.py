@@ -88,7 +88,7 @@ def _adjoint_project(
         # Adjoint of sum: unsqueeze each summed dim and expand
         for d in sorted(pmeta.sum_dims):
             grad = grad.unsqueeze(d)
-        grad = grad.expand(mu_shape)
+        grad = grad.expand(mu_shape).contiguous()
 
     return grad
 
