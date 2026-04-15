@@ -248,25 +248,40 @@ class Grouping(list["Grouping | str"]):
                 ofs = ofs_g
         else:
             # Always iterate at leaf level (height 0) for consistent
-            # raw-leaf ordering (same fix as get_mapping_multiple).
-            # Non-collapsed dims use their requested height for the
-            # per-value index; collapsed dims iterate at leaf level
-            # but their index is unused by callers.
-            groupings = []
+            # raw-leaf ordering (same as get_mapping_multiple).
+            # For each leaf, output the group index at the requested
+            # height h for that dimension (using get_mapping(h) to
+            # convert leaf index → group index).
+            leaf_doms = []
+            h_mappings = []  # per-dim: None (identity) or mapping array
+            for i, (h, g) in enumerate(zip(heights, groups)):
+                if isinstance(g, Grouping):
+                    leaf_doms.append(g.get_domain(0))
+                    h_eff = 0 if h == -1 else h - int(has_common)
+                    if h_eff == 0:
+                        h_mappings.append(None)
+                    else:
+                        h_mappings.append(g.get_mapping(h_eff))
+                else:
+                    leaf_doms.append(1)
+                    h_mappings.append(None)
+
+            for combo in product(*[range(d) for d in leaf_doms]):
+                vals = []
+                for j in range(len(heights)):
+                    m = h_mappings[j]
+                    leaf_idx = combo[j]
+                    group_idx = int(m[leaf_idx]) if m is not None else leaf_idx
+                    vals.append(ofs[j] + group_idx)
+                out.append(tuple(vals))
+
+            # Update ofs to reflect the domain at each dim's height
             for i, (h, g) in enumerate(zip(heights, groups)):
                 if isinstance(g, Grouping):
                     h_eff = 0 if h == -1 else h - int(has_common)
-                    new_groups, new_ofs = g._get_groups_by_height(
-                        h_eff, ofs=ofs[i]
-                    )
-                    groupings.append(new_groups)
-                    ofs[i] = new_ofs
+                    ofs[i] += g.get_domain(h_eff)
                 else:
-                    groupings.append([[ofs[i]]])
                     ofs[i] += 1
-            for combos in product(*groupings):
-                for l in product(*[c if isinstance(c, list) else [c] for c in combos]):
-                    out.append(l)
 
         return out, ofs
 

@@ -582,8 +582,11 @@ class RebalancedValue(CatValue):
         else:
             assert len(vals) == len(heights)
 
+            # Use reversed iteration to match get_mapping_multiple's
+            # raw-leaf ordering (which also reverses vals/heights).
+            n = len(vals)
             out = []
-            new_ofs = [0 for _ in range(len(vals))]
+            new_ofs = [0 for _ in range(n)]
 
             for l in range(len(vals[0].common_groups[0])):
                 groupings = [
@@ -592,17 +595,19 @@ class RebalancedValue(CatValue):
                         if h != -1
                         else [0 for _ in range(v.common_sizes[0][l])]
                     )
-                    for v, h in zip(vals, heights)
+                    for v, h in reversed(list(zip(vals, heights)))
                 ]
 
                 ofs = list(new_ofs)
                 for combos in product(*groupings):
-                    row = tuple(ofs[i] + c for i, c in enumerate(combos))
-                    for i, c in enumerate(combos):
-                        new_ofs[i] = max(ofs[i] + c, new_ofs[i])
+                    # combos is in reversed val order; un-reverse for output
+                    rev = list(reversed(combos))
+                    row = tuple(ofs[i] + rev[i] for i in range(n))
+                    for i in range(n):
+                        new_ofs[i] = max(ofs[i] + rev[i], new_ofs[i])
                     out.append(row)
 
-                for i in range(len(new_ofs)):
+                for i in range(n):
                     new_ofs[i] += 1
 
             return out
