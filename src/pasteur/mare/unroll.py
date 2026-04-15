@@ -307,9 +307,12 @@ def convert_rebalanced_to_seq_val(s: RebalancedValue, order: int):
         ],
         axis=1,
     )
-    # TODO: verify this works
     reb.common_sizes = [[1 for _ in range(order)] + v for v in s.common_sizes]
-    reb.common_groups = [list(v) for v in reb.grouping]
+    # Prepend `order` single-element common groups (one per seq position)
+    # to each grouping level's list of group-assignment lists.
+    reb.common_groups = [
+        [[0] for _ in range(order)] + cg for cg in s.common_groups
+    ]
     reb.domains = [d + order for d in s.domains]
     return reb
 
