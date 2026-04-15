@@ -21,6 +21,7 @@ class MirrorDescentParams(TypedDict, total=False):
     lr: float
     max_iters: int
     ptol: float
+    atol: float
     patience: int
     device: str
     compile: int | bool
@@ -35,6 +36,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "lr": 1,
     "max_iters": 10_000,
     "ptol": 2e-4,
+    "atol": 2e-5,
     "patience": 50,
     "device": "auto",
     "compile": 10_000_000,
@@ -54,6 +56,7 @@ def mirror_descent(
     lr: float = 0.07,
     max_iters: int = 10_000,
     ptol: float = 2e-4,
+    atol: float = 2e-5,
     patience: int = 50,
     checkpoint_every: int = 100,
     device: torch.device | str | None = None,
@@ -213,7 +216,8 @@ def mirror_descent(
         # Sync GPU and check convergence
         loss_vals = [l.item() for l in losses]
         for cur_loss in loss_vals:
-            if abs((best_loss - cur_loss) / best_loss) < ptol:
+            diff_loss = best_loss - cur_loss
+            if abs(diff_loss / best_loss) < ptol or abs(diff_loss) < atol:
                 stale += 1
             else:
                 stale = 0
