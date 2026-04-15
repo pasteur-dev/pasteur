@@ -11,7 +11,7 @@ from .hugin import (
     CliqueMeta,
 )
 from .loss import LinearObservation
-from .beliefs import BeliefPropagation, create_cliques
+from .beliefs import BeliefPropagation, create_cliques, HAS_TRITON
 from .linear_loss import LinearLoss
 
 logger = logging.getLogger(__name__)
@@ -120,25 +120,23 @@ def mirror_descent(
         adam_opt = torch.optim.Adam(theta, lr=lr)
 
     def compute_grad(theta, bp, loss_fn):
-        # 1. Forward: BP to get consistent log-potentials, then exponentiate
+        # 1. BP forward
         with torch.no_grad():
             theta_bp = bp(list(theta))
             mu = [t.exp() for t in theta_bp]
 
-        # 2. Compute loss and gradient w.r.t. probability-space marginals
-        mu_detached = mu
-        mu = [m.requires_grad_(True) for m in mu]
-        loss = loss_fn(mu)
-        loss.backward()
+        # 2. Loss + analytical gradient (no autograd)
+        with torch.no_grad():
+            loss, grads = loss_fn(mu)
 
-        # 3. Apply marginal-space gradient directly to potentials
-        #    (this is the correct mirror descent update: theta -= lr * ∂L/∂mu)
-        for t, m in zip(theta, mu):
+        # 3. Assign gradients to theta (mirror descent: dL/dmu -> theta.grad)
+        for t, g in zip(theta, grads):
             if t.grad is None:
-                t.grad = m.grad
-            elif m.grad is not None:
-                t.grad.copy_(m.grad)
-        return loss, mu_detached
+                t.grad = g
+            else:
+                t.grad.copy_(g)
+
+        return loss, mu
 
     total_params = sum(t.numel() for t in theta)
     do_compile = total_params >= compile if isinstance(compile, int) else compile
@@ -149,7 +147,7 @@ def mirror_descent(
     logger.info(
         f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
         f"{total_params:_} params, "
-        f"lr={lr}, device={device}, compile={do_compile}, optim={optim}"
+        f"lr={lr}, device={device}, compile={do_compile}, triton={HAS_TRITON}, optim={optim}"
     )
 
     alpha = torch.tensor(lr, device=device)

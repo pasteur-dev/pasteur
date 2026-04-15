@@ -10,6 +10,15 @@ import torch
 from ..attribute import DatasetAttributes, get_dtype
 from .hugin import CliqueMeta, get_attrs
 
+try:
+    from .triton import scatter_logsumexp
+
+    HAS_TRITON = True
+except ImportError:
+    scatter_logsumexp = None
+
+    HAS_TRITON = False
+
 
 def deduplicate(arr1, arr2):
     check = set()
@@ -298,6 +307,8 @@ class _ScatterInfo(NamedTuple):
     # Sorted idx_b and its expansion for scatter ops
     idx_b_sorted: torch.Tensor  # (n_pairs,) int64
     idx_exp_sorted: torch.Tensor  # (n_pairs, rest_dom) int64
+    # CSR-style offsets for segmented reduction (used by Triton kernel)
+    group_offsets: torch.Tensor  # (b_idx_dom + 1,) int64
 
 
 class _MsgCache(NamedTuple):
@@ -406,10 +417,16 @@ class BeliefPropagation(torch.nn.Module):
                     idx_exp_sorted = idx_b_sorted.unsqueeze(1).expand(
                         len(idx_b_sorted), rest_dom
                     )
+                    # CSR-style offsets for segmented reduction (Triton kernel)
+                    counts = torch.zeros(b_idx_dom, dtype=torch.int64, device=idx_b_sorted.device)
+                    counts.scatter_add_(0, idx_b_sorted, torch.ones_like(idx_b_sorted))
+                    group_offsets = torch.zeros(b_idx_dom + 1, dtype=torch.int64, device=idx_b_sorted.device)
+                    group_offsets[1:] = counts.cumsum(0)
                     scatter = _ScatterInfo(
                         gather_idx=gather_idx,
                         idx_b_sorted=idx_b_sorted,
                         idx_exp_sorted=idx_exp_sorted,
+                        group_offsets=group_offsets,
                     )
                 else:
                     idx_a_key = arg.idx_a
@@ -502,19 +519,25 @@ class BeliefPropagation(torch.nn.Module):
                         # giving sequential write access.
                         sc = mc.scatter
                         proc = torch.index_select(proc, 0, sc.gather_idx)
-                        b_rest = (mc.b_idx_dom, mc.rest_dom)
 
-                        # Stable scatter logsumexp
-                        max_vals = proc.new_full(b_rest, float("-inf"))
-                        max_vals.scatter_reduce_(
-                            0, sc.idx_exp_sorted, proc,
-                            reduce="amax", include_self=True,
-                        )
-                        shifted = proc - max_vals.gather(0, sc.idx_exp_sorted)
-                        shifted = shifted.nan_to_num(0.0)
-                        result = proc.new_zeros(b_rest)
-                        result.index_add_(0, sc.idx_b_sorted, shifted.exp())
-                        proc = result.log() + max_vals
+                        if scatter_logsumexp:
+                            proc = scatter_logsumexp(
+                                proc, sc.group_offsets,
+                                mc.b_idx_dom, mc.rest_dom,
+                            )
+                        else:
+                            b_rest = (mc.b_idx_dom, mc.rest_dom)
+                            # Stable scatter logsumexp
+                            max_vals = proc.new_full(b_rest, float("-inf"))
+                            max_vals.scatter_reduce_(
+                                0, sc.idx_exp_sorted, proc,
+                                reduce="amax", include_self=True,
+                            )
+                            shifted = proc - max_vals.gather(0, sc.idx_exp_sorted)
+                            shifted = shifted.nan_to_num(0.0)
+                            result = proc.new_zeros(b_rest)
+                            result.index_add_(0, sc.idx_b_sorted, shifted.exp())
+                            proc = result.log() + max_vals
                     elif mc.idx_a_key is not None:
                         proc = torch.index_select(
                             proc, 0, self.idx_a[mc.idx_a_key]
