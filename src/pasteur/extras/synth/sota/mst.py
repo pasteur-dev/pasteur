@@ -39,6 +39,7 @@ class MST(Synth):
     def __init__(
         self,
         e: float = 1.0,
+        etotal: float | None = None,
         delta: float = 1e-9,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -49,7 +50,7 @@ class MST(Synth):
         mirror_descent: dict | None = None,
         **kwargs,
     ) -> None:
-        self.e = e
+        self.e = etotal if etotal is not None else e
         self.delta = delta
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult

@@ -61,6 +61,7 @@ class AIM(Synth):
     def __init__(
         self,
         e: float = 1.0,
+        etotal: float | None = None,
         delta: float = 1e-9,
         rounds: int = 50,
         max_model_size: float = 80,
@@ -75,7 +76,7 @@ class AIM(Synth):
         mirror_descent: dict | None = None,
         **kwargs,
     ) -> None:
-        self.e = e
+        self.e = etotal if etotal is not None else e
         self.delta = delta
         self.rounds = rounds
         self.max_model_size = max_model_size

@@ -274,6 +274,7 @@ class PrivMRF(Synth):
     def __init__(
         self,
         e: float = 1.0,
+        etotal: float | None = None,
         delta: float = 1e-9,
         beta1: float = 0.10,
         beta3: float = 0.10,
@@ -295,7 +296,7 @@ class PrivMRF(Synth):
         mirror_descent: dict | None = None,
         **kwargs,
     ) -> None:
-        self.e = e
+        self.e = etotal if etotal is not None else e
         self.delta = delta
         self.beta1 = beta1
         self.beta3 = beta3
