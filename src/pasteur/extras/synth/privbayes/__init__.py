@@ -27,6 +27,204 @@ from .implementation import (
 
 logger = logging.getLogger(__name__)
 
+from ....graph.mirror_descent import MirrorDescentParams, MIRROR_DESCENT_DEFAULT
+
+
+def _fit_mirror_descent(
+    mirror_descent: MirrorDescentParams | bool,
+    nodes: Sequence[Node],
+    attrs: DatasetAttributes,
+    marginals: Sequence[np.ndarray],
+    n: int,
+    d: int,
+    e2: float,
+    unbounded_dp: bool,
+):
+    from ....graph.hugin import to_moral
+    from ....graph.mirror_descent import fit_model
+
+    md = mirror_descent if isinstance(mirror_descent, dict) else {}
+    params = {**MIRROR_DESCENT_DEFAULT, **md}
+    compress = params.pop("compress", True)
+    md_sample = params.pop("sample", False)
+    tree_mode = params.pop("tree", "hugin")
+    device = None if params["device"] == "auto" else params["device"]
+    params.pop("device", None)
+
+    # Build observations (privbayes-specific: nodes → LinearObservation)
+    noise_scale = (1 if unbounded_dp else 2) * d / e2
+    obs = derive_obs_from_model(nodes, attrs, marginals, n, noise_scale)
+
+    # Build moral graph for hugin modes (privbayes-specific: nodes → graph)
+    mg = None
+    if tree_mode != "maximal":
+        g = derive_graph_from_nodes(nodes, attrs, prune=True)
+        mg = to_moral(g)
+
+    # Generic pipeline: build junction tree + fit via mirror descent
+    potentials, junction, cliques, messages, loss_fn, _ = fit_model(
+        obs, attrs,
+        tree_mode=tree_mode,
+        compress=compress,
+        moral_graph=mg,
+        device=device,
+        **params,
+    )
+
+    # Project clique potentials directly to node marginals.
+    # Each node's attributes are a subset of some clique's attributes.
+    # We marginalize (sum out) extra clique dims and remap indices
+    # to the node's native shape. No lossy compress/decompress roundtrip.
+    from ....graph.hugin import AttrMeta, get_attrs as _get_attrs, get_clique_domain
+    from ....graph.loss import get_smallest_parent, get_parent_meta, get_parents
+    from ....graph.beliefs import convert_sel
+
+    md_marginals = list(marginals)
+    for idx, node in enumerate(nodes):
+        orig_marg = marginals[idx]
+        o = obs[idx]
+
+        # Reuse observation's source (same AttrMeta as derive_obs_from_model)
+        source = o.source
+
+        # Rebuild orig order for transpose (node's native dim ordering)
+        orig = []
+        used_parent_table = None
+        used_parent_order = None
+        used_parent = False
+        for s in node.p:
+            if len(s) == 3:
+                table_sel, attr_name, sel = s
+            else:
+                table_sel = None
+                attr_name, sel = s
+            if isinstance(table_sel, tuple):
+                table, order = table_sel[0], table_sel[1]
+            else:
+                table, order = table_sel, None
+            if isinstance(sel, int):
+                orig.append((table, order, attr_name, None, sel))
+            else:
+                attr = _get_attrs(attrs, table, order)[attr_name]
+                cmn = attr.common.name if attr.common else None
+                for val, h in sel.items():
+                    if val == cmn:
+                        continue
+                    orig.append((table, order, attr_name, val, h))
+                if node.attr == attr_name and not any(
+                    val == node.value for val, _ in sel.items() if val != cmn
+                ):
+                    used_parent = True
+                    used_parent_table = table
+                    used_parent_order = order
+        if used_parent:
+            orig.append((used_parent_table, used_parent_order, node.attr, node.value, 0))
+        else:
+            orig.append((None, None, node.attr, node.value, 0))
+
+        # Find the parent clique and get projection metadata
+        parents = get_parents(source, cliques)
+        if not parents:
+            # No compatible clique — keep original marginal
+            logger.warning(
+                f"Node {idx} ({node.attr}.{node.value}): no parent clique found, "
+                f"keeping original marginal"
+            )
+            continue
+        parent = min(parents, key=lambda x: get_clique_domain(x, attrs))
+        parent_idx = cliques.index(parent)
+        meta = get_parent_meta(source, parent, attrs)
+
+        # Start with fitted clique marginal (probability space)
+        proc = potentials[parent_idx].copy()
+
+        # Sum out dimensions not in the node
+        if meta.sum_dims:
+            proc = np.sum(proc, axis=meta.sum_dims)
+
+        # Remap indices from clique domain to node's source domain
+        if meta.idx is not None:
+            proc = proc.transpose(meta.transpose)
+            og_shape = proc.shape
+            a_idx_dom = 1
+            for dd in og_shape[: len(meta.b_doms)]:
+                a_idx_dom *= dd
+            b_idx_dom = 1
+            for dd in meta.b_doms:
+                b_idx_dom *= dd
+            rest_dom = 1
+            for dd in og_shape[len(meta.b_doms) :]:
+                rest_dom *= dd
+            proc = proc.reshape((a_idx_dom, -1))
+            out = np.zeros((b_idx_dom, rest_dom), dtype=proc.dtype)
+            np.add.at(out, meta.idx, proc)
+            new_shape = list(meta.b_doms) + list(og_shape[len(meta.b_doms) :])
+            proc = out.reshape(new_shape).transpose(meta.transpose_undo)
+
+        # proc is now in source shape (one compressed dim per attribute).
+        # Expand each compressed attr dim to per-value naive dims.
+        vals_order = []
+        per_val_shape = []
+        for dim_i, a in enumerate(source):
+            if isinstance(a.sel, int):
+                attr = _get_attrs(attrs, a.table, a.order)[a.attr]
+                per_val_shape.append(attr.common.get_domain(a.sel))
+                vals_order.append((a.table, a.order, a.attr, None, a.sel))
+            else:
+                attr = _get_attrs(attrs, a.table, a.order)[a.attr]
+                naive_dom = 1
+                for val, h in a.sel:
+                    naive_dom *= attr[val].get_domain(h)
+                compressed_dom = attr.get_domain(dict(a.sel))
+
+                if naive_dom != compressed_dom:
+                    # Expand compressed dim using index mappings.
+                    # Compression sums naive→compressed; expansion must
+                    # divide by group size to avoid duplicating mass.
+                    naive_mapping = attr.get_naive_mapping(dict(a.sel))
+                    comp_mapping = attr.get_mapping(dict(a.sel))
+
+                    _, unique_idx = np.unique(naive_mapping, return_index=True)
+                    naive_per_comp_dedup = np.zeros(
+                        compressed_dom, dtype=np.float32
+                    )
+                    np.add.at(naive_per_comp_dedup, comp_mapping[unique_idx], 1.0)
+                    naive_per_comp_dedup = np.maximum(naive_per_comp_dedup, 1.0)
+
+                    i_map = tuple(
+                        naive_mapping if j == dim_i else slice(None)
+                        for j in range(len(proc.shape))
+                    )
+                    o_map = tuple(
+                        comp_mapping if j == dim_i else slice(None)
+                        for j in range(len(proc.shape))
+                    )
+                    scale_shape = [1] * len(proc.shape)
+                    scale_shape[dim_i] = compressed_dom
+                    scaled_proc = proc / naive_per_comp_dedup.reshape(scale_shape)
+
+                    expanded_shape = list(proc.shape)
+                    expanded_shape[dim_i] = naive_dom
+                    expanded = np.zeros(expanded_shape, dtype=proc.dtype)
+                    expanded[i_map] = scaled_proc[o_map]
+                    proc = expanded
+
+                for val, h in a.sel:
+                    per_val_shape.append(attr[val].get_domain(h))
+                    vals_order.append((a.table, a.order, a.attr, val, h))
+
+        # Reshape to per-value dims
+        proc = proc.reshape(per_val_shape)
+
+        # Transpose from source (alphabetical) order to orig (node) order
+        inv_perm = [vals_order.index(v) for v in orig]
+        proc = proc.transpose(inv_perm)
+
+        # Scale to counts and store
+        md_marginals[idx] = proc.reshape(orig_marg.shape) * n
+
+    return obs, potentials, cliques, loss_fn, md_sample, junction, md_marginals
+
 
 class PrivBayesMare(MareModel):
     def __init__(
@@ -44,6 +242,7 @@ class PrivBayesMare(MareModel):
         skip_zero_counts: bool = True,
         minimum_cutoff: int | None = 3,
         rake: bool = True,
+        mirror_descent: MirrorDescentParams | bool = False,
         **kwargs,
     ) -> None:
         if etotal is None:
@@ -58,6 +257,7 @@ class PrivBayesMare(MareModel):
         self.unbounded_dp = unbounded_dp
         self.skip_zero_counts = skip_zero_counts
         self.rake = rake
+        self.mirror_descent = mirror_descent
         self.kwargs = kwargs
         self.minimum_cutoff = minimum_cutoff
 
@@ -103,12 +303,39 @@ class PrivBayesMare(MareModel):
             minimum_cutoff=self.minimum_cutoff,
         )
 
+        if self.mirror_descent:
+            self._fit_mirror_descent_impl(n)
+        else:
+            self.md_marginals = None
+
+    def _fit_mirror_descent_impl(self, n: int):
+        d = 0
+        for attr in cast(Attributes, self.attrs[None]).values():
+            d += len(attr.vals)
+
+        obs, potentials, cliques, loss_fn, md_sample, junction, md_marginals = (
+            _fit_mirror_descent(
+                self.mirror_descent, self.nodes, self.attrs, self.marginals,
+                n, d, self.e2, self.unbounded_dp,
+            )
+        )
+        self.md_obs = obs
+        self.md_potentials = potentials
+        self.md_cliques = cliques
+        self.md_loss_fn = loss_fn
+        self.md_sample = md_sample
+        self.md_junction = junction
+        self.md_marginals = md_marginals
+
     def sample(
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
     ) -> pd.DataFrame:
         from .implementation import sample_rows
 
-        return sample_rows(index, self.attrs, hist, self.nodes, self.marginals)
+        marginals = (
+            self.md_marginals if self.md_marginals is not None else self.marginals
+        )
+        return sample_rows(index, self.attrs, hist, self.nodes, marginals)
 
     def __str__(self) -> str:
         from .implementation import print_tree
@@ -122,9 +349,6 @@ class PrivBayesMare(MareModel):
             self.t,
             minimum_cutoff=self.minimum_cutoff,
         )
-
-
-from ....graph.mirror_descent import MirrorDescentParams, MIRROR_DESCENT_DEFAULT
 
 
 class PrivBayesSynth(Synth):
@@ -279,7 +503,7 @@ class PrivBayesSynth(Synth):
             )
 
         if self.mirror_descent:
-            self._fit_mirror_descent()
+            self._fit_mirror_descent_impl()
         else:
             self.md_marginals = None
 
@@ -298,7 +522,7 @@ class PrivBayesSynth(Synth):
                 self.md_sample = self.mirror_descent["sample"]
                 return
         if self.mirror_descent:
-            self._fit_mirror_descent()
+            self._fit_mirror_descent_impl()
         else:
             self.md_obs = None
             self.md_potentials = None
@@ -307,189 +531,19 @@ class PrivBayesSynth(Synth):
             self.md_sample = False
             self.md_junction = None
 
-    def _fit_mirror_descent(self):
-        from ....graph.hugin import to_moral
-        from ....graph.mirror_descent import fit_model
-
-        md = self.mirror_descent if isinstance(self.mirror_descent, dict) else {}
-        params = {**MIRROR_DESCENT_DEFAULT, **md}
-        compress = params.pop("compress", True)
-        md_sample = params.pop("sample", False)
-        tree_mode = params.pop("tree", "hugin")
-        device = None if params["device"] == "auto" else params["device"]
-        params.pop("device", None)
-
-        # Build observations (privbayes-specific: nodes → LinearObservation)
-        noise_scale = (1 if self.unbounded_dp else 2) * self.d / self.e2
-        obs = derive_obs_from_model(
-            self.nodes, self.table_attrs, self.marginals, self.n, noise_scale
+    def _fit_mirror_descent_impl(self):
+        obs, potentials, cliques, loss_fn, md_sample, junction, md_marginals = (
+            _fit_mirror_descent(
+                self.mirror_descent, self.nodes, self.table_attrs, self.marginals,
+                self.n, self.d, self.e2, self.unbounded_dp,
+            )
         )
-
-        # Build moral graph for hugin modes (privbayes-specific: nodes → graph)
-        mg = None
-        if tree_mode != "maximal":
-            g = derive_graph_from_nodes(self.nodes, self.table_attrs, prune=True)
-            mg = to_moral(g)
-
-        # Generic pipeline: build junction tree + fit via mirror descent
-        potentials, junction, cliques, messages, loss_fn, _ = fit_model(
-            obs, self.table_attrs,
-            tree_mode=tree_mode,
-            compress=compress,
-            moral_graph=mg,
-            device=device,
-            **params,
-        )
-
-        # Project clique potentials directly to node marginals.
-        # Each node's attributes are a subset of some clique's attributes.
-        # We marginalize (sum out) extra clique dims and remap indices
-        # to the node's native shape. No lossy compress/decompress roundtrip.
-        from ....graph.hugin import AttrMeta, get_attrs as _get_attrs, get_clique_domain
-        from ....graph.loss import get_smallest_parent, get_parent_meta
-        from ....graph.beliefs import convert_sel
-
         self.md_obs = obs
         self.md_potentials = potentials
         self.md_cliques = cliques
         self.md_loss_fn = loss_fn
         self.md_sample = md_sample
         self.md_junction = junction
-
-        md_marginals = list(self.marginals)
-        for idx, node in enumerate(self.nodes):
-            orig_marg = self.marginals[idx]
-            o = obs[idx]
-
-            # Reuse observation's source (same AttrMeta as derive_obs_from_model)
-            source = o.source
-
-            # Rebuild orig order for transpose (node's native dim ordering)
-            orig = []
-            for s in node.p:
-                if len(s) == 3:
-                    table_sel, attr_name, sel = s
-                else:
-                    table_sel = None
-                    attr_name, sel = s
-                if isinstance(table_sel, tuple):
-                    table, order = table_sel[0], table_sel[1]
-                else:
-                    table, order = table_sel, None
-                if isinstance(sel, int):
-                    orig.append((table, order, attr_name, None))
-                else:
-                    attr = _get_attrs(self.table_attrs, table, order)[attr_name]
-                    cmn = attr.common.name if attr.common else None
-                    for val, h in sel.items():
-                        if val == cmn:
-                            continue
-                        orig.append((table, order, attr_name, val))
-            orig.append((None, None, node.attr, node.value))
-
-            # Find the parent clique and get projection metadata
-            from ....graph.loss import get_parents
-
-            parents = get_parents(source, cliques)
-            if not parents:
-                # No compatible clique — keep original marginal
-                logger.warning(
-                    f"Node {idx} ({node.attr}.{node.value}): no parent clique found, "
-                    f"keeping original marginal"
-                )
-                continue
-            parent = min(parents, key=lambda x: get_clique_domain(x, self.table_attrs))
-            parent_idx = cliques.index(parent)
-            meta = get_parent_meta(source, parent, self.table_attrs)
-
-            # Start with fitted clique marginal (probability space)
-            proc = potentials[parent_idx].copy()
-
-            # Sum out dimensions not in the node
-            if meta.sum_dims:
-                proc = np.sum(proc, axis=meta.sum_dims)
-
-            # Remap indices from clique domain to node's source domain
-            if meta.idx is not None:
-                proc = proc.transpose(meta.transpose)
-                og_shape = proc.shape
-                a_idx_dom = 1
-                for d in og_shape[: len(meta.b_doms)]:
-                    a_idx_dom *= d
-                b_idx_dom = 1
-                for d in meta.b_doms:
-                    b_idx_dom *= d
-                rest_dom = 1
-                for d in og_shape[len(meta.b_doms) :]:
-                    rest_dom *= d
-                proc = proc.reshape((a_idx_dom, -1))
-                out = np.zeros((b_idx_dom, rest_dom), dtype=proc.dtype)
-                np.add.at(out, meta.idx, proc)
-                new_shape = list(meta.b_doms) + list(og_shape[len(meta.b_doms) :])
-                proc = out.reshape(new_shape).transpose(meta.transpose_undo)
-
-            # proc is now in source shape (one compressed dim per attribute).
-            # Expand each compressed attr dim to per-value naive dims.
-            vals_order = []
-            per_val_shape = []
-            for dim_i, a in enumerate(source):
-                if isinstance(a.sel, int):
-                    attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
-                    per_val_shape.append(attr.common.get_domain(a.sel))
-                    vals_order.append((a.table, a.order, a.attr, None))
-                else:
-                    attr = _get_attrs(self.table_attrs, a.table, a.order)[a.attr]
-                    naive_dom = 1
-                    for val, h in a.sel:
-                        naive_dom *= attr[val].get_domain(h)
-                    compressed_dom = attr.get_domain(dict(a.sel))
-
-                    if naive_dom != compressed_dom:
-                        # Expand compressed dim using index mappings.
-                        # Compression sums naive→compressed; expansion must
-                        # divide by group size to avoid duplicating mass.
-                        naive_mapping = attr.get_naive_mapping(dict(a.sel))
-                        comp_mapping = attr.get_mapping(dict(a.sel))
-
-                        _, unique_idx = np.unique(naive_mapping, return_index=True)
-                        naive_per_comp_dedup = np.zeros(
-                            compressed_dom, dtype=np.float32
-                        )
-                        np.add.at(naive_per_comp_dedup, comp_mapping[unique_idx], 1.0)
-                        naive_per_comp_dedup = np.maximum(naive_per_comp_dedup, 1.0)
-
-                        i_map = tuple(
-                            naive_mapping if j == dim_i else slice(None)
-                            for j in range(len(proc.shape))
-                        )
-                        o_map = tuple(
-                            comp_mapping if j == dim_i else slice(None)
-                            for j in range(len(proc.shape))
-                        )
-                        scale_shape = [1] * len(proc.shape)
-                        scale_shape[dim_i] = compressed_dom
-                        scaled_proc = proc / naive_per_comp_dedup.reshape(scale_shape)
-
-                        expanded_shape = list(proc.shape)
-                        expanded_shape[dim_i] = naive_dom
-                        expanded = np.zeros(expanded_shape, dtype=proc.dtype)
-                        expanded[i_map] = scaled_proc[o_map]
-                        proc = expanded
-
-                    for val, h in a.sel:
-                        per_val_shape.append(attr[val].get_domain(h))
-                        vals_order.append((a.table, a.order, a.attr, val))
-
-            # Reshape to per-value dims
-            proc = proc.reshape(per_val_shape)
-
-            # Transpose from source (alphabetical) order to orig (node) order
-            inv_perm = [vals_order.index(v) for v in orig]
-            proc = proc.transpose(inv_perm)
-
-            # Scale to counts and store
-            md_marginals[idx] = proc.reshape(orig_marg.shape) * self.n
-
         self.md_marginals = md_marginals
 
     @make_deterministic("i")
@@ -711,6 +765,8 @@ def derive_obs_from_model(
         # Create Attr Meta
         out = []
         used_parent = False
+        used_parent_table = None
+        used_parent_order = None
         orig = []
         for s in node.p:
             if len(s) == 3:
@@ -729,7 +785,7 @@ def derive_obs_from_model(
             attr = get_attrs(attrs, table, order)[attr_name]
             if isinstance(sel, int):
                 new_sel = sel
-                orig.append((table, order, attr_name, None))
+                orig.append((table, order, attr_name, None, sel))
             else:
                 cmn = attr.common.name if attr.common else None
                 new_sel = []
@@ -737,25 +793,33 @@ def derive_obs_from_model(
                     if val == cmn:
                         continue  # skip common
                     new_sel.append((val, h))
-                    orig.append((table, order, attr_name, val))
-                if node.attr == attr_name:
+                    orig.append((table, order, attr_name, val, h))
+                if node.attr == attr_name and not any(
+                    v == node.value for v, _ in new_sel
+                ):
                     new_sel.append((node.value, 0))
                     used_parent = True
+                    used_parent_table = table
+                    used_parent_order = order
                 new_sel = tuple(sorted(new_sel))
             out.append(AttrMeta(table, order, attr_name, new_sel))
 
         if not used_parent:
             out.append(AttrMeta(None, None, node.attr, ((node.value, 0),)))
-        orig.append((None, None, node.attr, node.value))
+            orig.append((None, None, node.attr, node.value, 0))
+        else:
+            orig.append((used_parent_table, used_parent_order, node.attr, node.value, 0))
 
         # Transpose observation
-        source = tuple(sorted(out, key=lambda x: x[:-1]))
+        source = tuple(sorted(out, key=lambda x: tuple(
+            (0, "") if v is None else (1, v) for v in x[:-1]
+        )))
         vals = list(
             chain.from_iterable(
                 (
-                    [(a.table, a.order, a.attr, None)]
+                    [(a.table, a.order, a.attr, None, a.sel)]
                     if isinstance(a.sel, int)
-                    else [(a.table, a.order, a.attr, v[0]) for v in a.sel]
+                    else [(a.table, a.order, a.attr, v[0], v[1]) for v in a.sel]
                 )
                 for a in source
             )

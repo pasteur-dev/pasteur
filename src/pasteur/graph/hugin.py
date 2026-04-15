@@ -14,11 +14,45 @@ from .utils import display_induced_graph
 logger = logging.getLogger(__name__)
 
 
+def _none_safe_key(v):
+    if v is None:
+        return (0,)
+    return (1, v)
+
+
 class AttrMeta(NamedTuple):
     table: str | None
     order: int | None
     attr: str | tuple[str, ...]
     sel: int | tuple[tuple[str, int], ...]
+
+    def _cmp_key(self):
+        return (
+            _none_safe_key(self.table),
+            _none_safe_key(self.order),
+            _none_safe_key(self.attr),
+            _none_safe_key(self.sel),
+        )
+
+    def __lt__(self, other):
+        if not isinstance(other, AttrMeta):
+            return NotImplemented
+        return self._cmp_key() < other._cmp_key()
+
+    def __le__(self, other):
+        if not isinstance(other, AttrMeta):
+            return NotImplemented
+        return self._cmp_key() <= other._cmp_key()
+
+    def __gt__(self, other):
+        if not isinstance(other, AttrMeta):
+            return NotImplemented
+        return self._cmp_key() > other._cmp_key()
+
+    def __ge__(self, other):
+        if not isinstance(other, AttrMeta):
+            return NotImplemented
+        return self._cmp_key() >= other._cmp_key()
 
 
 CliqueMeta = tuple[AttrMeta, ...]
