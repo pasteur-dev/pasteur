@@ -770,6 +770,50 @@ def compute_edge_weight(
 # ============================================================
 # Step 2d: Structure learning main loop
 # ============================================================
+def _edge_clique_domain(
+    na: str,
+    nb: str,
+    graph: nx.DiGraph,
+    attrs: DatasetAttributes,
+) -> int:
+    """Compute the clique domain for an edge using merged AttrMeta.
+
+    Merges nodes from the same attribute into a single AttrMeta with a
+    combined selector, matching the domain calculation in measure_edges."""
+    from collections import defaultdict
+    from ....graph.hugin import AttrMeta, get_clique_domain, get_attrs as _ga
+
+    sels: dict[tuple, dict[str, int]] = defaultdict(dict)
+    for node in (na, nb):
+        d = graph.nodes[node]
+        key = (d["table"], d["order"], d["attr"])
+        val = d["value"]
+        h = d["height"]
+        if key in sels and val in sels[key]:
+            h = min(sels[key][val], h)
+        sels[key][val] = h
+
+    source = []
+    for (table, order, attr_name), sel_dict in sels.items():
+        attr = _ga(attrs, table, order)[attr_name]
+        if (
+            len(sel_dict) == 1
+            and attr.common
+            and next(iter(sel_dict)) == attr.common.name
+        ):
+            new_sel: int | tuple = sel_dict[attr.common.name]
+        else:
+            cmn = attr.common.name if attr.common else None
+            val_order = {vn: i for i, vn in enumerate(attr.vals)}
+            new_sel = tuple(sorted(
+                ((v, h) for v, h in sel_dict.items() if v != cmn),
+                key=lambda x: val_order.get(x[0], 0),
+            ))
+        source.append(AttrMeta(table, order, attr_name, new_sel))
+    source_tuple = tuple(sorted(source, key=_attr_meta_sort_key))
+    return get_clique_domain(source_tuple, attrs)
+
+
 def _compute_cand_edge_budget(
     idx: int,
     candidates: list[tuple[str, str]],
@@ -783,17 +827,8 @@ def _compute_cand_edge_budget(
     """Compute the measurement budget cost for candidate edge at index idx.
 
     Returns float('inf') if the edge cannot achieve theta_2w confidence."""
-    from ....graph.hugin import get_attrs as _ga
-
     na, nb = candidates[idx]
-    da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
-    val_a = cast(
-        CatValue, _ga(attrs, da["table"], da["order"])[da["attr"]][da["value"]]
-    )
-    val_b = cast(
-        CatValue, _ga(attrs, db["table"], db["order"])[db["attr"]][db["value"]]
-    )
-    dom = val_a.get_domain(da["height"]) * val_b.get_domain(db["height"])
+    dom = _edge_clique_domain(na, nb, directed_graph, attrs)
     b = compute_budget_for_theta(dom, n, theta_2w, sigma_floor, dp_type)
     return b if b is not None else float("inf")
 
@@ -977,38 +1012,37 @@ def structure_learn(
                 )
                 break
 
-        # --- Two-pass EM cost + affordability filter ---
-        # Pass 1: estimate EM cost from full active set
-        _, bdg_em_est = _em_cost(len(active))
-        bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_est
-
-        if rho_avail > 0 and bdg_after_em < 0:
-            logger.info(
-                f"Adjuvant: exit (budget exhausted) at iter {it}. "
-                f"budget_avail={rho_avail:.6f}, bdg_em={bdg_em:.6f}, "
-                f"bdg_committed={bdg_committed:.6f}"
-            )
-            break
-
-        # Drop candidates whose edge measurement exceeds the remaining budget
+        # --- EM cost + affordability filter (iterate until stable) ---
+        # Filtering candidates raises EM cost (fewer candidates → larger eps),
+        # which may make more candidates unaffordable.  Loop until the
+        # affordable set and EM cost are consistent.
         if rho_avail > 0:
-            affordable = [
-                (idx, na, nb)
-                for idx, na, nb in active
-                if cand_bdg_edge[idx] <= bdg_after_em
-            ]
+            affordable = active
+            while True:
+                eps_step, bdg_em_step = _em_cost(len(affordable))
+                bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_step
+                if bdg_after_em < 0:
+                    affordable = []
+                    break
+                new_affordable = [
+                    (idx, na, nb)
+                    for idx, na, nb in affordable
+                    if cand_bdg_edge[idx] <= bdg_after_em
+                ]
+                if len(new_affordable) == len(affordable):
+                    break  # stable
+                affordable = new_affordable
         else:
             affordable = active
+            eps_step, bdg_em_step = _em_cost(len(affordable))
 
         if not affordable:
             logger.info(
                 f"Adjuvant: exit (no affordable candidates) at iter {it}. "
-                f"active={len(active)}, bdg_after_em={bdg_after_em:.6f}"
+                f"active={len(active)}, budget_avail={rho_avail:.6f}, "
+                f"bdg_em={bdg_em:.6f}, bdg_committed={bdg_committed:.6f}"
             )
             break
-
-        # Pass 2: recompute EM cost with the filtered candidate count
-        eps_step, bdg_em_step = _em_cost(len(affordable))
 
         # Score affordable candidates
         scores = np.array([cand_tvd_boost[idx] for idx, _, _ in affordable])
