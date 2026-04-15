@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import softmax
 
-from ....attribute import Attributes, DatasetAttributes, IdxValue
+from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT
 
@@ -80,22 +80,17 @@ def exponential_mechanism(
 def _attr_sel(attr_name: str, attrs: DatasetAttributes):
     """Build the oracle selector for an attribute at height 0.
 
-    Returns int 0 for common-based attrs, dict {val: 0} for multi-value."""
+    Always returns the full combined sel {val: 0, ...} so that the PGM
+    model captures per-value distributions (including within common
+    categories for nullable attributes)."""
     attr = cast(Attributes, attrs[None])[attr_name]
-    if attr.common:
-        return 0
     return {v: 0 for v in attr.vals}
 
 
 def attr_domain_size(attr_name: str, attrs: DatasetAttributes) -> int:
     """Domain size for a single attribute at height 0."""
     attr = cast(Attributes, attrs[None])[attr_name]
-    dom = 1
-    for val in attr.vals.values():
-        if attr.common and val.name == attr.common.name:
-            continue
-        dom *= cast(IdxValue, val).get_domain(0)
-    return dom
+    return attr.get_domain(_attr_sel(attr_name, attrs))
 
 
 def clique_domain_size(
@@ -270,18 +265,18 @@ class FittedPGM:
                 # Single-value attribute: flat index is the column value
                 val_name = next(iter(attr.vals))
                 columns[val_name] = flat_idx
-            elif attr.common:
-                # Common grouping: flat index is the common category,
-                # broadcast to all value columns (decoder handles the rest)
-                for vname in attr.vals:
-                    columns[vname] = flat_idx
             else:
-                # Multi-value attribute: unravel flat index into per-value columns
-                val_names = list(attr.vals.keys())
-                val_domains = [attr.vals[v].get_domain(0) for v in val_names]
-                multi_idx = np.unravel_index(flat_idx, val_domains)
-                for vname, vidx in zip(val_names, multi_idx):
-                    columns[vname] = vidx
+                # Multi-value attribute: decompose combined index into
+                # per-value columns.  Uses _decompose_dim which correctly
+                # handles the attribute's tree structure (including common
+                # values for nullable attributes).
+                from ....graph.sample import _decompose_dim
+
+                sel = _attr_sel(attr_name, attrs)
+                decomposed = _decompose_dim(attr, sel, flat_idx)
+                for vname in attr.vals:
+                    if vname in decomposed:
+                        columns[vname] = decomposed[vname]
 
         return pd.DataFrame(columns)
 
@@ -322,11 +317,8 @@ def fit_pgm(
         source = []
         for attr_name in meas.clique:
             attr = get_attrs(attrs, None, None)[attr_name]
-            if attr.common:
-                sel: int | tuple = 0
-            else:
-                vals = [(v, 0) for v in attr.vals]
-                sel = tuple(sorted(vals))
+            vals = [(v, 0) for v in attr.vals]
+            sel: int | tuple = tuple(sorted(vals))
             source.append(AttrMeta(None, None, attr_name, sel))
         source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
         clique_metas.append(source_tuple)
