@@ -11,7 +11,7 @@ from kedro.framework.session import KedroSession
 from pasteur.kedro.mlflow.base import get_git_suffix
 
 from ..utils.parser import eval_params, merge_params, str_params_to_dict
-from ..utils.progress import init_pool
+from ..utils.progress import init_pool, logging_redirect_pbar
 from .runner import SimpleRunner
 
 logger = logging.getLogger(__name__)
@@ -574,20 +574,21 @@ def sweep(
                         # ingest pipeline has None and should be skipped from cross-eval
                         run_results[run_name] = run_vals
 
-                    if check_run_done(
-                        run_name,
-                        None if skip_parent else parent_name,
-                        None if skip_parent else get_git_suffix(),
-                    ):
-                        logger.warning(f"Run '{run_name}' is complete, skipping...")
-                        if pbar is not None:
-                            pbar.update(1)
-                        continue
+                    with logging_redirect_pbar():
+                        if check_run_done(
+                            run_name,
+                            None if skip_parent else parent_name,
+                            None if skip_parent else get_git_suffix(),
+                        ):
+                            logger.warning(f"Run '{run_name}' is complete, skipping...")
+                            if pbar is not None:
+                                pbar.update(1)
+                            continue
 
-                    if params_skipped:
-                        logger.warning(
-                            "Skipping ingestion since hyperparameters are the same"
-                        )
+                        if params_skipped:
+                            logger.warning(
+                                "Skipping ingestion since hyperparameters are the same"
+                            )
 
                     session.run(
                         tags=tags,
