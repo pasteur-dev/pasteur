@@ -20,7 +20,7 @@ from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, _attr_sel
+from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, _col_to_attr_sel
 
 if TYPE_CHECKING:
     pass
@@ -112,10 +112,16 @@ class MST(Synth):
 
             # Compute L1 error on all 2-way candidates (single batched call)
             candidates = list(itertools.combinations(all_attrs, 2))
-            requests = [
-                [(a, _attr_sel(a, table_attrs)), (b, _attr_sel(b, table_attrs))]
-                for a, b in candidates
-            ]
+            requests = []
+            for a, b in candidates:
+                req = {}
+                for col_name in (a, b):
+                    attr_name, sel = _col_to_attr_sel(col_name, table_attrs)
+                    if attr_name in req:
+                        req[attr_name].update(sel)
+                    else:
+                        req[attr_name] = dict(sel)
+                requests.append(list(req.items()))
             results = oracle.process(requests, postprocess=None)
             weights = {}
             for (a, b), x_raw in zip(candidates, results):

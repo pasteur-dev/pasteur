@@ -21,7 +21,7 @@ from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 from ....utils.progress import piter
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, clique_domain_size, _attr_sel
+from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, clique_domain_size, _col_to_attr_sel
 
 if TYPE_CHECKING:
     pass
@@ -147,10 +147,16 @@ class AIM(Synth):
             logger.info(
                 f"AIM: Computing answers for {len(candidate_list)} candidates"
             )
-            requests = [
-                [(attr_name, _attr_sel(attr_name, table_attrs)) for attr_name in cl]
-                for cl in candidate_list
-            ]
+            requests = []
+            for cl in candidate_list:
+                req = {}
+                for col_name in cl:
+                    attr_name, sel = _col_to_attr_sel(col_name, table_attrs)
+                    if attr_name in req:
+                        req[attr_name].update(sel)
+                    else:
+                        req[attr_name] = dict(sel)
+                requests.append(list(req.items()))
             results = oracle.process(requests, postprocess=None)
             answers = {
                 cl: r.ravel().astype(np.float64)

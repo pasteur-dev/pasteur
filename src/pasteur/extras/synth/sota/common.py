@@ -77,37 +77,76 @@ def exponential_mechanism(
 # ============================================================
 # Attribute helpers
 # ============================================================
-def _attr_sel(attr_name: str, attrs: DatasetAttributes):
-    """Build the oracle selector for an attribute at height 0.
+#
+# AIM/MST/PrivMRF operate on "columns" — one per CatValue.
+# Multi-value attributes (e.g. admittime with 4 values) are split
+# into separate columns so the PGM domain stays manageable.
+# Attributes with a common value (nullable) are kept combined
+# because the null/non-null gating requires a joint representation.
+#
+# A "column name" is the VALUE name for split attrs, or the
+# ATTRIBUTE name for single-value / common attrs.
+# ============================================================
 
-    Always returns the full combined sel {val: 0, ...} so that the PGM
-    model captures per-value distributions (including within common
-    categories for nullable attributes)."""
+def _is_split_attr(attr) -> bool:
+    """Whether an attribute should be split into per-value columns."""
+    return len(attr.vals) > 1 and not attr.common
+
+
+def _col_to_attr_sel(col_name: str, attrs: DatasetAttributes):
+    """Map a column name to (attribute_name, oracle_sel).
+
+    For split attrs, col_name is a value name → sel = {col_name: 0}.
+    For combined attrs, col_name is the attr name → sel = {v: 0 for all v}."""
+    all_attrs = cast(Attributes, attrs[None])
+    # Check if col_name is an attribute name
+    if col_name in all_attrs:
+        attr = all_attrs[col_name]
+        if not _is_split_attr(attr):
+            return col_name, {v: 0 for v in attr.vals}
+    # Otherwise it's a value name from a split attribute
+    for attr_name, attr in all_attrs.items():
+        if _is_split_attr(attr) and col_name in attr.vals:
+            return attr_name, {col_name: 0}
+    raise KeyError(f"Column '{col_name}' not found in attributes")
+
+
+def _attr_sel(col_name: str, attrs: DatasetAttributes):
+    """Build the oracle selector for a column at height 0."""
+    _, sel = _col_to_attr_sel(col_name, attrs)
+    return sel
+
+
+def attr_domain_size(col_name: str, attrs: DatasetAttributes) -> int:
+    """Domain size for a column at height 0."""
+    attr_name, sel = _col_to_attr_sel(col_name, attrs)
     attr = cast(Attributes, attrs[None])[attr_name]
-    return {v: 0 for v in attr.vals}
-
-
-def attr_domain_size(attr_name: str, attrs: DatasetAttributes) -> int:
-    """Domain size for a single attribute at height 0."""
-    attr = cast(Attributes, attrs[None])[attr_name]
-    return attr.get_domain(_attr_sel(attr_name, attrs))
+    return attr.get_domain(sel)
 
 
 def clique_domain_size(
     clique: tuple[str, ...], attrs: DatasetAttributes
 ) -> int:
-    """Domain size for a clique of attribute names at height 0."""
+    """Domain size for a clique of column names at height 0."""
     dom = 1
-    for attr_name in clique:
-        dom *= attr_domain_size(attr_name, attrs)
+    for col_name in clique:
+        dom *= attr_domain_size(col_name, attrs)
     return dom
 
 
 def get_attr_names(attrs: DatasetAttributes) -> list[str]:
-    """Get all non-empty attribute names, excluding those with no values."""
+    """Get column names for the PGM model.
+
+    Multi-value attributes without common values are split into
+    per-value columns for manageable domain sizes. Single-value
+    and common-value attributes are kept as one column."""
     result = []
     for attr_name, attr in cast(Attributes, attrs[None]).items():
-        if attr.vals:
+        if not attr.vals:
+            continue
+        if _is_split_attr(attr):
+            result.extend(attr.vals.keys())
+        else:
             result.append(attr_name)
     return result
 
@@ -137,11 +176,19 @@ def measure(
         weights = np.ones(len(cliques))
     weights = weights / np.linalg.norm(weights)
 
-    # Build oracle requests
-    requests = [
-        [(attr_name, _attr_sel(attr_name, attrs)) for attr_name in clique]
-        for clique in cliques
-    ]
+    # Build oracle requests — column names map back to (attr_name, sel) pairs.
+    # Multiple columns from the same split attribute in one clique are merged
+    # into a single oracle request entry with a combined sel.
+    requests = []
+    for clique in cliques:
+        req = {}
+        for col_name in clique:
+            attr_name, sel = _col_to_attr_sel(col_name, attrs)
+            if attr_name in req:
+                req[attr_name].update(sel)
+            else:
+                req[attr_name] = dict(sel)
+        requests.append(list(req.items()))
 
     results = oracle.process(requests, postprocess=None)
 
@@ -177,17 +224,21 @@ class FittedPGM:
         self.loss_fn = loss_fn
 
     def _build_source(self, clique: tuple[str, ...], attrs: DatasetAttributes):
-        """Build AttrMeta source tuple for an attribute-name clique."""
-        from ....graph.hugin import AttrMeta, get_attrs
-        source = []
-        for attr_name in clique:
-            attr = get_attrs(attrs, None, None)[attr_name]
-            if attr.common:
-                sel: int | tuple = 0
+        """Build AttrMeta source tuple for a column-name clique."""
+        from ....graph.hugin import AttrMeta
+        # Merge columns belonging to the same attribute
+        attr_sels: dict[str, dict[str, int]] = {}
+        for col_name in clique:
+            attr_name, sel = _col_to_attr_sel(col_name, attrs)
+            if attr_name in attr_sels:
+                attr_sels[attr_name].update(sel)
             else:
-                vals = [(v, 0) for v in attr.vals]
-                sel = tuple(sorted(vals))
-            source.append(AttrMeta(None, None, attr_name, sel))
+                attr_sels[attr_name] = dict(sel)
+
+        source = []
+        for attr_name, sel_dict in attr_sels.items():
+            sel_tuple: int | tuple = tuple(sorted(sel_dict.items()))
+            source.append(AttrMeta(None, None, attr_name, sel_tuple))
         return tuple(sorted(source, key=lambda x: x[:-1]))
 
     def project(
@@ -233,11 +284,16 @@ class FittedPGM:
         if sum_dims:
             proc = proc.sum(axis=sum_dims)
 
-        # Transpose from sorted AttrMeta order back to requested clique order
+        # Transpose from sorted AttrMeta order back to requested clique order.
+        # Use attribute names (not column names) for matching.
         sorted_names = [a.attr for a in remaining]
-        req_names = list(clique)
-        if sorted_names != req_names:
-            perm = [sorted_names.index(a) for a in req_names]
+        req_attr_names = []
+        for col_name in clique:
+            aname, _ = _col_to_attr_sel(col_name, attrs)
+            if aname not in req_attr_names:
+                req_attr_names.append(aname)
+        if sorted_names != req_attr_names:
+            perm = [sorted_names.index(a) for a in req_attr_names]
             proc = proc.transpose(perm)
 
         return proc * self.n
@@ -245,14 +301,18 @@ class FittedPGM:
     def synthetic_data(
         self, n: int, attrs: DatasetAttributes
     ) -> pd.DataFrame:
-        """Generate synthetic data by independent sampling per attribute."""
+        """Generate synthetic data by independent sampling per column.
+
+        Columns correspond to get_attr_names(): per-value for split
+        multi-value attributes, per-attribute otherwise."""
         all_attrs = cast(Attributes, attrs[None])
         columns = {}
 
-        for attr_name, attr in all_attrs.items():
-            if not attr.vals:
-                continue
-            marginal = self.project((attr_name,), attrs).ravel()
+        for col_name in get_attr_names(attrs):
+            attr_name, sel = _col_to_attr_sel(col_name, attrs)
+            attr = all_attrs[attr_name]
+
+            marginal = self.project((col_name,), attrs).ravel()
             marginal = marginal.clip(0)
             total = marginal.sum()
             if total > 0:
@@ -261,18 +321,15 @@ class FittedPGM:
                 probs = np.ones(len(marginal)) / len(marginal)
             flat_idx = np.random.choice(len(probs), size=n, p=probs)
 
-            if len(attr.vals) == 1:
-                # Single-value attribute: flat index is the column value
-                val_name = next(iter(attr.vals))
+            if len(sel) == 1:
+                # Single-value column: flat index is the column value
+                val_name = next(iter(sel))
                 columns[val_name] = flat_idx
             else:
-                # Multi-value attribute: decompose combined index into
-                # per-value columns.  Uses _decompose_dim which correctly
-                # handles the attribute's tree structure (including common
-                # values for nullable attributes).
+                # Combined multi-value column (common-value attrs):
+                # decompose into per-value columns.
                 from ....graph.sample import _decompose_dim
 
-                sel = _attr_sel(attr_name, attrs)
                 decomposed = _decompose_dim(attr, sel, flat_idx)
                 for vname in attr.vals:
                     if vname in decomposed:
@@ -308,18 +365,27 @@ def fit_pgm(
     params.pop("sample", None)
     params.pop("tree", None)
 
-    # Build CliqueMeta for each measurement (attribute-name cliques)
+    # Build CliqueMeta for each measurement (column-name cliques).
+    # Column names may be value names (split attrs) or attr names (combined).
+    # Multiple columns from the same attribute are merged into one AttrMeta
+    # with a combined sel.
     obs_list = []
     clique_metas = []
     clique_names = []
     for meas in measurements:
-        # Build AttrMeta — sorted alphabetically by (table, order, attr)
+        # Merge columns belonging to the same attribute
+        attr_sels: dict[str, dict[str, int]] = {}
+        for col_name in meas.clique:
+            attr_name, sel = _col_to_attr_sel(col_name, attrs)
+            if attr_name in attr_sels:
+                attr_sels[attr_name].update(sel)
+            else:
+                attr_sels[attr_name] = dict(sel)
+
         source = []
-        for attr_name in meas.clique:
-            attr = get_attrs(attrs, None, None)[attr_name]
-            vals = [(v, 0) for v in attr.vals]
-            sel: int | tuple = tuple(sorted(vals))
-            source.append(AttrMeta(None, None, attr_name, sel))
+        for attr_name, sel_dict in attr_sels.items():
+            sel_tuple: int | tuple = tuple(sorted(sel_dict.items()))
+            source.append(AttrMeta(None, None, attr_name, sel_tuple))
         source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
         clique_metas.append(source_tuple)
         clique_names.append(meas.clique)
@@ -328,25 +394,27 @@ def fit_pgm(
         # AttrMeta is sorted alphabetically. Transpose to match.
         obs = meas.noisy.copy()
 
-        # Build per-dim sizes for request order and source order
+        # Build per-dim sizes for request order (column order)
         req_dims = []
-        for attr_name in meas.clique:
-            attr = get_attrs(attrs, None, None)[attr_name]
-            sel_val = _attr_sel(attr_name, attrs)
-            d = attr.get_domain(sel_val)
-            req_dims.append(d)
+        for col_name in meas.clique:
+            req_dims.append(attr_domain_size(col_name, attrs))
 
         src_dims = []
         for a in source_tuple:
             attr = get_attrs(attrs, a.table, a.order)[a.attr]
             src_dims.append(attr.get_domain(convert_sel(a.sel)))
 
-        # Reshape to request order, transpose to source order
+        # Reshape to request order, transpose to source order.
+        # Map column names to attr names for matching.
         obs = obs.reshape(req_dims)
         src_attr_names = [a.attr for a in source_tuple]
-        req_attr_names = list(meas.clique)
-        if req_attr_names != src_attr_names:
-            perm = [req_attr_names.index(a) for a in src_attr_names]
+        req_col_to_attr = []
+        for col_name in meas.clique:
+            aname, _ = _col_to_attr_sel(col_name, attrs)
+            if aname not in req_col_to_attr:
+                req_col_to_attr.append(aname)
+        if req_col_to_attr != src_attr_names:
+            perm = [req_col_to_attr.index(a) for a in src_attr_names]
             obs = obs.transpose(perm)
 
         obs = obs.reshape(src_dims)

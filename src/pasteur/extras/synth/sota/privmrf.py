@@ -30,7 +30,7 @@ from .common import (
     get_attr_names,
     clique_domain_size,
     attr_domain_size,
-    _attr_sel,
+    _col_to_attr_sel,
 )
 
 if TYPE_CHECKING:
@@ -95,7 +95,10 @@ def _compute_pairwise_tvd(
 ) -> dict[tuple[str, str], float]:
     """Compute noisy pairwise TVD = |P(a,b) - P(a)P(b)|_1 / 2 for all pairs."""
     # 1-way marginals
-    requests_1 = [[(a, _attr_sel(a, attrs))] for a in all_attrs]
+    requests_1 = [
+        [(_col_to_attr_sel(a, attrs)[0], dict(_col_to_attr_sel(a, attrs)[1]))]
+        for a in all_attrs
+    ]
     results_1 = oracle.process(requests_1, postprocess=None)
     mar1 = {}
     for a, r in zip(all_attrs, results_1):
@@ -105,9 +108,16 @@ def _compute_pairwise_tvd(
 
     # 2-way marginals
     pairs = list(itertools.combinations(all_attrs, 2))
-    requests_2 = [
-        [(a, _attr_sel(a, attrs)), (b, _attr_sel(b, attrs))] for a, b in pairs
-    ]
+    requests_2 = []
+    for a, b in pairs:
+        req = {}
+        for col_name in (a, b):
+            attr_name, sel = _col_to_attr_sel(col_name, attrs)
+            if attr_name in req:
+                req[attr_name].update(sel)
+            else:
+                req[attr_name] = dict(sel)
+        requests_2.append(list(req.items()))
     results_2 = oracle.process(requests_2, postprocess=None)
 
     tvd: dict[tuple[str, str], float] = {}
@@ -547,9 +557,16 @@ class PrivMRF(Synth):
             query_candidates = [candidates[i] for i in idx]
 
         # Compute true marginals for scoring
-        requests = [
-            [(a, _attr_sel(a, attrs)) for a in cl] for cl in query_candidates
-        ]
+        requests = []
+        for cl in query_candidates:
+            req = {}
+            for col_name in cl:
+                attr_name, sel = _col_to_attr_sel(col_name, attrs)
+                if attr_name in req:
+                    req[attr_name].update(sel)
+                else:
+                    req[attr_name] = dict(sel)
+            requests.append(list(req.items()))
         true_results = oracle.process(requests, postprocess=None)
 
         # L1 norm noise: Gaussian mechanism with sensitivity 2/n
