@@ -440,9 +440,9 @@ def sweep(
             )
         ]
 
-    # Configure iterators
-    iterable_dict = eval_params(iterator)
-    hyperparam_dict = eval_params(hyperparameter)
+    # Configure iterators (materialize to lists for counting)
+    iterable_dict = {k: list(v) for k, v in eval_params(iterator).items()}
+    hyperparam_dict = {k: list(v) for k, v in eval_params(hyperparameter).items()}
 
     # Configure parent
     parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
@@ -490,12 +490,26 @@ def sweep(
     else:
         configured_seed = None
 
+    from functools import reduce
+    from operator import mul
+    from pasteur.utils.progress import piter
+
+    num_algs = len(pipelines_tags)
+    all_iterables = iterable_dict | hyperparam_dict
+    num_hyper = reduce(mul, (len(v) for v in all_iterables.values()), 1)
+    total = num_runs * num_hyper * num_algs
+
     run_results = {}
     ingested = False
     runtime_params = {}
+    run_count = 0
+
+    pbar = piter(total=total, desc="sweep", leave=True) if total > 1 else None
 
     for run_idx in range(num_runs):
-        for iters in _process_iterables(iterable_dict | hyperparam_dict):
+        hyper_idx = 0
+        for iters in _process_iterables(all_iterables):
+            hyper_idx += 1
             param_dict = eval_params(params, iters)
             hyper_dict = {n: iters[n] for n in hyperparam_dict}
             vals = param_dict | hyper_dict
@@ -504,6 +518,20 @@ def sweep(
             alg_only_hyper = builtins_all([n.startswith("alg") for n in vals])
 
             for i, (pipeline, tags) in enumerate(pipelines_tags):
+                run_count += 1
+                # Build progress description
+                if pbar is not None:
+                    parts = []
+                    if num_runs > 1:
+                        parts.append(f"Repeat={run_idx + 1}/{num_runs}")
+                    if num_hyper > 1:
+                        parts.append(f"Hyper={hyper_idx}/{num_hyper}")
+                    if num_algs > 1:
+                        alg_name = pipeline.split(".")[-1]
+                        parts.append(f"Alg={i + 1}/{num_algs} ({alg_name})")
+                    parts.append(f"Total={run_count}/{total}")
+                    pbar.set_description("Sweep[" + " ".join(parts) + "]")
+
                 tags = list(tags)
                 params_skipped = False
                 if (alg_only_hyper and ingested) or i:
@@ -552,6 +580,8 @@ def sweep(
                         None if skip_parent else get_git_suffix(),
                     ):
                         logger.warning(f"Run '{run_name}' is complete, skipping...")
+                        if pbar is not None:
+                            pbar.update(1)
                         continue
 
                     if params_skipped:
@@ -576,6 +606,12 @@ def sweep(
                         pipeline_name=pipeline,
                     )
                     ingested = True
+
+                if pbar is not None:
+                    pbar.update(1)
+
+    if pbar is not None:
+        pbar.close()
 
     if len(run_results) <= 1:
         logger.info("Only 1 run executed, skipping summary.")
