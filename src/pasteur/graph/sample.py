@@ -71,6 +71,8 @@ class SamplerMeta(NamedTuple):
     dim_info: list[list[DimInfo]]
     root: int
     children: list[ChildInfo]
+    # Additional roots for disconnected components (empty if fully connected)
+    extra_roots: list[int]
 
 
 def _build_index_map(
@@ -272,7 +274,11 @@ def create_sampler_meta(
                 )
             )
 
-    return SamplerMeta(cliques, dim_info, root, children)
+    # Handle disconnected components: any clique not reached by BFS
+    # is an independent root that must be sampled on its own.
+    extra_roots = [i for i in range(len(cliques)) if i not in visited]
+
+    return SamplerMeta(cliques, dim_info, root, children, extra_roots)
 
 
 def _cond_dim(child_dim: int, sep_child_dims: list[int]) -> int:
@@ -723,5 +729,82 @@ def sample_junction_tree(
 
         clique_vals[cidx] = dims
         _extract_h0(cidx, meta, attrs, dims, out)
+
+    # Step 3: Sample disconnected cliques (extra roots not reached by BFS)
+    for extra_root in meta.extra_roots:
+        ep = potentials[extra_root].copy().clip(min=0)
+        ep_sum = ep.sum()
+        if ep_sum < 1e-12:
+            ep = np.ones_like(ep)
+            ep_sum = ep.sum()
+        ep /= ep_sum
+
+        # Collect evidence dims for this extra root
+        ev_dims: list[int] = []
+        ev_vals: list[np.ndarray] = []
+        if evidence:
+            for di in range(len(ep.shape)):
+                key = (extra_root, di)
+                if key in evidence:
+                    ev_dims.append(di)
+                    ev_vals.append(evidence[key])
+
+        if not ev_dims:
+            flat = ep.ravel()
+            indices = np.random.choice(len(flat), size=n, p=flat)
+            per_dim = np.unravel_index(indices, ep.shape)
+            clique_vals[extra_root] = {i: arr for i, arr in enumerate(per_dim)}
+        else:
+            sample_dims = [d for d in range(len(ep.shape)) if d not in ev_dims]
+            dims_er: dict[int, np.ndarray] = {}
+            for di, ev in zip(ev_dims, ev_vals):
+                dims_er[di] = ev
+
+            if not sample_dims:
+                clique_vals[extra_root] = dims_er
+            else:
+                # Group by evidence, sample remaining dims
+                ev_domains = [ep.shape[d] for d in ev_dims]
+                if len(ev_vals) == 1:
+                    gk = ev_vals[0].astype(np.int64)
+                else:
+                    gk = np.zeros(n, dtype=np.int64)
+                    mul = 1
+                    for sv, dom in zip(ev_vals, ev_domains):
+                        gk += sv.astype(np.int64) * mul
+                        mul *= dom
+
+                er_out: dict[int, np.ndarray] = {}
+                for d in sample_dims:
+                    er_out[d] = np.empty(n, dtype=get_dtype(max(1, ep.shape[d] - 1)))
+
+                cond_dim_list = _cond_dims(sample_dims, ev_dims)
+                sample_shape = tuple(ep.shape[d] for d in sample_dims)
+
+                for gk_val in np.unique(gk):
+                    row_mask = gk == gk_val
+                    group_n = int(row_mask.sum())
+                    idx = [slice(None)] * len(ep.shape)
+                    remaining = int(gk_val)
+                    for sd, dom in zip(ev_dims, ev_domains):
+                        idx[sd] = remaining % dom
+                        remaining //= dom
+                    conditional = ep[tuple(idx)]
+                    cond_flat = conditional.ravel()
+                    cond_sum = cond_flat.sum()
+                    if cond_sum < 1e-12:
+                        cond_flat = np.ones_like(cond_flat)
+                        cond_sum = cond_flat.sum()
+                    cond_flat /= cond_sum
+                    gi = np.random.choice(len(cond_flat), size=group_n, p=cond_flat)
+                    gpd = np.unravel_index(gi, sample_shape)
+                    for j, dim_idx in enumerate(sample_dims):
+                        er_out[dim_idx][row_mask] = gpd[cond_dim_list[j]]
+
+                for di, arr in er_out.items():
+                    dims_er[di] = arr
+                clique_vals[extra_root] = dims_er
+
+        _extract_h0(extra_root, meta, attrs, clique_vals[extra_root], out)
 
     return out
