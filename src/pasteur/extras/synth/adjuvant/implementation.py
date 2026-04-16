@@ -310,7 +310,7 @@ def compute_1way_budget(
     budget1 = _total_budget(theta_1w)
     if budget_max is not None and budget1 > budget_max and budget_max > 0:
         # Binary search for max achievable theta
-        lo, hi = 1.0, theta_1w
+        lo, hi = 0, theta_1w
         for _ in range(64):
             mid = (lo + hi) / 2
             if _total_budget(mid) <= budget_max:
@@ -913,13 +913,13 @@ def structure_learn(
     bdg_em = 0.0  # cumulative EM selection budget spent
     bdg_committed = 0.0  # cumulative edge measurement budget committed
 
-    def _em_cost(n_cands: int, warn: bool = False) -> tuple[float, float]:
+    def _em_cost(n_cands: int) -> tuple[float, float]:
         """Compute (eps, budget_cost) for EM over n_cands candidates.
 
         eps = em_z * 4 / n_cands; budget cost is rho=eps²/2 (CDP) or eps (DP).
         If max_em_budget is finite, eps is clamped so the cost does not exceed it."""
         if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0
         eps = em_z * 4.0 / n_cands
         cost = _em_budget_cost(eps, dp_type)
         if cost > max_em_budget:
@@ -928,15 +928,12 @@ def structure_learn(
                 eps_clamped = (2.0 * max_em_budget) ** 0.5
             else:
                 eps_clamped = max_em_budget
-            if warn:
-                em_z_eff = eps_clamped * n_cands / 4.0
-                logger.warning(
-                    f"Adjuvant: EM eps clamped ({eps:.6f} to {eps_clamped:.6f}, "
-                    f"em_z {em_z:.2f} -> {em_z_eff:.2f})"
-                )
+            em_z_eff = eps_clamped * n_cands / 4.0
             eps = eps_clamped
             cost = _em_budget_cost(eps, dp_type)
-        return eps, cost
+        else:
+            em_z_eff = em_z
+        return eps, cost, em_z_eff
 
     pbar = piter(
         None,
@@ -1036,7 +1033,7 @@ def structure_learn(
         if rho_avail > 0:
             affordable = active
             while True:
-                eps_step, bdg_em_step = _em_cost(len(affordable))
+                eps_step, bdg_em_step, _ = _em_cost(len(affordable))
                 bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_step
                 if bdg_after_em < 0:
                     affordable = []
@@ -1050,6 +1047,7 @@ def structure_learn(
                     break  # stable
                 affordable = new_affordable
         else:
+            eps_step = bdg_em_step = 0
             affordable = active
 
         if not affordable:
@@ -1073,11 +1071,11 @@ def structure_learn(
         stop_idx = len(scores)
 
         if rho_avail > 0:
-            eps_step, bdg_em_step = _em_cost(len(affordable), warn=True)
+            eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
         else:
-            eps_step = bdg_em_step = 0
+            eps_step = bdg_em_step = em_z_eff = 0
             sel = int(np.argmax(em_scores))
 
         if sel == stop_idx:
@@ -1124,15 +1122,11 @@ def structure_learn(
             f"-> {it+1:3d}/{max_steps} "
             + f"(score={scores[sel]:.4f}"
             + (
-                f", budget={rho_avail - bdg_em - bdg_committed:.6f}"
+                f", budget={rho_avail - bdg_em - bdg_committed:.6f}, em_z={em_z_eff:.2f}"
                 if rho_avail > 0
                 else ""
             )
-            + (
-                f", rm {n_clique_filtered}/{len(active)}"
-                if n_clique_filtered
-                else ""
-            )
+            + (f", rm {n_clique_filtered}/{len(active)}" if n_clique_filtered else "")
             + f"): {_fmt_edge(na, nb, moral, attrs)}"
         )
 
@@ -1527,7 +1521,7 @@ def measure_edges(
         else:
             hi = theta_2w * 1000
         hi = max(hi, theta_2w)  # never go below base
-        lo = 1.0
+        lo = 0
         # Binary search for max theta that fits within target budget
         if _total_bdg_2w(hi) <= target_bdg:
             eff_theta = hi
@@ -1789,6 +1783,7 @@ def adjuvant_fit(
 
     # Step 2: Structure learning (remaining budget)
     bdg_avail = rho - bdg1
+    assert bdg_avail >= 0, f"Available budget went negative: {bdg_avail}, 0 for disable and positive for enabled"
     logger.info(
         f"Adjuvant Step 2: Structure learning "
         f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
