@@ -847,6 +847,7 @@ def structure_learn(
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
+    max_em_budget: float = float("inf"),
     dp_type: str = "cdp",
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
@@ -912,14 +913,30 @@ def structure_learn(
     bdg_em = 0.0  # cumulative EM selection budget spent
     bdg_committed = 0.0  # cumulative edge measurement budget committed
 
-    def _em_cost(n_cands: int) -> tuple[float, float]:
+    def _em_cost(n_cands: int, warn: bool = False) -> tuple[float, float]:
         """Compute (eps, budget_cost) for EM over n_cands candidates.
 
-        eps = em_z * 4 / n_cands; budget cost is rho=eps²/2 (CDP) or eps (DP)."""
+        eps = em_z * 4 / n_cands; budget cost is rho=eps²/2 (CDP) or eps (DP).
+        If max_em_budget is finite, eps is clamped so the cost does not exceed it."""
         if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
             return 0.0, 0.0
         eps = em_z * 4.0 / n_cands
-        return eps, _em_budget_cost(eps, dp_type)
+        cost = _em_budget_cost(eps, dp_type)
+        if cost > max_em_budget:
+            # Clamp eps so cost = max_em_budget
+            if dp_type == "cdp":
+                eps_clamped = (2.0 * max_em_budget) ** 0.5
+            else:
+                eps_clamped = max_em_budget
+            if warn:
+                em_z_eff = eps_clamped * n_cands / 4.0
+                logger.warning(
+                    f"Adjuvant: EM eps clamped ({eps:.6f} to {eps_clamped:.6f}, "
+                    f"em_z {em_z:.2f} -> {em_z_eff:.2f})"
+                )
+            eps = eps_clamped
+            cost = _em_budget_cost(eps, dp_type)
+        return eps, cost
 
     pbar = piter(
         None,
@@ -1034,7 +1051,6 @@ def structure_learn(
                 affordable = new_affordable
         else:
             affordable = active
-            eps_step, bdg_em_step = _em_cost(len(affordable))
 
         if not affordable:
             logger.info(
@@ -1056,10 +1072,12 @@ def structure_learn(
         em_scores = np.append(scores, min_tvd + log_n_boost if min_tvd else 0)
         stop_idx = len(scores)
 
-        if eps_step > 0:
+        if rho_avail > 0:
+            eps_step, bdg_em_step = _em_cost(len(affordable), warn=True)
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
         else:
+            eps_step = bdg_em_step = 0
             sel = int(np.argmax(em_scores))
 
         if sel == stop_idx:
@@ -1714,7 +1732,8 @@ def adjuvant_fit(
     theta_1w: float = 50,
     theta_2w: float = 4,
     em_z: float = 2.0,
-    ew_ratio: float = 0.8,
+    e_w1_ratio: float = 0.8,
+    e_em_ratio: float = 0.02,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     sigma_floor: float = 1.0,
@@ -1747,7 +1766,7 @@ def adjuvant_fit(
     # When rho=0 (no DP), skip noise entirely — theta-based sigma would
     # add spurious noise independent of the privacy budget.
     if rho > 0:
-        bdg1_max = ew_ratio * rho
+        bdg1_max = e_w1_ratio * rho
         sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
             cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
             skip_cols=hist_cols if hist_cols else None,
@@ -1781,6 +1800,7 @@ def adjuvant_fit(
         f"nodes, {directed_graph.number_of_edges()} chain edges"
     )
 
+    max_em_budget = e_em_ratio * rho if rho > 0 else float("inf")
     moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
         directed_graph,
         attrs,
@@ -1795,6 +1815,7 @@ def adjuvant_fit(
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
         max_clique_size=max_clique_size,
+        max_em_budget=max_em_budget,
         dp_type=dp_type,
     )
 

@@ -49,7 +49,8 @@ class AdjuvantMare(MareModel):
         *,
         rho: float = 0.0,
         etotal: float | None = None,
-        ew_ratio: float = 0.4,
+        e_w1_ratio: float = 0.6,
+        e_em_ratio: float = 0.02,
         theta_1w: float = 10,
         theta_2w: float = 2,
         em_z: float = 1.0,
@@ -68,7 +69,8 @@ class AdjuvantMare(MareModel):
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.em_z = em_z
-        self.ew_ratio = ew_ratio
+        self.e_w1_ratio = e_w1_ratio
+        self.e_em_ratio = e_em_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
@@ -114,7 +116,8 @@ class AdjuvantMare(MareModel):
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             em_z=self.em_z,
-            ew_ratio=self.ew_ratio,
+            e_w1_ratio=self.e_w1_ratio,
+            e_em_ratio=self.e_em_ratio,
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
             sigma_floor=self.sigma_floor,
@@ -343,7 +346,8 @@ class AdjuvantSynth(Synth):
         e: float = 2.0,
         etotal: float | None = None,
         delta: float | Literal["tenth"] = "tenth",
-        ew_ratio: float = 0.7,
+        e_w1_ratio: float = 0.7,
+        e_em_ratio: float = 0.02,
         theta_1w: float = 50,
         theta_2w: float = 2,
         em_z: float = 4.0,
@@ -370,7 +374,8 @@ class AdjuvantSynth(Synth):
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.em_z = em_z
-        self.ew_ratio = ew_ratio
+        self.e_w1_ratio = e_w1_ratio
+        self.e_em_ratio = e_em_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.sigma_floor = sigma_floor
@@ -453,7 +458,8 @@ class AdjuvantSynth(Synth):
                 theta_1w=self.theta_1w,
                 theta_2w=self.theta_2w,
                 em_z=self.em_z,
-                ew_ratio=self.ew_ratio,
+                e_w1_ratio=self.e_w1_ratio,
+                e_em_ratio=self.e_em_ratio,
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 sigma_floor=self.sigma_floor,
