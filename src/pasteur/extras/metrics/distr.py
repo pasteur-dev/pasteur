@@ -787,12 +787,16 @@ def _visualise_multiplot(overall_metr: dict):
     raw: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
         lambda: defaultdict(lambda: defaultdict(list))
     )
+    # Preserve the order splits first appear in the parent run, per metric.
+    split_order: dict[str, list[str]] = defaultdict(list)
 
     for metr in METRICS:
         if metr not in overall_metr:
             continue
         for _table, table_res in overall_metr[metr].items():
             for split, split_res in table_res.items():
+                if split not in split_order[metr]:
+                    split_order[metr].append(split)
                 for entry in split_res:
                     if entry["table"] == "!":
                         raw[metr]["intra"][split].append(entry["mean_metr_norm"])
@@ -808,17 +812,12 @@ def _visualise_multiplot(overall_metr: dict):
     # One HTML per metric
     # ------------------------------------------------------------------
     for metr, corr_data in raw.items():
-        # Build subplot_scores: ordered dict of subplot_label → {split: score}
-        # "Overall" first (mean of corr-type means), then each present type.
-        all_splits: set[str] = set()
-        for cd in corr_data.values():
-            all_splits.update(cd.keys())
-
         subplot_scores: dict[str, dict[str, float]] = {}
+        ordered_splits = split_order[metr]
 
-        # -- Overall subplot --
+        # -- Overall subplot (mean of corr-type means) --
         overall: dict[str, float] = {}
-        for split in all_splits:
+        for split in ordered_splits:
             cat_means = []
             for ct_vals in corr_data.values():
                 vals = ct_vals.get(split, [])
@@ -833,9 +832,12 @@ def _visualise_multiplot(overall_metr: dict):
         for ct_key, ct_label in _CORR_TYPES.items():
             if ct_key not in corr_data:
                 continue
+            ct_dict = corr_data[ct_key]
             subplot_scores[ct_label] = {
-                split: float(np.nanmean(vals)) if vals else float("nan")
-                for split, vals in corr_data[ct_key].items()
+                split: float(np.nanmean(ct_dict[split]))
+                if ct_dict.get(split)
+                else float("nan")
+                for split in ordered_splits
             }
 
         # Artifact path mirrors existing _overall folders
