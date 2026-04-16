@@ -562,15 +562,19 @@ def _parse_pretty_names(names: list[str]):
     return parsed
 
 
-def _visualise_multiplot(overall_metr: dict):
-    """Create a combined HTML page with one subplot per metric.
+def _render_multiplot(
+    subplot_scores: dict[str, dict[str, float]],
+    title: str,
+    artifact_path: str,
+):
+    """Render a multiplot HTML page with one subplot per key in *subplot_scores*.
 
-    X-axis: discrete hyperparameter steps (from the sweep).
-    Each line: an algorithm.
-    When ``-r N`` is used, individual runs are shown as dots and a
-    box-plot style CI overlay (IQR bar + min/max whisker) is drawn.
+    Each entry in *subplot_scores* maps a subplot label to
+    ``{split_name: score}``.  X-axis = sweep steps, lines = algorithms,
+    dots + CI when ``-r N`` runs exist.  A dashed grey *ref* baseline is
+    drawn when available.  The result is logged to *artifact_path* in
+    mlflow.
     """
-    from collections import defaultdict
     from io import BytesIO
 
     import matplotlib.pyplot as plt
@@ -581,45 +585,13 @@ def _visualise_multiplot(overall_metr: dict):
 
     use_style("mlflow")
 
-    # ------------------------------------------------------------------
-    # 1. Compute a single overall score per (metric, split) the same way
-    #    the ``_overall_single`` bar chart does.
-    # ------------------------------------------------------------------
-    metric_split_scores: dict[str, dict[str, float]] = {}
-
-    for metr in METRICS:
-        if metr not in overall_metr:
-            continue
-        split_cats: dict[str, dict[str, list[float]]] = defaultdict(
-            lambda: {"intra": [], "seq": [], "hist": []}
-        )
-
-        for _table, table_res in overall_metr[metr].items():
-            for split, split_res in table_res.items():
-                for entry in split_res:
-                    if entry["table"] == "!":
-                        split_cats[split]["intra"].append(entry["mean_metr_norm"])
-                    elif entry["table"].startswith("-"):
-                        split_cats[split]["seq"].append(entry["mean_metr_norm"])
-                    else:
-                        split_cats[split]["hist"].append(entry["mean_metr_norm"])
-
-        metric_split_scores[metr] = {}
-        for split, cats in split_cats.items():
-            cat_means = [np.nanmean(v) for v in cats.values() if len(v)]
-            metric_split_scores[metr][split] = (
-                float(np.nanmean(cat_means)) if cat_means else float("nan")
-            )
-
-    if not metric_split_scores:
+    # -- Parse pretty names → (algorithm, step, run_idx) --
+    split_names = [
+        k for k in next(iter(subplot_scores.values())).keys() if k != "ref"
+    ]
+    if not split_names:
         return
 
-    # ------------------------------------------------------------------
-    # 2. Parse pretty names → (algorithm, step, run_idx)
-    # ------------------------------------------------------------------
-    split_names = [
-        k for k in next(iter(metric_split_scores.values())).keys() if k != "ref"
-    ]
     parsed = _parse_pretty_names(split_names)
 
     algorithms = list(dict.fromkeys(alg for alg, _, _ in parsed.values()))
@@ -629,19 +601,16 @@ def _visualise_multiplot(overall_metr: dict):
     has_steps = len(steps) > 1 or (len(steps) == 1 and steps[0] is not None)
 
     if not has_steps and len(algorithms) <= 1 and not has_runs:
-        return  # nothing interesting to plot
+        return
 
-    # When there are no hyperparameter steps, use a single position.
     if not has_steps:
         steps = [None]
 
-    # ------------------------------------------------------------------
-    # 3. Build the figure
-    # ------------------------------------------------------------------
-    metrics_list = list(metric_split_scores.keys())
-    n_metrics = len(metrics_list)
-    ncols = min(n_metrics, 2)
-    nrows = (n_metrics + ncols - 1) // ncols
+    # -- Build the figure --
+    subplot_labels = list(subplot_scores.keys())
+    n_plots = len(subplot_labels)
+    ncols = min(n_plots, 2)
+    nrows = (n_plots + ncols - 1) // ncols
 
     fig_w = max(6, 3 + 1.2 * len(steps)) * ncols
     fig_h = 4.5 * nrows
@@ -650,9 +619,10 @@ def _visualise_multiplot(overall_metr: dict):
     cmap = plt.cm.tab10.colors  # type: ignore[attr-defined]
     n_alg = len(algorithms)
 
-    for idx, metr in enumerate(metrics_list):
+    for idx, label in enumerate(subplot_labels):
         row, col = divmod(idx, ncols)
         ax = axes[row][col]
+        scores = subplot_scores[label]
 
         for alg_idx, alg in enumerate(algorithms):
             color = cmap[alg_idx % len(cmap)]
@@ -665,7 +635,7 @@ def _visualise_multiplot(overall_metr: dict):
                 run_values = []
                 for name, (a, s, _r) in parsed.items():
                     if a == alg and s == step:
-                        score = metric_split_scores[metr].get(name, float("nan"))
+                        score = scores.get(name, float("nan"))
                         if not np.isnan(score):
                             run_values.append(score)
 
@@ -730,7 +700,7 @@ def _visualise_multiplot(overall_metr: dict):
                     )
 
         # --- Horizontal reference line ---
-        ref_score = metric_split_scores[metr].get("ref", float("nan"))
+        ref_score = scores.get("ref", float("nan"))
         if not np.isnan(ref_score):
             ax.axhline(
                 ref_score,
@@ -750,27 +720,19 @@ def _visualise_multiplot(overall_metr: dict):
         else:
             ax.set_xticklabels(step_labels, fontsize=8)
 
-        fancy = {
-            "kl": "KL Divergence",
-            "cramer": "Cramér's V",
-            "tschuprow": "Tschuprow's T",
-            "pearson": "Pearson",
-        }
-        ax.set_title(fancy.get(metr, metr.upper()), fontweight="bold", fontsize=11)
-        ax.set_ylabel("Overall Score", fontsize=9)
+        ax.set_title(label, fontweight="bold", fontsize=11)
+        ax.set_ylabel("Score", fontsize=9)
         ax.legend(fontsize=7, loc="best")
         ax.grid(True, alpha=0.3, linewidth=0.5)
 
     # Hide empty subplot slots
-    for idx in range(n_metrics, nrows * ncols):
+    for idx in range(n_plots, nrows * ncols):
         row, col = divmod(idx, ncols)
         axes[row][col].set_visible(False)
 
     plt.tight_layout()
 
-    # ------------------------------------------------------------------
-    # 4. Embed as SVG inside a minimal HTML page
-    # ------------------------------------------------------------------
+    # -- Embed as SVG inside a minimal HTML page --
     buf = BytesIO()
     fig.savefig(buf, format="svg", bbox_inches="tight")
     buf.seek(0)
@@ -783,11 +745,103 @@ def _visualise_multiplot(overall_metr: dict):
         "svg { max-width: 100%%; height: auto; }\n"
         "h2 { color: #333; }\n"
         "</style></head>\n<body>\n"
-        "<h2>Distribution Metrics Sweep Overview</h2>\n"
+        f"<h2>{title}</h2>\n"
         f"{svg}\n"
         "</body>\n</html>"
     )
-    mlflow.log_text(html, "distr/multiplot.html")
+    mlflow.log_text(html, artifact_path)
+
+
+_CORR_TYPES = {
+    "intra": "Intra-table",
+    "seq": "Sequential",
+    "hist": "Inter-table",
+}
+
+_METRIC_FANCY = {
+    "kl": "KL Divergence",
+    "cramer": "Cramér's V",
+    "tschuprow": "Tschuprow's T",
+    "pearson": "Pearson",
+}
+
+
+def _visualise_multiplot(overall_metr: dict):
+    """Create one multiplot HTML per metric, each with subplots per
+    correlation type (overall, intra-table, sequential, inter-table).
+
+    Files are placed alongside the existing per-metric ``_overall`` PNGs:
+    ``distr/kl_overall/multiplot.html``,
+    ``distr/assoc/cramer_overall/multiplot.html``, etc.
+    """
+    from collections import defaultdict
+
+    import numpy as np
+
+    # ------------------------------------------------------------------
+    # Collect per-(metric, split, corr_type) raw score lists
+    # ------------------------------------------------------------------
+    # raw[metr][corr_type][split] = list[float]
+    raw: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
+    )
+
+    for metr in METRICS:
+        if metr not in overall_metr:
+            continue
+        for _table, table_res in overall_metr[metr].items():
+            for split, split_res in table_res.items():
+                for entry in split_res:
+                    if entry["table"] == "!":
+                        raw[metr]["intra"][split].append(entry["mean_metr_norm"])
+                    elif entry["table"].startswith("-"):
+                        raw[metr]["seq"][split].append(entry["mean_metr_norm"])
+                    else:
+                        raw[metr]["hist"][split].append(entry["mean_metr_norm"])
+
+    if not raw:
+        return
+
+    # ------------------------------------------------------------------
+    # One HTML per metric
+    # ------------------------------------------------------------------
+    for metr, corr_data in raw.items():
+        # Build subplot_scores: ordered dict of subplot_label → {split: score}
+        # "Overall" first (mean of corr-type means), then each present type.
+        all_splits: set[str] = set()
+        for cd in corr_data.values():
+            all_splits.update(cd.keys())
+
+        subplot_scores: dict[str, dict[str, float]] = {}
+
+        # -- Overall subplot --
+        overall: dict[str, float] = {}
+        for split in all_splits:
+            cat_means = []
+            for ct_vals in corr_data.values():
+                vals = ct_vals.get(split, [])
+                if vals:
+                    cat_means.append(float(np.nanmean(vals)))
+            overall[split] = (
+                float(np.nanmean(cat_means)) if cat_means else float("nan")
+            )
+        subplot_scores["Overall"] = overall
+
+        # -- Per corr-type subplots (in fixed order, only if present) --
+        for ct_key, ct_label in _CORR_TYPES.items():
+            if ct_key not in corr_data:
+                continue
+            subplot_scores[ct_label] = {
+                split: float(np.nanmean(vals)) if vals else float("nan")
+                for split, vals in corr_data[ct_key].items()
+            }
+
+        # Artifact path mirrors existing _overall folders
+        pref = "assoc/" if metr in ASSOC_METRICS else ""
+        path = f"distr/{pref}{metr}_overall/multiplot.html"
+        fancy = _METRIC_FANCY.get(metr, metr.upper())
+
+        _render_multiplot(subplot_scores, f"{fancy} — Sweep", path)
 
 
 def _process_marginals_chunk(
