@@ -80,7 +80,7 @@ class MST(Synth):
         table = tables[self.table]
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
-        n = self.n
+        n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
         rho = cdp_rho(self.e, self.delta)
