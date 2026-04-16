@@ -121,7 +121,7 @@ def _add_dp_noise(data: np.ndarray, sigma: float, dp_type: str = "cdp") -> np.nd
 def _em_budget_cost(eps: float, dp_type: str = "cdp") -> float:
     """Convert exponential mechanism epsilon to budget cost."""
     if dp_type == "cdp":
-        return eps * eps / 8.0
+        return eps * eps / 2.0
     else:
         return eps
 
@@ -915,7 +915,7 @@ def structure_learn(
     def _em_cost(n_cands: int) -> tuple[float, float]:
         """Compute (eps, budget_cost) for EM over n_cands candidates.
 
-        eps = em_z * 4 / n_cands; budget cost is rho=eps²/8 (CDP) or eps (DP)."""
+        eps = em_z * 4 / n_cands; budget cost is rho=eps²/2 (CDP) or eps (DP)."""
         if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
             return 0.0, 0.0
         eps = em_z * 4.0 / n_cands
