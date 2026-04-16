@@ -332,6 +332,7 @@ def _visualise_kl(
 
 ASSOC_METRICS = ["cramer", "tschuprow", "pearson"]
 METRICS = ["kl", *ASSOC_METRICS]
+PRINT_METRICS = ["kl", "cramer"]
 
 
 def _visualise_2way(
@@ -454,21 +455,22 @@ def _visualise_2way(
                 )
 
     # Print results as a table
-    outs = f"{metr.upper():>5s} Table '{table:15s}' results:\n"
-    ores = []
-    for v in res.values():
-        ores.extend(v)
-    split_order = list(res.keys())
-    outs += (
-        pd.DataFrame(ores)
-        .pivot(index=["table"], columns=["split"], values=["mean_metr_norm"])
-        .xs("mean_metr_norm", axis=1)
-        [split_order]
-        .sort_index()
-        .to_markdown()
-    )
-    outs += "\n"
-    logger.info(outs)
+    if metr in PRINT_METRICS:
+        outs = f"{metr.upper():>5s} Table '{table:15s}' results:\n"
+        ores = []
+        for v in res.values():
+            ores.extend(v)
+        split_order = list(res.keys())
+        outs += (
+            pd.DataFrame(ores)
+            .pivot(index=["table"], columns=["split"], values=["mean_metr_norm"])
+            .xs("mean_metr_norm", axis=1)
+            [split_order]
+            .sort_index()
+            .to_markdown()
+        )
+        outs += "\n"
+        logger.info(outs)
 
     for v in results.values():
         if v.empty:
