@@ -60,6 +60,7 @@ class AdjuvantMare(MareModel):
         max_clique_size: float = 1e5,
         rescale: bool = True,
         rake: bool = False,
+        max_order: int | None = None,
         accountant: bool = True,
         mirror_descent: dict | None = None,
         seed: int | None = None,
@@ -78,6 +79,7 @@ class AdjuvantMare(MareModel):
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
         self.rake = rake
+        self.max_order = max_order
         self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -128,6 +130,7 @@ class AdjuvantMare(MareModel):
             max_clique_size=self.max_clique_size,
             rescale=self.rescale,
             rake=self.rake,
+            max_order=self.max_order,
             dp_type=self.dp_type,
         )
 

@@ -552,6 +552,7 @@ def generate_candidates(
     g: nx.DiGraph,
     frozen_nodes: set[str] | None = None,
     rake: bool = True,
+    max_order: int | None = None,
 ) -> tuple[list[tuple[str, str]], dict[tuple[Col, Col], list[int]]]:
     """Generate edge candidates between non-common value nodes.
 
@@ -588,6 +589,11 @@ def generate_candidates(
             b_seq = col_b[0] is not None and col_b[1] is not None
             if rake and (a_seq or b_seq) and col_a[2] != col_b[2]:
                 # Sequential hist columns only connect to same-attribute endpoints
+                continue
+            if max_order is not None and (
+                (col_a[1] is not None and col_a[1] >= max_order)
+                or (col_b[1] is not None and col_b[1] >= max_order)
+            ):
                 continue
             pair_key = (col_a, col_b)
             col_pair_map[pair_key] = []
@@ -860,6 +866,7 @@ def structure_learn(
     max_clique_size: float = 1e5,
     max_em_budget: float = float("inf"),
     rake: bool = True,
+    max_order: int | None = None,
     dp_type: str = "cdp",
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
@@ -882,7 +889,9 @@ def structure_learn(
     moral = to_moral(directed_graph)
 
     # Generate candidates and group by column pair
-    candidates, col_pair_map = generate_candidates(directed_graph, frozen_nodes, rake=rake)
+    candidates, col_pair_map = generate_candidates(
+        directed_graph, frozen_nodes, rake=rake, max_order=max_order
+    )
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
@@ -1748,6 +1757,7 @@ def adjuvant_fit(
     max_clique_size: float = 1e5,
     rescale: bool = True,
     rake: bool = True,
+    max_order: int | None = None,
     dp_type: str = "cdp",
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
@@ -1824,6 +1834,7 @@ def adjuvant_fit(
         n_hist_cols=h,
         max_clique_size=max_clique_size,
         rake=rake,
+        max_order=max_order,
         max_em_budget=max_em_budget,
         dp_type=dp_type,
     )
