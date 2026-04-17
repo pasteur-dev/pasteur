@@ -29,6 +29,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_E_W1_RATIO = 0.6
+DEFAULT_E_EM_RATIO = 0.02
+DEFAULT_THETA_1W = 40
+DEFAULT_THETA_2W = 4
+DEFAULT_EM_Z = 1.0
+DEFAULT_SIZE_PENALTY = 0
+DEFAULT_MIN_TVD = 0.05
+DEFAULT_SIGMA_FLOOR = 5.0
+DEFAULT_MAX_CLIQUE_SIZE = 1e5
+DEFAULT_RESCALE = True
+DEFAULT_RAKE = False
+
 
 class AdjuvantMare(MareModel):
     """MARE-compatible wrapper for the Adjuvant algorithm.
@@ -49,17 +61,17 @@ class AdjuvantMare(MareModel):
         *,
         rho: float = 0.0,
         etotal: float | None = None,
-        e_w1_ratio: float = 0.6,
-        e_em_ratio: float = 0.02,
-        theta_1w: float = 10,
-        theta_2w: float = 2,
-        em_z: float = 1.0,
-        size_penalty: float = 0,
-        min_tvd: float = 0.05,
-        sigma_floor: float = 5.0,
-        max_clique_size: float = 1e5,
-        rescale: bool = True,
-        rake: bool = False,
+        e_w1_ratio: float = DEFAULT_E_W1_RATIO,
+        e_em_ratio: float = DEFAULT_E_EM_RATIO,
+        theta_1w: float = DEFAULT_THETA_1W,
+        theta_2w: float = DEFAULT_THETA_2W,
+        em_z: float = DEFAULT_EM_Z,
+        size_penalty: float = DEFAULT_SIZE_PENALTY,
+        min_tvd: float = DEFAULT_MIN_TVD,
+        sigma_floor: float = DEFAULT_SIGMA_FLOOR,
+        max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
+        rescale: bool = DEFAULT_RESCALE,
+        rake: bool = DEFAULT_RAKE,
         max_order: int | None = None,
         accountant: bool = True,
         mirror_descent: dict | None = None,
@@ -352,17 +364,17 @@ class AdjuvantSynth(Synth):
         e: float = 2.0,
         etotal: float | None = None,
         delta: float | Literal["tenth"] = "tenth",
-        e_w1_ratio: float = 0.7,
-        e_em_ratio: float = 0.02,
-        theta_1w: float = 50,
-        theta_2w: float = 2,
-        em_z: float = 4.0,
-        size_penalty: float = 0,
-        min_tvd: float = 0.05,
-        sigma_floor: float = 5.0,
-        max_clique_size: float = 1e5,
-        rescale: bool = True,
-        rake: bool = True,
+        e_w1_ratio: float = DEFAULT_E_W1_RATIO,
+        e_em_ratio: float = DEFAULT_E_EM_RATIO,
+        theta_1w: float = DEFAULT_THETA_1W,
+        theta_2w: float = DEFAULT_THETA_2W,
+        em_z: float = DEFAULT_EM_Z,
+        size_penalty: float = DEFAULT_SIZE_PENALTY,
+        min_tvd: float = DEFAULT_MIN_TVD,
+        sigma_floor: float = DEFAULT_SIGMA_FLOOR,
+        max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
+        rescale: bool = DEFAULT_RESCALE,
+        rake: bool = DEFAULT_RAKE,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
