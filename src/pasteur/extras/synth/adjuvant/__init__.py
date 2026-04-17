@@ -59,6 +59,7 @@ class AdjuvantMare(MareModel):
         sigma_floor: float = 5.0,
         max_clique_size: float = 1e5,
         rescale: bool = True,
+        rake: bool = False,
         accountant: bool = True,
         mirror_descent: dict | None = None,
         seed: int | None = None,
@@ -76,6 +77,7 @@ class AdjuvantMare(MareModel):
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
+        self.rake = rake
         self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.seed = seed
         self.kwargs = kwargs
@@ -125,6 +127,7 @@ class AdjuvantMare(MareModel):
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
             rescale=self.rescale,
+            rake=self.rake,
             dp_type=self.dp_type,
         )
 
@@ -356,6 +359,7 @@ class AdjuvantSynth(Synth):
         sigma_floor: float = 5.0,
         max_clique_size: float = 1e5,
         rescale: bool = True,
+        rake: bool = True,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -381,6 +385,7 @@ class AdjuvantSynth(Synth):
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale
+        self.rake = rake
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -465,6 +470,7 @@ class AdjuvantSynth(Synth):
                 sigma_floor=self.sigma_floor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
+                rake=self.rake,
                 dp_type=self.dp_type,
             )
 

@@ -551,6 +551,7 @@ def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
 def generate_candidates(
     g: nx.DiGraph,
     frozen_nodes: set[str] | None = None,
+    rake: bool = True,
 ) -> tuple[list[tuple[str, str]], dict[tuple[Col, Col], list[int]]]:
     """Generate edge candidates between non-common value nodes.
 
@@ -559,6 +560,11 @@ def generate_candidates(
 
     If ``frozen_nodes`` is provided, edges between two frozen nodes are excluded
     (hist-hist edges are blocked as they represent the prior).
+
+    If ``rake`` is True, sequential hist columns (table != None and order != None)
+    only connect to endpoints sharing the same attribute name — mirroring the
+    PrivBayes rake filter that restricts temporal dependencies to the same column
+    across time steps.
 
     Returns:
         candidates: List of (node_a, node_b) edge candidates.
@@ -577,7 +583,12 @@ def generate_candidates(
     col_names = sorted(col_nodes.keys(), key=_col_sort_key)
 
     for i, col_a in enumerate(col_names):
+        a_seq = col_a[0] is not None and col_a[1] is not None
         for col_b in col_names[i + 1 :]:
+            b_seq = col_b[0] is not None and col_b[1] is not None
+            if rake and (a_seq or b_seq) and col_a[2] != col_b[2]:
+                # Sequential hist columns only connect to same-attribute endpoints
+                continue
             pair_key = (col_a, col_b)
             col_pair_map[pair_key] = []
             for na in col_nodes[col_a]:
@@ -848,6 +859,7 @@ def structure_learn(
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     max_em_budget: float = float("inf"),
+    rake: bool = True,
     dp_type: str = "cdp",
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
@@ -870,7 +882,7 @@ def structure_learn(
     moral = to_moral(directed_graph)
 
     # Generate candidates and group by column pair
-    candidates, col_pair_map = generate_candidates(directed_graph, frozen_nodes)
+    candidates, col_pair_map = generate_candidates(directed_graph, frozen_nodes, rake=rake)
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
@@ -1735,6 +1747,7 @@ def adjuvant_fit(
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     rescale: bool = True,
+    rake: bool = True,
     dp_type: str = "cdp",
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
@@ -1810,6 +1823,7 @@ def adjuvant_fit(
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
         max_clique_size=max_clique_size,
+        rake=rake,
         max_em_budget=max_em_budget,
         dp_type=dp_type,
     )
