@@ -900,12 +900,15 @@ def _process_marginals_chunk(
         if sval.order:
             tseq = raw_table[sval.name]
             ids_seq = tids.join(tseq, how="right").reset_index(names=_IDX_NAME)
+            parent_id_cols = [c for c in tids.columns if c != tids.index.name]
             for o in range(sval.order):
                 ids_seq_prev = tids.join(tseq + o + 1, how="right").reset_index(
                     names=_JOIN_NAME
                 )
                 join_ids = ids_seq.merge(
-                    ids_seq_prev, on=[*tids.columns, sval.name], how="inner"
+                    ids_seq_prev,
+                    on=[*parent_id_cols, sval.name],
+                    how="inner",
                 ).set_index(_IDX_NAME)[[_JOIN_NAME]]
                 ref_df = join_ids.join(raw_table, on=_JOIN_NAME)[
                     list(domain[name])
