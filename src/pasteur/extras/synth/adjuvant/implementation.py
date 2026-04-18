@@ -287,11 +287,13 @@ def compute_1way_budget(
     budget_max: float | None = None,
     dp_type: str = "cdp",
     skip_cols: set[Col] | None = None,
+    budget_min: float | None = None,
 ) -> tuple[dict[Col, float], float, float]:
     """Compute per-column DP noise sigma and total budget for 1-way marginals.
 
     Each column gets noise calibrated so that its confidence achieves theta_1w.
-    If total budget exceeds budget_max, theta_1w is reduced via binary search.
+    The actual budget is clamped to [budget_min, budget_max] by binary-searching
+    theta_1w: too-high → reduce theta, too-low → raise theta.
     Columns in skip_cols (e.g. hist columns) get sigma=0 and cost no budget.
 
     Returns (sigma_per_col, total_budget1, effective_theta_1w)."""
@@ -322,6 +324,36 @@ def compute_1way_budget(
         logger.info(
             f"Adjuvant: theta_1w capped to {theta_1w:.1f} "
             f"(budget1={budget1:.6f}, budget_max={budget_max:.6f})"
+        )
+    elif budget_min is not None and budget1 < budget_min and budget_min > 0:
+        # Binary search for min theta that reaches the floor (bounded above by budget_max)
+        lo, hi = theta_1w, max(theta_1w * 2, 1.0)
+        # Expand hi until it overshoots budget_min (or budget_max if tighter)
+        cap = budget_max if budget_max is not None else budget_min * 10
+        while _total_budget(hi) < min(budget_min, cap) and hi < 1e9:
+            lo, hi = hi, hi * 2
+        for _ in range(64):
+            mid = (lo + hi) / 2
+            if _total_budget(mid) < budget_min:
+                lo = mid
+            else:
+                hi = mid
+        theta_1w = hi
+        budget1 = _total_budget(theta_1w)
+        if budget_max is not None and budget1 > budget_max:
+            # Floor conflicts with cap — cap wins
+            lo, hi = 0, theta_1w
+            for _ in range(64):
+                mid = (lo + hi) / 2
+                if _total_budget(mid) <= budget_max:
+                    lo = mid
+                else:
+                    hi = mid
+            theta_1w = lo
+            budget1 = _total_budget(theta_1w)
+        logger.info(
+            f"Adjuvant: theta_1w raised to {theta_1w:.1f} to meet floor "
+            f"(budget1={budget1:.6f}, budget_min={budget_min:.6f})"
         )
 
     # Compute per-column sigma_dp (sigma is mechanism-independent, determined by theta)
@@ -1837,7 +1869,8 @@ def adjuvant_fit(
     theta_1w: float = 50,
     theta_2w: float = 4,
     em_z: float = 2.0,
-    e_w1_ratio: float = 0.8,
+    e_w1_max_ratio: float = 0.8,
+    e_w1_min_ratio: float = 0.0,
     e_em_ratio: float = 0.02,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
@@ -1875,10 +1908,12 @@ def adjuvant_fit(
     # When rho=0 (no DP), skip noise entirely — theta-based sigma would
     # add spurious noise independent of the privacy budget.
     if rho > 0:
-        bdg1_max = e_w1_ratio * rho
+        bdg1_max = e_w1_max_ratio * rho
+        bdg1_min = e_w1_min_ratio * rho
         sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
             cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
             skip_cols=hist_cols if hist_cols else None,
+            budget_min=bdg1_min,
         )
         noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type,
                                     skip_cols=hist_cols if hist_cols else None)
