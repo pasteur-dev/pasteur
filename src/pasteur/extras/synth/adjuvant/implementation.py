@@ -127,7 +127,10 @@ def _em_budget_cost(eps: float, dp_type: str = "cdp") -> float:
 
 
 def compute_budget_for_theta(
-    dom: int, n: int | float, theta: float, sigma_floor: float,
+    dom: int,
+    n: int | float,
+    theta: float,
+    sigma_floor: float,
     dp_type: str = "cdp",
 ) -> float | None:
     """Compute budget to achieve confidence theta/(theta+1) for a marginal of domain `dom`.
@@ -938,10 +941,12 @@ def _edge_clique_domain(
         else:
             cmn = attr.common.name if attr.common else None
             val_order = {vn: i for i, vn in enumerate(attr.vals)}
-            new_sel = tuple(sorted(
-                ((v, h) for v, h in sel_dict.items() if v != cmn),
-                key=lambda x: val_order.get(x[0], 0),
-            ))
+            new_sel = tuple(
+                sorted(
+                    ((v, h) for v, h in sel_dict.items() if v != cmn),
+                    key=lambda x: val_order.get(x[0], 0),
+                )
+            )
         source.append(AttrMeta(table, order, attr_name, new_sel))
     source_tuple = tuple(sorted(source, key=_attr_meta_sort_key))
     return get_clique_domain(source_tuple, attrs)
@@ -973,7 +978,7 @@ def structure_learn(
     n: int,
     size_penalty: float,
     rho_avail: float,
-    min_tvd: float,
+    min_score: float,
     em_z: float,
     theta_2w: float,
     sigma_floor: float = 1.0,
@@ -1027,7 +1032,13 @@ def structure_learn(
         n_filtered = 0
         for idx in range(len(candidates)):
             b = _compute_cand_edge_budget(
-                idx, candidates, directed_graph, attrs, n, theta_2w, sigma_floor,
+                idx,
+                candidates,
+                directed_graph,
+                attrs,
+                n,
+                theta_2w,
+                sigma_floor,
                 dp_type,
             )
             cand_bdg_edge[idx] = b
@@ -1203,26 +1214,26 @@ def structure_learn(
         scores = np.array([cand_tvd_boost[idx] for idx, _, _ in affordable])
 
         # Exponential mechanism selection among affordable candidates + "stop" option.
-        log_n_boost = (
-            2 * sensitivity * np.log(max(len(scores), 1)) / eps_step
-            if eps_step > 0
-            else 0
-        )
-        em_scores = np.append(scores, min_tvd + log_n_boost if min_tvd else 0)
         stop_idx = len(scores)
 
         if rho_avail > 0:
             eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
+            assert eps_step
+            log_n_boost = 2 * sensitivity * np.log(max(len(scores), 1)) / eps_step
+            em_scores = np.append(
+                scores, min_score + log_n_boost if min_score and em_z_eff == em_z else 0
+            )
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
         else:
+            em_scores = np.append(scores, min_score)
             eps_step = bdg_em_step = em_z_eff = 0
             sel = int(np.argmax(em_scores))
 
         if sel == stop_idx:
             # Selected one of the N stop slots
             logger.info(
-                f"Adjuvant: exit (EM picked stop option, min_tvd={min_tvd}) "
+                f"Adjuvant: exit (EM picked stop option, min_scored={min_score}) "
                 f"at iter {it}, edges={len(structure_edges)}"
             )
             pbar.update(1)
@@ -1294,8 +1305,14 @@ def structure_learn(
     )
 
     diag = format_tvd_diagnostic(
-        tvd, structure_edges, connected_pairs, col_pair_map,
-        directed_graph, moral, attrs, min_tvd,
+        tvd,
+        structure_edges,
+        connected_pairs,
+        col_pair_map,
+        directed_graph,
+        moral,
+        attrs,
+        min_score,
         label=scoring.upper(),
     )
     for line in diag.splitlines():
@@ -1319,7 +1336,11 @@ def format_tvd_diagnostic(
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val_arr in tvd.items():
-        if _col_sort_key(ca) < _col_sort_key(cb) and ca in candidate_cols and cb in candidate_cols:
+        if (
+            _col_sort_key(ca) < _col_sort_key(cb)
+            and ca in candidate_cols
+            and cb in candidate_cols
+        ):
             all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
     all_pairs_tvd.sort(key=lambda x: (-x[0], _col_sort_key(x[1]), _col_sort_key(x[2])))
 
@@ -1615,10 +1636,12 @@ def measure_edges(
                 # so that the sel matches the ordering used by
                 # get_mapping_multiple and calc_marginal consistently.
                 val_order = {vn: i for i, vn in enumerate(attr.vals)}
-                new_sel = tuple(sorted(
-                    ((v, h) for v, h in sel_dict.items() if v != cmn),
-                    key=lambda x: val_order.get(x[0], 0),
-                ))
+                new_sel = tuple(
+                    sorted(
+                        ((v, h) for v, h in sel_dict.items() if v != cmn),
+                        key=lambda x: val_order.get(x[0], 0),
+                    )
+                )
             source.append(AttrMeta(table, order, attr_name, new_sel))
         source_tuple = tuple(sorted(source, key=_attr_meta_sort_key))
         edge_metas.append(source_tuple)
@@ -1700,6 +1723,7 @@ def measure_edges(
         # with common overlap c the per-attr dim is (d1-c)*(d2-c)+c,
         # otherwise it equals the product of individual value domains.
         from ....marginal.numpy import _calc_common
+
         oracle_dims = []
         attr_commons = []  # per-attr common count (0 for int/single-val)
         for tbl, ord_, attr_name, sel in source_tuple:
@@ -1714,8 +1738,7 @@ def measure_edges(
                 attr_commons.append(0)
             else:
                 cmn = min(
-                    _calc_common(cast(CatValue, a.vals[vn]), a.common)
-                    for vn in sel_d
+                    _calc_common(cast(CatValue, a.vals[vn]), a.common) for vn in sel_d
                 )
                 nd = 1
                 for vn, h in sel_d.items():
@@ -1752,16 +1775,17 @@ def measure_edges(
                 compressed_idx = raw_compressed[unique_idx]
 
                 i_map = tuple(
-                    naive_idx if j == dim_i else slice(None)
-                    for j in range(prob.ndim)
+                    naive_idx if j == dim_i else slice(None) for j in range(prob.ndim)
                 )
                 o_map = tuple(
                     compressed_idx if j == dim_i else slice(None)
                     for j in range(prob.ndim)
                 )
                 tmp = np.zeros(
-                    [compressed_dom if j == dim_i else d
-                     for j, d in enumerate(prob.shape)],
+                    [
+                        compressed_dom if j == dim_i else d
+                        for j, d in enumerate(prob.shape)
+                    ],
                     dtype=prob.dtype,
                 )
                 np.add.at(tmp, o_map, prob[i_map])
@@ -1772,8 +1796,7 @@ def measure_edges(
                 # over all per-value group combinations.
                 val_items = list(sel_d.items())
                 val_doms = [
-                    cast(CatValue, a.vals[vn]).get_domain(h)
-                    for vn, h in val_items
+                    cast(CatValue, a.vals[vn]).get_domain(h) for vn, h in val_items
                 ]
                 raw_total = int(np.prod(val_doms))
 
@@ -1802,12 +1825,13 @@ def measure_edges(
                 o2c[oracle_bins] = comp_mapping
 
                 o_map = tuple(
-                    o2c if j == dim_i else slice(None)
-                    for j in range(prob.ndim)
+                    o2c if j == dim_i else slice(None) for j in range(prob.ndim)
                 )
                 tmp = np.zeros(
-                    [compressed_dom if j == dim_i else d
-                     for j, d in enumerate(prob.shape)],
+                    [
+                        compressed_dom if j == dim_i else d
+                        for j, d in enumerate(prob.shape)
+                    ],
                     dtype=prob.dtype,
                 )
                 np.add.at(tmp, o_map, prob)
@@ -1900,7 +1924,9 @@ def adjuvant_fit(
     h = n_hist_cols or len(hist_cols)
 
     # Step 0: Compute all 1-way and 2-way marginals
-    logger.info(f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows, {dp_type})")
+    logger.info(
+        f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows, {dp_type})"
+    )
     cached = compute_all_marginals(oracle, attrs, all_cols)
 
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
@@ -1911,12 +1937,18 @@ def adjuvant_fit(
         bdg1_max = e_w1_max_ratio * rho
         bdg1_min = e_w1_min_ratio * rho
         sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
-            cached, n, theta_1w, sigma_floor, bdg1_max, dp_type,
+            cached,
+            n,
+            theta_1w,
+            sigma_floor,
+            bdg1_max,
+            dp_type,
             skip_cols=hist_cols if hist_cols else None,
             budget_min=bdg1_min,
         )
-        noisy_1way = add_noise_1way(cached, sigmas_1w, dp_type,
-                                    skip_cols=hist_cols if hist_cols else None)
+        noisy_1way = add_noise_1way(
+            cached, sigmas_1w, dp_type, skip_cols=hist_cols if hist_cols else None
+        )
     else:
         bdg1 = 0.0
         eff_theta_1w = theta_1w
@@ -1933,7 +1965,9 @@ def adjuvant_fit(
 
     # Step 2: Structure learning (remaining budget)
     bdg_avail = rho - bdg1
-    assert bdg_avail >= 0, f"Available budget went negative: {bdg_avail}, 0 for disable and positive for enabled"
+    assert (
+        bdg_avail >= 0
+    ), f"Available budget went negative: {bdg_avail}, 0 for disable and positive for enabled"
     logger.info(
         f"Adjuvant Step 2: Structure learning "
         f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
