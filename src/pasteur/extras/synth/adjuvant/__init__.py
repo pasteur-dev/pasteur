@@ -33,13 +33,15 @@ DEFAULT_E_W1_RATIO = 0.6
 DEFAULT_E_EM_RATIO = 0.02
 DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
-DEFAULT_EM_Z = 1.0
+DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
 DEFAULT_MIN_TVD = 0.05
+DEFAULT_MIN_MI = 0.009
 DEFAULT_SIGMA_FLOOR = 5.0
 DEFAULT_MAX_CLIQUE_SIZE = 1e5
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
+DEFAULT_SCORING: Literal["mi", "tvd"] = "mi"
 
 
 class AdjuvantMare(MareModel):
@@ -68,11 +70,13 @@ class AdjuvantMare(MareModel):
         em_z: float = DEFAULT_EM_Z,
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
+        min_mi: float = DEFAULT_MIN_MI,
         sigma_floor: float = DEFAULT_SIGMA_FLOOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
-        max_order: int | None = None,
+        scoring: Literal["mi", "tvd"] = DEFAULT_SCORING,
+        max_order: int | None = 1,
         accountant: bool = True,
         mirror_descent: dict | None = None,
         seed: int | None = None,
@@ -87,10 +91,12 @@ class AdjuvantMare(MareModel):
         self.e_em_ratio = e_em_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
+        self.min_mi = min_mi
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
         self.rake = rake
+        self.scoring = scoring
         self.max_order = max_order
         self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.seed = seed
@@ -136,12 +142,14 @@ class AdjuvantMare(MareModel):
             e_em_ratio=self.e_em_ratio,
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
+            min_mi=self.min_mi,
             sigma_floor=self.sigma_floor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
             rescale=self.rescale,
             rake=self.rake,
+            scoring=self.scoring,
             max_order=self.max_order,
             dp_type=self.dp_type,
         )
@@ -371,10 +379,12 @@ class AdjuvantSynth(Synth):
         em_z: float = DEFAULT_EM_Z,
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
+        min_mi: float = DEFAULT_MIN_MI,
         sigma_floor: float = DEFAULT_SIGMA_FLOOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
+        scoring: Literal["mi", "tvd"] = DEFAULT_SCORING,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
@@ -397,10 +407,12 @@ class AdjuvantSynth(Synth):
         self.e_em_ratio = e_em_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
+        self.min_mi = min_mi
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale
         self.rake = rake
+        self.scoring = scoring
         self.rebalance = rebalance
         self.marginal_mode = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
@@ -482,10 +494,12 @@ class AdjuvantSynth(Synth):
                 e_em_ratio=self.e_em_ratio,
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
+                min_mi=self.min_mi,
                 sigma_floor=self.sigma_floor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
                 rake=self.rake,
+                scoring=self.scoring,
                 dp_type=self.dp_type,
             )
 

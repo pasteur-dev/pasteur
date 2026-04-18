@@ -468,6 +468,90 @@ def compute_tvd(
     return tvd
 
 
+def compute_mi(
+    cached: CachedMarginals,
+    attrs: DatasetAttributes,
+    all_cols: list[Col],
+) -> dict[tuple[Col, Col], np.ndarray]:
+    """Compute exact pairwise mutual information I(X;Y) at every height combination.
+
+    Same layout as ``compute_tvd``. Uses log2 for compatibility with PrivBayes
+    sensitivity ``sens_mutual_info`` and normalizes with a small ZERO_FILL to
+    avoid log(0). Empty joints return zeros."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    ZERO_FILL = 1e-24
+
+    col_meta: dict[Col, tuple[CatValue, int]] = {}
+    col_transitions: dict[Col, list[np.ndarray]] = {}
+
+    for col in all_cols:
+        table, order, attr_name, val_name = col
+        attr = _get_attrs(attrs, table, order)[attr_name]
+        cmn = attr.common
+        if cmn and val_name == cmn.name:
+            val = cmn
+            h_range = cmn.height
+        else:
+            val = cast(CatValue, attr[val_name])
+            h_range = val.height if cmn is None else val.height - 1
+        col_meta[col] = (val, h_range)
+        col_transitions[col] = _build_transition_mappings(val, h_range)
+
+    mi: dict[tuple[Col, Col], np.ndarray] = {}
+
+    for (ca, cb), joint_raw in cached.two_way.items():
+        val_a, ha_range = col_meta[ca]
+        val_b, hb_range = col_meta[cb]
+        dom_a0 = val_a.get_domain(0)
+        dom_b0 = val_b.get_domain(0)
+        joint_00 = joint_raw.reshape(dom_a0, dom_b0).astype(np.float64)
+        n_total = joint_00.sum()
+
+        if n_total == 0:
+            mi[ca, cb] = np.zeros((ha_range, hb_range))
+            mi[cb, ca] = np.zeros((hb_range, ha_range))
+            continue
+
+        result = np.zeros((ha_range, hb_range))
+        trans_a = col_transitions[ca]
+        trans_b = col_transitions[cb]
+
+        joint_ha_0 = joint_00
+        for ha in range(ha_range):
+            if ha > 0:
+                t = trans_a[ha - 1]
+                new_joint = np.zeros((val_a.get_domain(ha), joint_ha_0.shape[1]))
+                np.add.at(new_joint, (t, slice(None)), joint_ha_0)
+                joint_ha_0 = new_joint
+
+            joint_ha_hb = joint_ha_0
+            for hb in range(hb_range):
+                if hb > 0:
+                    t = trans_b[hb - 1]
+                    new_joint = np.zeros((joint_ha_hb.shape[0], val_b.get_domain(hb)))
+                    np.add.at(new_joint, (slice(None), t), joint_ha_hb)
+                    joint_ha_hb = new_joint
+
+                p_ab = joint_ha_hb / n_total
+                p_a = p_ab.sum(axis=1)
+                p_b = p_ab.sum(axis=0)
+                indep = np.outer(p_a, p_b) + ZERO_FILL
+                result[ha, hb] = float(
+                    np.sum(p_ab * np.log2((p_ab + ZERO_FILL) / indep))
+                )
+
+        mi[ca, cb] = result
+        mi[cb, ca] = result.T
+
+    return mi
+
+
+def sens_mutual_info(n: int) -> float:
+    """log2 sensitivity of mutual information for dataset size n (PrivBayes Lemma 3)."""
+    return 2 / n * np.log2((n + 1) / 2) + (n - 1) / n * np.log2((n + 1) / (n - 1))
+
+
 # ============================================================
 # Step 2a: Height-chain graph
 # ============================================================
@@ -868,6 +952,7 @@ def structure_learn(
     rake: bool = True,
     max_order: int | None = None,
     dp_type: str = "cdp",
+    scoring: str = "tvd",
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -895,10 +980,13 @@ def structure_learn(
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # EM uses the real TVD sensitivity (2/n) for the mechanism call,
-    # giving a high discrimination factor (em_z * n / N_cands).
-    # Budget cost uses eps = em_z * 4/N_cands, scaling with candidate count.
-    sensitivity = 2.0 / n
+    # EM sensitivity depends on the score function: TVD = 2/n;
+    # MI uses PrivBayes' log2 bound (larger, so EM is less discriminative
+    # per unit budget — tune em_z accordingly).
+    if scoring == "mi":
+        sensitivity = float(sens_mutual_info(n))
+    else:
+        sensitivity = 2.0 / n
 
     # Pre-compute per-candidate measurement budget and theta-filter
     cand_bdg_edge = np.zeros(len(candidates))
@@ -1176,6 +1264,7 @@ def structure_learn(
     diag = format_tvd_diagnostic(
         tvd, structure_edges, connected_pairs, col_pair_map,
         directed_graph, moral, attrs, min_tvd,
+        label=scoring.upper(),
     )
     for line in diag.splitlines():
         logger.info(line)
@@ -1192,8 +1281,9 @@ def format_tvd_diagnostic(
     moral: "nx.Graph",
     attrs: DatasetAttributes,
     min_tvd: float,
+    label: str = "TVD",
 ) -> str:
-    """Format TVD diagnostic showing connected and missing column pairs."""
+    """Format score diagnostic showing connected and missing column pairs."""
     candidate_cols = set(c for pair in col_pair_map for c in pair)
     all_pairs_tvd: list[tuple[float, Col, Col]] = []
     for (ca, cb), val_arr in tvd.items():
@@ -1201,7 +1291,7 @@ def format_tvd_diagnostic(
             all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
     all_pairs_tvd.sort(key=lambda x: (-x[0], _col_sort_key(x[1]), _col_sort_key(x[2])))
 
-    lines = ["Connected column pairs (by TVD):"]
+    lines = [f"Connected column pairs (by {label}):"]
     for val, ca, cb in all_pairs_tvd:
         pair = tuple(sorted([ca, cb], key=_col_sort_key))
         if pair in connected_pairs:
@@ -1234,7 +1324,7 @@ def format_tvd_diagnostic(
                     tvd_arr = tvd.get((col_a_t, col_b_t))
                     tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
                     lines.append(
-                        f"  CONNECTED TVD={tvd_at_h:.4f}{f'/{val:.4f}' if ha != 0 or hb != 0 else ''} "
+                        f"  CONNECTED {label}={tvd_at_h:.4f}{f'/{val:.4f}' if ha != 0 or hb != 0 else ''} "
                         f"{_fmt_edge(ena, enb, moral, attrs)}"
                     )
                     break
@@ -1245,7 +1335,7 @@ def format_tvd_diagnostic(
             if ca_tbl is not None or cb_tbl is not None:
                 continue
             lines.append(
-                f"    MISSING TVD={val:.4f} "
+                f"    MISSING {label}={val:.4f} "
                 f"{ca_attr + '.' if ca_attr != ca_val else ''}{ca_val} x "
                 f"{cb_attr + '.' if cb_attr != cb_val else ''}{cb_val}"
             )
@@ -1751,6 +1841,7 @@ def adjuvant_fit(
     e_em_ratio: float = 0.02,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
+    min_mi: float = 0.0,
     sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
@@ -1759,6 +1850,7 @@ def adjuvant_fit(
     rake: bool = True,
     max_order: int | None = None,
     dp_type: str = "cdp",
+    scoring: str = "tvd",
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
@@ -1811,22 +1903,28 @@ def adjuvant_fit(
         f"Adjuvant Step 2: Structure learning "
         f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
     )
-    tvd = compute_tvd(cached, attrs, all_cols)
+    if scoring == "mi":
+        scores = compute_mi(cached, attrs, all_cols)
+        min_score = min_mi
+    else:
+        scores = compute_tvd(cached, attrs, all_cols)
+        min_score = min_tvd
     directed_graph = build_height_chain_graph(attrs)
     logger.info(
         f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
-        f"nodes, {directed_graph.number_of_edges()} chain edges"
+        f"nodes, {directed_graph.number_of_edges()} chain edges "
+        f"(scoring={scoring}, min_score={min_score})"
     )
 
     max_em_budget = e_em_ratio * rho if rho > 0 else float("inf")
     moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
         directed_graph,
         attrs,
-        tvd,
+        scores,
         n,
         size_penalty,
         bdg_avail,
-        min_tvd,
+        min_score,
         em_z=em_z,
         theta_2w=theta_2w,
         sigma_floor=sigma_floor,
@@ -1837,6 +1935,7 @@ def adjuvant_fit(
         max_order=max_order,
         max_em_budget=max_em_budget,
         dp_type=dp_type,
+        scoring=scoring,
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
