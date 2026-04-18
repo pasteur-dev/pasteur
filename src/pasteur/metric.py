@@ -745,9 +745,12 @@ class ColumnMetricHolder(
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
-                    metric.visualise(
-                        {n: d[table][col_name][i] for n, d in data.items()}
-                    )
+                    try:
+                        metric.visualise(
+                            {n: d[table][col_name][i] for n, d in data.items()}
+                        )
+                    except Exception:
+                        logger.exception(f"Metric {metric.name} for column {col_name} failed.")
 
     def summarize(
         self, data: dict[str, dict[str, dict[str | tuple[str, ...], list[Any]]]]
@@ -755,9 +758,12 @@ class ColumnMetricHolder(
         for table, table_metrics in self.metrics.items():
             for col_name, col_metrics in table_metrics.items():
                 for i, metric in enumerate(col_metrics):
-                    metric.summarize(
-                        {n: d[table][col_name][i] for n, d in data.items()}
-                    )
+                    try:
+                        metric.summarize(
+                            {n: d[table][col_name][i] for n, d in data.items()}
+                        )
+                    except Exception:
+                        logger.exception(f"Metric {metric.name} for column {col_name} failed.")
 
 
 def fit_column_holder(
