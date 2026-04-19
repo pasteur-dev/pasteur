@@ -1233,7 +1233,7 @@ def structure_learn(
         if sel == stop_idx:
             # Selected one of the N stop slots
             logger.info(
-                f"Adjuvant: exit (EM picked stop option, min_scored={min_score}) "
+                f"Adjuvant: exit (EM picked stop option, min_score={min_score}) "
                 f"at iter {it}, edges={len(structure_edges)}"
             )
             pbar.update(1)
