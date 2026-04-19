@@ -973,6 +973,7 @@ def structure_learn(
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     max_em_budget: float = float("inf"),
+    min_em_budget: float = 0.0,
     rake: bool = True,
     max_order: int | None = None,
     dp_type: str = "cdp",
@@ -1068,6 +1069,15 @@ def structure_learn(
                 eps_clamped = (2.0 * max_em_budget) ** 0.5
             else:
                 eps_clamped = max_em_budget
+            em_z_eff = eps_clamped * n_cands / 4.0
+            eps = eps_clamped
+            cost = _em_budget_cost(eps, dp_type)
+        elif cost < min_em_budget and min_em_budget > 0:
+            # Raise eps so cost = min_em_budget (spend more per round, sharper EM)
+            if dp_type == "cdp":
+                eps_clamped = (2.0 * min_em_budget) ** 0.5
+            else:
+                eps_clamped = min_em_budget
             em_z_eff = eps_clamped * n_cands / 4.0
             eps = eps_clamped
             cost = _em_budget_cost(eps, dp_type)
@@ -1884,7 +1894,8 @@ def adjuvant_fit(
     em_z: float = 2.0,
     e_w1_max_ratio: float = 0.8,
     e_w1_min_ratio: float = 0.0,
-    e_em_ratio: float | None = None,
+    e_em_max_ratio: float | None = None,
+    e_em_min_ratio: float | None = None,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     min_mi: float = 0.0,
@@ -1975,7 +1986,8 @@ def adjuvant_fit(
         f"(scoring={scoring}, min_score={min_score})"
     )
 
-    max_em_budget = e_em_ratio * rho if rho > 0 and e_em_ratio else float("inf")
+    max_em_budget = e_em_max_ratio * rho if rho > 0 and e_em_max_ratio else float("inf")
+    min_em_budget = e_em_min_ratio * rho if rho > 0 and e_em_min_ratio else 0.0
     moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
         directed_graph,
         attrs,
@@ -1993,6 +2005,7 @@ def adjuvant_fit(
         rake=rake,
         max_order=max_order,
         max_em_budget=max_em_budget,
+        min_em_budget=min_em_budget,
         dp_type=dp_type,
         scoring=scoring,
         min_chance=min_chance,

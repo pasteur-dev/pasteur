@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_E_W1_MAX_RATIO = 0.7
 DEFAULT_E_W1_MIN_RATIO = 0.25
-DEFAULT_E_EM_RATIO = 0.05
+DEFAULT_E_EM_MAX_RATIO = 0.05
+DEFAULT_E_EM_MIN_RATIO = 0.0015
 DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
 DEFAULT_EM_Z = 2.0
@@ -67,7 +68,8 @@ class AdjuvantMare(MareModel):
         etotal: float | None = None,
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_ratio: float | None = DEFAULT_E_EM_RATIO,
+        e_em_max_ratio: float | None = DEFAULT_E_EM_MAX_RATIO,
+        e_em_min_ratio: float | None = DEFAULT_E_EM_MIN_RATIO,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
         em_z: float = DEFAULT_EM_Z,
@@ -93,7 +95,8 @@ class AdjuvantMare(MareModel):
         self.em_z = em_z
         self.e_w1_max_ratio = e_w1_max_ratio
         self.e_w1_min_ratio = e_w1_min_ratio
-        self.e_em_ratio = e_em_ratio
+        self.e_em_max_ratio = e_em_max_ratio
+        self.e_em_min_ratio = e_em_min_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
@@ -146,7 +149,8 @@ class AdjuvantMare(MareModel):
             em_z=self.em_z,
             e_w1_max_ratio=self.e_w1_max_ratio,
             e_w1_min_ratio=self.e_w1_min_ratio,
-            e_em_ratio=self.e_em_ratio,
+            e_em_max_ratio=self.e_em_max_ratio,
+            e_em_min_ratio=self.e_em_min_ratio,
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
             min_mi=self.min_mi,
@@ -382,7 +386,8 @@ class AdjuvantSynth(Synth):
         delta: float | Literal["tenth"] = "tenth",
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_ratio: float | None = DEFAULT_E_EM_RATIO,
+        e_em_max_ratio: float | None = DEFAULT_E_EM_MAX_RATIO,
+        e_em_min_ratio: float | None = DEFAULT_E_EM_MIN_RATIO,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
         em_z: float = DEFAULT_EM_Z,
@@ -415,7 +420,8 @@ class AdjuvantSynth(Synth):
         self.em_z = em_z
         self.e_w1_max_ratio = e_w1_max_ratio
         self.e_w1_min_ratio = e_w1_min_ratio
-        self.e_em_ratio = e_em_ratio
+        self.e_em_max_ratio = e_em_max_ratio
+        self.e_em_min_ratio = e_em_min_ratio
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
@@ -504,7 +510,8 @@ class AdjuvantSynth(Synth):
                 em_z=self.em_z,
                 e_w1_max_ratio=self.e_w1_max_ratio,
                 e_w1_min_ratio=self.e_w1_min_ratio,
-                e_em_ratio=self.e_em_ratio,
+                e_em_max_ratio=self.e_em_max_ratio,
+                e_em_min_ratio=self.e_em_min_ratio,
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 min_mi=self.min_mi,
