@@ -72,20 +72,11 @@ def cdp_rho(eps: float, delta: float) -> float:
     return rhomin
 
 
-def _sigma_for_theta(
-    dom: int, n: int | float, theta: float, sigma_floor: float
-) -> float | None:
-    """Compute DP noise std dev to achieve confidence theta/(theta+1).
-
-    Returns None if sampling noise alone exceeds the target (no DP noise needed)."""
+def _sigma_for_theta(dom: int, n: int | float, theta: float) -> float:
+    """Compute DP noise std dev to achieve confidence theta/(theta+1)."""
     if theta <= 0 or dom <= 0:
         return 0.0
-    target_seff2 = (n / (theta * dom)) ** 2
-    sampling_var = n / (dom * sigma_floor) if sigma_floor > 0 else 0.0
-    sigma_dp2 = target_seff2 - sampling_var
-    if sigma_dp2 <= 0:
-        return None
-    return sqrt(sigma_dp2)
+    return n / (theta * dom)
 
 
 def _sigma_to_budget(sigma: float, dp_type: str = "cdp") -> float:
@@ -130,15 +121,12 @@ def compute_budget_for_theta(
     dom: int,
     n: int | float,
     theta: float,
-    sigma_floor: float,
     dp_type: str = "cdp",
-) -> float | None:
+) -> float:
     """Compute budget to achieve confidence theta/(theta+1) for a marginal of domain `dom`.
 
-    Returns rho (CDP) or epsilon (DP), or None if sampling noise alone suffices."""
-    sigma = _sigma_for_theta(dom, n, theta, sigma_floor)
-    if sigma is None:
-        return None
+    Returns rho (CDP) or epsilon (DP)."""
+    sigma = _sigma_for_theta(dom, n, theta)
     if sigma == 0.0:
         return 0.0
     return _sigma_to_budget(sigma, dp_type)
@@ -223,11 +211,9 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
     return (attr_name, sel)
 
 
-def calc_confidence(
-    n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0
-) -> float:
+def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
     dom = max(dom, 1)
-    return n / (sigma_floor * n + dom * sigma * sigma)
+    return n / (n + dom * sigma * sigma)
 
 
 # ============================================================
@@ -273,7 +259,6 @@ def compute_1way_budget(
     cached: CachedMarginals,
     n: int | float,
     theta_1w: float,
-    sigma_floor: float,
     budget_max: float | None = None,
     dp_type: str = "cdp",
     skip_cols: set[Col] | None = None,
@@ -293,7 +278,7 @@ def compute_1way_budget(
         for col, mar in cached.one_way.items():
             if skip_cols and col in skip_cols:
                 continue
-            b = compute_budget_for_theta(mar.size, n, theta, sigma_floor, dp_type)
+            b = compute_budget_for_theta(mar.size, n, theta, dp_type)
             if b is not None:
                 total += b
         return total
@@ -352,8 +337,7 @@ def compute_1way_budget(
         if skip_cols and col in skip_cols:
             sigmas[col] = 0.0
             continue
-        sigma = _sigma_for_theta(mar.size, n, theta_1w, sigma_floor)
-        sigmas[col] = sigma if sigma is not None else 0.0
+        sigmas[col] = _sigma_for_theta(mar.size, n, theta_1w)
 
     return sigmas, budget1, theta_1w
 
@@ -946,16 +930,12 @@ def _compute_cand_edge_budget(
     attrs: DatasetAttributes,
     n: int | float,
     theta_2w: float,
-    sigma_floor: float,
     dp_type: str = "cdp",
 ) -> float:
-    """Compute the measurement budget cost for candidate edge at index idx.
-
-    Returns float('inf') if the edge cannot achieve theta_2w confidence."""
+    """Compute the measurement budget cost for candidate edge at index idx."""
     na, nb = candidates[idx]
     dom = _edge_clique_domain(na, nb, directed_graph, attrs)
-    b = compute_budget_for_theta(dom, n, theta_2w, sigma_floor, dp_type)
-    return b if b is not None else float("inf")
+    return compute_budget_for_theta(dom, n, theta_2w, dp_type)
 
 
 def structure_learn(
@@ -968,12 +948,12 @@ def structure_learn(
     min_score: float,
     em_z: float,
     theta_2w: float,
-    sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     max_em_budget: float = float("inf"),
     min_em_budget: float = 0.0,
+    em_max: float = 50.0,
     rake: bool = True,
     max_order: int | None = None,
     dp_type: str = "cdp",
@@ -1027,7 +1007,6 @@ def structure_learn(
                 attrs,
                 n,
                 theta_2w,
-                sigma_floor,
                 dp_type,
             )
             cand_bdg_edge[idx] = b
@@ -1079,6 +1058,10 @@ def structure_learn(
             else:
                 eps_clamped = min_em_budget
             em_z_eff = eps_clamped * n_cands / 4.0
+            # Cap em_z_eff so a low-candidate round doesn't drive EM arbitrarily sharp
+            if em_max > 0 and em_z_eff > em_max:
+                em_z_eff = em_max
+                eps_clamped = em_max * 4.0 / n_cands
             eps = eps_clamped
             cost = _em_budget_cost(eps, dp_type)
         else:
@@ -1219,9 +1202,7 @@ def structure_learn(
             assert eps_step
             effective_n = max(int(len(scores) * min_chance / (1 - min_chance)), 1)
             log_n_boost = 2 * sensitivity * np.log(effective_n) / eps_step
-            em_scores = np.append(
-                scores, min_score + log_n_boost if min_score else 0
-            )
+            em_scores = np.append(scores, min_score + log_n_boost if min_score else 0)
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
         else:
@@ -1488,7 +1469,6 @@ def measure_cliques(
     attrs: DatasetAttributes,
     n: int,
     rho3: float,
-    sigma_floor: float = 1.0,
     dp_type: str = "cdp",
 ) -> tuple[list, float]:
     """Measure selected clique marginals with DP noise.
@@ -1564,7 +1544,7 @@ def measure_cliques(
         prob = (prob / s if s > 0 else prob).astype(np.float32)
 
         dom = get_clique_domain(clique, attrs)
-        confidence = calc_confidence(n, sigma3, dom, sigma_floor)
+        confidence = calc_confidence(n, sigma3, dom)
         obs_list.append(LinearObservation(clique, None, prob, confidence))
 
     return obs_list, sigma3
@@ -1577,7 +1557,6 @@ def measure_edges(
     attrs: DatasetAttributes,
     n: int,
     theta_2w: float,
-    sigma_floor: float = 1.0,
     rho_extra: float = 0.0,
     dp_type: str = "cdp",
     no_noise: bool = False,
@@ -1667,25 +1646,13 @@ def measure_edges(
     if rho_extra > 0 and K > 0:
 
         def _total_bdg_2w(theta):
-            total = 0.0
-            for dom in edge_doms:
-                r = compute_budget_for_theta(dom, n, theta, sigma_floor, dp_type)
-                if r is not None:
-                    total += r
-            return total
+            return sum(
+                compute_budget_for_theta(dom, n, theta, dp_type) for dom in edge_doms
+            )
 
         base_bdg = _total_bdg_2w(theta_2w)
         target_bdg = base_bdg + rho_extra
-        # Cap hi at the max theta where all edges still need DP noise.
-        # Beyond this, edges start returning None and the cost function
-        # becomes non-monotonic (drops to 0), breaking the binary search.
-        # theta_max per edge: sigma_dp2 = 0 when theta = sqrt(n * sigma_floor / dom)
-        if sigma_floor > 0:
-            max_useful = min(sqrt(n * sigma_floor / dom) for dom in edge_doms)
-            hi = min(theta_2w * 1000, max_useful * 0.95)
-        else:
-            hi = theta_2w * 1000
-        hi = max(hi, theta_2w)  # never go below base
+        hi = theta_2w * 1000
         lo = 0
         # Binary search for max theta that fits within target budget
         if _total_bdg_2w(hi) <= target_bdg:
@@ -1710,8 +1677,7 @@ def measure_edges(
         edge_sigmas = [0.0] * K
     else:
         for dom in edge_doms:
-            sigma = _sigma_for_theta(dom, n, eff_theta, sigma_floor)
-            edge_sigmas.append(sigma if sigma is not None else 0.0)
+            edge_sigmas.append(_sigma_for_theta(dom, n, eff_theta))
 
     obs_list = []
     max_sigma = 0.0
@@ -1840,7 +1806,7 @@ def measure_edges(
         prob = (prob / s if s > 0 else prob).astype(np.float32)
 
         dom = get_clique_domain(source_tuple, attrs)
-        confidence = calc_confidence(n, sigma_edge, dom, sigma_floor)
+        confidence = calc_confidence(n, sigma_edge, dom)
         obs_list.append(LinearObservation(source_tuple, None, prob, confidence))
 
     return obs_list, max_sigma
@@ -1851,7 +1817,6 @@ def build_1way_observations(
     attrs: DatasetAttributes,
     n: int,
     sigmas: dict[Col, float],
-    sigma_floor: float = 1.0,
 ) -> list:
     """Build per-column LinearObservation objects from noisy 1-way marginals.
 
@@ -1874,7 +1839,7 @@ def build_1way_observations(
         prob = (raw / s if s > 0 else raw).astype(np.float32)
         dom = len(raw)
         sigma_col = sigmas.get(col, 0.0)
-        confidence = calc_confidence(n, sigma_col, dom, sigma_floor)
+        confidence = calc_confidence(n, sigma_col, dom)
         obs_list.append(LinearObservation(source, None, prob, confidence))
 
     return obs_list
@@ -1896,11 +1861,11 @@ def adjuvant_fit(
     e_w1_min_ratio: float = 0.0,
     e_em_max_ratio: float | None = None,
     e_em_min_ratio: float | None = None,
+    em_max: float = 50.0,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     min_mi: float = 0.0,
     min_chance: float = 0.1,
-    sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
@@ -1941,7 +1906,6 @@ def adjuvant_fit(
             cached,
             n,
             theta_1w,
-            sigma_floor,
             bdg1_max,
             dp_type,
             skip_cols=hist_cols if hist_cols else None,
@@ -1998,7 +1962,6 @@ def adjuvant_fit(
         min_score,
         em_z=em_z,
         theta_2w=theta_2w,
-        sigma_floor=sigma_floor,
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
         max_clique_size=max_clique_size,
@@ -2006,6 +1969,7 @@ def adjuvant_fit(
         max_order=max_order,
         max_em_budget=max_em_budget,
         min_em_budget=min_em_budget,
+        em_max=em_max,
         dp_type=dp_type,
         scoring=scoring,
         min_chance=min_chance,
@@ -2024,12 +1988,11 @@ def adjuvant_fit(
         attrs,
         n,
         theta_2w,
-        sigma_floor,
         rho_extra=bdg_remaining if rescale else 0.0,
         dp_type=dp_type,
         no_noise=rho <= 0,
     )
-    oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
+    oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w)
     all_obs = edge_obs + oneway_obs
 
     max_conf = max((o.confidence for o in all_obs), default=0.0)
