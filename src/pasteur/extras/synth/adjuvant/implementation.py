@@ -226,21 +226,8 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
 def calc_confidence(
     n: int | float, sigma: float, dom: int, sigma_floor: float = 1.0
 ) -> float:
-    """Calculate observation confidence from sample size, noise scale, and domain size.
-
-    Uses a uniform-bin model for sampling noise: each cell has probability
-    p = 1/(dom * sigma_floor), so variance = n * p * (1-p) ≈ n / (dom * sigma_floor).
-    The effective sigma combines DP noise and sampling noise in quadrature:
-    sigma_eff = sqrt(sigma_dp^2 + n / (dom * sigma_floor)).
-
-    When sigma_floor is 0, sampling noise is ignored (pure DP confidence)."""
     dom = max(dom, 1)
-    s2 = sigma * sigma
-    if sigma_floor > 0:
-        s2 += n / (dom * sigma_floor)
-    if s2 == 0:
-        return 1.0
-    return n / (n + sqrt(s2) * dom)
+    return n / (sigma_floor * n + dom * sigma * sigma)
 
 
 # ============================================================
@@ -990,6 +977,7 @@ def structure_learn(
     max_order: int | None = None,
     dp_type: str = "cdp",
     scoring: str = "tvd",
+    min_chance: float = 0.1,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -1219,7 +1207,8 @@ def structure_learn(
         if rho_avail > 0:
             eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
             assert eps_step
-            log_n_boost = 2 * sensitivity * np.log(max(len(scores), 1)) / eps_step
+            effective_n = max(int(len(scores) * min_chance / (1 - min_chance)), 1)
+            log_n_boost = 2 * sensitivity * np.log(effective_n) / eps_step
             em_scores = np.append(
                 scores, min_score + log_n_boost if min_score else 0
             )
@@ -1899,6 +1888,7 @@ def adjuvant_fit(
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     min_mi: float = 0.0,
+    min_chance: float = 0.1,
     sigma_floor: float = 1.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
@@ -2005,6 +1995,7 @@ def adjuvant_fit(
         max_em_budget=max_em_budget,
         dp_type=dp_type,
         scoring=scoring,
+        min_chance=min_chance,
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
@@ -2027,6 +2018,11 @@ def adjuvant_fit(
     )
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w, sigma_floor)
     all_obs = edge_obs + oneway_obs
+
+    max_conf = max((o.confidence for o in all_obs), default=0.0)
+    if max_conf > 0:
+        all_obs = [o._replace(confidence=o.confidence / max_conf) for o in all_obs]
+
     logger.info(
         f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
         f"max_sigma_2w={max_sigma:.2f}"

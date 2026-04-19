@@ -38,7 +38,8 @@ DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
 DEFAULT_MIN_TVD = 0.05
 DEFAULT_MIN_MI = 0.005
-DEFAULT_SIGMA_FLOOR = 5.0
+DEFAULT_MIN_CHANCE = 0.1
+DEFAULT_SIGMA_FLOOR = 1.0
 DEFAULT_MAX_CLIQUE_SIZE = 1e5
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
@@ -73,6 +74,7 @@ class AdjuvantMare(MareModel):
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
+        min_chance: float = DEFAULT_MIN_CHANCE,
         sigma_floor: float = DEFAULT_SIGMA_FLOOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
@@ -95,6 +97,7 @@ class AdjuvantMare(MareModel):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
+        self.min_chance = min_chance
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
@@ -147,6 +150,7 @@ class AdjuvantMare(MareModel):
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
             min_mi=self.min_mi,
+            min_chance=self.min_chance,
             sigma_floor=self.sigma_floor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
@@ -385,6 +389,7 @@ class AdjuvantSynth(Synth):
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
+        min_chance: float = DEFAULT_MIN_CHANCE,
         sigma_floor: float = DEFAULT_SIGMA_FLOOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
@@ -414,6 +419,7 @@ class AdjuvantSynth(Synth):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
+        self.min_chance = min_chance
         self.sigma_floor = sigma_floor
         self.max_clique_size = max_clique_size
         self.rescale = rescale
@@ -502,6 +508,7 @@ class AdjuvantSynth(Synth):
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 min_mi=self.min_mi,
+                min_chance=self.min_chance,
                 sigma_floor=self.sigma_floor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
