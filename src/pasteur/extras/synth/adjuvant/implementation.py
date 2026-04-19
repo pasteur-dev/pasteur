@@ -1017,13 +1017,13 @@ def structure_learn(
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # EM sensitivity depends on the score function: TVD = 2/n;
-    # MI uses PrivBayes' log2 bound (larger, so EM is less discriminative
-    # per unit budget — tune em_z accordingly).
+    # EM sensitivity depends on the score function. The TVD score here is
+    # ½|P(X,Y) − P(X)P(Y)|₁: one row perturbs P(X,Y) by ≤2/n and P(X)P(Y)
+    # by ≤4/n in L1, so sens ≤ 3/n. MI uses PrivBayes Lemma 3 (log2).
     if scoring == "mi":
         sensitivity = float(sens_mutual_info(n))
     else:
-        sensitivity = 2.0 / n
+        sensitivity = 3.0 / n
 
     # Pre-compute per-candidate measurement budget and theta-filter
     cand_bdg_edge = np.zeros(len(candidates))
@@ -1221,7 +1221,7 @@ def structure_learn(
             assert eps_step
             log_n_boost = 2 * sensitivity * np.log(max(len(scores), 1)) / eps_step
             em_scores = np.append(
-                scores, min_score + log_n_boost if min_score and em_z_eff == em_z else 0
+                scores, min_score + log_n_boost if min_score else 0
             )
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
@@ -1895,7 +1895,7 @@ def adjuvant_fit(
     em_z: float = 2.0,
     e_w1_max_ratio: float = 0.8,
     e_w1_min_ratio: float = 0.0,
-    e_em_ratio: float = 0.02,
+    e_em_ratio: float | None = None,
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     min_mi: float = 0.0,
@@ -1985,7 +1985,7 @@ def adjuvant_fit(
         f"(scoring={scoring}, min_score={min_score})"
     )
 
-    max_em_budget = e_em_ratio * rho if rho > 0 else float("inf")
+    max_em_budget = e_em_ratio * rho if rho > 0 and e_em_ratio else float("inf")
     moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
         directed_graph,
         attrs,

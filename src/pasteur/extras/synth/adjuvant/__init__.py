@@ -29,15 +29,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_E_W1_MAX_RATIO = 0.6
+DEFAULT_E_W1_MAX_RATIO = 0.7
 DEFAULT_E_W1_MIN_RATIO = 0.35
-DEFAULT_E_EM_RATIO = 0.02
+DEFAULT_E_EM_RATIO = None
 DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
 DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
 DEFAULT_MIN_TVD = 0.05
-DEFAULT_MIN_MI = 0.009
+DEFAULT_MIN_MI = 0.05
 DEFAULT_SIGMA_FLOOR = 5.0
 DEFAULT_MAX_CLIQUE_SIZE = 1e5
 DEFAULT_RESCALE = True
@@ -66,7 +66,7 @@ class AdjuvantMare(MareModel):
         etotal: float | None = None,
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_ratio: float = DEFAULT_E_EM_RATIO,
+        e_em_ratio: float | None = DEFAULT_E_EM_RATIO,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
         em_z: float = DEFAULT_EM_Z,
@@ -378,7 +378,7 @@ class AdjuvantSynth(Synth):
         delta: float | Literal["tenth"] = "tenth",
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_ratio: float = DEFAULT_E_EM_RATIO,
+        e_em_ratio: float | None = DEFAULT_E_EM_RATIO,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
         em_z: float = DEFAULT_EM_Z,
