@@ -139,7 +139,7 @@ def mirror_descent(
         return loss, mu
 
     total_params = sum(t.numel() for t in theta)
-    do_compile = total_params >= compile if isinstance(compile, int) else compile
+    do_compile = total_params >= compile if not isinstance(compile, bool) else compile
     if do_compile:
         logger.info("Compiling mirror descent compute graph...")
         compute_grad = torch.compile(compute_grad)
