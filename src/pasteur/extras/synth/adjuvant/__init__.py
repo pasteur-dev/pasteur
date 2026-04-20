@@ -38,9 +38,9 @@ DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
 DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
-DEFAULT_MIN_TVD = 0.05
+DEFAULT_MIN_TVD = 0.09
 DEFAULT_MIN_MI = 0.005
-DEFAULT_MIN_CHANCE = 0.1
+DEFAULT_MIN_SAFETY_FACTOR = 3.0
 DEFAULT_MAX_CLIQUE_SIZE = 1e5
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
@@ -77,7 +77,7 @@ class AdjuvantMare(MareModel):
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
-        min_chance: float = DEFAULT_MIN_CHANCE,
+        min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
@@ -101,7 +101,7 @@ class AdjuvantMare(MareModel):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
-        self.min_chance = min_chance
+        self.min_safety_factor = min_safety_factor
         self.max_clique_size = max_clique_size
         self.rescale = rescale if accountant else False
         self.rake = rake
@@ -155,7 +155,7 @@ class AdjuvantMare(MareModel):
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
             min_mi=self.min_mi,
-            min_chance=self.min_chance,
+            min_safety_factor=self.min_safety_factor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
@@ -395,7 +395,7 @@ class AdjuvantSynth(Synth):
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
-        min_chance: float = DEFAULT_MIN_CHANCE,
+        min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
@@ -426,7 +426,7 @@ class AdjuvantSynth(Synth):
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
-        self.min_chance = min_chance
+        self.min_safety_factor = min_safety_factor
         self.max_clique_size = max_clique_size
         self.rescale = rescale
         self.rake = rake
@@ -516,7 +516,7 @@ class AdjuvantSynth(Synth):
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 min_mi=self.min_mi,
-                min_chance=self.min_chance,
+                min_safety_factor=self.min_safety_factor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
                 rake=self.rake,

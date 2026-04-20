@@ -958,7 +958,7 @@ def structure_learn(
     max_order: int | None = None,
     dp_type: str = "cdp",
     scoring: str = "tvd",
-    min_chance: float = 0.1,
+    min_safety_factor: float = 3.0,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -1200,8 +1200,9 @@ def structure_learn(
         if rho_avail > 0:
             eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
             assert eps_step
-            effective_n = max(int(len(scores) * min_chance / (1 - min_chance)), 1)
-            log_n_boost = 2 * sensitivity * np.log(effective_n) / eps_step
+            # Stop sits min_safety_factor noise-widths above min_score.
+            # Noise scale in the EM is 2*sensitivity/eps_step.
+            log_n_boost = min_safety_factor * 2 * sensitivity / eps_step
             em_scores = np.append(scores, min_score + log_n_boost if min_score else 0)
             sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             bdg_em += bdg_em_step
@@ -1865,7 +1866,7 @@ def adjuvant_fit(
     size_penalty: float = 0.0,
     min_tvd: float = 0.05,
     min_mi: float = 0.0,
-    min_chance: float = 0.1,
+    min_safety_factor: float = 3.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
@@ -1972,7 +1973,7 @@ def adjuvant_fit(
         em_max=em_max,
         dp_type=dp_type,
         scoring=scoring,
-        min_chance=min_chance,
+        min_safety_factor=min_safety_factor,
     )
 
     # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
