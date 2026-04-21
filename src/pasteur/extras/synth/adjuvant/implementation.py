@@ -2065,6 +2065,15 @@ def adjuvant_run_md(
         f"{total_params:_} parameters"
     )
 
+    MAX_PARAMS = 150_000_000
+    if total_params > MAX_PARAMS:
+        logger.error(
+            f"Total params too high: {total_params} > {MAX_PARAMS}. Clique Information:\n"
+            f"{','.join(f'{get_clique_domain(cl, attrs):_d}' for cl in cliques)}\n"
+            "Exitting..."
+        )
+        assert False
+
     logger.info(
         f"Adjuvant: running mirror descent (max_iters={md.get('max_iters', 1000)})"
     )
