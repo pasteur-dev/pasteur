@@ -302,7 +302,9 @@ def convert_rebalanced_to_seq_val(s: RebalancedValue, order: int):
     reb.counts = np.concatenate([[0] * order, s.counts])
     reb.grouping = np.concatenate(
         [
-            [[0 for _ in range(order)] for _ in range(s.grouping.shape[0])],
+            np.tile(
+                np.arange(order, dtype=np.uint16), (s.grouping.shape[0], 1)
+            ),
             s.grouping.astype(np.uint16) + order,
         ],
         axis=1,
