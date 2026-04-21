@@ -328,6 +328,31 @@ def _init_subprocess(log_queue):
 
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
+    # Workers share a resource_tracker with the forkserver, separate from the
+    # parent's. Every SharedMemory(...) construction — both create=True in a
+    # worker and attaching a parent-owned block via unpickle — registers with
+    # that shared tracker, but only the parent ever calls unlink(), which
+    # unregisters from the parent's tracker. The forkserver-side tracker
+    # never sees the unregister and falsely warns about leaks at shutdown.
+    # The parent owns lifecycle, so suppress shared_memory tracking here.
+    from multiprocessing import resource_tracker
+
+    _orig_register = resource_tracker.register
+    _orig_unregister = resource_tracker.unregister
+
+    def _register(name, rtype):
+        if rtype == "shared_memory":
+            return
+        _orig_register(name, rtype)
+
+    def _unregister(name, rtype):
+        if rtype == "shared_memory":
+            return
+        _orig_unregister(name, rtype)
+
+    resource_tracker.register = _register
+    resource_tracker.unregister = _unregister
+
     if log_queue is not None:
         # Kedro installs rich logging when importing the following module
         # and messes with loggers. Import before replacing the loggers.
