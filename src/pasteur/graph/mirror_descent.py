@@ -88,6 +88,7 @@ def mirror_descent(
     torch.use_deterministic_algorithms(True)
     # Required for deterministic scatter/index ops on CUDA
     import os
+
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
     # Build modules
@@ -99,7 +100,8 @@ def mirror_descent(
         observed = set(loss_fn.cidx)
 
     bp = BeliefPropagation(
-        cliques, messages,
+        cliques,
+        messages,
         observed=observed,
         block_unobserved=block_unobserved,
     ).to(device)
@@ -296,12 +298,12 @@ def build_junction_tree(
         obs_cliques = [o.source for o in obs]
         junction = get_junction_tree_from_cliques(obs_cliques)
     else:
-        assert moral_graph is not None, (
-            "moral_graph is required for hugin tree modes"
-        )
+        assert moral_graph is not None, "moral_graph is required for hugin tree modes"
         if tree_mode != "hugin_comp":
             cap_heights(moral_graph, mode=tree_mode)
-        _, tri, _ = find_elim_order(moral_graph, attrs, elim_max_attempts, elim_factor_cost)
+        _, tri, _ = find_elim_order(
+            moral_graph, attrs, elim_max_attempts, elim_factor_cost
+        )
         junction = get_junction_tree(tri, attrs, compress=compress)
 
     generations = get_message_passing_order(junction)
@@ -344,7 +346,12 @@ def fit_model(
     elim_max_attempts = md_params.pop("elim_max_attempts", 5000)
     elim_factor_cost = md_params.pop("elim_factor_cost", 1)
     junction, cliques, messages = build_junction_tree(
-        obs, attrs, tree_mode, compress, moral_graph, elim_max_attempts,
+        obs,
+        attrs,
+        tree_mode,
+        compress,
+        moral_graph,
+        elim_max_attempts,
         elim_factor_cost,
     )
 
