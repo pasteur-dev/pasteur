@@ -871,7 +871,7 @@ def compute_edge_weight(
         val = cast(CatValue, a[d["value"]])
         return float(val.get_domain(d["height"]))
 
-    return 1 / ((_dom_for_node(node_a) * _dom_for_node(node_b)) ** size_penalty)
+    return 1 / (1 + np.log2(_dom_for_node(node_a) * _dom_for_node(node_b)) * size_penalty)
 
 
 # ============================================================
