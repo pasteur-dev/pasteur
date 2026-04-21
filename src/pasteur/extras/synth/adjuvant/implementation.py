@@ -233,10 +233,19 @@ def compute_all_marginals(
     oracle: MarginalOracle,
     attrs: DatasetAttributes,
     all_cols: list[Col],
+    skip_pair_cols: set[Col] | None = None,
 ) -> CachedMarginals:
-    """Batch-query all 1-way and 2-way true marginals in one oracle call."""
+    """Batch-query all 1-way and 2-way true marginals in one oracle call.
+
+    Pairs where both columns are in ``skip_pair_cols`` are omitted entirely —
+    used to avoid computing hist-hist (evidence-evidence) marginals under MARE,
+    since those edges are frozen and never consulted downstream."""
     requests_1 = [[_col_sel(c, attrs)] for c in all_cols]
-    pairs = list(itertools.combinations(all_cols, 2))
+    pairs = [
+        (c1, c2)
+        for c1, c2 in itertools.combinations(all_cols, 2)
+        if not (skip_pair_cols and c1 in skip_pair_cols and c2 in skip_pair_cols)
+    ]
     requests_2 = [[_col_sel(c1, attrs), _col_sel(c2, attrs)] for c1, c2 in pairs]
 
     results = oracle.process(requests_1 + requests_2, postprocess=None)
@@ -722,40 +731,27 @@ def _build_adj(g: nx.Graph) -> dict[str, set[str]]:
     return {v: set(g.neighbors(v)) for v in g.nodes()}
 
 
-def _score_with_one_edge(
+def _triangulate_base(
     base_adj: dict[str, set[str]],
-    na: str,
-    nb: str,
-    node_data: dict[str, dict],
-    attrs: DatasetAttributes,
-    max_clique_size: float,
-) -> tuple[float, bool]:
-    """Add one edge to cached adjacency, triangulate, compute total domain.
+) -> tuple[list[frozenset[str]], dict[str, list[int]], list[str]]:
+    """Min-degree triangulation of the base graph.
 
-    Works entirely on dicts/sets — no networkx calls. Extracts maximal cliques
-    from the elimination order directly.
-
-    Returns (total_domain, valid). valid=False if any clique exceeds max_clique_size."""
-    from ....graph.hugin import get_clique_domain, create_clique_meta, AttrMeta
-
-    # Shallow-copy adjacency and add the candidate edge
+    Returns (cliques, cliques_by_node, elim_order).
+      - cliques_by_node[v] = list of indices into ``cliques`` containing v.
+      - elim_order is the min-degree elimination sequence, reused as a fixed
+        order by candidate checks to skip the per-candidate min-degree scan.
+    """
     adj = {v: s.copy() for v, s in base_adj.items()}
-    adj[na].add(nb)
-    adj[nb].add(na)
-
-    # Min-degree elimination: collect cliques as we go
     remaining = set(adj)
     cliques: list[frozenset[str]] = []
+    elim_order: list[str] = []
 
     while remaining:
-        # Pick min-degree node
         v = min(remaining, key=lambda n: len(adj[n] & remaining))
+        elim_order.append(v)
         neighbors = adj[v] & remaining
-
-        # The factor {v} ∪ neighbors is a potential clique
         factor = frozenset(neighbors | {v})
 
-        # Add fill edges between neighbors
         nb_list = list(neighbors)
         for i in range(len(nb_list)):
             for j in range(i + 1, len(nb_list)):
@@ -766,7 +762,6 @@ def _score_with_one_edge(
 
         remaining.discard(v)
 
-        # Factor is maximal if no previously collected clique is a superset
         is_maximal = True
         for c in cliques:
             if factor <= c:
@@ -775,35 +770,147 @@ def _score_with_one_edge(
         if is_maximal:
             cliques.append(factor)
 
-    # Compute total domain, check constraints
+    cliques_by_node: dict[str, list[int]] = {v: [] for v in base_adj}
+    for idx, c in enumerate(cliques):
+        for v in c:
+            cliques_by_node[v].append(idx)
+    return cliques, cliques_by_node, elim_order
+
+
+def _clique_meta_for_nodes(
+    nodes: set[str] | frozenset[str],
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+):
+    from collections import defaultdict
+    from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
+
+    sels: dict[tuple, dict[str, int]] = defaultdict(dict)
+    for var in nodes:
+        d = node_data[var]
+        key = (d["table"], d["order"], d["attr"])
+        val = d["value"]
+        h = d["height"]
+        if key in sels and val in sels[key]:
+            h = min(sels[key][val], h)
+        sels[key][val] = h
+
+    meta = []
+    for (table, order, attr_name), sel in sels.items():
+        attr = _get_attrs(attrs, table, order)[attr_name]
+        if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
+            new_sel = sel[attr.common.name]
+        else:
+            cmn = attr.common.name if attr.common else None
+            new_sel = tuple(sorted((v, h) for v, h in sel.items() if v != cmn))
+        meta.append(AttrMeta(table, order, attr_name, new_sel))
+    return tuple(sorted(meta, key=_attr_meta_sort_key))
+
+
+def _score_with_one_edge(
+    base_adj: dict[str, set[str]],
+    na: str,
+    nb: str,
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+    max_clique_size: float,
+    base_cliques: list[frozenset[str]] | None = None,
+    cliques_by_node: dict[str, list[int]] | None = None,
+    elim_order: list[str] | None = None,
+) -> tuple[float, bool]:
+    """Add one edge to cached adjacency, triangulate, check clique sizes.
+
+    Two caches let us skip most work:
+      - Fast path: if ``na`` and ``nb`` share a base-triangulation clique,
+        the edge is internal — triangulation(base_adj ∪ {(na, nb)}) ⊆
+        triangulation(base_adj), so no clique grows. Return valid.
+      - Slow path: reuse ``elim_order`` from base (skip the per-candidate
+        min-degree scan) and re-run elimination on ``base_adj ∪ {(na, nb)}``.
+        Cliques that also appear in ``base_cliques`` are already known
+        valid, so we only evaluate domain for new/changed cliques.
+
+    Using base's elim order is a valid (not necessarily minimum) triangulation
+    of the new graph — sufficient for an upper-bound clique-size check.
+
+    Returns (total_domain, valid). valid=False if any clique exceeds max_clique_size."""
+    from ....graph.hugin import get_clique_domain
+
+    # Fast path: edge internal to an existing base clique → no new clique.
+    if cliques_by_node is not None and base_cliques is not None:
+        ca = cliques_by_node.get(na, [])
+        cb = cliques_by_node.get(nb, [])
+        if ca and cb:
+            sa = set(ca)
+            for i in cb:
+                if i in sa:
+                    return 0.0, True
+
+    # Slow path: re-run elimination on base_adj + (na, nb).  Use base's
+    # elim_order if provided (skips the expensive min-degree scan).
+    adj = {v: s.copy() for v, s in base_adj.items()}
+    adj[na].add(nb)
+    adj[nb].add(na)
+    remaining = set(adj)
+    cliques: list[frozenset[str]] = []
+
+    if elim_order is not None:
+        iter_order: "list[str] | None" = elim_order
+    else:
+        iter_order = None
+
+    if iter_order is not None:
+        for v in iter_order:
+            neighbors = adj[v] & remaining
+            factor = frozenset(neighbors | {v})
+
+            nb_list = list(neighbors)
+            for i in range(len(nb_list)):
+                for j in range(i + 1, len(nb_list)):
+                    u, w = nb_list[i], nb_list[j]
+                    if w not in adj[u]:
+                        adj[u].add(w)
+                        adj[w].add(u)
+
+            remaining.discard(v)
+
+            is_maximal = True
+            for c in cliques:
+                if factor <= c:
+                    is_maximal = False
+                    break
+            if is_maximal:
+                cliques.append(factor)
+    else:
+        while remaining:
+            v = min(remaining, key=lambda n: len(adj[n] & remaining))
+            neighbors = adj[v] & remaining
+            factor = frozenset(neighbors | {v})
+
+            nb_list = list(neighbors)
+            for i in range(len(nb_list)):
+                for j in range(i + 1, len(nb_list)):
+                    u, w = nb_list[i], nb_list[j]
+                    if w not in adj[u]:
+                        adj[u].add(w)
+                        adj[w].add(u)
+
+            remaining.discard(v)
+
+            is_maximal = True
+            for c in cliques:
+                if factor <= c:
+                    is_maximal = False
+                    break
+            if is_maximal:
+                cliques.append(factor)
+
+    # Cliques unchanged from base are already known valid — skip them.
+    base_set = frozenset(base_cliques) if base_cliques else frozenset()
     total_domain = 0
     for cl in cliques:
-        # Build CliqueMeta inline from node_data (avoid networkx lookups)
-        from collections import defaultdict
-
-        sels: dict[tuple, dict[str, int]] = defaultdict(dict)
-        for var in cl:
-            d = node_data[var]
-            key = (d["table"], d["order"], d["attr"])
-            val = d["value"]
-            h = d["height"]
-            if key in sels and val in sels[key]:
-                h = min(sels[key][val], h)
-            sels[key][val] = h
-
-        meta = []
-        from ....graph.hugin import get_attrs as _get_attrs
-
-        for (table, order, attr_name), sel in sels.items():
-            attr = _get_attrs(attrs, table, order)[attr_name]
-            if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
-                new_sel = sel[attr.common.name]
-            else:
-                cmn = attr.common.name if attr.common else None
-                new_sel = tuple(sorted((v, h) for v, h in sel.items() if v != cmn))
-            meta.append(AttrMeta(table, order, attr_name, new_sel))
-        clique_meta = tuple(sorted(meta, key=_attr_meta_sort_key))
-
+        if cl in base_set:
+            continue
+        clique_meta = _clique_meta_for_nodes(cl, node_data, attrs)
         dom = get_clique_domain(clique_meta, attrs)
         if dom > max_clique_size:
             return 0, False
@@ -1095,6 +1202,14 @@ def structure_learn(
     node_data = {n: d for n, d in directed_graph.nodes(data=True)}
     # Maintained adjacency dict (updated incrementally, avoids rebuilding from nx)
     base_adj = _build_adj(moral)
+    # Cached base triangulation — (re)built lazily each iteration after edges
+    # get accepted.  Lets candidate checks (a) short-circuit when the edge
+    # is internal to an existing clique, (b) reuse the elim order so we
+    # skip the per-candidate min-degree scan, and (c) skip domain checks
+    # for cliques that also appear in base_cliques (already valid).
+    base_cliques: list[frozenset[str]] | None = None
+    cliques_by_node: dict[str, list[int]] | None = None
+    elim_order: list[str] | None = None
     # Track which candidates have been validated against the current graph.
     # When an edge is added, candidates touching either endpoint's extended
     # neighborhood are invalidated and must be re-checked.
@@ -1135,15 +1250,25 @@ def structure_learn(
             )
             break
 
-        # Clique-size filter: check candidates via exact triangulation.
-        # Cached: only re-check candidates whose neighborhoods changed
-        # since last validation (touched by a newly added edge).
+        # Clique-size filter: check candidates against the cached base
+        # triangulation.  Cached: only re-check candidates whose neighborhoods
+        # changed since last validation (touched by a newly added edge).
+        if base_cliques is None:
+            base_cliques, cliques_by_node, elim_order = _triangulate_base(base_adj)
         n_clique_filtered = 0
         for idx, na, nb in active:
             if cand_clique_checked[idx] and cand_clique_ok[idx]:
                 continue  # still valid from a previous iteration
             _, valid = _score_with_one_edge(
-                base_adj, na, nb, node_data, attrs, max_clique_size
+                base_adj,
+                na,
+                nb,
+                node_data,
+                attrs,
+                max_clique_size,
+                base_cliques=base_cliques,
+                cliques_by_node=cliques_by_node,
+                elim_order=elim_order,
             )
             cand_clique_checked[idx] = True
             cand_clique_ok[idx] = valid
@@ -1227,6 +1352,10 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         base_adj[na].add(nb)
         base_adj[nb].add(na)
+        # base_adj changed — invalidate the triangulation cache
+        base_cliques = None
+        cliques_by_node = None
+        elim_order = None
         structure_edges.add(frozenset([na, nb]))
         bdg_committed += edge_bdg
 
@@ -1894,7 +2023,9 @@ def adjuvant_fit(
     logger.info(
         f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows, {dp_type})"
     )
-    cached = compute_all_marginals(oracle, attrs, all_cols)
+    cached = compute_all_marginals(
+        oracle, attrs, all_cols, skip_pair_cols=hist_cols if hist_cols else None
+    )
 
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
     # Skip hist columns — they are provided as evidence, not generated
