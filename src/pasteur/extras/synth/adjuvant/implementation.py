@@ -731,24 +731,85 @@ def _build_adj(g: nx.Graph) -> dict[str, set[str]]:
     return {v: set(g.neighbors(v)) for v in g.nodes()}
 
 
-def _triangulate_base(
-    base_adj: dict[str, set[str]],
-) -> tuple[list[frozenset[str]], dict[str, list[int]], list[str]]:
-    """Min-degree triangulation of the base graph.
+def _factor_domain(
+    factor,
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+) -> int:
+    """Product of variable domains for the given factor (a set of graph nodes).
 
-    Returns (cliques, cliques_by_node, elim_order).
-      - cliques_by_node[v] = list of indices into ``cliques`` containing v.
-      - elim_order is the min-degree elimination sequence, reused as a fixed
-        order by candidate checks to skip the per-candidate min-degree scan.
-    """
-    adj = {v: s.copy() for v, s in base_adj.items()}
+    Port of ``_factor_domain_direct`` from ``graph/hugin.py`` operating on our
+    ``node_data`` dict — used so the viability check uses the same clique-cost
+    metric as hugin's junction-tree builder.  Result equals
+    ``get_clique_domain(create_clique_meta(factor, ...), attrs)``."""
+    from ....graph.hugin import get_attrs as _get_attrs
+
+    sels: dict[tuple, dict[str, int]] = {}
+    for var in factor:
+        d = node_data[var]
+        key = (d["table"], d["order"], d["attr"])
+        val = d["value"]
+        height = d["height"]
+        s = sels.get(key)
+        if s is None:
+            sels[key] = {val: height}
+        else:
+            cur = s.get(val)
+            if cur is None or height < cur:
+                s[val] = height
+
+    dom = 1
+    for (table, order, attr_name), sel in sels.items():
+        attr = _get_attrs(attrs, table, order)[attr_name]
+        cmn = attr.common
+        if len(sel) == 1 and cmn and cmn.name in sel:
+            dom *= cmn.get_domain(sel[cmn.name])
+        else:
+            cmn_name = cmn.name if cmn else None
+            heights: list[int] = []
+            vals: list[CatValue] = []
+            for v, h in sel.items():
+                if v == cmn_name:
+                    continue
+                heights.append(h)
+                vals.append(cast(CatValue, attr[v]))
+            if vals:
+                dom *= CatValue.get_domain_multiple(heights, vals)
+    return dom
+
+
+def _hugin_eliminate(
+    adj: dict[str, set[str]],
+    cost_map: dict[str, int],
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+    max_clique_size: float,
+) -> tuple[list[frozenset[str]], bool]:
+    """Run min-factor-domain greedy elimination on ``adj`` (mutated) and
+    collect the maximal cliques of the resulting chordal graph.
+
+    Same algorithm as ``elimination_order_greedy`` in ``graph/hugin.py``: at
+    each step picks the remaining node whose factor (= node + remaining
+    neighbors) has the smallest domain, fills in edges between its
+    neighbors, and recomputes costs only for the affected neighbors.
+
+    Early-rejects (returns ``(_, False)``) the moment any factor's domain
+    exceeds ``max_clique_size`` — sound because every clique of the
+    resulting triangulated graph is a subset of some step's factor, so an
+    overflow factor proves at least one clique is over the limit.
+
+    ``cost_map`` is consumed (mutated); pass a fresh copy if you need to
+    keep the original."""
     remaining = set(adj)
     cliques: list[frozenset[str]] = []
-    elim_order: list[str] = []
 
     while remaining:
-        v = min(remaining, key=lambda n: len(adj[n] & remaining))
-        elim_order.append(v)
+        v = min(remaining, key=cost_map.__getitem__)
+        factor_dom = cost_map[v]
+
+        if factor_dom > max_clique_size:
+            return cliques, False
+
         neighbors = adj[v] & remaining
         factor = frozenset(neighbors | {v})
 
@@ -761,6 +822,15 @@ def _triangulate_base(
                     adj[w].add(u)
 
         remaining.discard(v)
+        del cost_map[v]
+
+        # Hugin's incremental update: only v's surviving neighbors had their
+        # induced factor change (v left, plus new fills among them).
+        for nb in neighbors:
+            if nb in cost_map:
+                cost_map[nb] = _factor_domain(
+                    (adj[nb] & remaining) | {nb}, node_data, attrs
+                )
 
         is_maximal = True
         for c in cliques:
@@ -770,41 +840,38 @@ def _triangulate_base(
         if is_maximal:
             cliques.append(factor)
 
+    return cliques, True
+
+
+def _triangulate_base(
+    base_adj: dict[str, set[str]],
+    node_data: dict[str, dict],
+    attrs: DatasetAttributes,
+) -> tuple[list[frozenset[str]], dict[str, list[int]], dict[str, int]]:
+    """Triangulate ``base_adj`` with hugin's min-factor-domain elimination.
+
+    Returns:
+      - cliques: maximal cliques of the triangulated graph.
+      - cliques_by_node[v]: indices into ``cliques`` containing v.
+      - base_cost_map[v]: initial factor domain for v in base_adj.  Reused
+        by ``_score_with_one_edge`` so each candidate only has to update
+        the two endpoints' costs instead of recomputing all V costs.
+    """
+    adj = {v: s.copy() for v, s in base_adj.items()}
+
+    base_cost_map: dict[str, int] = {}
+    for v in adj:
+        base_cost_map[v] = _factor_domain(adj[v] | {v}, node_data, attrs)
+
+    cliques, _ok = _hugin_eliminate(
+        adj, dict(base_cost_map), node_data, attrs, float("inf")
+    )
+
     cliques_by_node: dict[str, list[int]] = {v: [] for v in base_adj}
     for idx, c in enumerate(cliques):
         for v in c:
             cliques_by_node[v].append(idx)
-    return cliques, cliques_by_node, elim_order
-
-
-def _clique_meta_for_nodes(
-    nodes: set[str] | frozenset[str],
-    node_data: dict[str, dict],
-    attrs: DatasetAttributes,
-):
-    from collections import defaultdict
-    from ....graph.hugin import AttrMeta, get_attrs as _get_attrs
-
-    sels: dict[tuple, dict[str, int]] = defaultdict(dict)
-    for var in nodes:
-        d = node_data[var]
-        key = (d["table"], d["order"], d["attr"])
-        val = d["value"]
-        h = d["height"]
-        if key in sels and val in sels[key]:
-            h = min(sels[key][val], h)
-        sels[key][val] = h
-
-    meta = []
-    for (table, order, attr_name), sel in sels.items():
-        attr = _get_attrs(attrs, table, order)[attr_name]
-        if len(sel) == 1 and attr.common and next(iter(sel)) == attr.common.name:
-            new_sel = sel[attr.common.name]
-        else:
-            cmn = attr.common.name if attr.common else None
-            new_sel = tuple(sorted((v, h) for v, h in sel.items() if v != cmn))
-        meta.append(AttrMeta(table, order, attr_name, new_sel))
-    return tuple(sorted(meta, key=_attr_meta_sort_key))
+    return cliques, cliques_by_node, base_cost_map
 
 
 def _score_with_one_edge(
@@ -816,25 +883,23 @@ def _score_with_one_edge(
     max_clique_size: float,
     base_cliques: list[frozenset[str]] | None = None,
     cliques_by_node: dict[str, list[int]] | None = None,
-    elim_order: list[str] | None = None,
+    base_cost_map: dict[str, int] | None = None,
 ) -> tuple[float, bool]:
-    """Add one edge to cached adjacency, triangulate, check clique sizes.
+    """Decide whether adding edge (na, nb) keeps every clique ≤ max_clique_size.
 
-    Two caches let us skip most work:
-      - Fast path: if ``na`` and ``nb`` share a base-triangulation clique,
-        the edge is internal — triangulation(base_adj ∪ {(na, nb)}) ⊆
-        triangulation(base_adj), so no clique grows. Return valid.
-      - Slow path: reuse ``elim_order`` from base (skip the per-candidate
-        min-degree scan) and re-run elimination on ``base_adj ∪ {(na, nb)}``.
-        Cliques that also appear in ``base_cliques`` are already known
-        valid, so we only evaluate domain for new/changed cliques.
+    Exact under hugin's min-factor-domain triangulation — no heuristic
+    shortcuts:
+      - Fast path: if ``na`` and ``nb`` already share a base clique, the
+        edge is already present in the triangulated base graph, so the
+        new triangulation equals the old.  Provably no clique grows.
+      - Slow path: fresh full hugin elimination on ``base_adj ∪ {(na, nb)}``
+        with early rejection on first oversized factor.
 
-    Using base's elim order is a valid (not necessarily minimum) triangulation
-    of the new graph — sufficient for an upper-bound clique-size check.
+    The only reuse across candidates is the initial cost map — adding one
+    edge changes only ``na`` and ``nb``'s induced factors, so all other
+    nodes start with the same cost as in the base triangulation.
 
-    Returns (total_domain, valid). valid=False if any clique exceeds max_clique_size."""
-    from ....graph.hugin import get_clique_domain
-
+    Returns (0, valid). The first element is unused by the caller."""
     # Fast path: edge internal to an existing base clique → no new clique.
     if cliques_by_node is not None and base_cliques is not None:
         ca = cliques_by_node.get(na, [])
@@ -845,78 +910,21 @@ def _score_with_one_edge(
                 if i in sa:
                     return 0.0, True
 
-    # Slow path: re-run elimination on base_adj + (na, nb).  Use base's
-    # elim_order if provided (skips the expensive min-degree scan).
+    # Slow path: fresh hugin elimination on base_adj + (na, nb).
     adj = {v: s.copy() for v, s in base_adj.items()}
     adj[na].add(nb)
     adj[nb].add(na)
-    remaining = set(adj)
-    cliques: list[frozenset[str]] = []
 
-    if elim_order is not None:
-        iter_order: "list[str] | None" = elim_order
+    if base_cost_map is not None:
+        cost_map = dict(base_cost_map)
     else:
-        iter_order = None
+        cost_map = {v: _factor_domain(adj[v] | {v}, node_data, attrs) for v in adj}
+    # Only na and nb gained a neighbor relative to base.
+    cost_map[na] = _factor_domain(adj[na] | {na}, node_data, attrs)
+    cost_map[nb] = _factor_domain(adj[nb] | {nb}, node_data, attrs)
 
-    if iter_order is not None:
-        for v in iter_order:
-            neighbors = adj[v] & remaining
-            factor = frozenset(neighbors | {v})
-
-            nb_list = list(neighbors)
-            for i in range(len(nb_list)):
-                for j in range(i + 1, len(nb_list)):
-                    u, w = nb_list[i], nb_list[j]
-                    if w not in adj[u]:
-                        adj[u].add(w)
-                        adj[w].add(u)
-
-            remaining.discard(v)
-
-            is_maximal = True
-            for c in cliques:
-                if factor <= c:
-                    is_maximal = False
-                    break
-            if is_maximal:
-                cliques.append(factor)
-    else:
-        while remaining:
-            v = min(remaining, key=lambda n: len(adj[n] & remaining))
-            neighbors = adj[v] & remaining
-            factor = frozenset(neighbors | {v})
-
-            nb_list = list(neighbors)
-            for i in range(len(nb_list)):
-                for j in range(i + 1, len(nb_list)):
-                    u, w = nb_list[i], nb_list[j]
-                    if w not in adj[u]:
-                        adj[u].add(w)
-                        adj[w].add(u)
-
-            remaining.discard(v)
-
-            is_maximal = True
-            for c in cliques:
-                if factor <= c:
-                    is_maximal = False
-                    break
-            if is_maximal:
-                cliques.append(factor)
-
-    # Cliques unchanged from base are already known valid — skip them.
-    base_set = frozenset(base_cliques) if base_cliques else frozenset()
-    total_domain = 0
-    for cl in cliques:
-        if cl in base_set:
-            continue
-        clique_meta = _clique_meta_for_nodes(cl, node_data, attrs)
-        dom = get_clique_domain(clique_meta, attrs)
-        if dom > max_clique_size:
-            return 0, False
-        total_domain += dom
-
-    return total_domain, True
+    _, valid = _hugin_eliminate(adj, cost_map, node_data, attrs, max_clique_size)
+    return 0.0, valid
 
 
 def _fmt_node(node: str, g, attrs) -> str:
@@ -1203,13 +1211,13 @@ def structure_learn(
     # Maintained adjacency dict (updated incrementally, avoids rebuilding from nx)
     base_adj = _build_adj(moral)
     # Cached base triangulation — (re)built lazily each iteration after edges
-    # get accepted.  Lets candidate checks (a) short-circuit when the edge
-    # is internal to an existing clique, (b) reuse the elim order so we
-    # skip the per-candidate min-degree scan, and (c) skip domain checks
-    # for cliques that also appear in base_cliques (already valid).
+    # get accepted.  Lets candidate checks short-circuit when the edge is
+    # already internal to an existing clique, and reuses the per-node
+    # initial factor-domain cost map so each candidate only updates the two
+    # endpoints' costs instead of re-initializing all V costs.
     base_cliques: list[frozenset[str]] | None = None
     cliques_by_node: dict[str, list[int]] | None = None
-    elim_order: list[str] | None = None
+    base_cost_map: dict[str, int] | None = None
     # Track which candidates have been validated against the current graph.
     # When an edge is added, candidates touching either endpoint's extended
     # neighborhood are invalidated and must be re-checked.
@@ -1254,7 +1262,9 @@ def structure_learn(
         # triangulation.  Cached: only re-check candidates whose neighborhoods
         # changed since last validation (touched by a newly added edge).
         if base_cliques is None:
-            base_cliques, cliques_by_node, elim_order = _triangulate_base(base_adj)
+            base_cliques, cliques_by_node, base_cost_map = _triangulate_base(
+                base_adj, node_data, attrs
+            )
         n_clique_filtered = 0
         for idx, na, nb in active:
             if cand_clique_checked[idx] and cand_clique_ok[idx]:
@@ -1268,7 +1278,7 @@ def structure_learn(
                 max_clique_size,
                 base_cliques=base_cliques,
                 cliques_by_node=cliques_by_node,
-                elim_order=elim_order,
+                base_cost_map=base_cost_map,
             )
             cand_clique_checked[idx] = True
             cand_clique_ok[idx] = valid
@@ -1355,7 +1365,7 @@ def structure_learn(
         # base_adj changed — invalidate the triangulation cache
         base_cliques = None
         cliques_by_node = None
-        elim_order = None
+        base_cost_map = None
         structure_edges.add(frozenset([na, nb]))
         bdg_committed += edge_bdg
 
