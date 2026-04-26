@@ -1211,18 +1211,21 @@ def structure_learn(
     # Maintained adjacency dict (updated incrementally, avoids rebuilding from nx)
     base_adj = _build_adj(moral)
     # Cached base triangulation — (re)built lazily each iteration after edges
-    # get accepted.  Lets candidate checks short-circuit when the edge is
-    # already internal to an existing clique, and reuses the per-node
-    # initial factor-domain cost map so each candidate only updates the two
-    # endpoints' costs instead of re-initializing all V costs.
+    # get accepted.  Lets the post-EM clique check short-circuit when the
+    # picked edge is already internal to an existing clique, and reuses the
+    # per-node initial factor-domain cost map so each check only updates
+    # the two endpoints' costs instead of re-initializing all V costs.
     base_cliques: list[frozenset[str]] | None = None
     cliques_by_node: dict[str, list[int]] | None = None
     base_cost_map: dict[str, int] | None = None
-    # Track which candidates have been validated against the current graph.
-    # When an edge is added, candidates touching either endpoint's extended
-    # neighborhood are invalidated and must be re-checked.
-    cand_clique_checked = np.zeros(len(candidates), dtype=bool)
-    cand_clique_ok = np.ones(len(candidates), dtype=bool)
+    # Post-EM clique rejection mask — set when the inner loop tests a
+    # candidate and finds it would create an oversized clique.  Kept
+    # separate from ``cand_valid`` (which is *data-independent* exclusion:
+    # theta-filter, saturated, connected) because the set of clique-rejected
+    # candidates depends on the data-dependent EM draws inside past inner
+    # loops.  Mixing the two would make ``_em_cost``'s ``n_cands`` and
+    # therefore ``eps_step`` data-dependent and break composition.
+    cand_invalid_clique = np.zeros(len(candidates), dtype=bool)
 
     for it in range(max_steps):
         try:
@@ -1231,10 +1234,11 @@ def structure_learn(
             pbar.close()
             raise e
 
-        # Filter to active candidates:
-        # - not excluded by theta filter
-        # - column pair not yet connected
-        # - neither column saturated (reached max edges)
+        # Filter to active candidates using *only* data-independent state
+        # (cand_valid covers the theta filter; saturated/connected are
+        # derived from past accepted edges, which are public).  This count
+        # drives _em_cost below and must not depend on any data-dependent
+        # past draws.
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
             if not cand_valid[idx]:
@@ -1258,48 +1262,16 @@ def structure_learn(
             )
             break
 
-        # Clique-size filter: check candidates against the cached base
-        # triangulation.  Cached: only re-check candidates whose neighborhoods
-        # changed since last validation (touched by a newly added edge).
-        if base_cliques is None:
-            base_cliques, cliques_by_node, base_cost_map = _triangulate_base(
-                base_adj, node_data, attrs
-            )
-        n_clique_filtered = 0
-        for idx, na, nb in active:
-            if cand_clique_checked[idx] and cand_clique_ok[idx]:
-                continue  # still valid from a previous iteration
-            _, valid = _score_with_one_edge(
-                base_adj,
-                na,
-                nb,
-                node_data,
-                attrs,
-                max_clique_size,
-                base_cliques=base_cliques,
-                cliques_by_node=cliques_by_node,
-                base_cost_map=base_cost_map,
-            )
-            cand_clique_checked[idx] = True
-            cand_clique_ok[idx] = valid
-            if not valid:
-                cand_valid[idx] = False
-                n_clique_filtered += 1
-        if n_clique_filtered:
-            # Rebuild active list after filtering
-            active = [(idx, na, nb) for idx, na, nb in active if cand_valid[idx]]
-            if not active:
-                logger.info(
-                    f"Adjuvant: exit (no candidates after clique filter) at iter {it}."
-                )
-                break
-
         # --- EM cost + affordability filter (iterate until stable) ---
         # Filtering candidates raises EM cost (fewer candidates → larger eps),
         # which may make more candidates unaffordable.  Loop until the
         # affordable set and EM cost are consistent.
+        #
+        # Both inputs to this fixed-point are data-independent (active is
+        # filtered only by public state; cand_bdg_edge depends on attrs/n
+        # only), so eps_step and bdg_em_step are themselves data-independent.
         if rho_avail > 0:
-            affordable = active
+            affordable = list(active)
             while True:
                 eps_step, bdg_em_step, _ = _em_cost(len(affordable))
                 bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_step
@@ -1314,9 +1286,10 @@ def structure_learn(
                 if len(new_affordable) == len(affordable):
                     break  # stable
                 affordable = new_affordable
+            eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
         else:
-            eps_step = bdg_em_step = 0
-            affordable = active
+            eps_step = bdg_em_step = em_z_eff = 0
+            affordable = list(active)
 
         if not affordable:
             logger.info(
@@ -1326,36 +1299,99 @@ def structure_learn(
             )
             break
 
-        # Score affordable candidates
-        scores = np.array([cand_tvd_boost[idx] for idx, _, _ in affordable])
+        # Apply the data-dependent clique-rejection mask only to the EM pool.
+        # eps_step / bdg_em_step were already locked in above on the
+        # data-independent ``affordable`` set, so excluding past-rejected
+        # candidates here doesn't feed back into ε allocation.
+        em_pool = [c for c in affordable if not cand_invalid_clique[c[0]]]
+        if not em_pool:
+            logger.info(
+                f"Adjuvant: exit (no candidates left after clique rejections) "
+                f"at iter {it}."
+            )
+            break
 
-        # Exponential mechanism selection among affordable candidates + "stop" option.
-        stop_idx = len(scores)
+        # Build the cached base triangulation up-front; reused across all
+        # rejection retries below (the graph only changes when we accept).
+        if base_cliques is None:
+            base_cliques, cliques_by_node, base_cost_map = _triangulate_base(
+                base_adj, node_data, attrs
+            )
 
+        # Charge EM budget once for this selection event.  Each rejection
+        # below re-runs EM with the same eps_step on a shrinking pool, but
+        # because the validity predicate is data-independent the joint
+        # output distribution equals EM applied directly to the valid set
+        # (rejection sampling on a fixed predicate), which is ε_step-DP.
         if rho_avail > 0:
-            eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
             assert eps_step
-            # Stop sits min_safety_factor noise-widths above min_score.
-            # Noise scale in the EM is 2*sensitivity/eps_step.
             log_n_boost = min_safety_factor * 2 * sensitivity / eps_step
-            em_scores = np.append(scores, min_score + log_n_boost if min_score else 0)
-            sel = exponential_mechanism(em_scores, eps_step, sensitivity)
-            bdg_em += bdg_em_step
         else:
-            em_scores = np.append(scores, min_score)
-            eps_step = bdg_em_step = em_z_eff = 0
-            sel = int(np.argmax(em_scores))
+            log_n_boost = 0
+        bdg_em += bdg_em_step
 
-        if sel == stop_idx:
-            # Selected one of the N stop slots
+        n_invalid_this_iter = 0
+        accepted = False
+        stopped = False
+        while em_pool:
+            scores = np.array([cand_tvd_boost[idx] for idx, _, _ in em_pool])
+            stop_idx = len(scores)
+
+            if rho_avail > 0:
+                em_scores = np.append(
+                    scores, min_score + log_n_boost if min_score else 0
+                )
+                sel = exponential_mechanism(em_scores, eps_step, sensitivity)
+            else:
+                em_scores = np.append(scores, min_score)
+                sel = int(np.argmax(em_scores))
+
+            if sel == stop_idx:
+                stopped = True
+                break
+
+            cand_idx, na, nb = em_pool[sel]
+            _, valid = _score_with_one_edge(
+                base_adj,
+                na,
+                nb,
+                node_data,
+                attrs,
+                max_clique_size,
+                base_cliques=base_cliques,
+                cliques_by_node=cliques_by_node,
+                base_cost_map=base_cost_map,
+            )
+            if valid:
+                accepted = True
+                break
+            # Invalid: mark in the data-dependent rejection mask.  This is
+            # used only to shrink the EM pool — never to size eps_step or
+            # bdg_em_step, both of which are computed from data-independent
+            # state above.
+            cand_invalid_clique[cand_idx] = True
+            em_pool.pop(sel)
+            n_invalid_this_iter += 1
+
+        if stopped:
             logger.info(
                 f"Adjuvant: exit (EM picked stop option, min_score={min_score}) "
-                f"at iter {it}, edges={len(structure_edges)}"
+                f"at iter {it}, edges={len(structure_edges)}, "
+                f"rejected={n_invalid_this_iter}"
             )
             pbar.update(1)
             break
 
-        cand_idx, na, nb = affordable[sel]
+        if not accepted:
+            # All affordable candidates failed the clique check this iter.
+            # No point continuing — the graph hasn't changed, so the same
+            # candidates would fail again next iter at extra budget cost.
+            logger.info(
+                f"Adjuvant: exit (no valid candidate among affordable) at iter {it}. "
+                f"rejected={n_invalid_this_iter}"
+            )
+            break
+
         edge_bdg = cand_bdg_edge[cand_idx]
 
         # Accept edge
@@ -1368,13 +1404,6 @@ def structure_learn(
         base_cost_map = None
         structure_edges.add(frozenset([na, nb]))
         bdg_committed += edge_bdg
-
-        # Invalidate clique cache for candidates touching either endpoint's
-        # extended neighborhood (nodes whose triangulation could change)
-        affected = base_adj[na] | base_adj[nb] | {na, nb}
-        for idx, (ca, cb) in enumerate(candidates):
-            if cand_clique_checked[idx] and (ca in affected or cb in affected):
-                cand_clique_checked[idx] = False
 
         # Update column pair tracking and edge counts
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
@@ -1398,7 +1427,11 @@ def structure_learn(
                 if rho_avail > 0
                 else ""
             )
-            + (f", rm {n_clique_filtered}/{len(active)}" if n_clique_filtered else "")
+            + (
+                f", rejected={n_invalid_this_iter}"
+                if n_invalid_this_iter
+                else ""
+            )
             + f"): {_fmt_edge(na, nb, moral, attrs)}"
         )
 
