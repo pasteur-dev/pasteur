@@ -541,6 +541,8 @@ class CatValue(Value):
 
     @staticmethod
     def get_domain_multiple(heights: Sequence[int], vals: Sequence["CatValue"]):
+        if len(vals) == 1 and len(heights) == 1:
+            return vals[0].get_domain(heights[0])
         for v in vals:
             if v:
                 try:
@@ -555,6 +557,8 @@ class CatValue(Value):
         common: "CatValue | None",
         vals: Sequence["CatValue"],
     ) -> np.ndarray:
+        if len(vals) == 1 and not isinstance(heights, int) and len(heights) == 1:
+            return vals[0].get_mapping(heights[0])
         for v in vals:
             if v:
                 try:
