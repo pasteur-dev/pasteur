@@ -534,17 +534,30 @@ def sample_junction_tree(
                     sep_vals.append(evidence[key])
                     sep_domains.append(meta.dim_info[cidx][di].domain)
 
-        # Masked dims are sampled freely from the child potential
-        # (conditioned on separators + evidence only).  Propagating
-        # coarse→fine constraints through masks cascades BP inconsistency
-        # — the same error that privbayes avoids by using per-node
-        # conditionals.  Treating masked dims as free preserves the
-        # elimination order while skipping lossy intermediate conditioning.
+        # Masked dims share an attribute with the parent but at a different
+        # (coarser) resolution.  Each masked_dim contributes a per-row mask
+        # masks[parent_val, :] indicating which child compressed values are
+        # compatible with the parent's coarse bin.  Applying these masks
+        # propagates chain consistency (e.g. outtime_day@h=0 conditioned on
+        # outtime_day@h=2 sampled at the parent clique).  The mask is a
+        # deterministic compression-mapping constraint, so applying it is
+        # correctness-preserving.
         all_sample_dims = list(child_info.sample_dims) + [
             md.child_dim for md in child_info.masked_dims
         ]
         # Remove any evidence dims that ended up in sample_dims/masked_dims
         all_sample_dims = [d for d in all_sample_dims if d not in sep_child_dims]
+
+        # Per-row parent values for each masked_dim, plus the corresponding
+        # mask matrix and the position of the child_dim within all_sample_dims.
+        masked_dim_info: list[tuple[int, np.ndarray, np.ndarray]] = []
+        for md in child_info.masked_dims:
+            if md.child_dim in sep_child_dims:
+                continue  # evidence pinned this dim, mask is irrelevant
+            if md.child_dim not in all_sample_dims:
+                continue
+            parent_vals = clique_vals[pidx][md.parent_dim].astype(np.int64)
+            masked_dim_info.append((md.child_dim, parent_vals, md.masks))
 
         if not all_sample_dims:
             clique_vals[cidx] = dims
@@ -618,7 +631,7 @@ def sample_junction_tree(
                     gate_masks[d2] = _build_mask_map(common_ameta, a2, attrs)
                 break
 
-        if not gate_masks:
+        if not gate_masks and not masked_dim_info:
             # Vectorized path: build a (num_groups, cond_size) matrix from the
             # potential, normalize each row, compute CDFs, and sample all n
             # rows at once via inverse-CDF + searchsorted/broadcast.
@@ -672,11 +685,31 @@ def sample_junction_tree(
             for j, dim_idx in enumerate(all_sample_dims):
                 out_dims[dim_idx] = per_dim[j].astype(out_dims[dim_idx].dtype)
         else:
-            # Gate masks present: use per-group loop to apply per-category masks.
+            # Per-row masks present (gate_masks for common-value gating and/or
+            # masked_dim_info for chain consistency): use per-group loop so the
+            # appropriate per-row mask can be applied to each conditional.
+            #
+            # loop_keys composition (least-significant first, for /, % decoding):
+            #   1. gate_cats           (range gate_dom)        if gate_cats present
+            #   2. masked_dim parent   (range mask.shape[0])   for each masked_dim
+            #   3. group_keys          (range mul over sep)    always
+            extra_arrs: list[np.ndarray] = []
+            extra_doms: list[int] = []
             if gate_cats is not None:
-                loop_keys = group_keys * gate_dom + gate_cats
-            else:
-                loop_keys = group_keys
+                extra_arrs.append(gate_cats)
+                extra_doms.append(gate_dom)
+            for _child_dim, parent_vals, masks in masked_dim_info:
+                extra_arrs.append(parent_vals)
+                extra_doms.append(int(masks.shape[0]))
+
+            loop_keys = group_keys.copy() if extra_arrs else group_keys
+            mul = 1
+            if extra_arrs:
+                loop_keys = np.zeros(n, dtype=np.int64)
+                for arr, dom in zip(extra_arrs, extra_doms):
+                    loop_keys += arr.astype(np.int64) * mul
+                    mul *= dom
+                loop_keys = group_keys.astype(np.int64) * mul + loop_keys
 
             cond_dim_list = _cond_dims(all_sample_dims, sep_child_dims)
 
@@ -684,12 +717,29 @@ def sample_junction_tree(
                 row_mask = loop_keys == gk
                 group_n = int(row_mask.sum())
 
-                if gate_cats is not None:
-                    common_cat = int(gk % gate_dom)
-                    sep_gk = int(gk // gate_dom)
+                gk_int = int(gk)
+                if extra_arrs:
+                    extra_part = gk_int % mul
+                    sep_gk = gk_int // mul
                 else:
-                    sep_gk = int(gk)
+                    extra_part = 0
+                    sep_gk = gk_int
 
+                # Decode extra_part into individual per-row values
+                extra_vals: list[int] = []
+                rem = extra_part
+                for dom in extra_doms:
+                    extra_vals.append(rem % dom)
+                    rem //= dom
+                # Position within extra_vals
+                ev_pos = 0
+                if gate_cats is not None:
+                    common_cat = extra_vals[ev_pos]
+                    ev_pos += 1
+                else:
+                    common_cat = None
+
+                # Build conditional from child_p indexed by separator vals
                 idx = [slice(None)] * len(child_p.shape)
                 remaining = sep_gk
                 for sd, dom in zip(sep_child_dims, sep_domains):
@@ -698,10 +748,22 @@ def sample_junction_tree(
 
                 conditional = child_p[tuple(idx)].copy()
 
+                # Apply common-value gate masks
                 for d, mask in gate_masks.items():
                     j = all_sample_dims.index(d)
                     axis = cond_dim_list[j]
                     valid = mask[common_cat]
+                    slicer = [slice(None)] * conditional.ndim
+                    slicer[axis] = ~valid
+                    conditional[tuple(slicer)] = 0
+
+                # Apply chain-consistency masks (parent coarser than child)
+                for child_dim, _parent_vals, masks in masked_dim_info:
+                    parent_val = extra_vals[ev_pos]
+                    ev_pos += 1
+                    j = all_sample_dims.index(child_dim)
+                    axis = cond_dim_list[j]
+                    valid = masks[parent_val]
                     slicer = [slice(None)] * conditional.ndim
                     slicer[axis] = ~valid
                     conditional[tuple(slicer)] = 0
