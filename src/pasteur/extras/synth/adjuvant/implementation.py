@@ -793,6 +793,15 @@ def _hugin_eliminate(
     neighbors) has the smallest domain, fills in edges between its
     neighbors, and recomputes costs only for the affected neighbors.
 
+    Mirrors the evidence-aware policy in ``elimination_order_greedy``:
+    evidence (hist) nodes whose elimination would *marginalize them over
+    ≥ 2 main-table neighbours* are processed before main-table nodes.
+    Evidence with 0–1 main neighbours is "passthrough" and falls through
+    to the regular min-degree heuristic — prioritizing it adds no useful
+    main–main fill-in.  Keeping this estimator in lockstep with the JT
+    builder is necessary so structure_learn's ``max_clique_size`` cap
+    accepts/rejects exactly the edges the actual JT will accept/reject.
+
     Early-rejects (returns ``(_, False)``) the moment any factor's domain
     exceeds ``max_clique_size`` — sound because every clique of the
     resulting triangulated graph is a subset of some step's factor, so an
@@ -803,8 +812,20 @@ def _hugin_eliminate(
     remaining = set(adj)
     cliques: list[frozenset[str]] = []
 
+    def _is_marginalize_out(node):
+        if node_data[node].get("table") is None:
+            return False
+        n_main = 0
+        for nb in adj[node]:
+            if nb in remaining and node_data[nb].get("table") is None:
+                n_main += 1
+                if n_main >= 2:
+                    return True
+        return False
+
     while remaining:
-        v = min(remaining, key=cost_map.__getitem__)
+        candidates = [v for v in remaining if _is_marginalize_out(v)] or remaining
+        v = min(candidates, key=cost_map.__getitem__)
         factor_dom = cost_map[v]
 
         if factor_dom > max_clique_size:

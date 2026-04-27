@@ -210,12 +210,37 @@ def elimination_order_greedy(
     for node in g:
         cost_map[node] = _node_cost(node, g, attrs, elim_factor_cost)
 
+    # Evidence-aware elimination: hist columns (``table != None``) are
+    # *always* set as evidence at sample time — they are never generated
+    # by the JT.  We prioritize an evidence node only when its elimination
+    # would *marginalize the evidence over main-column neighbours*, i.e.
+    # when it has ≥ 2 main-table neighbours in the *current* (post-fill-in)
+    # graph.  Eliminating such a node early adds fill-ins between its main
+    # neighbours, baking the evidence's joint structure into the main
+    # subgraph.  Evidence with 0–1 main neighbours is "passthrough":
+    # eliminating it produces no useful main–main fill-in, so prioritizing
+    # it would just inflate clique sizes.  Those nodes fall through to the
+    # plain min-degree heuristic.  The check is dynamic — fill-ins from
+    # earlier eliminations can promote a passthrough into a marginalize-
+    # out node, so we re-evaluate every iteration.
+    def _is_marginalize_out(node):
+        if g.nodes[node].get("table") is None:
+            return False
+        n_main = 0
+        for nb in g.neighbors(node):
+            if g.nodes[nb].get("table") is None:
+                n_main += 1
+                if n_main >= 2:
+                    return True
+        return False
+
     order = []
     fill_edges = []
     total_cost = 0
     for _ in range(len(cost_map)):
         unmarked = list(cost_map)
-        costs = np.array([cost_map[a] for a in unmarked])
+        candidates = [n for n in unmarked if _is_marginalize_out(n)] or unmarked
+        costs = np.array([cost_map[a] for a in candidates])
 
         if rng is not None:
             c = 1 / costs
@@ -225,7 +250,7 @@ def elimination_order_greedy(
             idx = np.argmin(costs)
         total_cost += costs[idx]
 
-        popped = unmarked[idx]
+        popped = candidates[idx]
         neighbors = set(g[popped])
 
         # Add fill edges to working graph, collect for triangulated
