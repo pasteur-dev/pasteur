@@ -959,6 +959,12 @@ def _fmt_node(node: str, g, attrs) -> str:
     dom = val.get_domain(d["height"])
     return f"{d['attr'] + '.' if d['attr'] != d['value'] else ''}{d['value']}[{d['height']}] (dom={dom})"
 
+def _fmt_attr(s: str | tuple[str, int]) -> str:
+    """Format an attribute name, which may be a string or a (name, order) tuple."""
+    if isinstance(s, str):
+        return s
+    else:
+        return f"{s[0]}[{s[1]}]"
 
 def _fmt_node(d: dict) -> str:
     """Format a graph node as '[table.]attr.val[h]', with table prefix for evidence vars."""
@@ -971,7 +977,7 @@ def _fmt_node(d: dict) -> str:
         else:
             prefix = f"{table}."
     if d["attr"] != d["value"]:
-        return f"{prefix}{d['attr']}.{d['value'].replace(d['attr'] + '_', '')}[{d['height']}]"
+        return f"{prefix}{_fmt_attr(d["attr"])}.{d['value'].replace(_fmt_attr(d["attr"]) + '_', '')}[{d['height']}]"
     return f"{prefix}{d['value']}[{d['height']}]"
 
 
@@ -1563,8 +1569,8 @@ def format_tvd_diagnostic(
                 continue
             lines.append(
                 f"    MISSING {label}={val:.4f} "
-                f"{ca_attr + '.' if ca_attr != ca_val else ''}{ca_val} x "
-                f"{cb_attr + '.' if cb_attr != cb_val else ''}{cb_val}"
+                f"{_fmt_attr(ca_attr) + '.' if ca_attr != ca_val else ''}{ca_val} x "
+                f"{_fmt_attr(cb_attr) + '.' if cb_attr != cb_val else ''}{cb_val}"
             )
 
     return "\n".join(lines)
