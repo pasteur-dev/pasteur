@@ -187,7 +187,7 @@ def _validate_mlflow_tracking_uri(project_path: str, uri: Optional[str]) -> str:
             # Path.cwd() / uri is the recommend way by core developpers.
             # See : https://discuss.python.org/t/pathlib-absolute-vs-resolve/2573/6
             valid_uri = (Path(project_path) / uri).as_uri()
-            LOGGER.info(
+            LOGGER.debug(
                 f"The 'mlflow_tracking_uri' key in mlflow.yml is relative ('server.mlflow_tracking_uri = {uri}'). It is converted to a valid uri: '{valid_uri}'"
             )
         else:
