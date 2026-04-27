@@ -304,8 +304,13 @@ class AdjuvantMare(MareModel):
                     if val_name not in hist_df.columns:
                         continue
                     raw_vals = hist_df[val_name].to_numpy()
-                    # Use attribute-level mapping to handle common values
-                    mapping = np.array(attr.get_mapping(sel), dtype=np.int64)
+                    # Per-value mapping: attr.get_mapping(sel) is defined over the
+                    # full combined attribute domain (product of all val domains),
+                    # but raw_vals are per-value leaf indices, so it must be the
+                    # per-value mapping at the requested height.
+                    val_meta = attr.vals[val_name]
+                    assert isinstance(val_meta, CatValue)
+                    mapping = np.array(val_meta.get_mapping(h), dtype=np.int64)
                     evidence[(ci, di)] = mapping[raw_vals]
                 else:
                     # Multi-value dim: build a lookup from per-value indices
