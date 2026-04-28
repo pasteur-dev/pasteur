@@ -784,6 +784,8 @@ def _hugin_eliminate(
     node_data: dict[str, dict],
     attrs: DatasetAttributes,
     max_clique_size: float,
+    evidence_vars: frozenset[str] | None = None,
+    max_root_clique_size: float = float("inf"),
 ) -> tuple[list[frozenset[str]], bool]:
     """Run min-factor-domain greedy elimination on ``adj`` (mutated) and
     collect the maximal cliques of the resulting chordal graph.
@@ -794,20 +796,30 @@ def _hugin_eliminate(
     neighbors, and recomputes costs only for the affected neighbors.
 
     Early-rejects (returns ``(_, False)``) the moment any factor's domain
-    exceeds ``max_clique_size`` — sound because every clique of the
+    exceeds the looser of the two caps — sound because every clique of the
     resulting triangulated graph is a subset of some step's factor, so an
-    overflow factor proves at least one clique is over the limit.
+    overflow factor proves at least one clique is over the loosest limit.
+
+    Per-clique validation runs as a post-pass: only factors that survive
+    subsumption (= max cliques) are checked, against ``max_root_clique_size``
+    if they contain all of ``evidence_vars`` and ``max_clique_size``
+    otherwise.  Subset factors arising while the root clique dissolves
+    during elimination would otherwise be falsely rejected.
 
     ``cost_map`` is consumed (mutated); pass a fresh copy if you need to
     keep the original."""
     remaining = set(adj)
     cliques: list[frozenset[str]] = []
+    clique_doms: list[float] = []
+    eff_max = max_clique_size
+    if evidence_vars and max_root_clique_size > max_clique_size:
+        eff_max = max_root_clique_size
 
     while remaining:
         v = min(remaining, key=cost_map.__getitem__)
         factor_dom = cost_map[v]
 
-        if factor_dom > max_clique_size:
+        if factor_dom > eff_max:
             return cliques, False
 
         neighbors = adj[v] & remaining
@@ -839,6 +851,13 @@ def _hugin_eliminate(
                 break
         if is_maximal:
             cliques.append(factor)
+            clique_doms.append(factor_dom)
+
+    if evidence_vars:
+        for c, dom in zip(cliques, clique_doms):
+            cap = max_root_clique_size if evidence_vars.issubset(c) else max_clique_size
+            if dom > cap:
+                return cliques, False
 
     return cliques, True
 
@@ -884,6 +903,9 @@ def _score_with_one_edge(
     base_cliques: list[frozenset[str]] | None = None,
     cliques_by_node: dict[str, list[int]] | None = None,
     base_cost_map: dict[str, int] | None = None,
+    evidence_vars: frozenset[str] | None = None,
+    max_root_clique_size: float = float("inf"),
+    extra_edges: list[tuple[str, str]] | None = None,
 ) -> tuple[float, bool]:
     """Decide whether adding edge (na, nb) keeps every clique ≤ max_clique_size.
 
@@ -899,9 +921,14 @@ def _score_with_one_edge(
     edge changes only ``na`` and ``nb``'s induced factors, so all other
     nodes start with the same cost as in the base triangulation.
 
+    ``extra_edges`` are added to the adjacency along with (na, nb) — used
+    by structure_learn to extend the evidence clique when na or nb is an
+    evidence var that hasn't been selected yet.  When present, the fast
+    path is bypassed (the new edges may create or grow cliques).
+
     Returns (0, valid). The first element is unused by the caller."""
     # Fast path: edge internal to an existing base clique → no new clique.
-    if cliques_by_node is not None and base_cliques is not None:
+    if not extra_edges and cliques_by_node is not None and base_cliques is not None:
         ca = cliques_by_node.get(na, [])
         cb = cliques_by_node.get(nb, [])
         if ca and cb:
@@ -910,20 +937,36 @@ def _score_with_one_edge(
                 if i in sa:
                     return 0.0, True
 
-    # Slow path: fresh hugin elimination on base_adj + (na, nb).
+    # Slow path: fresh hugin elimination on base_adj + (na, nb) + extra_edges.
     adj = {v: s.copy() for v, s in base_adj.items()}
     adj[na].add(nb)
     adj[nb].add(na)
+    touched: set[str] = {na, nb}
+    if extra_edges:
+        for a, b in extra_edges:
+            adj[a].add(b)
+            adj[b].add(a)
+            touched.add(a)
+            touched.add(b)
 
+    # Only touched nodes gained neighbors relative to base, so reuse the
+    # cached cost_map and recompute just those.
     if base_cost_map is not None:
         cost_map = dict(base_cost_map)
+        for v in touched:
+            cost_map[v] = _factor_domain(adj[v] | {v}, node_data, attrs)
     else:
         cost_map = {v: _factor_domain(adj[v] | {v}, node_data, attrs) for v in adj}
-    # Only na and nb gained a neighbor relative to base.
-    cost_map[na] = _factor_domain(adj[na] | {na}, node_data, attrs)
-    cost_map[nb] = _factor_domain(adj[nb] | {nb}, node_data, attrs)
 
-    _, valid = _hugin_eliminate(adj, cost_map, node_data, attrs, max_clique_size)
+    _, valid = _hugin_eliminate(
+        adj,
+        cost_map,
+        node_data,
+        attrs,
+        max_clique_size,
+        evidence_vars=evidence_vars,
+        max_root_clique_size=max_root_clique_size,
+    )
     return 0.0, valid
 
 
@@ -1072,6 +1115,7 @@ def structure_learn(
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
+    max_root_clique_size: float = float("inf"),
     max_em_budget: float = float("inf"),
     min_em_budget: float = 0.0,
     em_max: float = 50.0,
@@ -1099,6 +1143,19 @@ def structure_learn(
 
     # Moralize the directed height-chain graph -> undirected base
     moral = to_moral(directed_graph)
+
+    # Evidence (hist) vars only need to share a single root clique once
+    # they are *connected* to the rest of the model — i.e. the moment EM
+    # picks an edge touching them.  Pre-adding all-pair edges among every
+    # frozen node would create huge intermediate cliques that have nothing
+    # to do with the model and force every candidate edge to fail the
+    # max_clique_size check.  We instead grow the evidence clique
+    # incrementally as evidence vars get selected (see ``selected_evidence``
+    # below).
+    evidence_pool: frozenset[str] = (
+        frozenset(v for v in frozen_nodes if v in moral) if frozen_nodes else frozenset()
+    )
+    selected_evidence: set[str] = set()
 
     # Generate candidates and group by column pair
     candidates, col_pair_map = generate_candidates(
@@ -1357,6 +1414,32 @@ def structure_learn(
                 break
 
             cand_idx, na, nb = em_pool[sel]
+
+            # Dynamic evidence-clique extension: if either endpoint is
+            # an evidence var not yet selected, accepting this edge pulls
+            # it into the root clique, which means we must add edges
+            # between it and every already-selected evidence var (and
+            # between the two endpoints if both are newly entering).
+            new_ev: set[str] = set()
+            if na in evidence_pool and na not in selected_evidence:
+                new_ev.add(na)
+            if nb in evidence_pool and nb not in selected_evidence:
+                new_ev.add(nb)
+
+            extra_edges: list[tuple[str, str]] = []
+            for v in new_ev:
+                for u in selected_evidence:
+                    extra_edges.append((v, u))
+            if len(new_ev) == 2:
+                a, b = tuple(new_ev)
+                if a != na or b != nb:  # already added as the candidate
+                    extra_edges.append((a, b))
+
+            tentative_selected = selected_evidence | new_ev
+            tentative_ev = (
+                frozenset(tentative_selected) if len(tentative_selected) >= 2 else None
+            )
+
             _, valid = _score_with_one_edge(
                 base_adj,
                 na,
@@ -1367,6 +1450,9 @@ def structure_learn(
                 base_cliques=base_cliques,
                 cliques_by_node=cliques_by_node,
                 base_cost_map=base_cost_map,
+                evidence_vars=tentative_ev,
+                max_root_clique_size=max_root_clique_size,
+                extra_edges=extra_edges if extra_edges else None,
             )
             if valid:
                 accepted = True
@@ -1404,6 +1490,14 @@ def structure_learn(
         moral.add_edge(na, nb, structure=True)
         base_adj[na].add(nb)
         base_adj[nb].add(na)
+        # Persist any evidence-clique extension edges committed by this
+        # candidate, so future candidate checks see them in base_adj.
+        for ea, eb in extra_edges:
+            if not moral.has_edge(ea, eb):
+                moral.add_edge(ea, eb, evidence=True)
+            base_adj[ea].add(eb)
+            base_adj[eb].add(ea)
+        selected_evidence |= new_ev
         # base_adj changed — invalidate the triangulation cache
         base_cliques = None
         cliques_by_node = None
@@ -2048,6 +2142,7 @@ def adjuvant_fit(
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
+    max_root_clique_size: float = float("inf"),
     rescale: bool = True,
     rake: bool = True,
     max_order: int | None = None,
@@ -2146,6 +2241,7 @@ def adjuvant_fit(
         frozen_nodes=frozen_nodes,
         n_hist_cols=h,
         max_clique_size=max_clique_size,
+        max_root_clique_size=max_root_clique_size,
         rake=rake,
         max_order=max_order,
         max_em_budget=max_em_budget,
@@ -2193,6 +2289,7 @@ def adjuvant_run_md(
     attrs: DatasetAttributes,
     moral: "nx.Graph | None",
     md_params: dict,
+    evidence_vars: set[str] | None = None,
 ) -> tuple:
     """Build junction tree and run mirror descent.
 
@@ -2238,6 +2335,7 @@ def adjuvant_run_md(
         moral_graph=mg,
         elim_factor_cost=elim_factor_cost,
         elim_max_attempts=elim_max_attempts,
+        evidence_vars=evidence_vars,
     )
     total_params = sum(get_clique_domain(cl, attrs) for cl in cliques)
     logger.info(

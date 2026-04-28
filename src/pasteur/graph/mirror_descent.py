@@ -270,6 +270,7 @@ def build_junction_tree(
     moral_graph=None,
     elim_max_attempts: int = 5000,
     elim_factor_cost: float = 1,
+    evidence_vars: set[str] | None = None,
 ):
     """Build a junction tree and message schedule from observations.
 
@@ -281,6 +282,13 @@ def build_junction_tree(
         compress: Whether to compress clique meta.
         moral_graph: Pre-built moral graph (required for hugin modes).
         elim_max_attempts: Number of stochastic elimination order attempts.
+        evidence_vars: Moral-graph nodes that will carry per-row evidence
+            during sampling.  When given, all-pairs edges are added between
+            them in a moral-graph copy before triangulation, forcing them
+            into a single maximal clique.  That clique is then chosen as
+            ``elim_root`` so forward sampling starts from the joint of all
+            evidence variables — the only configuration where evidence
+            propagates correctly through the rest of the tree.
 
     Returns:
         (junction, cliques, messages)
@@ -299,6 +307,16 @@ def build_junction_tree(
         junction = get_junction_tree_from_cliques(obs_cliques)
     else:
         assert moral_graph is not None, "moral_graph is required for hugin tree modes"
+        ev_present: list[str] = []
+        if evidence_vars:
+            ev_present = [v for v in evidence_vars if v in moral_graph]
+            if len(ev_present) >= 2:
+                from itertools import combinations as _combinations
+
+                moral_graph = moral_graph.copy()
+                for a, b in _combinations(ev_present, 2):
+                    if not moral_graph.has_edge(a, b):
+                        moral_graph.add_edge(a, b, evidence=True)
         if tree_mode != "hugin_comp":
             cap_heights(moral_graph, mode=tree_mode)
         elim_order, tri, _ = find_elim_order(
@@ -326,6 +344,9 @@ def build_junction_tree(
         # can compress to the same CliqueMeta (when same-attr heights collapse);
         # we keep the minimum across them.
         clique_elim_idx: dict["CliqueMeta", int] = {}
+        ev_set = set(ev_present)
+        evidence_root_meta = None
+        evidence_root_t = float("inf")
         for cl_nodes in nx.find_cliques(tri):
             cm = _ccm(cl_nodes, tri, attrs, compress=compress)
             if cm not in junction.nodes:
@@ -334,16 +355,23 @@ def build_junction_tree(
             cur = clique_elim_idx.get(cm)
             if cur is None or t < cur:
                 clique_elim_idx[cm] = t
+            if ev_set and ev_set.issubset(cl_nodes) and t < evidence_root_t:
+                evidence_root_meta = cm
+                evidence_root_t = t
 
-        # Root = the clique whose creation time is earliest (first eliminated
-        # node sits in it).  By design, this clique contains a hist node with
-        # multiple main neighbours and so captures the evidence-conditional
-        # joint that downstream BFS should propagate from.
-        elim_root_meta = (
-            min(clique_elim_idx, key=clique_elim_idx.get)  # type: ignore[arg-type]
-            if clique_elim_idx
-            else None
-        )
+        # Root = clique containing all evidence vars when present (forced by
+        # the all-pairs edges added above; this is where evidence-conditional
+        # forward sampling must start).  Otherwise pick the clique whose
+        # creation time is earliest — by elim-order design that's the first
+        # clique completed and tends to include hist nodes near the root.
+        if evidence_root_meta is not None:
+            elim_root_meta = evidence_root_meta
+        else:
+            elim_root_meta = (
+                min(clique_elim_idx, key=clique_elim_idx.get)  # type: ignore[arg-type]
+                if clique_elim_idx
+                else None
+            )
         junction.graph["elim_root"] = elim_root_meta
         junction.graph["clique_elim_idx"] = clique_elim_idx
 
@@ -362,6 +390,7 @@ def fit_model(
     moral_graph=None,
     device: torch.device | str | None = None,
     init_potentials: dict[int, np.ndarray] | None = None,
+    evidence_vars: set[str] | None = None,
     **md_params,
 ):
     """Build junction tree and fit clique potentials via mirror descent.
@@ -394,6 +423,7 @@ def fit_model(
         moral_graph,
         elim_max_attempts,
         elim_factor_cost,
+        evidence_vars=evidence_vars,
     )
 
     potentials, loss_fn, raw_theta = mirror_descent(

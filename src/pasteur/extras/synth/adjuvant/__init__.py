@@ -42,6 +42,7 @@ DEFAULT_MIN_TVD = 0.09
 DEFAULT_MIN_MI = 0.005
 DEFAULT_MIN_SAFETY_FACTOR = 3.0
 DEFAULT_MAX_CLIQUE_SIZE = 1e5
+DEFAULT_MAX_ROOT_CLIQUE_SIZE = 3e6
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
 DEFAULT_SCORING: Literal["mi", "tvd"] = "tvd"
@@ -79,6 +80,7 @@ class AdjuvantMare(MareModel):
         min_mi: float = DEFAULT_MIN_MI,
         min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
+        max_root_clique_size: float = DEFAULT_MAX_ROOT_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
         scoring: Literal["mi", "tvd"] = DEFAULT_SCORING,
@@ -103,6 +105,7 @@ class AdjuvantMare(MareModel):
         self.min_mi = min_mi
         self.min_safety_factor = min_safety_factor
         self.max_clique_size = max_clique_size
+        self.max_root_clique_size = max_root_clique_size
         self.rescale = rescale if accountant else False
         self.rake = rake
         self.scoring = scoring
@@ -159,6 +162,7 @@ class AdjuvantMare(MareModel):
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
+            max_root_clique_size=self.max_root_clique_size,
             rescale=self.rescale,
             rake=self.rake,
             scoring=self.scoring,
@@ -170,8 +174,27 @@ class AdjuvantMare(MareModel):
         self.all_obs = all_obs
         self.moral = moral
         self.tvd_diag = tvd_diag
+        # Only evidence (frozen) vars that structure_learn actually pulled
+        # into the model (via a `structure=True` edge to a main var) need
+        # to share the root clique — those are the ones that already have
+        # all-pairs edges among them in `moral`.  Passing the full
+        # frozen_nodes set would tell build_junction_tree to add all-pairs
+        # edges among unconnected hist vars, blowing up triangulation.
+        selected_evidence: set[str] = set()
+        for u, v, data in moral.edges(data=True):
+            if not data.get("structure"):
+                continue
+            if u in frozen_nodes:
+                selected_evidence.add(u)
+            if v in frozen_nodes:
+                selected_evidence.add(v)
+
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
-            all_obs, attrs, moral, self.md_params
+            all_obs,
+            attrs,
+            moral,
+            self.md_params,
+            evidence_vars=selected_evidence,
         )
 
         # Pre-compute which clique dims correspond to hist columns
