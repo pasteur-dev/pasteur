@@ -301,10 +301,51 @@ def build_junction_tree(
         assert moral_graph is not None, "moral_graph is required for hugin tree modes"
         if tree_mode != "hugin_comp":
             cap_heights(moral_graph, mode=tree_mode)
-        _, tri, _ = find_elim_order(
+        elim_order, tri, _ = find_elim_order(
             moral_graph, attrs, elim_max_attempts, elim_factor_cost
         )
         junction = get_junction_tree(tri, attrs, compress=compress)
+
+        # Stash the moral-graph elim order on the junction so the sampler can
+        # follow it.  The first eliminated node (by design, a hist node with
+        # ≥2 main neighbours) sits in a clique that captures its joint
+        # structure with main vars — that's the natural root for evidence-
+        # conditional sampling.  Without this, the sampler picks a max-domain
+        # main-only clique and the hist evidence has no effect on what's
+        # sampled there.
+        import networkx as nx
+        from .hugin import create_clique_meta as _ccm
+
+        junction.graph["elim_order"] = list(elim_order)
+        # Map each moral-graph node to its elim position.
+        elim_pos = {n: i for i, n in enumerate(elim_order)}
+
+        # For each maximal clique in the triangulated graph, compute its
+        # CliqueMeta and the *earliest* elim position of any of its nodes —
+        # that's when this clique started forming.  Multiple maximal cliques
+        # can compress to the same CliqueMeta (when same-attr heights collapse);
+        # we keep the minimum across them.
+        clique_elim_idx: dict["CliqueMeta", int] = {}
+        for cl_nodes in nx.find_cliques(tri):
+            cm = _ccm(cl_nodes, tri, attrs, compress=compress)
+            if cm not in junction.nodes:
+                continue
+            t = min(elim_pos[n] for n in cl_nodes if n in elim_pos)
+            cur = clique_elim_idx.get(cm)
+            if cur is None or t < cur:
+                clique_elim_idx[cm] = t
+
+        # Root = the clique whose creation time is earliest (first eliminated
+        # node sits in it).  By design, this clique contains a hist node with
+        # multiple main neighbours and so captures the evidence-conditional
+        # joint that downstream BFS should propagate from.
+        elim_root_meta = (
+            min(clique_elim_idx, key=clique_elim_idx.get)  # type: ignore[arg-type]
+            if clique_elim_idx
+            else None
+        )
+        junction.graph["elim_root"] = elim_root_meta
+        junction.graph["clique_elim_idx"] = clique_elim_idx
 
     generations = get_message_passing_order(junction)
     cliques = list(junction.nodes())

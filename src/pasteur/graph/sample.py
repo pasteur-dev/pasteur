@@ -8,7 +8,6 @@ has height-0 values, those are extracted directly into the output dict.
 """
 
 import logging
-from collections import deque
 from typing import NamedTuple, Sequence
 
 import networkx as nx
@@ -183,96 +182,132 @@ def create_sampler_meta(
             dims.append(DimInfo(meta, dom))
         dim_info.append(dims)
 
-    # Pick root: largest total domain for maximal joint coverage
-    root = max(range(len(cliques)), key=lambda i: sum(d.domain for d in dim_info[i]))
+    # Prefer the elim-order root stashed on the junction graph by
+    # build_junction_tree.  The elim order was built so hist (evidence) nodes
+    # are eliminated first — the resulting first-clique then captures the
+    # joint structure of hist with its main neighbours, which is exactly
+    # where evidence-conditional sampling should start.  Falling back to
+    # max-domain picks a main-only clique that samples current vars without
+    # any hist conditioning.
+    elim_root = junction.graph.get("elim_root") if hasattr(junction, "graph") else None
+    if elim_root is not None and elim_root in cliques:
+        root = cliques.index(elim_root)
+    else:
+        root = max(
+            range(len(cliques)),
+            key=lambda i: sum(d.domain for d in dim_info[i]),
+        )
 
-    # BFS from root
+    # Traverse the junction tree in elim-creation order so that, among the
+    # cliques eligible for sampling at each step (i.e. whose parent has
+    # already been sampled), we pick the one whose constituent moral-graph
+    # nodes were eliminated EARLIEST — that's the next clique that was
+    # "completed" by the elim sweep.  Without this, BFS picks neighbours in
+    # arbitrary insertion order and the elim heuristic's hist-first ordering
+    # is wasted past the root.
+    import heapq
+
+    clique_elim_idx = (
+        junction.graph.get("clique_elim_idx", {}) if hasattr(junction, "graph") else {}
+    )
+
+    def _ct(ci: int) -> int:
+        return clique_elim_idx.get(cliques[ci], 1 << 31)
+
     visited = {root}
-    queue = deque([root])
     children: list[ChildInfo] = []
+    heap: list[tuple[int, int, int, int]] = []  # (elim_t, counter, child_idx, parent_idx)
+    counter = 0
+    for nb in junction.neighbors(cliques[root]):
+        ni = cliques.index(nb)
+        heapq.heappush(heap, (_ct(ni), counter, ni, root))
+        counter += 1
 
-    while queue:
-        parent_idx = queue.popleft()
+    while heap:
+        _, _, child_idx, parent_idx = heapq.heappop(heap)
+        if child_idx in visited:
+            continue
+        visited.add(child_idx)
         parent_cl = cliques[parent_idx]
-
-        for neighbor_cl in junction.neighbors(parent_cl):
-            child_idx = cliques.index(neighbor_cl)
-            if child_idx in visited:
+        # Enqueue this clique's unvisited neighbours, ordered by elim time.
+        for nb in junction.neighbors(cliques[child_idx]):
+            ni = cliques.index(nb)
+            if ni in visited:
                 continue
-            visited.add(child_idx)
-            queue.append(child_idx)
+            heapq.heappush(heap, (_ct(ni), counter, ni, child_idx))
+            counter += 1
 
-            child_cl = cliques[child_idx]
+        child_cl = cliques[child_idx]
 
-            # Find separator dims, masked dims, and sample dims
-            separator = []
-            masked = []
-            sample_dims = []
-            for ci, child_meta in enumerate(child_cl):
-                found = False
-                for pi, parent_meta in enumerate(parent_cl):
-                    if is_same(child_meta, parent_meta):
-                        if parent_meta.sel == child_meta.sel:
-                            # Exact match — fix child value from parent
-                            separator.append(SeparatorDim(pi, ci, None))
-                            found = True
-                        else:
-                            # Check if the child has value names not in
-                            # the parent.  When the child's sel contains
-                            # extra values (e.g. parent {A,B} vs child
-                            # {A,B,C}), a SeparatorDim would pin the
-                            # extra values to an arbitrary constant.
-                            # Use a MaskedDim instead so the child can
-                            # sample the missing values.
-                            match_type = _can_match_as_separator_or_mask(
-                                parent_meta.sel, child_meta.sel
+        # Find separator dims, masked dims, and sample dims
+        separator = []
+        masked = []
+        sample_dims = []
+        for ci, child_meta in enumerate(child_cl):
+            found = False
+            for pi, parent_meta in enumerate(parent_cl):
+                if is_same(child_meta, parent_meta):
+                    if parent_meta.sel == child_meta.sel:
+                        # Exact match — fix child value from parent
+                        separator.append(SeparatorDim(pi, ci, None))
+                        found = True
+                    else:
+                        # Check if the child has value names not in
+                        # the parent.  When the child's sel contains
+                        # extra values (e.g. parent {A,B} vs child
+                        # {A,B,C}), a SeparatorDim would pin the
+                        # extra values to an arbitrary constant.
+                        # Use a MaskedDim instead so the child can
+                        # sample the missing values.
+                        match_type = _can_match_as_separator_or_mask(
+                            parent_meta.sel, child_meta.sel
+                        )
+
+                        if match_type == "exact":
+                            # Same value names — safe to use index_map
+                            # for SeparatorDim / domain-based MaskedDim
+                            idx_map = _build_index_map(
+                                parent_meta, child_meta, attrs
                             )
-
-                            if match_type == "exact":
-                                # Same value names — safe to use index_map
-                                # for SeparatorDim / domain-based MaskedDim
-                                idx_map = _build_index_map(
-                                    parent_meta, child_meta, attrs
+                            assert idx_map is not None
+                            p_dom = len(idx_map)
+                            c_dom = dim_info[child_idx][ci].domain
+                            if p_dom >= c_dom:
+                                separator.append(
+                                    SeparatorDim(pi, ci, idx_map)
                                 )
-                                assert idx_map is not None
-                                p_dom = len(idx_map)
-                                c_dom = dim_info[child_idx][ci].domain
-                                if p_dom >= c_dom:
-                                    separator.append(
-                                        SeparatorDim(pi, ci, idx_map)
-                                    )
-                                else:
-                                    mask_map = _build_mask_map(
-                                        parent_meta, child_meta, attrs
-                                    )
-                                    masked.append(
-                                        MaskedDim(pi, ci, c_dom, mask_map)
-                                    )
-                                found = True
-                            elif match_type == "partial":
-                                # Overlapping but not equal value names —
-                                # always MaskedDim (index_map would collapse
-                                # extra values in parent or child)
-                                c_dom = dim_info[child_idx][ci].domain
+                            else:
                                 mask_map = _build_mask_map(
                                     parent_meta, child_meta, attrs
                                 )
                                 masked.append(
                                     MaskedDim(pi, ci, c_dom, mask_map)
                                 )
-                                found = True
-                            # else "none": no overlap — free sample_dim
-                        if found:
-                            break
-                if not found:
-                    sample_dims.append(ci)
+                            found = True
+                        elif match_type == "partial":
+                            # Overlapping but not equal value names —
+                            # always MaskedDim (index_map would collapse
+                            # extra values in parent or child)
+                            c_dom = dim_info[child_idx][ci].domain
+                            mask_map = _build_mask_map(
+                                parent_meta, child_meta, attrs
+                            )
+                            masked.append(
+                                MaskedDim(pi, ci, c_dom, mask_map)
+                            )
+                            found = True
+                        # else "none": no overlap — free sample_dim
+                    if found:
+                        break
+            if not found:
+                sample_dims.append(ci)
 
-            children.append(
-                ChildInfo(
-                    parent_idx, child_idx,
-                    tuple(separator), tuple(sample_dims), tuple(masked),
-                )
+        children.append(
+            ChildInfo(
+                parent_idx, child_idx,
+                tuple(separator), tuple(sample_dims), tuple(masked),
             )
+        )
 
     # Handle disconnected components: any clique not reached by BFS
     # is an independent root that must be sampled on its own.
