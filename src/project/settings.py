@@ -59,7 +59,7 @@ CONFIG_LOADER_ARGS = {}
 
 from pasteur.extras import get_recommended_modules
 from pasteur.extras.synth.pgm import AIM as RefAIM, MST as RefMST
-from pasteur.extras.synth.sota import AIM, MST, PrivMRF
+from pasteur.extras.synth.sota import AIM, MST, PrivMRF, PrivPGD
 from pasteur.extras.synth.adjuvant import (
     AdjuvantMare,
     AdjuvantSynth,
@@ -89,6 +89,7 @@ PASTEUR_MODULES = get_recommended_modules() + [
     RefMST.get_factory(),
     AIM.get_factory(),
     MST.get_factory(),
+    PrivPGD.get_factory(),
     PrivMRF.get_factory(),
     AdjuvantSynth.get_factory(),
     AdjuvantSynthCdp.get_factory(),
