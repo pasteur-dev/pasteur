@@ -17,10 +17,6 @@ import random as py_random
 from math import sqrt
 from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
-import pandas as pd
-import torch
-
 from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
@@ -35,7 +31,9 @@ from .common import (
 )
 
 if TYPE_CHECKING:
-    pass
+    import numpy as np
+    import pandas as pd
+    import torch
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +43,9 @@ logger = logging.getLogger(__name__)
 # ============================================================
 def _bin_centers(k: int, device: torch.device) -> torch.Tensor:
     """K bin centers in [0,1] for an attribute of domain size K."""
+    import numpy as np
+    import torch
+
     return torch.tensor(
         (np.arange(k) * 2 + 1) / (2 * k),
         dtype=torch.float32,
@@ -61,6 +62,8 @@ def _clique_centers(
 
     Row i corresponds to cell index i in row-major (C) order over the
     per-column domain sizes [col_dim[c] for c in cl]."""
+    import torch
+
     centers_per_col = [_bin_centers(col_dim[c], device) for c in cl]
     grids = torch.meshgrid(*centers_per_col, indexing="ij")
     return torch.stack([g.reshape(-1) for g in grids], dim=1)
@@ -72,6 +75,8 @@ def _clique_centers(
 def _random_directions(
     num_projections: int, k: int, device: torch.device
 ) -> torch.Tensor:
+    import torch
+
     theta = torch.randn(
         num_projections, k, device=device, dtype=torch.float32
     )
@@ -85,6 +90,8 @@ def _sliced_w1_loss(
     num_projections: int,
 ) -> torch.Tensor:
     """Sliced 1-Wasserstein between weights u and v on shared support."""
+    import torch
+
     n, k = centers.shape
     directions = _random_directions(num_projections, k, centers.device)
     proj = torch.mm(centers - 0.5, directions.t())
@@ -110,6 +117,8 @@ def _project_to_probability(
 
     y_norm may be signed (a noisy estimate of a probability vector);
     the result is a non-negative vector summing to 1."""
+    import torch
+
     init = torch.clamp(y_norm, min=0.0)
     s = init.sum()
     if s <= 0:
@@ -140,12 +149,16 @@ def _quantize(
 
     Returns a [n_particles, k] tensor whose empirical distribution
     approximates the discrete distribution given by (centers, weights)."""
+    import torch
+
     counts = (weights / (weights.sum() + 1e-12) * n_particles).long()
     counts = counts.clamp(min=0)
     out = centers.repeat_interleave(counts, dim=0)
     leftover = n_particles - out.shape[0]
     if leftover > 0:
-        idx = torch.multinomial(weights.clamp(min=0) + 1e-12, leftover, replacement=True)
+        idx = torch.multinomial(
+            weights.clamp(min=0) + 1e-12, leftover, replacement=True
+        )
         out = torch.cat([out, centers[idx]], dim=0)
     elif leftover < 0:
         out = out[:n_particles]
@@ -161,6 +174,8 @@ def _sw2_squared_and_grad(
 
     Both X and Y are [n_particles, k]. Sorts projections along each
     random direction then scatters the gradient back to original X rows."""
+    import torch
+
     n, k = X.shape
     directions = _random_directions(num_projections, k, X.device)
     pX = torch.mm(X, directions.t())
@@ -179,6 +194,8 @@ def _sw2_squared_and_grad(
 
 
 def _mask_grad(grad: torch.Tensor, p_mask: int) -> torch.Tensor:
+    import torch
+
     if p_mask <= 0:
         return grad
     n_mask = int(grad.numel() * p_mask / 100)
@@ -261,6 +278,9 @@ class PrivPGD(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
+        import numpy as np
+        import torch
+
         ids, tables = data_to_tables(data)
         table = tables[self.table]
         self.partitions = self.partitions or len(table)
@@ -412,6 +432,8 @@ class PrivPGD(Synth):
 
     def _discretize(self, X: torch.Tensor) -> dict[str, np.ndarray]:
         """Map [n, d] particles in [0,1] to integer bin indices per column."""
+        import torch
+
         out = {}
         for col_name in self.all_attrs:
             j = self.col_idx[col_name]
@@ -425,6 +447,9 @@ class PrivPGD(Synth):
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
+        import pandas as pd
+        import torch
+
         n = n or self.n
         idx = torch.randint(
             0, self.X.shape[0], (n,), device=self._device
