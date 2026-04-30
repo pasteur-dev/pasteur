@@ -1,3 +1,4 @@
 from .mst import MST
 from .aim import AIM
 from .privmrf import PrivMRF
+from .privpgd import PrivPGD
