@@ -580,6 +580,68 @@ def _node_name(table, order, attr, value, height) -> str:
     return out + f"{attr}.{value}[{height}]"
 
 
+def prune_unused_chain_nodes(moral: "nx.Graph") -> int:
+    """Compress unused intermediate height nodes out of the moral graph.
+
+    A height node is "chain-only" when all its edges run to other heights
+    of the same (table, order, attr, value) — i.e. no structure-learning
+    edge, no evidence-clique edge, no immorality from another attr.
+    Such a node carries no observation and only inflates the cliques
+    that triangulation forms when its chain neighbours sit at different
+    heights connected to different main vars.
+
+    Heights are deterministic refinements of each other, so removing a
+    chain-only node and bridging its two chain neighbours preserves the
+    joint distribution exactly (the marginal P(v[low], v[high]) equals
+    sum over v[mid] of P(v[low], v[mid], v[high])).
+
+    h=0 of main-table values is kept regardless — that's where 1-way
+    observations attach.
+
+    Returns the number of nodes pruned (for diagnostics).
+    """
+
+    def _key(node):
+        d = moral.nodes[node]
+        return (d.get("table"), d.get("order"), d["attr"], d["value"])
+
+    def _protected(node):
+        d = moral.nodes[node]
+        # 1-way obs cover every main-table column at h=0.
+        return d.get("table") is None and d.get("height") == 0
+
+    n_pruned = 0
+    while True:
+        prunable: list[str] = []
+        for node in moral.nodes():
+            if _protected(node):
+                continue
+            key = _key(node)
+            chain_only = True
+            for nb in moral.neighbors(node):
+                if _key(nb) != key:
+                    chain_only = False
+                    break
+            if chain_only:
+                prunable.append(node)
+
+        if not prunable:
+            break
+
+        for node in prunable:
+            if node not in moral:
+                continue
+            nbs = list(moral.neighbors(node))
+            moral.remove_node(node)
+            n_pruned += 1
+            if len(nbs) == 2:
+                a, b = nbs
+                if a in moral and b in moral and not moral.has_edge(a, b):
+                    moral.add_edge(a, b, chain_bridged=True)
+
+    return n_pruned
+
+
 def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
     """Build directed height-chain graph (chain edges only, no cross-attribute).
 
@@ -2326,7 +2388,15 @@ def adjuvant_run_md(
     device = md.pop("device", "auto")
     device = None if device == "auto" else device
 
-    mg = moral if tree_mode != "maximal" else None
+    mg = moral.copy() if tree_mode != "maximal" and moral is not None else None
+    if mg is not None:
+        n_before = mg.number_of_nodes()
+        n_pruned = prune_unused_chain_nodes(mg)
+        if n_pruned:
+            logger.info(
+                f"Adjuvant: pruned {n_pruned} unused chain nodes "
+                f"({n_before} -> {mg.number_of_nodes()})"
+            )
     logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
     junction, cliques, messages = build_junction_tree(
         all_obs,
