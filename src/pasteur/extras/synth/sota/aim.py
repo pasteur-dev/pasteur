@@ -11,7 +11,7 @@ from __future__ import annotations
 import itertools
 import logging
 from math import sqrt
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -62,7 +62,7 @@ class AIM(Synth):
         self,
         e: float = 1.0,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         rounds: int = 50,
         max_model_size: float = 80,
         degree: int = 2,
@@ -111,6 +111,9 @@ class AIM(Synth):
         n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         rho = cdp_rho(self.e, self.delta)
         all_attrs = get_attr_names(table_attrs)
         num_attrs = len(all_attrs)

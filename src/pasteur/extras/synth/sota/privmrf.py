@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 import logging
 from math import sqrt
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import networkx as nx
 import numpy as np
@@ -275,7 +275,7 @@ class PrivMRF(Synth):
         self,
         e: float = 1.0,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         beta1: float = 0.10,
         beta3: float = 0.10,
         t: float = 0.8,
@@ -338,6 +338,9 @@ class PrivMRF(Synth):
         n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         rho = cdp_rho(self.e, self.delta)
         all_attrs = get_attr_names(table_attrs)
         num_attrs = len(all_attrs)

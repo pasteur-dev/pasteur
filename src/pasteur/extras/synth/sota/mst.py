@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 import logging
 from math import sqrt
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -40,7 +40,7 @@ class MST(Synth):
         self,
         e: float = 1.0,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
@@ -83,6 +83,9 @@ class MST(Synth):
         n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         rho = cdp_rho(self.e, self.delta)
         sigma = sqrt(3 / (2 * rho))
 

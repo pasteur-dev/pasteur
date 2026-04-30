@@ -15,7 +15,7 @@ import itertools
 import logging
 import random as py_random
 from math import sqrt
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
@@ -216,7 +216,7 @@ class PrivPGD(Synth):
         self,
         e: float = 1.0,
         etotal: float | None = None,
-        delta: float = 1e-9,
+        delta: float | Literal["tenth"] = "tenth",
         degree: int = 2,
         max_cells: int = 10000,
         n_particles: int = 100000,
@@ -314,6 +314,9 @@ class PrivPGD(Synth):
         # Privacy: rho-CDP, distribute equally across queries.
         # sigma = sqrt(W / (2*rho)) matches the sensitivity-1 Gaussian
         # convention used by AIM/MST in pasteur (rho per query = 0.5/sigma^2).
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * n)
+            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
         rho = cdp_rho(self.e, self.delta)
         sigma = sqrt(len(cliques) / (2 * rho))
         logger.info(f"PrivPGD: rho={rho:.4f}, sigma={sigma:.2f}")
