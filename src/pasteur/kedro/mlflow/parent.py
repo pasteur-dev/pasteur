@@ -224,5 +224,11 @@ def log_parent_run(
                         f"Split '{pretty[alg_name]}' metric '{name}' is broken."
                     )
 
-            metric.visualise(data=splits)
-            metric.summarize(data=splits)
+            try:
+                metric.visualise(data=splits)
+            except Exception as e:
+                logger.error(f"Error visualising metric '{name}'.", exc_info=True)
+            try:
+                metric.summarize(data=splits)
+            except Exception as e:
+                logger.error(f"Error summarizing metric '{name}'.", exc_info=True)
