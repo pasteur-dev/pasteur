@@ -308,7 +308,7 @@ def _process_iterables(iterables: dict[str, Iterable]):
     "-r",
     "--runs",
     type=int,
-    default=1,
+    default=0,
     help="Run each pipeline multiple times. Appends rN to the run name in mlflow.",
 )
 @click.option(
@@ -446,7 +446,7 @@ def sweep(
 
     # Configure parent
     parent_name = get_parent_name(pipeline, alg, hyperparameter, iterator, params)
-    if runs > 1:
+    if runs > 0:
         parent_name += f" -r {runs}"
     mlflow_dict = {
         "_mlflow_parent_name": parent_name,
@@ -474,7 +474,8 @@ def sweep(
 
     import random
 
-    num_runs = runs
+    num_runs = runs or 1
+    multiple_runs = bool(runs)
     # Determine base seed for reproducible multi-run sweeps
     if stochastic:
         base_seed = random.randint(0, 2**31 - 1)
@@ -483,7 +484,7 @@ def sweep(
         base_seed = None
 
     # Read configured random_state for deriving follow-up run seeds
-    if num_runs > 1 and not stochastic:
+    if runs > 1 and not stochastic:
         with KedroSession.create(env="base") as session:
             ctx = session.load_context()
             configured_seed = ctx.params.get("random_state", 0)
@@ -541,7 +542,7 @@ def sweep(
 
                 suffix_dict = (
                     {"_mlflow_run_suffix": f"r{run_idx + 1}"}
-                    if num_runs > 1
+                    if multiple_runs
                     else {}
                 )
                 # Determine seed for this run
