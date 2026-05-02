@@ -227,6 +227,8 @@ def _fit_mirror_descent(
 
 
 class PrivBayesMare(MareModel):
+    total_params: int | None = None
+
     def __init__(
         self,
         *,
@@ -307,6 +309,7 @@ class PrivBayesMare(MareModel):
             self._fit_mirror_descent_impl(n)
         else:
             self.md_marginals = None
+            self.total_params = sum(int(m.size) for m in self.marginals)
 
     def _fit_mirror_descent_impl(self, n: int):
         d = 0
@@ -326,6 +329,7 @@ class PrivBayesMare(MareModel):
         self.md_sample = md_sample
         self.md_junction = junction
         self.md_marginals = md_marginals
+        self.total_params = sum(int(p.size) for p in potentials)
 
     def sample(
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
@@ -358,6 +362,7 @@ class PrivBayesSynth(Synth):
     multimodal = False
     timeseries = False
     parallel = True
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -506,6 +511,7 @@ class PrivBayesSynth(Synth):
             self._fit_mirror_descent_impl()
         else:
             self.md_marginals = None
+            self.total_params = sum(int(m.size) for m in self.marginals)
 
     def refresh(self, **kwargs):
         if "mirror_descent" in kwargs:
@@ -530,6 +536,7 @@ class PrivBayesSynth(Synth):
             self.md_loss_fn = None
             self.md_sample = False
             self.md_junction = None
+            self.total_params = sum(int(m.size) for m in self.marginals)
 
     def _fit_mirror_descent_impl(self):
         obs, potentials, cliques, loss_fn, md_sample, junction, md_marginals = (
@@ -545,6 +552,7 @@ class PrivBayesSynth(Synth):
         self.md_sample = md_sample
         self.md_junction = junction
         self.md_marginals = md_marginals
+        self.total_params = sum(int(p.size) for p in potentials)
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:
