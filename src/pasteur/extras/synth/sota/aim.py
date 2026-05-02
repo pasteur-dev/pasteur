@@ -11,7 +11,7 @@ from __future__ import annotations
 import itertools
 import logging
 from math import sqrt
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -21,7 +21,16 @@ from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 from ....utils.progress import piter
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, clique_domain_size, _col_to_attr_sel
+from .common import (
+    cdp_rho,
+    measure,
+    fit_pgm,
+    get_attr_names,
+    clique_domain_size,
+    hypothetical_jt_size_mb,
+    lazy_em_with_rejection,
+    _col_to_attr_sel,
+)
 
 if TYPE_CHECKING:
     pass
@@ -183,9 +192,24 @@ class AIM(Synth):
                 {**self.md_params, "max_iters": 5000},
             )
 
-            # Adaptive loop
+            # Adaptive loop with lazy post-EM rejection (Adjuvant §4(a)):
+            # the EM picks first, then the picked candidate is validated against
+            # the post-triangulation JT size. Invalid picks are added to a
+            # rejection mask and EM is re-sampled from the renormalised softmax
+            # — no extra DP cost, since the validity predicate is data-independent.
             t = 0
             terminate = False
+            # Permanent rejection mask: candidates whose own raw size already
+            # exceeds the global cap can never become valid (adding more fitted
+            # cliques only grows the JT). Pre-seed and let the lazy EM keep
+            # adding to it as it learns more.
+            permanent_mask: set = set()
+            for cl in candidates:
+                if (
+                    clique_domain_size(cl, table_attrs) * 8 / 1e6
+                    > self.max_model_size
+                ):
+                    permanent_mask.add(cl)
             PBAR_FMT = " " * 11 + ">>>>>>>  {desc}: {percentage:3.0f}%|{bar}| {n:.5f}/{total:.5f} [{elapsed}<{remaining}]"
             pbar = piter(
                 None, total=rho, desc="AIM budget", unit="rho",
@@ -207,35 +231,22 @@ class AIM(Synth):
                 rho_used += step_cost
                 pbar.update(step_cost)
 
-                # Filter candidates by model size
                 size_limit = self.max_model_size * rho_used / rho
                 fitted_cliques = [m[0] for m in measurements]
-                # Downward closure of fitted cliques (free)
+                # Downward closure of fitted cliques (free: subsumed by an
+                # existing JT clique, so no model-size cost)
                 free = set()
                 for cl in fitted_cliques:
                     for r in range(1, len(cl) + 1):
                         free.update(itertools.combinations(cl, r))
 
-                small_candidates = {}
-                for cl, score in candidates.items():
-                    if cl in free:
-                        small_candidates[cl] = score
-                        continue
-                    new_size = sum(
-                        clique_domain_size(c, table_attrs) * 8 / 1e6
-                        for c in fitted_cliques + [cl]
-                    )
-                    if new_size <= size_limit:
-                        small_candidates[cl] = score
-
-                if not small_candidates:
-                    logger.warning("AIM: No viable candidates, terminating")
-                    break
-
-                # Select worst-approximated clique
+                # Score every (non-permanently-rejected) candidate. This is
+                # the only data-dependent step in the round; the rejection
+                # loop below is post-processing.
                 errors = {}
-                for cl in small_candidates:
-                    wgt = small_candidates[cl]
+                for cl, wgt in candidates.items():
+                    if cl in permanent_mask:
+                        continue
                     x = answers[cl]
                     bias = sqrt(2 / np.pi) * sigma * len(x)
                     xest = model.project(cl, table_attrs).ravel()
@@ -246,11 +257,47 @@ class AIM(Synth):
                         np.linalg.norm(x - xest_scaled, 1) - bias
                     )
 
-                max_sens = max(abs(candidates[cl]) for cl in small_candidates)
-                # Log top errors
+                if not errors:
+                    logger.warning("AIM: No viable candidates, terminating")
+                    break
+
+                max_sens = max(abs(candidates[cl]) for cl in errors)
                 top = sorted(errors.items(), key=lambda x: -x[1])[:3]
                 logger.info(f"AIM: Top errors: {[(c, f'{e:.1f}') for c, e in top]}")
-                cl = exponential_mechanism(errors, epsilon, max_sens)
+
+                # Post-EM rejection: validate each pick by triangulating the
+                # candidate-augmented graph. Cheap-out for free cliques.
+                rejections = 0
+
+                def _is_valid(cl_, _free=free, _fitted=fitted_cliques,
+                              _size_limit=size_limit, _max=self.max_model_size,
+                              _attrs=table_attrs):
+                    nonlocal rejections
+                    if cl_ in _free:
+                        return True, False
+                    size = hypothetical_jt_size_mb(_fitted, cl_, _attrs)
+                    if size > _max:
+                        rejections += 1
+                        return False, True   # permanent: cap can only grow up to _max
+                    if size > _size_limit:
+                        rejections += 1
+                        return False, False  # temporary: size_limit grows next round
+                    return True, False
+
+                cl = lazy_em_with_rejection(
+                    errors, epsilon, max_sens, _is_valid, permanent_mask
+                )
+                if cl is None:
+                    logger.warning(
+                        f"AIM: All candidates rejected after {rejections} "
+                        f"validations, terminating"
+                    )
+                    break
+                if rejections:
+                    logger.info(
+                        f"AIM: Lazy rejection: {rejections} invalid picks "
+                        f"before accepting (perm mask size {len(permanent_mask)})"
+                    )
                 # Diagnostic: check if project finds parents for selected clique
                 _src = model._build_source(cl, table_attrs)
                 from ....graph.loss import get_parents as _gp
