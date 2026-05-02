@@ -349,8 +349,16 @@ class FittedPGM:
     def project(
         self, clique: tuple[str, ...], attrs: DatasetAttributes
     ) -> np.ndarray:
-        """Project fitted model to a marginal over the given attrs."""
-        from ....graph.loss import get_parents
+        """Project fitted model to a marginal over the given attrs.
+
+        Handles three sources of clique↔request mismatch (cf. paper §3.2.3):
+          1. Parent has extra attributes (sum-out)
+          2. Parent has the same attribute at a different sel — height
+             mismatch or extra sub-values (within-attribute scatter)
+          3. Dim ordering differs between sorted AttrMeta and the
+             column-name request order (transpose).
+        """
+        from ....graph.loss import get_parents, get_parent_meta
         from ....graph.hugin import get_clique_domain
 
         source_tuple = self._build_source(clique, attrs)
@@ -358,14 +366,12 @@ class FittedPGM:
         parents = get_parents(source_tuple, self.cliques)
         if not parents:
             if len(clique) == 1:
-                # Single attr not in any clique — return uniform
                 logger.warning(
                     f"project({clique}): single attr not in tree, returning uniform"
                 )
                 dom = attr_domain_size(clique[0], attrs)
                 return np.ones(dom) / dom * self.n
-            # No single clique contains all attrs — approximate with
-            # independence: outer product of per-attribute marginals
+            # No single clique contains all attrs — independence fallback
             marginals = []
             for attr_name in clique:
                 m = self.project((attr_name,), attrs).ravel()
@@ -378,21 +384,37 @@ class FittedPGM:
 
         parent = min(parents, key=lambda x: get_clique_domain(x, attrs))
         parent_idx = self.cliques.index(parent)
-        proc = self.potentials[parent_idx].copy()
+        proc = self.potentials[parent_idx]
 
-        # Sum out dims not in the requested clique
-        requested = {a.attr for a in source_tuple}
-        remaining = [a for a in parent if a.attr in requested]
-        sum_dims = tuple(
-            i for i, a in enumerate(parent) if a.attr not in requested
-        )
-        if sum_dims:
-            proc = proc.sum(axis=sum_dims)
+        # Use the same alignment machinery LinearLoss uses for routing.
+        # Returns sum_dims (for parent-only attrs) + an optional precomputed
+        # scatter index (for within-attribute sel mismatches).
+        pmeta = get_parent_meta(source_tuple, parent, attrs)
 
-        # Transpose from sorted AttrMeta order back to requested clique order.
-        # Use attribute names (not column names) for matching.
-        sorted_names = [a.attr for a in remaining]
-        req_attr_names = []
+        if pmeta.sum_dims:
+            proc = proc.sum(axis=pmeta.sum_dims)
+
+        if pmeta.idx is not None:
+            # Within-attribute scatter: numpy mirror of LinearLoss._project_probs.
+            proc = np.transpose(proc, pmeta.transpose)
+            og_shape = proc.shape
+            n_b = len(pmeta.b_doms)
+            a_idx_dom = int(np.prod(og_shape[:n_b])) if n_b else 1
+            b_idx_dom = int(np.prod(pmeta.b_doms)) if pmeta.b_doms else 1
+            rest_dom = (
+                int(np.prod(og_shape[n_b:])) if n_b < len(og_shape) else 1
+            )
+            proc = proc.reshape((a_idx_dom, -1))
+            target = np.zeros((b_idx_dom, rest_dom), dtype=proc.dtype)
+            np.add.at(target, pmeta.idx, proc)
+            new_shape = list(pmeta.b_doms) + list(og_shape[n_b:])
+            proc = target.reshape(new_shape)
+            proc = np.transpose(proc, pmeta.transpose_undo)
+
+        # proc dims now correspond to source_tuple's order at source resolution.
+        # Transpose to the column-request order if it differs.
+        sorted_names = [a.attr for a in source_tuple]
+        req_attr_names: list[str] = []
         for col_name in clique:
             aname, _ = _col_to_attr_sel(col_name, attrs)
             if aname not in req_attr_names:
