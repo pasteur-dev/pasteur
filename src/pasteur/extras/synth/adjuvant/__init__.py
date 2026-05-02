@@ -61,6 +61,7 @@ class AdjuvantMare(MareModel):
     """
 
     dp_type: Literal["dp", "cdp"] = "dp"
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -196,6 +197,7 @@ class AdjuvantMare(MareModel):
             self.md_params,
             evidence_vars=selected_evidence,
         )
+        self.total_params = sum(int(p.size) for p in self.potentials)
 
         # Pre-compute which clique dims correspond to hist columns
         # for evidence injection during sampling
@@ -406,6 +408,7 @@ class AdjuvantSynth(Synth):
     timeseries = False
     parallel = True
     dp_type: Literal["dp", "cdp"] = "cdp"
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -560,6 +563,7 @@ class AdjuvantSynth(Synth):
         self.junction, self.cliques, self.potentials = adjuvant_run_md(
             self.all_obs, self.table_attrs, self.moral, self.md_params
         )
+        self.total_params = sum(int(p.size) for p in self.potentials)
 
     def refresh(self, **kwargs):
         if "mirror_descent" not in kwargs:

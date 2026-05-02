@@ -215,11 +215,15 @@ def log_metric(metric: Any, data: Any):
 
 
 def log_model(model):
-    from ...utils.mlflow import mlflow_log_as_str
+    from ...utils.mlflow import mlflow_log_artifacts, mlflow_log_as_str
 
     # TODO: Enable uploading model
     # mlflow_log_artifacts('model', model=model)
     mlflow_log_as_str("model", str(model))
+
+    total_params = getattr(model, "total_params", None)
+    if total_params is not None:
+        mlflow_log_artifacts("model", total_params=int(total_params))
 
 
 def create_metrics_model_pipeline(

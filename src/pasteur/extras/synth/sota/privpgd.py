@@ -211,6 +211,7 @@ class PrivPGD(Synth):
     multimodal = False
     timeseries = False
     parallel = True
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -432,6 +433,7 @@ class PrivPGD(Synth):
         self.all_attrs = all_attrs
         self.table_attrs = table_attrs
         self._device = device
+        self.total_params = int(self.X.numel())
 
     def _discretize(self, X: torch.Tensor) -> dict[str, np.ndarray]:
         """Map [n, d] particles in [0,1] to integer bin indices per column."""

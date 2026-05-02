@@ -66,6 +66,7 @@ class AIM(Synth):
     multimodal = False
     timeseries = False
     parallel = True
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -348,6 +349,7 @@ class AIM(Synth):
                 {**self.md_params, "max_iters": 10000},
             )
             self.table_attrs = table_attrs
+            self.total_params = sum(int(p.size) for p in self.model.potentials)
 
     @make_deterministic("i")
     def sample_partition(self, *, n: int, i: int = 0) -> dict[str, Any]:

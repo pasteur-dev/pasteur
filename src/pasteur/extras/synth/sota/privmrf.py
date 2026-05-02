@@ -270,6 +270,7 @@ class PrivMRF(Synth):
     multimodal = False
     timeseries = False
     parallel = True
+    total_params: int | None = None
 
     def __init__(
         self,
@@ -519,6 +520,7 @@ class PrivMRF(Synth):
                 structure_cliques=maximal_cliques,
             )
             self.table_attrs = table_attrs
+            self.total_params = sum(int(p.size) for p in self.model.potentials)
 
     def _generate_candidates(
         self,

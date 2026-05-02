@@ -131,6 +131,139 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     } | pretty_provided
 
 
+def _render_params_plot(
+    params_by_split: dict[str, int | float],
+    artifact_path: str,
+):
+    """Plot total parameter count per algorithm across sweep steps.
+
+    Mirrors the layout of ``_render_multiplot`` in extras/metrics/distr.py
+    (algorithms as lines, x-axis = sweep steps, dots/CI when ``-r N`` runs
+    exist) but with a single subplot and saves as a standalone SVG.
+    """
+    import re
+    from io import BytesIO
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    from ...utils.styles import use_style
+
+    if not params_by_split:
+        return
+
+    parsed: dict[str, tuple[str, str | None, int | None]] = {}
+    for name in params_by_split:
+        tokens = name.split()
+        if not tokens:
+            parsed[name] = ("default", None, None)
+            continue
+        if "=" not in tokens[0] and not re.match(r"^r\d+$", tokens[0]):
+            alg = tokens[0]
+            rest = tokens[1:]
+        else:
+            alg = "syn"
+            rest = tokens
+        run_idx = None
+        step_parts = []
+        for token in rest:
+            if re.match(r"^r\d+$", token):
+                run_idx = int(token[1:])
+            else:
+                step_parts.append(token)
+        step = " ".join(step_parts) if step_parts else None
+        parsed[name] = (alg, step, run_idx)
+
+    algorithms = list(dict.fromkeys(alg for alg, _, _ in parsed.values()))
+    steps = list(dict.fromkeys(step for _, step, _ in parsed.values()))
+    has_runs = any(r is not None for _, _, r in parsed.values())
+    has_steps = len(steps) > 1 or (len(steps) == 1 and steps[0] is not None)
+    if not has_steps:
+        steps = [None]
+
+    use_style("mlflow")
+
+    fig_w = max(6, 3 + 1.2 * len(steps))
+    fig_h = 4.5
+    fig, ax = plt.subplots(1, 1, figsize=(fig_w, fig_h))
+
+    cmap = plt.cm.tab10.colors  # type: ignore[attr-defined]
+    n_alg = len(algorithms)
+
+    for alg_idx, alg in enumerate(algorithms):
+        color = cmap[alg_idx % len(cmap)]
+        pos_list: list[int] = []
+        mean_list: list[float] = []
+        vals_list: list[list[float]] = []
+
+        for step_idx, step in enumerate(steps):
+            run_values: list[float] = []
+            for name, (a, s, _r) in parsed.items():
+                if a == alg and s == step:
+                    val = params_by_split.get(name)
+                    if val is None:
+                        continue
+                    fval = float(val)
+                    if np.isnan(fval):
+                        continue
+                    run_values.append(fval)
+            if not run_values:
+                continue
+            pos_list.append(step_idx)
+            mean_list.append(float(np.mean(run_values)))
+            vals_list.append(run_values)
+
+        if not pos_list:
+            continue
+
+        ax.plot(
+            pos_list, mean_list, color=color, label=alg,
+            marker="o", markersize=5, linewidth=1.5, zorder=4,
+        )
+
+        if has_runs:
+            offset = (alg_idx - (n_alg - 1) / 2) * 0.06
+            for pos, vals in zip(pos_list, vals_list):
+                if len(vals) > 1:
+                    q25, q75 = np.percentile(vals, [25, 75])
+                    vmin, vmax = float(np.min(vals)), float(np.max(vals))
+                    ax.plot(
+                        [pos + offset, pos + offset], [vmin, vmax],
+                        color=color, linewidth=1, alpha=0.4, zorder=2,
+                    )
+                    ax.plot(
+                        [pos + offset, pos + offset], [q25, q75],
+                        color=color, linewidth=4, alpha=0.3, zorder=2,
+                    )
+                jitter = np.linspace(-0.03, 0.03, len(vals)) + offset
+                ax.scatter(
+                    [pos + j for j in jitter], vals,
+                    color=color, alpha=0.5, s=15, zorder=3,
+                )
+
+    ax.set_xticks(range(len(steps)))
+    step_labels = [s if s is not None else "default" for s in steps]
+    if any(len(str(lb)) > 10 for lb in step_labels) or len(step_labels) > 6:
+        ax.set_xticklabels(step_labels, rotation=45, ha="right", fontsize=8)
+    else:
+        ax.set_xticklabels(step_labels, fontsize=8)
+
+    ax.set_title("Model Parameter Count", fontweight="bold", fontsize=11)
+    ax.set_ylabel("Parameters", fontsize=9)
+    if any(v > 0 for v in params_by_split.values()):
+        ax.set_yscale("log")
+    ax.legend(fontsize=7, loc="best")
+    ax.grid(True, alpha=0.3, linewidth=0.5, which="both")
+
+    plt.tight_layout()
+    buf = BytesIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight")
+    buf.seek(0)
+    svg = buf.read().decode("utf-8")
+    plt.close(fig)
+    mlflow.log_text(svg, artifact_path)
+
+
 def log_parent_run(
     parent: str,
     run_params: dict[str, dict[str, Any]],
@@ -207,6 +340,18 @@ def log_parent_run(
                 mlflow_log_energy(**energy)
         except Exception:
             logger.error(f"Error logging energy info.", exc_info=True)
+
+        # Log model parameter count plot
+        try:
+            params_by_split: dict[str, int | float] = {}
+            for n, a in artifacts.items():
+                tp = a.get("model", {}).get("total_params") if isinstance(a, dict) else None
+                if tp is not None:
+                    params_by_split[pretty[n]] = tp
+            if params_by_split:
+                _render_params_plot(params_by_split, "params.svg")
+        except Exception:
+            logger.error(f"Error rendering params plot.", exc_info=True)
 
         for name, folder in ref_artifacts["metrics"].items():
             if not "metric" in folder:
