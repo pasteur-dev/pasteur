@@ -66,7 +66,7 @@ class ModuleFactory(Module, Generic[A]):
     def build(self, *args, **kwargs):
         """Build is used to create the new instance. You can override this
         function to customize instance creation."""
-        return self._cls(*args, *self.args, _from_factory=True, **kwargs, **self.kwargs)
+        return self._cls(*args, *self.args, _from_factory=True, **{**kwargs, **self.kwargs})
 
 
 M = TypeVar("M", bound=Module)

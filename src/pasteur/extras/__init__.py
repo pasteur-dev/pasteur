@@ -100,7 +100,8 @@ def get_recommended_system_modules() -> list[Module]:
         NumEncoder.get_factory(),
         # Synthesizers
         IdentSynth.get_factory(),
-        PrivBayesSynth.get_factory(),
+        PrivBayesSynth.get_factory(rebalance=False),
+        PrivBayesSynth.get_factory(name="privbayes_rb", rebalance=True),
         # Metrics
         DistributionMetric.get_factory(),
         NumericalHist.get_factory(),
