@@ -405,7 +405,7 @@ class AdjuvantSynth(Synth):
     multimodal = False
     timeseries = False
     parallel = True
-    dp_type: Literal["dp", "cdp"] = "dp"
+    dp_type: Literal["dp", "cdp"] = "cdp"
 
     def __init__(
         self,
@@ -607,14 +607,14 @@ class AdjuvantSynth(Synth):
         )
 
 
-class AdjuvantMareCdp(AdjuvantMare):
+class AdjuvantMareEdp(AdjuvantMare):
     """AdjuvantMare using zCDP (Gaussian noise, rho budget)."""
 
-    dp_type: Literal["dp", "cdp"] = "cdp"
+    dp_type: Literal["dp", "cdp"] = "dp"
 
 
-class AdjuvantSynthCdp(AdjuvantSynth):
+class AdjuvantSynthEdp(AdjuvantSynth):
     """AdjuvantSynth using zCDP (Gaussian noise, rho budget)."""
 
-    name = "adjuvant_cdp"
-    dp_type: Literal["dp", "cdp"] = "cdp"
+    name = "adjuvant_edp"
+    dp_type: Literal["dp", "cdp"] = "dp"
