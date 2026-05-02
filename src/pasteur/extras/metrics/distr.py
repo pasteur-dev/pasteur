@@ -437,20 +437,24 @@ def _visualise_2way(
     for split in results:
         if split not in res:
             res[split] = []
+        intra_norms = results[split]["metr_norm"].dropna().tolist()
         res[split].append(
             {
                 "table": "!",
                 "split": split,
                 "mean_metr_norm": results[split]["metr_norm"].mean(),
+                "metr_norms": [float(x) for x in intra_norms],
             }
         )
         if presults:
             for p in presults[split]:
+                p_norms = presults[split][p]["metr_norm"].dropna().tolist()
                 res[split].append(
                     {
                         "table": p,
                         "split": split,
                         "mean_metr_norm": presults[split][p]["metr_norm"].mean(),
+                        "metr_norms": [float(x) for x in p_norms],
                     }
                 )
 
@@ -565,17 +569,22 @@ def _parse_pretty_names(names: list[str]):
 
 
 def _render_multiplot(
-    subplot_scores: dict[str, dict[str, float]],
+    subplot_scores: dict[str, dict[str, float | list[float]]],
     title: str,
     artifact_path: str,
+    percentile_lower: float = 5,
 ):
     """Render a multiplot HTML page with one subplot per key in *subplot_scores*.
 
     Each entry in *subplot_scores* maps a subplot label to
-    ``{split_name: score}``.  X-axis = sweep steps, lines = algorithms,
-    dots + CI when ``-r N`` runs exist.  A dashed grey *ref* baseline is
-    drawn when available.  The result is logged to *artifact_path* in
-    mlflow.
+    ``{split_name: score}``, where score is either a scalar or a list of
+    per-column-combination (e.g. 2-way) values for that split.  When lists
+    are provided, a translucent 10–90 percentile band is drawn around each
+    algorithm's line, computed across all combos from every run that
+    contributes to the line.  X-axis = sweep steps, lines = algorithms,
+    dots + run-to-run whiskers when ``-r N`` runs exist.  A dashed grey
+    *ref* baseline is drawn when available.  The result is logged to
+    *artifact_path* in mlflow.
     """
     from io import BytesIO
 
@@ -632,14 +641,30 @@ def _render_multiplot(
             pos_list: list[int] = []
             mean_list: list[float] = []
             vals_list: list[list[float]] = []
+            combos_list: list[list[float]] = []
 
             for step_idx, step in enumerate(steps):
-                run_values = []
+                run_values: list[float] = []
+                combo_values: list[float] = []
                 for name, (a, s, _r) in parsed.items():
                     if a == alg and s == step:
-                        score = scores.get(name, float("nan"))
-                        if not np.isnan(score):
-                            run_values.append(score)
+                        score = scores.get(name)
+                        if score is None:
+                            continue
+                        if isinstance(score, (list, tuple, np.ndarray)):
+                            run_combos = [
+                                float(v) for v in score if not np.isnan(v)
+                            ]
+                            if not run_combos:
+                                continue
+                            run_values.append(float(np.mean(run_combos)))
+                            combo_values.extend(run_combos)
+                        else:
+                            fval = float(score)
+                            if np.isnan(fval):
+                                continue
+                            run_values.append(fval)
+                            combo_values.append(fval)
 
                 if not run_values:
                     continue
@@ -647,9 +672,25 @@ def _render_multiplot(
                 pos_list.append(step_idx)
                 mean_list.append(float(np.mean(run_values)))
                 vals_list.append(run_values)
+                combos_list.append(combo_values)
 
             if not pos_list:
                 continue
+
+            # --- 10th percentile bound across per-combo values ---
+            if any(len(c) > 1 for c in combos_list):
+                pl = [
+                    float(np.percentile(c, percentile_lower)) for c in combos_list
+                ]
+                ax.plot(
+                    pos_list,
+                    pl,
+                    color=color,
+                    linestyle=(0, (4, 2)),
+                    linewidth=1.0,
+                    alpha=0.7,
+                    zorder=1,
+                )
 
             # --- Line through means ---
             ax.plot(
@@ -701,17 +742,36 @@ def _render_multiplot(
                         zorder=3,
                     )
 
-        # --- Horizontal reference line ---
-        ref_score = scores.get("ref", float("nan"))
+        # --- Horizontal reference line + 10th percentile bound ---
+        ref_raw = scores.get("ref", float("nan"))
+        if isinstance(ref_raw, (list, tuple, np.ndarray)):
+            ref_combos = [float(v) for v in ref_raw if not np.isnan(v)]
+            ref_score = (
+                float(np.mean(ref_combos)) if ref_combos else float("nan")
+            )
+        else:
+            ref_combos = []
+            ref_score = float(ref_raw)
+            if not np.isnan(ref_score):
+                ref_combos = [ref_score]
         if not np.isnan(ref_score):
             ax.axhline(
                 ref_score,
                 color="grey",
-                linestyle="--",
+                linestyle="-",
                 linewidth=1,
                 alpha=0.7,
                 zorder=1,
                 label="ref",
+            )
+        if len(ref_combos) > 1:
+            ax.axhline(
+                float(np.percentile(ref_combos, percentile_lower)),
+                color="grey",
+                linestyle=(0, (4, 2)),
+                linewidth=1,
+                alpha=0.7,
+                zorder=1,
             )
 
         # --- Axes formatting ---
@@ -768,7 +828,7 @@ _METRIC_FANCY = {
 }
 
 
-def _visualise_multiplot(overall_metr: dict):
+def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
     """Create one multiplot HTML per metric, each with subplots per
     correlation type (overall, intra-table, sequential, inter-table).
 
@@ -798,12 +858,24 @@ def _visualise_multiplot(overall_metr: dict):
                 if split not in split_order[metr]:
                     split_order[metr].append(split)
                 for entry in split_res:
-                    if entry["table"] == "!":
-                        raw[metr]["intra"][split].append(entry["mean_metr_norm"])
-                    elif entry["table"].startswith("-"):
-                        raw[metr]["seq"][split].append(entry["mean_metr_norm"])
+                    norms = entry.get("metr_norms")
+                    if norms:
+                        vals = [float(v) for v in norms if not np.isnan(v)]
                     else:
-                        raw[metr]["hist"][split].append(entry["mean_metr_norm"])
+                        scalar = entry.get("mean_metr_norm")
+                        vals = (
+                            [float(scalar)]
+                            if scalar is not None and not np.isnan(scalar)
+                            else []
+                        )
+                    if not vals:
+                        continue
+                    if entry["table"] == "!":
+                        raw[metr]["intra"][split].extend(vals)
+                    elif entry["table"].startswith("-"):
+                        raw[metr]["seq"][split].extend(vals)
+                    else:
+                        raw[metr]["hist"][split].extend(vals)
 
     if not raw:
         return
@@ -812,20 +884,16 @@ def _visualise_multiplot(overall_metr: dict):
     # One HTML per metric
     # ------------------------------------------------------------------
     for metr, corr_data in raw.items():
-        subplot_scores: dict[str, dict[str, float]] = {}
+        subplot_scores: dict[str, dict[str, float | list[float]]] = {}
         ordered_splits = split_order[metr]
 
-        # -- Overall subplot (mean of corr-type means) --
-        overall: dict[str, float] = {}
+        # -- Overall subplot (per-combo values from every corr type) --
+        overall: dict[str, float | list[float]] = {}
         for split in ordered_splits:
-            cat_means = []
+            combined: list[float] = []
             for ct_vals in corr_data.values():
-                vals = ct_vals.get(split, [])
-                if vals:
-                    cat_means.append(float(np.nanmean(vals)))
-            overall[split] = (
-                float(np.nanmean(cat_means)) if cat_means else float("nan")
-            )
+                combined.extend(ct_vals.get(split, []))
+            overall[split] = combined if combined else float("nan")
         subplot_scores["Overall"] = overall
 
         # -- Per corr-type subplots (in fixed order, only if present) --
@@ -834,7 +902,7 @@ def _visualise_multiplot(overall_metr: dict):
                 continue
             ct_dict = corr_data[ct_key]
             subplot_scores[ct_label] = {
-                split: float(np.nanmean(ct_dict[split]))
+                split: list(ct_dict[split])
                 if ct_dict.get(split)
                 else float("nan")
                 for split in ordered_splits
@@ -845,7 +913,12 @@ def _visualise_multiplot(overall_metr: dict):
         path = f"distr/{pref}{metr}_overall/multiplot.html"
         fancy = _METRIC_FANCY.get(metr, metr.upper())
 
-        _render_multiplot(subplot_scores, f"{fancy} — Sweep", path)
+        _render_multiplot(
+            subplot_scores,
+            f"{fancy} - Sweep",
+            path,
+            percentile_lower=percentile_lower,
+        )
 
 
 def _process_marginals_chunk(
@@ -934,6 +1007,16 @@ def _process_marginals_chunk(
 class DistributionMetric(Metric[DistrSummary, DistrSummary]):
     name = "distr"
     encodings = "idx"
+
+    def __init__(
+        self,
+        percentile_lower: float = 5,
+        *args,
+        _from_factory: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, _from_factory=_from_factory, **kwargs)
+        self.percentile_lower = percentile_lower
 
     def fit(
         self,
@@ -1265,4 +1348,4 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                 mlflow.log_figure(fig, f"distr/{pref}{metr}_overall/{table}.png")
                 plt.close("all")
 
-        _visualise_multiplot(overall_metr)
+        _visualise_multiplot(overall_metr, percentile_lower=self.percentile_lower)
