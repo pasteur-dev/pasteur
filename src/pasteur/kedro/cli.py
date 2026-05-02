@@ -501,13 +501,13 @@ def sweep(
     total = num_runs * num_hyper * num_algs
 
     run_results = {}
-    ingested = False
     runtime_params = {}
     run_count = 0
 
     pbar = piter(total=total, desc="sweep", leave=True) if total > 1 else None
 
     for run_idx in range(num_runs):
+        ingested = False
         hyper_idx = 0
         for iters in _process_iterables(all_iterables):
             hyper_idx += 1
@@ -535,7 +535,7 @@ def sweep(
 
                 tags = list(tags)
                 params_skipped = False
-                if (alg_only_hyper and ingested) or i:
+                if (alg_only_hyper or i) and ingested:
                     params_skipped = True
                     if TAG_CHANGES_HYPERPARAMETER in tags:
                         tags.remove(TAG_CHANGES_HYPERPARAMETER)
