@@ -338,15 +338,15 @@ class FittedPGM:
         return pd.DataFrame(columns)
 
 
-def _build_moral_graph(
-    measurements: list[Measurement], attrs: DatasetAttributes
+def _build_moral_graph_from_cliques(
+    cliques: list[tuple[str, ...]], attrs: DatasetAttributes
 ):
-    """Build a value-level moral graph from measurement column cliques.
+    """Build a value-level moral graph from a list of column-name cliques.
 
     Each column maps to one or more graph nodes (one per (sub_value, height)
     in the column's sel). Within-column nodes are interconnected (same
-    multi-value attribute), and within each measurement, all column nodes
-    are interconnected (the moralisation step). The result is suitable for
+    multi-value attribute), and within each clique, all column nodes are
+    interconnected (the moralisation step). The result is suitable for
     `build_junction_tree(..., tree_mode='hugin', moral_graph=...)`.
     """
     import networkx as nx
@@ -379,9 +379,9 @@ def _build_moral_graph(
         col_to_nodes[col_name] = nodes
         return nodes
 
-    for meas in measurements:
+    for clique in cliques:
         all_nodes: list[str] = []
-        for col_name in meas.clique:
+        for col_name in clique:
             all_nodes.extend(_ensure_column(col_name))
         for i in range(len(all_nodes)):
             for j in range(i + 1, len(all_nodes)):
@@ -396,10 +396,19 @@ def fit_pgm(
     n: int,
     md_params: dict | None = None,
     prev_model: FittedPGM | None = None,
+    structure_cliques: list[tuple[str, ...]] | None = None,
 ) -> FittedPGM:
     """Fit a PGM model from measurements using our mirror descent + BP.
 
-    Measurement cliques are attribute-name tuples."""
+    Measurement cliques are attribute-name tuples.
+
+    ``structure_cliques`` (optional): pre-learned max cliques to define the
+    moral graph for hugin-mode triangulation. PrivMRF passes its
+    structure-learned cliques here so the JT exactly matches the cliques
+    PrivMRF designed its measurements to fit (matching the upstream
+    ``MarkovRandomField.__init__`` behaviour). For AIM/MST, leave as
+    ``None`` and the moral graph is rebuilt from the measurement cliques.
+    """
     from ....graph.beliefs import convert_sel
     from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
@@ -477,8 +486,12 @@ def fit_pgm(
     # Build junction tree (hugin: moralize → triangulate → max cliques → MST)
     if tree_mode == "maximal":
         moral_graph = None
+    elif structure_cliques is not None:
+        moral_graph = _build_moral_graph_from_cliques(structure_cliques, attrs)
     else:
-        moral_graph = _build_moral_graph(measurements, attrs)
+        moral_graph = _build_moral_graph_from_cliques(
+            [m.clique for m in measurements], attrs
+        )
     _, jt_cliques, messages = build_junction_tree(
         obs_list,
         attrs,

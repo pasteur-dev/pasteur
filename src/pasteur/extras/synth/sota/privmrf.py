@@ -444,6 +444,7 @@ class PrivMRF(Synth):
                 measurements,
                 n,
                 {**self.md_params, "max_iters": 5000},
+                structure_cliques=maximal_cliques,
             )
 
             # ============================================================
@@ -503,6 +504,7 @@ class PrivMRF(Synth):
                         n,
                         {**self.md_params, "max_iters": 5000},
                         prev_model=model,
+                        structure_cliques=maximal_cliques,
                     )
 
             # Final fit (fresh start, more iterations)
@@ -514,6 +516,7 @@ class PrivMRF(Synth):
                 measurements,
                 n,
                 {**self.md_params, "max_iters": 10000},
+                structure_cliques=maximal_cliques,
             )
             self.table_attrs = table_attrs
 
