@@ -63,8 +63,8 @@ from pasteur.extras.synth.sota import AIM, MST, PrivMRF, PrivPGD
 from pasteur.extras.synth.adjuvant import (
     AdjuvantMare,
     AdjuvantSynth,
-    AdjuvantMareCdp,
-    AdjuvantSynthCdp,
+    AdjuvantMareEdp,
+    AdjuvantSynthEdp,
 )
 from pasteur.extras.views.mimic import MimicBillion, MimicCore, MimicIcu
 from pasteur.extras.encoders import JsonEncoder, FlatEncoder
@@ -92,13 +92,13 @@ PASTEUR_MODULES = get_recommended_modules() + [
     PrivPGD.get_factory(),
     PrivMRF.get_factory(),
     AdjuvantSynth.get_factory(),
-    AdjuvantSynthCdp.get_factory(),
+    AdjuvantSynthEdp.get_factory(),
     MimicBillion(),
     MimicCore(),
     MimicIcu(),
     MareSynth.get_factory(PrivBayesMare),
-    MareSynth.get_factory(AdjuvantMare, name="mare_adj"),
-    MareSynth.get_factory(AdjuvantMareCdp, name="mare_adj_cdp"),
+    MareSynth.get_factory(AdjuvantMare, name="mare_adj_edp"),
+    MareSynth.get_factory(AdjuvantMareEdp, name="mare_adj"),
     # SynthEvalMetric.get_factory(),
     JsonEncoder.get_factory(),
     FlatEncoder.get_factory(),

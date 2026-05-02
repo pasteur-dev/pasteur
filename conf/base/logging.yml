@@ -118,6 +118,23 @@ loggers:
         handlers: []
         propagate: no
 
+    # Discard useless mlflow logging by sending it
+    # to the mlflow safekeeping handlers instead
+    mlflow:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    alembic:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
+    sqlalchemy.engine:
+        level: NOTSET
+        handlers: [debug, error]
+        propagate: no
+
 root:
     level: NOTSET
     handlers: [rich, user, debug, error]
