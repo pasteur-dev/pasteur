@@ -46,7 +46,13 @@ def get_run_artifacts(run: Run):
 
                     art = pd.read_csv(f)
                 elif fn.endswith(".pkl"):
-                    art = pickle.load(f)
+                    try:
+                        art = pickle.load(f)
+                    except Exception as e:
+                        logger.error(
+                            f"Error loading pickle artifact.\n'{fn}'", exc_info=True
+                        )
+                        continue
                 else:
                     continue
 
@@ -87,7 +93,8 @@ def prettify_run_names(run_params: dict[str, dict[str, Any]]):
     skip_params = {
         k
         for k, v in ref_run.items()
-        if all(k in run and run[k] == v for run in run_params.values()) and not k.startswith("_")
+        if all(k in run and run[k] == v for run in run_params.values())
+        and not k.startswith("_")
     }
 
     str_params = {name: [] for name in run_params}
@@ -217,8 +224,14 @@ def _render_params_plot(
             continue
 
         ax.plot(
-            pos_list, mean_list, color=color, label=alg,
-            marker="o", markersize=5, linewidth=1.5, zorder=4,
+            pos_list,
+            mean_list,
+            color=color,
+            label=alg,
+            marker="o",
+            markersize=5,
+            linewidth=1.5,
+            zorder=4,
         )
 
         if has_runs:
@@ -228,17 +241,29 @@ def _render_params_plot(
                     q25, q75 = np.percentile(vals, [25, 75])
                     vmin, vmax = float(np.min(vals)), float(np.max(vals))
                     ax.plot(
-                        [pos + offset, pos + offset], [vmin, vmax],
-                        color=color, linewidth=1, alpha=0.4, zorder=2,
+                        [pos + offset, pos + offset],
+                        [vmin, vmax],
+                        color=color,
+                        linewidth=1,
+                        alpha=0.4,
+                        zorder=2,
                     )
                     ax.plot(
-                        [pos + offset, pos + offset], [q25, q75],
-                        color=color, linewidth=4, alpha=0.3, zorder=2,
+                        [pos + offset, pos + offset],
+                        [q25, q75],
+                        color=color,
+                        linewidth=4,
+                        alpha=0.3,
+                        zorder=2,
                     )
                 jitter = np.linspace(-0.03, 0.03, len(vals)) + offset
                 ax.scatter(
-                    [pos + j for j in jitter], vals,
-                    color=color, alpha=0.5, s=15, zorder=3,
+                    [pos + j for j in jitter],
+                    vals,
+                    color=color,
+                    alpha=0.5,
+                    s=15,
+                    zorder=3,
                 )
 
     ax.set_xticks(range(len(steps)))
@@ -335,7 +360,9 @@ def log_parent_run(
 
         # Log energy
         try:
-            energy = {pretty[n]: a["energy"] for n, a in artifacts.items() if "energy" in a}
+            energy = {
+                pretty[n]: a["energy"] for n, a in artifacts.items() if "energy" in a
+            }
             if energy:
                 mlflow_log_energy(**energy)
         except Exception:
@@ -345,7 +372,11 @@ def log_parent_run(
         try:
             params_by_split: dict[str, int | float] = {}
             for n, a in artifacts.items():
-                tp = a.get("model", {}).get("total_params") if isinstance(a, dict) else None
+                tp = (
+                    a.get("model", {}).get("total_params")
+                    if isinstance(a, dict)
+                    else None
+                )
                 if tp is not None:
                     params_by_split[pretty[n]] = tp
             if params_by_split:
@@ -354,11 +385,15 @@ def log_parent_run(
             logger.error(f"Error rendering params plot.", exc_info=True)
 
         for name, folder in ref_artifacts["metrics"].items():
-            if not "metric" in folder:
+            try:
+                # For some reason testing if "metric" is in folder can return
+                # true but then folder["metric"] raises an error
+                metric = folder["metric"]
+            except Exception:
                 logger.error(
                     f"Metric '{name}' does not have a 'metric' executable, skipping..."
                 )
-            metric = folder["metric"]
+                continue
 
             splits = {}
             for alg_name, artifact in artifacts.items():
