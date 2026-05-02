@@ -338,6 +338,58 @@ class FittedPGM:
         return pd.DataFrame(columns)
 
 
+def _build_moral_graph(
+    measurements: list[Measurement], attrs: DatasetAttributes
+):
+    """Build a value-level moral graph from measurement column cliques.
+
+    Each column maps to one or more graph nodes (one per (sub_value, height)
+    in the column's sel). Within-column nodes are interconnected (same
+    multi-value attribute), and within each measurement, all column nodes
+    are interconnected (the moralisation step). The result is suitable for
+    `build_junction_tree(..., tree_mode='hugin', moral_graph=...)`.
+    """
+    import networkx as nx
+
+    g = nx.Graph()
+    col_to_nodes: dict[str, list[str]] = {}
+
+    def _ensure_column(col_name: str):
+        if col_name in col_to_nodes:
+            return col_to_nodes[col_name]
+        attr_name, sel = _col_to_attr_sel(col_name, attrs)
+        nodes: list[str] = []
+        for val_name, height in sel.items():
+            node_name = f"{attr_name}.{val_name}[{height}]"
+            if not g.has_node(node_name):
+                g.add_node(
+                    node_name,
+                    table=None,
+                    order=None,
+                    attr=attr_name,
+                    value=val_name,
+                    height=height,
+                )
+            nodes.append(node_name)
+        # Within-column edges keep all sub-values of a multi-value attribute
+        # in the same triangulated clique.
+        for i in range(len(nodes)):
+            for j in range(i + 1, len(nodes)):
+                g.add_edge(nodes[i], nodes[j])
+        col_to_nodes[col_name] = nodes
+        return nodes
+
+    for meas in measurements:
+        all_nodes: list[str] = []
+        for col_name in meas.clique:
+            all_nodes.extend(_ensure_column(col_name))
+        for i in range(len(all_nodes)):
+            for j in range(i + 1, len(all_nodes)):
+                g.add_edge(all_nodes[i], all_nodes[j])
+
+    return g
+
+
 def fit_pgm(
     attrs: DatasetAttributes,
     measurements: list[Measurement],
@@ -348,29 +400,25 @@ def fit_pgm(
     """Fit a PGM model from measurements using our mirror descent + BP.
 
     Measurement cliques are attribute-name tuples."""
-    from ....graph.beliefs import create_messages, convert_sel
-    from ....graph.hugin import (
-        AttrMeta,
-        get_attrs,
-        get_junction_tree_from_cliques,
-        get_message_passing_order,
-    )
+    from ....graph.beliefs import convert_sel
+    from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
-    from ....graph.mirror_descent import mirror_descent
+    from ....graph.mirror_descent import build_junction_tree, mirror_descent
 
     params = {**MIRROR_DESCENT_DEFAULT, **(md_params or {})}
     device = params.pop("device", "auto")
     device = None if device == "auto" else device
-    params.pop("compress", None)
+    compress = params.pop("compress", True)
     params.pop("sample", None)
-    params.pop("tree", None)
+    tree_mode = params.pop("tree", "hugin")
+    elim_max_attempts = params.pop("elim_max_attempts", 5000)
+    elim_factor_cost = params.pop("elim_factor_cost", 1)
 
     # Build CliqueMeta for each measurement (column-name cliques).
     # Column names may be value names (split attrs) or attr names (combined).
     # Multiple columns from the same attribute are merged into one AttrMeta
     # with a combined sel.
     obs_list = []
-    clique_metas = []
     clique_names = []
     for meas in measurements:
         # Merge columns belonging to the same attribute
@@ -387,7 +435,6 @@ def fit_pgm(
             sel_tuple: int | tuple = tuple(sorted(sel_dict.items()))
             source.append(AttrMeta(None, None, attr_name, sel_tuple))
         source_tuple = tuple(sorted(source, key=lambda x: x[:-1]))
-        clique_metas.append(source_tuple)
         clique_names.append(meas.clique)
 
         # The oracle returns data in the request order (meas.clique order).
@@ -427,14 +474,20 @@ def fit_pgm(
         confidence = n / (n + meas.sigma * obs.size)
         obs_list.append(LinearObservation(source_tuple, None, obs, confidence))
 
-    # Deduplicate clique metas
-    unique_metas = list(dict.fromkeys(clique_metas))
-
-    # Build junction tree from unique observation cliques
-    junction = get_junction_tree_from_cliques(unique_metas)
-    generations = get_message_passing_order(junction)
-    jt_cliques = list(junction.nodes())
-    messages = create_messages(generations, attrs)
+    # Build junction tree (hugin: moralize → triangulate → max cliques → MST)
+    if tree_mode == "maximal":
+        moral_graph = None
+    else:
+        moral_graph = _build_moral_graph(measurements, attrs)
+    _, jt_cliques, messages = build_junction_tree(
+        obs_list,
+        attrs,
+        tree_mode=tree_mode,
+        compress=compress,
+        moral_graph=moral_graph,
+        elim_max_attempts=elim_max_attempts,
+        elim_factor_cost=elim_factor_cost,
+    )
 
     # Warm start: use previous model's raw theta where cliques match
     init_potentials = None
