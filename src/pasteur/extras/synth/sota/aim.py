@@ -73,7 +73,7 @@ class AIM(Synth):
         etotal: float | None = None,
         delta: float | Literal["tenth"] = "tenth",
         rounds: int = 50,
-        max_model_size: float = 80,
+        max_model_size: float = 160,
         degree: int = 2,
         max_cells: int = 10000,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
