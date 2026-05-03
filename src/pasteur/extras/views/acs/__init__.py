@@ -77,11 +77,41 @@ def _process_target(
     return out
 
 
+# Union of all columns the catalog declares per table — every partition the
+# acs_person / acs (relational) views emit gets padded to this column set so
+# the union-schema parameters.yml validates against any sample year. Year-
+# specific columns (RELP/RELSHIPP, JWTR/JWTRNS, TYPE/TYPEHUGQ, YBL/YRBLT) are
+# all-NaN in the partitions whose schema generation doesn't carry them.
+_PERSON_FULL_COLS = (
+    "ST", "PUMA", "PWGTP", "SPORDER", "AGEP", "COW", "SCHL", "MAR", "OCCP",
+    "POBP", "POWPUMA", "RELP", "RELSHIPP", "WKHP", "SEX", "RAC1P", "PINCP",
+    "PUBCOV", "ESR", "DIS", "ESP", "CIT", "MIG", "MIL", "ANC", "NATIVITY",
+    "DEAR", "DEYE", "DREM", "FER", "GCL", "JWMNP", "JWTR", "JWTRNS", "POVPIP",
+    "NWLA", "NWAB", "NWAV", "NWLK", "NWRE",
+)
+_HOUSEHOLD_FULL_COLS = (
+    "ST", "PUMA", "NP", "HINCP", "FINCP", "TYPE", "TYPEHUGQ", "BLD", "TEN",
+    "VEH", "YBL", "YRBLT", "HHL", "HHT", "HUPAC", "FS", "ACR", "BDSP", "RMSP",
+    "VALP", "RNTP", "BROADBND", "ACCESS",
+)
+
+
+def _pad_missing(df, cols):
+    import pandas as pd
+
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        for c in missing:
+            df[c] = pd.NA
+    return df
+
+
 def _add_state_year(load: Callable, state: str, year: str):
-    """Materialize a partition and tag it with `state` (postal abbrev) and
-    `year` (int) columns if they aren't already present. Used by the full
-    `acs_person` view and by the relational `acs` view."""
+    """Materialize a partition, tag it with `state` (postal abbrev) and `year`
+    (int), and pad in any catalog-declared columns the partition's year
+    doesn't carry (e.g. RELSHIPP/JWTRNS in pre-2019 partitions)."""
     df = load()
+    df = _pad_missing(df, _PERSON_FULL_COLS)
     if "state" not in df.columns:
         df = df.assign(state=state)
     if "year" not in df.columns:
@@ -90,10 +120,9 @@ def _add_state_year(load: Callable, state: str, year: str):
 
 
 def _process_household(load: Callable, state: str, year: str):
-    """Materialize a household partition keyed by SERIALNO. Adds state/year
-    columns and promotes SERIALNO from a column to the index, so the
-    relational schema can declare SERIALNO as the household primary key."""
+    """Materialize a household partition keyed by SERIALNO."""
     df = load()
+    df = _pad_missing(df, _HOUSEHOLD_FULL_COLS)
     if "state" not in df.columns:
         df = df.assign(state=state)
     if "year" not in df.columns:
