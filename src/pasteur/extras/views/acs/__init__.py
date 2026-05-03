@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, ClassVar
 
 from ....utils import LazyFrame, gen_closure, get_relative_fn
-from ....utils.data import LazyDataset
+from ....utils.data import LazyDataset, LazyPartition
 from ....view import TabularView, View
 
 if TYPE_CHECKING:
@@ -278,11 +278,113 @@ class AcsTravelTimeView(_AcsTaskView):
     _filter_fn = staticmethod(_filter_travel_time)
 
 
+# Each year is split into this many equal-row chunks so the grouped-by-year
+# view emits ~6× as many partitions, parallelizing per-partition processing
+# without going back to the original 459-way (state, year) partitioning.
+_CHUNKS_PER_YEAR = 6
+
+
+def _slice_chunk(df, chunk_idx: int, n_chunks: int):
+    """Deterministic row-range slice of df. Boundaries are computed as
+    ceil(n / n_chunks) * chunk_idx so the same cuts apply in the keys
+    pipeline and the table pipeline (same n, same chunk_idx, same boundaries)."""
+    n = len(df)
+    chunk_size = -(-n // n_chunks)  # ceil division
+    start = chunk_idx * chunk_size
+    end = min(n, start + chunk_size)
+    return df.iloc[start:end]
+
+
+def _concat_year_for_view(state_funs, year: str, chunk_idx: int, n_chunks: int):
+    """Concatenate all states' person partitions for one year, then slice the
+    requested chunk. Pads the union schema and tags each row with `state`
+    (per-source) and `year` (constant). States are loaded in the order they
+    were given; the caller is expected to pass them sorted alphabetically so
+    the fresh `id` index matches what `_concat_keys_for_year` produces from
+    the keys side."""
+    import pandas as pd
+
+    parts = []
+    for state, fun in state_funs:
+        df = fun()
+        df = _pad_missing(df, _PERSON_FULL_COLS)
+        if "state" not in df.columns:
+            df = df.assign(state=state)
+        parts.append(df)
+    df = pd.concat(parts, ignore_index=True)
+    if "year" not in df.columns:
+        df = df.assign(year=int(year))
+    df.index = df.index.astype("int64").rename("id")
+    return _slice_chunk(df, chunk_idx, n_chunks)
+
+
+def _concat_keys_for_year(loaders, chunk_idx: int, n_chunks: int):
+    """Mirror `_concat_year_for_view` for the keys (no-column) DataFrame so
+    keys.id and table.id agree row-by-row after the per-year regrouping."""
+    import pandas as pd
+
+    df = pd.concat([ld() for ld in loaders], ignore_index=True)
+    df.index = df.index.astype("int64").rename("id")
+    return _slice_chunk(df, chunk_idx, n_chunks)
+
+
+def _is_state_year_pid(pid: str) -> bool:
+    """True for `{state}_{year}` source pids (e.g. `ca_2018`); False for the
+    regrouped `{year}_{chunk}` pids we emit (e.g. `2018_0`).  Used by
+    `_group_by_year` to stay idempotent when called twice on the same lf."""
+    first = pid.partition("_")[0]
+    # state codes are alphabetic (e.g. `ca`, `ny`); years are 4-digit numbers
+    return not (len(first) == 4 and first.isdigit())
+
+
+def _group_by_year(lf: LazyFrame, table_view: bool) -> LazyFrame:
+    """Re-partition a `{state}_{year}`-keyed LazyFrame into ``_CHUNKS_PER_YEAR``
+    chunks per year (pids `{year}_{chunk}`). `table_view=True` builds the
+    per-row state column and pads the union schema; otherwise just
+    concatenates index-only key frames.
+
+    Idempotent: if the pids are already in `{year}_{chunk}` form (e.g.
+    `filter_table` receives keys that `split_keys` has already regrouped),
+    pass through."""
+    if not lf.partitioned:
+        return lf
+    sample = next(iter(lf.keys()))
+    if not _is_state_year_pid(sample):
+        return lf
+    by_year: dict[str, list] = {}
+    for pid, p in lf.items():
+        state, year = pid.rsplit("_", 1)
+        by_year.setdefault(year, []).append((state, p))
+    new_parts = {}
+    for year, items in by_year.items():
+        items.sort(key=lambda sp: sp[0])  # alphabetical, deterministic
+        for chunk_idx in range(_CHUNKS_PER_YEAR):
+            pid = f"{year}_{chunk_idx}"
+            if table_view:
+                new_parts[pid] = LazyPartition(
+                    _concat_year_for_view,
+                    None,
+                    items,
+                    year,
+                    chunk_idx,
+                    _CHUNKS_PER_YEAR,
+                )
+            else:
+                loaders = [p for _, p in items]
+                new_parts[pid] = LazyPartition(
+                    _concat_keys_for_year, None, loaders, chunk_idx, _CHUNKS_PER_YEAR
+                )
+    return LazyDataset(lf.merged_load, new_parts)
+
+
 class AcsPersonView(TabularView):
-    """Full per-person table — all 459 (state, year) partitions concatenated
-    into pasteur's partitioned tabular view, with `state` and `year` columns
-    appended so partition identity survives downstream concatenation/filtering.
-    No row filter; no label."""
+    """Full per-person table, regrouped to one partition per year.
+
+    States within a year are concatenated (alphabetical order) into a single
+    partition with a fresh `id` index. `state` and `year` columns survive on
+    every row. Reduces 459 → ~9 partitions and trims the per-partition write
+    overhead. `split_keys` / `filter_table` are overridden to perform the same
+    regrouping on the keys side so the `id`s line up."""
 
     name = "acs_person"
     dataset = "acs"
@@ -292,12 +394,25 @@ class AcsPersonView(TabularView):
     def query(self, name, **tables: LazyFrame):
         assert name == "table"
         person = tables["person"]
-        if not person.partitioned:
-            return person()
-        return {
-            pid: gen_closure(_add_state_year, fun, *pid.rsplit("_", 1))
-            for pid, fun in person.items()
-        }
+        regrouped = _group_by_year(person, table_view=True)
+        if not regrouped.partitioned:
+            return regrouped()
+        return {pid: regrouped[pid] for pid in regrouped.keys()}
+
+    def split_keys(self, keys, req_splits, splits, random_state):
+        return super().split_keys(
+            _group_by_year(keys, table_view=False),
+            req_splits,
+            splits,
+            random_state,
+        )
+
+    def filter_table(self, name, keys: LazyFrame, **tables: LazyFrame):
+        return super().filter_table(
+            name,
+            _group_by_year(keys, table_view=False),
+            **tables,
+        )
 
 
 class AcsRelationalView(View):

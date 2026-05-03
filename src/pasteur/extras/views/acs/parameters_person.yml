@@ -5,7 +5,7 @@ tables:
     fields:
       state: categorical
       year: ordinal
-      ST: categorical
+      ST: categorical?
       PUMA: categorical
       PWGTP: numerical
       SPORDER: ordinal
