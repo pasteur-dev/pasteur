@@ -178,7 +178,7 @@ def pipe(
                 pipeline = f"{pipeline}.ingest"
 
     with create_session(
-        KedroSession, runtime_params=param_dict, env="base", session_id=session_id
+        KedroSession, runtime_params=param_dict, session_id=session_id
     ) as session:
         if "ingest" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
@@ -264,10 +264,12 @@ def _log_run_url(session, pipeline: str, param_dict: dict) -> None:
         ctx = session.load_context()
         url = _get_server_url(ctx)
         if not url:
+            logger.debug("mlflow server.url not configured; skipping run URL log")
             return
         run_name = get_run_name(pipeline, param_dict)
         run_id = get_run_id(run_name, None, get_git_suffix(), finished=True)
         if not run_id:
+            logger.debug(f"No finished mlflow run found for '{run_name}'")
             return
         import mlflow
 
@@ -285,6 +287,7 @@ def _log_parent_run_url(ctx, parent_name: str, experiment_id: str) -> None:
 
         url = _get_server_url(ctx)
         if not url:
+            logger.debug("mlflow server.url not configured; skipping parent URL log")
             return
         git = get_git_suffix()
         query = (
@@ -512,7 +515,7 @@ def sweep(
     }
 
     if clear_cache:
-        with KedroSession.create(env="base") as session:
+        with KedroSession.create() as session:
             session.load_context()
             logger.warning(f"Removing runs from mlflow with parent:\n{parent_name}")
             remove_runs(parent_name, delete_parent=False)
@@ -544,7 +547,7 @@ def sweep(
 
     # Read configured random_state for deriving follow-up run seeds
     if runs > 1 and not stochastic:
-        with KedroSession.create(env="base") as session:
+        with KedroSession.create() as session:
             ctx = session.load_context()
             configured_seed = ctx.params.get("random_state", 0)
     else:
@@ -617,7 +620,7 @@ def sweep(
                 )
 
                 with KedroSession.create(
-                    runtime_params=run_runtime_params, env="base"
+                    runtime_params=run_runtime_params
                 ) as session:
                     session.load_context()
 
@@ -678,7 +681,7 @@ def sweep(
         logger.info("Only 1 run executed, skipping summary.")
         return
 
-    with KedroSession.create(runtime_params=runtime_params, env="base") as session:
+    with KedroSession.create(runtime_params=runtime_params) as session:
         ctx = session.load_context()
         experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split(".")[0])
         log_parent_run(
@@ -726,7 +729,7 @@ def download(
     from ..utils.download import get_description, main
 
     # Setup logging and params with kedro
-    with KedroSession.create(env="base") as session:
+    with KedroSession.create() as session:
         ctx = session.load_context()
 
         dataset_modules = get_module_dict(Dataset, getattr(ctx, "pasteur").modules)
@@ -777,7 +780,7 @@ def bootstrap(
     from ..utils.progress import logging_redirect_pbar
 
     # Setup logging and params with kedro
-    with KedroSession.create(env="base") as session:
+    with KedroSession.create() as session:
         ctx = session.load_context()
 
         dataset_modules = get_module_dict(Dataset, ctx.pasteur.modules)  # type: ignore
@@ -835,7 +838,7 @@ def export(
     import pyarrow.csv as csv
 
     # Setup logging and params with kedro
-    with KedroSession.create(env="base") as session:
+    with KedroSession.create() as session:
         ctx = session.load_context()
 
         ds = ctx.catalog.load(dataset)

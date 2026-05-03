@@ -51,7 +51,16 @@ from kedro.config import OmegaConfigLoader
 
 CONFIG_LOADER_CLASS = OmegaConfigLoader
 # Keyword arguments to pass to the `CONFIG_LOADER_CLASS` constructor.
-CONFIG_LOADER_ARGS = {}
+# Without an explicit base_env, OmegaConfigLoader scans `conf/` directly,
+# which breaks `**/parameters*` matching for files inside `conf/base/parameters/`.
+CONFIG_LOADER_ARGS = {
+    "base_env": "base",
+    "default_run_env": "local",
+    # Default `destructive` merge replaces top-level dicts wholesale, so a
+    # local override like `server: {url: ...}` would drop base's
+    # `server.mlflow_tracking_uri`. Use soft merge for mlflow.
+    "merge_strategy": {"mlflow": "soft"},
+}
 
 # Class that manages the Data Catalog.
 # from kedro.io import DataCatalog
