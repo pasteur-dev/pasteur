@@ -12,12 +12,18 @@ tables:
       MIG: categorical
       RELP: categorical
       RAC1P: categorical
-      PUMA: categorical
+      PUMA:
+        type: numerical    # ~270 (per state) PUMA codes; PrivPGD bins to 32
+        bins: 32
       ST: categorical
       CIT: categorical
-      OCCP: categorical
+      OCCP:
+        type: numerical    # ~530 occupation codes; PrivPGD bins to 32
+        bins: 32
       JWTR: categorical
-      POWPUMA: categorical
+      POWPUMA:
+        type: numerical    # ~270 work-PUMA codes; PrivPGD bins to 32
+        bins: 32
       POVPIP: numerical
       label: categorical
 

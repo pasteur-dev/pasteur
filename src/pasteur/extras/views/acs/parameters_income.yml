@@ -7,8 +7,12 @@ tables:
       COW: categorical
       SCHL: ordinal
       MAR: categorical
-      OCCP: categorical
-      POBP: categorical
+      OCCP:
+        type: numerical    # ~530 occupation codes; PrivPGD bins to 32
+        bins: 32
+      POBP:
+        type: numerical    # ~219 place-of-birth codes; PrivPGD bins to 32
+        bins: 32
       RELP: categorical
       WKHP: numerical
       SEX: categorical

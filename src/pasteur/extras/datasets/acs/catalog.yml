@@ -63,48 +63,51 @@ acs.raw@person: &acs_pattern
         - NWAV
         - NWLK
         - NWRE
+      # ACS PUMS codes everything as integers — load them as Int so pasteur
+      # transformers can use them either as numerical (binned) or categorical
+      # (re-encoded by IdxTransformer) without runtime casting.
       dtype:
-        SERIALNO: string
+        SERIALNO: string  # alphanumeric in 2017+
         SPORDER: Int8
-        ST: category
-        PUMA: category
-        PWGTP: Int32
+        ST: Int8           # FIPS state code 01–72
+        PUMA: Int32        # 5-digit code
+        PWGTP: Int32       # person weight
         AGEP: Int8
-        COW: category
-        SCHL: category
-        MAR: category
-        OCCP: category
-        POBP: category
-        POWPUMA: category
-        RELP: category
-        RELSHIPP: category
-        WKHP: Int8
-        SEX: category
-        RAC1P: category
-        PINCP: Int32
-        PUBCOV: category
-        ESR: category
-        DIS: category
-        ESP: category
-        CIT: category
-        MIG: category
-        MIL: category
-        ANC: category
-        NATIVITY: category
-        DEAR: category
-        DEYE: category
-        DREM: category
-        FER: category
-        GCL: category
-        JWMNP: Int16
-        JWTR: category
-        JWTRNS: category
-        POVPIP: Int16
-        NWLA: category
-        NWAB: category
-        NWAV: category
-        NWLK: category
-        NWRE: category
+        COW: Int8          # class of worker, 1–9
+        SCHL: Int8         # education level, 0–24
+        MAR: Int8          # marital status, 1–5
+        OCCP: Int16        # occupation code, 0–9999
+        POBP: Int16        # place of birth, 1–554
+        POWPUMA: Int32     # place-of-work PUMA
+        RELP: Int8         # 2014–2018 relationship, 0–17
+        RELSHIPP: Int8     # 2019+ relationship, 20–38
+        WKHP: Int8         # hours worked per week
+        SEX: Int8
+        RAC1P: Int8        # race, 1–9
+        PINCP: Int32       # personal income
+        PUBCOV: Int8       # public coverage, 1–2
+        ESR: Int8          # employment status, 0–6
+        DIS: Int8
+        ESP: Int8          # employment status of parents, 0–8
+        CIT: Int8
+        MIG: Int8
+        MIL: Int8
+        ANC: Int8
+        NATIVITY: Int8
+        DEAR: Int8
+        DEYE: Int8
+        DREM: Int8
+        FER: Int8
+        GCL: Int8
+        JWMNP: Int16       # commute minutes
+        JWTR: Int8         # 2014–2018 transport mode, 1–12
+        JWTRNS: Int8       # 2019+ transport mode, 1–12
+        POVPIP: Int16      # poverty ratio, 0–501
+        NWLA: Int8
+        NWAB: Int8
+        NWAV: Int8
+        NWLK: Int8
+        NWRE: Int8
 
 acs.raw@household:
   <<: *acs_pattern
@@ -147,26 +150,26 @@ acs.raw@household:
         - ACCESS
       dtype:
         SERIALNO: string
-        ST: category
-        PUMA: category
-        NP: Int8
-        HINCP: Int32
-        FINCP: Int32
-        TYPE: category
-        TYPEHUGQ: category
-        BLD: category
-        TEN: category
-        VEH: Int8
-        YBL: category
-        YRBLT: Int16
-        HHL: category
-        HHT: category
-        HUPAC: category
-        FS: category
-        ACR: category
-        BDSP: Int8
-        RMSP: Int8
-        VALP: Int32
-        RNTP: Int32
-        BROADBND: category
-        ACCESS: category
+        ST: Int8           # FIPS state code
+        PUMA: Int32
+        NP: Int8           # household size
+        HINCP: Int32       # household income
+        FINCP: Int32       # family income
+        TYPE: Int8         # housing type (pre-2022)
+        TYPEHUGQ: Int8     # 2022+ replacement
+        BLD: Int8          # building structure, 1–10
+        TEN: Int8          # tenure (own/rent/etc), 1–4
+        VEH: Int8          # vehicles, 0–6
+        YBL: Int8          # year-built bin (pre-2020), 1–14
+        YRBLT: Int16       # raw build year (2020+)
+        HHL: Int8          # household language, 1–5
+        HHT: Int8          # household type, 1–7
+        HUPAC: Int8        # presence of children, 1–4
+        FS: Int8           # food stamps, 1–2
+        ACR: Int8          # acreage, 1–3
+        BDSP: Int8         # bedrooms
+        RMSP: Int8         # rooms
+        VALP: Int32        # property value
+        RNTP: Int32        # monthly rent
+        BROADBND: Int8     # broadband internet, 1–2
+        ACCESS: Int8       # internet access, 1–3
