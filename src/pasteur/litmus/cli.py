@@ -33,12 +33,6 @@ def litmus(port: int, host: str, hotreload: bool):
             patterns["locations"] = ["location*", "location*/**", "**/location*"]
         locations = ctx.config_loader.get("locations")
 
-        # Allow local overrides without duplicate key errors
-        if "hidden_base" in locations:
-            locations["base"] = locations.pop("hidden_base")
-        if "hidden_raw" in locations:
-            locations["raw"] = locations.pop("hidden_raw")
-
         data_dir = locations.get("base", "data")
 
         # Create entity generator bound to the Kedro catalog
