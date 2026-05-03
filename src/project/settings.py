@@ -9,6 +9,7 @@ import warnings
 import os
 
 os.environ["MLFLOW_DISABLE_TELEMETRY"] = "true"
+os.environ["JAX_PLATFORMS"] = "cpu"
 
 from rich.traceback import install
 from pasteur.utils.progress import RICH_TRACEBACK_ARGS

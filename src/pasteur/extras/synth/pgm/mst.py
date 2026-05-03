@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pandas as pd
 
@@ -64,7 +64,8 @@ class MST(Synth):
     def __init__(
         self,
         e: float = 1.0,
-        delta: float = 1e-9,
+        etotal: float | None = None,
+        delta: float | Literal["tenth"] = "tenth",
         num_marginals: int = 0,
         degree: int = 2,
         max_cells: int = 2**16,
@@ -74,7 +75,7 @@ class MST(Synth):
         partitions: int | None = None,
         **kwargs,
     ) -> None:
-        self.e = e
+        self.e = etotal if etotal is not None else e
         self.delta = delta
         self.num_marginals = num_marginals
         self.degree = degree
@@ -117,6 +118,12 @@ class MST(Synth):
         table = tables[self.table]
         self.partitions = self.partitions or len(table)
         self.n = self.n or (table.shape[0] // self.partitions)
+
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * self._n)
+            logger.info(
+                f"Resolved delta='tenth' to delta={self.delta:.2e} (n={self._n})"
+            )
 
         table_attrs = {None: self.attrs[self.table]}
         with MarginalOracle(
