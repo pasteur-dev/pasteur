@@ -52,6 +52,11 @@ class RawSource(NamedTuple):
     save_name: str | None = None
     credentials: bool = False
     desc: str | None = None
+    keep_dirs: int = 0
+    """Number of trailing URL path segments (excluding the filename) to keep
+    on disk. Default 0 = files land flat in `<raw>/<save_name>/`. Use a
+    positive value when a single source's URLs share filenames across folders
+    (e.g. ACS PUMS where every year has a `csv_pca.zip`)."""
 
 
 class LazyPartition(Generic[A]):

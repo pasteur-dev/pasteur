@@ -1,0 +1,51 @@
+tables:
+  table:
+    primary_key: id
+
+    fields:
+      state: categorical
+      year: ordinal
+      ST: categorical
+      PUMA: categorical
+      PWGTP: numerical
+      SPORDER: ordinal
+      AGEP: numerical
+      COW: categorical?
+      SCHL: ordinal?
+      MAR: categorical
+      OCCP: categorical?
+      POBP: categorical
+      POWPUMA: categorical?
+      RELP: categorical?       # 2014–2018 only
+      RELSHIPP: categorical?   # 2019+ only
+      WKHP: numerical?
+      SEX: categorical
+      RAC1P: categorical
+      PINCP: numerical?
+      PUBCOV: categorical?
+      ESR: categorical?
+      DIS: categorical
+      ESP: categorical?
+      CIT: categorical
+      MIG: categorical?
+      MIL: categorical?
+      ANC: categorical
+      NATIVITY: categorical
+      DEAR: categorical
+      DEYE: categorical
+      DREM: categorical?
+      FER: categorical?
+      GCL: categorical?
+      JWMNP: numerical?
+      JWTR: categorical?       # 2014–2018 only
+      JWTRNS: categorical?     # 2019+ only
+      POVPIP: numerical?
+      NWLA: categorical?
+      NWAB: categorical?
+      NWAV: categorical?
+      NWLK: categorical?
+      NWRE: categorical?
+
+ratios:
+  wrk: 0.8
+  ref: 0.2

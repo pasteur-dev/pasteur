@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 
 def get_recommended_datasets() -> list[Dataset | View]:
+    from .datasets.acs import AcsDataset
     from .datasets.adult import AdultDataset
     from .datasets.mimic import MimicDataset
     from .datasets.eicu import EicuDataset
@@ -20,6 +21,14 @@ def get_recommended_datasets() -> list[Dataset | View]:
     # from .datasets.boston import BostonDataset
     # from .datasets.pad import PadDataset
     from .datasets.rfel import ConsumerExpendituresDataset, FinancialDataset, StudentLoanDataset
+    from .views.acs import (
+        AcsEmploymentView,
+        AcsIncomeView,
+        AcsPersonView,
+        AcsPublicCoverageView,
+        AcsRelationalView,
+        AcsTravelTimeView,
+    )
     from .views.adult import TabAdultView
     from .views.mimic import MimicCore, MimicTabAdmissions
     from .views.eicu import EicuRelational
@@ -31,6 +40,7 @@ def get_recommended_datasets() -> list[Dataset | View]:
 
     return [
         # Views and Datasets
+        AcsDataset(),
         AdultDataset(),
         # BostonDataset(),
         MimicDataset(),
@@ -40,6 +50,12 @@ def get_recommended_datasets() -> list[Dataset | View]:
         # TexasChargesView(),
         # TexasBaseView(),
         TabAdultView(),
+        AcsIncomeView(),
+        AcsEmploymentView(),
+        AcsPublicCoverageView(),
+        AcsTravelTimeView(),
+        AcsPersonView(),
+        AcsRelationalView(),
         # BostonView(),
         # MimicCore,
         MimicTabAdmissions(),
@@ -101,7 +117,15 @@ def get_recommended_system_modules() -> list[Module]:
         # Synthesizers
         IdentSynth.get_factory(),
         PrivBayesSynth.get_factory(rebalance=False),
+        PrivBayesSynth.get_factory(name="privbayes_md", mirror_descent=True),
+        PrivBayesSynth.get_factory(name="privbayes_md_s", mirror_descent={"sample": True}),
         PrivBayesSynth.get_factory(name="privbayes_rb", rebalance=True),
+        PrivBayesSynth.get_factory(
+            name="privbayes_rb_md", rebalance=True, mirror_descent=True
+        ),
+        PrivBayesSynth.get_factory(
+            name="privbayes_rb_md_s", rebalance=True, mirror_descent={"sample": True}
+        ),
         # Metrics
         DistributionMetric.get_factory(),
         NumericalHist.get_factory(),

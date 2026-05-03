@@ -1,0 +1,29 @@
+tables:
+  table:
+    primary_key: id
+
+    fields:
+      AGEP: numerical
+      SCHL: ordinal
+      MAR: categorical
+      SEX: categorical
+      DIS: categorical
+      ESP: categorical
+      CIT: categorical
+      MIG: categorical
+      MIL: categorical
+      ANC: categorical
+      NATIVITY: categorical
+      DEAR: categorical
+      DEYE: categorical
+      DREM: categorical
+      PINCP: numerical
+      ESR: categorical
+      ST: categorical
+      FER: categorical
+      RAC1P: categorical
+      label: categorical
+
+ratios:
+  wrk: 0.8
+  ref: 0.2

@@ -1,0 +1,172 @@
+# ACS PUMS 1-Year catalog.
+#
+# Each (state, year) CSV is a partition keyed `{state}_{year}` (e.g. `ca_2018`).
+# `usecols` and `dtype` enumerate the union of the pre-2019 and 2019+ schemas;
+# AcsCSVDataset filters them to whichever columns are actually present in each
+# file before delegating to pandas.read_csv.
+
+acs.raw@person: &acs_pattern
+  type: pasteur.kedro.dataset.PatternDataset
+  path: ${bootstrap}
+
+  pattern: '/p_[a-z]{2}\.csv$'
+  replace_pattern: '(?P<year>\d{4})/p_(?P<state>[a-z]{2})\.csv'
+  replace_format: "{state}_{year}"
+
+  dataset:
+    type: pasteur.extras.datasets.acs.AcsCSVDataset
+    load_args:
+      sep: ","
+      engine: "c"
+      header: 0
+      na_values: ["", " ", "N.A.", "N.A.//"]
+      skipinitialspace: True
+      usecols:
+        - SERIALNO
+        - SPORDER
+        - ST
+        - PUMA
+        - PWGTP
+        - AGEP
+        - COW
+        - SCHL
+        - MAR
+        - OCCP
+        - POBP
+        - POWPUMA
+        - RELP        # 2014–2018 only
+        - RELSHIPP    # 2019+ only
+        - WKHP
+        - SEX
+        - RAC1P
+        - PINCP
+        - PUBCOV
+        - ESR
+        - DIS
+        - ESP
+        - CIT
+        - MIG
+        - MIL
+        - ANC
+        - NATIVITY
+        - DEAR
+        - DEYE
+        - DREM
+        - FER
+        - GCL
+        - JWMNP
+        - JWTR        # 2014–2018 only
+        - JWTRNS      # 2019+ only
+        - POVPIP
+        - NWLA
+        - NWAB
+        - NWAV
+        - NWLK
+        - NWRE
+      dtype:
+        SERIALNO: string
+        SPORDER: Int8
+        ST: category
+        PUMA: category
+        PWGTP: Int32
+        AGEP: Int8
+        COW: category
+        SCHL: category
+        MAR: category
+        OCCP: category
+        POBP: category
+        POWPUMA: category
+        RELP: category
+        RELSHIPP: category
+        WKHP: Int8
+        SEX: category
+        RAC1P: category
+        PINCP: Int32
+        PUBCOV: category
+        ESR: category
+        DIS: category
+        ESP: category
+        CIT: category
+        MIG: category
+        MIL: category
+        ANC: category
+        NATIVITY: category
+        DEAR: category
+        DEYE: category
+        DREM: category
+        FER: category
+        GCL: category
+        JWMNP: Int16
+        JWTR: category
+        JWTRNS: category
+        POVPIP: Int16
+        NWLA: category
+        NWAB: category
+        NWAV: category
+        NWLK: category
+        NWRE: category
+
+acs.raw@household:
+  <<: *acs_pattern
+  pattern: '/h_[a-z]{2}\.csv$'
+  replace_pattern: '(?P<year>\d{4})/h_(?P<state>[a-z]{2})\.csv'
+  replace_format: "{state}_{year}"
+
+  dataset:
+    type: pasteur.extras.datasets.acs.AcsCSVDataset
+    load_args:
+      sep: ","
+      engine: "c"
+      header: 0
+      na_values: ["", " ", "N.A.", "N.A.//"]
+      skipinitialspace: True
+      usecols:
+        - SERIALNO
+        - ST
+        - PUMA
+        - NP
+        - HINCP
+        - FINCP
+        - TYPE        # pre-2022
+        - TYPEHUGQ    # 2022+ replacement of TYPE
+        - BLD
+        - TEN
+        - VEH
+        - YBL         # pre-2020
+        - YRBLT       # 2020+ replacement
+        - HHL
+        - HHT
+        - HUPAC
+        - FS
+        - ACR
+        - BDSP
+        - RMSP
+        - VALP
+        - RNTP
+        - BROADBND
+        - ACCESS
+      dtype:
+        SERIALNO: string
+        ST: category
+        PUMA: category
+        NP: Int8
+        HINCP: Int32
+        FINCP: Int32
+        TYPE: category
+        TYPEHUGQ: category
+        BLD: category
+        TEN: category
+        VEH: Int8
+        YBL: category
+        YRBLT: Int16
+        HHL: category
+        HHT: category
+        HUPAC: category
+        FS: category
+        ACR: category
+        BDSP: Int8
+        RMSP: Int8
+        VALP: Int32
+        RNTP: Int32
+        BROADBND: category
+        ACCESS: category

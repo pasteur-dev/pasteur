@@ -37,20 +37,24 @@ class PatternDataset(PartitionedDataset):
         load_args=None,
         fs_args=None,
         overwrite: bool = False,
+        save_lazily: bool = True,
+        metadata: dict[str, Any] | None = None,
         pattern: str = "",
         replace_pattern: str = "",
         replace_format: str = "",
     ):
 
         super().__init__(
-            path,
-            dataset,
-            filepath_arg,
-            filename_suffix,
-            credentials,  # type: ignore
-            load_args,  # type: ignore
-            fs_args,  # type: ignore
-            overwrite,
+            path=path,
+            dataset=dataset,
+            filepath_arg=filepath_arg,
+            filename_suffix=filename_suffix,
+            credentials=credentials,
+            load_args=load_args,
+            fs_args=fs_args,
+            overwrite=overwrite,
+            save_lazily=save_lazily,
+            metadata=metadata,
         )
         self._pattern = pattern
         self._replace_pattern = replace_pattern
@@ -74,10 +78,10 @@ class PatternDataset(PartitionedDataset):
 
         return self._replace_format.format(*m.groups(), **m.groupdict())
 
-    def _load(self):
+    def load(self):
         return LazyDataset(
             None,
-            {pid: LazyPartition(fun, None) for pid, fun in super()._load().items()},
+            {pid: LazyPartition(fun, None) for pid, fun in super().load().items()},
         )
 
 

@@ -1,0 +1,20 @@
+tables:
+  table:
+    primary_key: id
+
+    fields:
+      AGEP: numerical
+      COW: categorical
+      SCHL: ordinal
+      MAR: categorical
+      OCCP: categorical
+      POBP: categorical
+      RELP: categorical
+      WKHP: numerical
+      SEX: categorical
+      RAC1P: categorical
+      label: categorical
+
+ratios:
+  wrk: 0.8
+  ref: 0.2

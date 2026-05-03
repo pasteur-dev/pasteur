@@ -7,16 +7,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def download_files(name: str, dir: str, files: list[str]):
+def download_files(name: str, dir: str, files: list[str], keep_dirs: int = 0):
     if not files:
         assert False, "Empty file list"
 
     logger.info(f"Downloading dataset {name} files iteratively with wget.")
-    args = ["wget", "-m", "-np", "-nH", "-c", "-P", dir]
+    args = [
+        "wget", "-m", "-np", "-nH", "-c", "-P", dir,
+        "--tries=20",
+        "--waitretry=10",
+        "--retry-on-http-error=403,429,500,502,503,504",
+        "--wait=0.2",
+        "--random-wait",
+    ]
 
     template_fn = files[0]
-    # We have to skip parent dirs manually
-    cut_dirs = len(template_fn.split("/")) - 4
+    # We have to skip parent dirs manually. The default keeps just the filename;
+    # `keep_dirs` preserves additional trailing path segments to disambiguate
+    # files that share a basename across folders.
+    cut_dirs = len(template_fn.split("/")) - 4 - keep_dirs
     if cut_dirs > 0:
         args.append(f"--cut-dirs={cut_dirs}")
 
@@ -121,7 +130,7 @@ def main(download_dir: str, datasets: dict[str, DS], username: str | None):
             username = input("Enter username for download: ")
 
         if isinstance(ds.files, list):
-            download_files(name, save_path, ds.files)
+            download_files(name, save_path, ds.files, keep_dirs=ds.keep_dirs)
         else:
             assert isinstance(ds.files, str)
             if ds.files.startswith("s3:"):

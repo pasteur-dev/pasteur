@@ -1,0 +1,84 @@
+tables:
+  household:
+    primary_key: SERIALNO
+
+    fields:
+      SERIALNO: id
+      state: categorical
+      year: ordinal
+      ST: categorical
+      PUMA: categorical
+      NP: numerical
+      HINCP: numerical?
+      FINCP: numerical?
+      TYPE: categorical?       # pre-2022
+      TYPEHUGQ: categorical?   # 2022+
+      BLD: categorical?
+      TEN: categorical?
+      VEH: numerical?
+      YBL: categorical?        # pre-2020
+      YRBLT: numerical?        # 2020+
+      HHL: categorical?
+      HHT: categorical?
+      HUPAC: categorical?
+      FS: categorical?
+      ACR: categorical?
+      BDSP: numerical?
+      RMSP: numerical?
+      VALP: numerical?
+      RNTP: numerical?
+      BROADBND: categorical?
+      ACCESS: categorical?
+
+  person:
+    primary_key: id
+
+    fields:
+      id: id
+      SERIALNO: id:household.SERIALNO
+      state: categorical
+      year: ordinal
+      ST: categorical
+      PUMA: categorical
+      PWGTP: numerical
+      SPORDER: ordinal
+      AGEP: numerical
+      COW: categorical?
+      SCHL: ordinal?
+      MAR: categorical
+      OCCP: categorical?
+      POBP: categorical
+      POWPUMA: categorical?
+      RELP: categorical?
+      RELSHIPP: categorical?
+      WKHP: numerical?
+      SEX: categorical
+      RAC1P: categorical
+      PINCP: numerical?
+      PUBCOV: categorical?
+      ESR: categorical?
+      DIS: categorical
+      ESP: categorical?
+      CIT: categorical
+      MIG: categorical?
+      MIL: categorical?
+      ANC: categorical
+      NATIVITY: categorical
+      DEAR: categorical
+      DEYE: categorical
+      DREM: categorical?
+      FER: categorical?
+      GCL: categorical?
+      JWMNP: numerical?
+      JWTR: categorical?
+      JWTRNS: categorical?
+      POVPIP: numerical?
+      NWLA: categorical?
+      NWAB: categorical?
+      NWAV: categorical?
+      NWLK: categorical?
+      NWRE: categorical?
+
+ratios:
+  wrk: 0.8
+  ref: 0.2
