@@ -59,10 +59,14 @@ class OracleDataset(Dataset):
         return self.o.get_shape()[0]
 
     def _build_request(self, cols):
-        """Build a MarginalRequest for the given column names at height 0."""
+        """Build a MarginalRequest for the given column names at height 0.
+
+        AIM treats each value-column as an independent variable, so each col
+        becomes its own selector entry of the form (attr_name, {col: 0}). The
+        attr_name is the parent attribute's name (which differs from `col`
+        when the attribute has a `common` value or multiple sub-values)."""
         req = []
         for col in cols:
-            # Find the attr that owns this value name
             for table_key, table_attrs in self.attrs.items():
                 if not isinstance(table_attrs, dict):
                     continue
@@ -70,10 +74,7 @@ class OracleDataset(Dataset):
                     if not hasattr(attr, 'vals'):
                         continue
                     if col in [v.name for v in attr.vals.values()]:
-                        if attr.common:
-                            req.append((col, 0))
-                        else:
-                            req.append((col, {col: 0}))
+                        req.append((attr.name, {col: 0}))
                         break
                 else:
                     continue
