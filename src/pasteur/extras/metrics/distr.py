@@ -331,8 +331,11 @@ def _visualise_kl(
 
 
 ASSOC_METRICS = ["cramer", "tschuprow", "pearson"]
-METRICS = ["kl", *ASSOC_METRICS]
+METRICS = ["kl", "tvd", *ASSOC_METRICS]
 PRINT_METRICS = ["kl", "cramer"]
+# Metrics where lower scores are better (so the worst-tail percentile
+# flips: e.g. ``percentile_lower=5`` is plotted as the 95th percentile).
+_METRIC_LOWER_IS_BETTER = {"tvd": True}
 
 
 def _visualise_2way(
@@ -371,6 +374,13 @@ def _visualise_2way(
                 kl = rel_entr(k / k.sum(), j).sum()
                 kl_norm = 1 / (1 + kl)
                 out = [col_i, col_j, kl, kl_norm, len(k)]
+            elif metr == "tvd":
+                zfill = lambda x: (x + KL_ZERO_FILL) / np.sum(x + KL_ZERO_FILL)
+                k = zfill(wrk[key])
+                j = zfill(syn[key])
+
+                tvd = float(0.5 * np.sum(np.abs(k - j)))
+                out = [col_i, col_j, tvd, tvd, len(k)]
             elif metr in ASSOC_METRICS:
                 assert domain
 
@@ -572,7 +582,7 @@ def _render_multiplot(
     subplot_scores: dict[str, dict[str, float | list[float]]],
     title: str,
     artifact_path: str,
-    percentile_lower: float = 5,
+    percentile: float = 5,
 ):
     """Render a multiplot HTML page with one subplot per key in *subplot_scores*.
 
@@ -635,6 +645,11 @@ def _render_multiplot(
         ax = axes[row][col]
         scores = subplot_scores[label]
 
+        # Y-axis bounds are computed only from mean lines, run dots, and the
+        # ref line — so the dashed worst-tail percentile is allowed to fall
+        # off-screen for very bad runs (low privacy budgets).
+        y_main: list[float] = []
+
         for alg_idx, alg in enumerate(algorithms):
             color = cmap[alg_idx % len(cmap)]
 
@@ -679,9 +694,7 @@ def _render_multiplot(
 
             # --- 10th percentile bound across per-combo values ---
             if any(len(c) > 1 for c in combos_list):
-                pl = [
-                    float(np.percentile(c, percentile_lower)) for c in combos_list
-                ]
+                pl = [float(np.percentile(c, percentile)) for c in combos_list]
                 ax.plot(
                     pos_list,
                     pl,
@@ -703,6 +716,9 @@ def _render_multiplot(
                 linewidth=1.5,
                 zorder=4,
             )
+            y_main.extend(mean_list)
+            for vals in vals_list:
+                y_main.extend(vals)
 
             # --- Individual run dots + CI overlay ---
             if has_runs:
@@ -764,15 +780,25 @@ def _render_multiplot(
                 zorder=1,
                 label="ref",
             )
+            y_main.append(ref_score)
         if len(ref_combos) > 1:
             ax.axhline(
-                float(np.percentile(ref_combos, percentile_lower)),
+                float(np.percentile(ref_combos, percentile)),
                 color="grey",
                 linestyle=(0, (4, 2)),
                 linewidth=1,
                 alpha=0.7,
                 zorder=1,
             )
+
+        # Lock y-limits to the main artists; dashed worst-tail bounds may
+        # extend below/above and get clipped.
+        if y_main:
+            ymin = float(min(y_main))
+            ymax = float(max(y_main))
+            if ymax > ymin:
+                pad = 0.05 * (ymax - ymin)
+                ax.set_ylim(ymin - pad, ymax + pad)
 
         # --- Axes formatting ---
         ax.set_xticks(range(len(steps)))
@@ -822,6 +848,7 @@ _CORR_TYPES = {
 
 _METRIC_FANCY = {
     "kl": "KL Divergence",
+    "tvd": "Total Variation Distance",
     "cramer": "Cramér's V",
     "tschuprow": "Tschuprow's T",
     "pearson": "Pearson",
@@ -913,11 +940,19 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
         path = f"distr/{pref}{metr}_overall/multiplot.html"
         fancy = _METRIC_FANCY.get(metr, metr.upper())
 
+        # For lower-is-better metrics the worst tail is the upper one, so
+        # flip the percentile (e.g. 5 → 95).
+        percentile = (
+            100.0 - percentile_lower
+            if _METRIC_LOWER_IS_BETTER.get(metr, False)
+            else percentile_lower
+        )
+
         _render_multiplot(
             subplot_scores,
             f"{fancy} - Sweep",
             path,
-            percentile_lower=percentile_lower,
+            percentile=percentile,
         )
 
 
@@ -1007,6 +1042,8 @@ def _process_marginals_chunk(
 class DistributionMetric(Metric[DistrSummary, DistrSummary]):
     name = "distr"
     encodings = "idx"
+
+    percentile_lower: float = 5
 
     def __init__(
         self,
