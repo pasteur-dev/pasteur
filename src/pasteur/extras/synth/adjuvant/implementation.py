@@ -580,6 +580,139 @@ def _node_name(table, order, attr, value, height) -> str:
     return out + f"{attr}.{value}[{height}]"
 
 
+def _value_col(d: dict) -> Col:
+    """Column key (table, order, attr, value) for a node's data dict."""
+    return (d.get("table"), d.get("order"), d["attr"], d["value"])
+
+
+def init_active_heights(
+    directed_graph: "nx.DiGraph",
+    moral: "nx.Graph",
+) -> tuple[dict[Col, list[int]], dict[tuple[Col, int], str]]:
+    """Initial active heights and (col, height) -> node lookup.
+
+    A height is "active" when its node has at least one cross-value edge in
+    the moral graph (e.g. the cmn[0] -> v[h_range-1] cross-attribute edge)
+    or when it's the protected h=0 of a main-table value (where 1-way obs
+    attach).  Returned per-column lists are kept sorted ascending."""
+    active: dict[Col, set[int]] = {}
+    lookup: dict[tuple[Col, int], str] = {}
+    for n, d in directed_graph.nodes(data=True):
+        lookup[(_value_col(d), d["height"])] = n
+        if d.get("table") is None and d["height"] == 0:
+            active.setdefault(_value_col(d), set()).add(0)
+    for u, v in moral.edges():
+        du = directed_graph.nodes[u]
+        dv = directed_graph.nodes[v]
+        ku, kv = _value_col(du), _value_col(dv)
+        if ku != kv:
+            active.setdefault(ku, set()).add(du["height"])
+            active.setdefault(kv, set()).add(dv["height"])
+    sorted_active: dict[Col, list[int]] = {k: sorted(v) for k, v in active.items()}
+    return sorted_active, lookup
+
+
+def activate_height(
+    col: Col,
+    h: int,
+    base_active: dict[Col, list[int]],
+) -> None:
+    """Mark height ``h`` as active for ``col`` (sorted insertion).
+
+    Pure book-keeping — chain edges are *not* committed to the moral
+    graph or base adjacency here.  Instead they are added temporarily
+    during the clique-size check (via ``provisional_chain_edges``) and
+    permanently materialised on the moral graph just before junction-tree
+    construction (via ``commit_chain_edges_to_moral``)."""
+    import bisect
+
+    hs = base_active.setdefault(col, [])
+    if h in hs:
+        return
+    idx = bisect.bisect_left(hs, h)
+    hs.insert(idx, h)
+
+
+def provisional_chain_edges(
+    touched_nodes: set[str],
+    base_active: dict[Col, list[int]],
+    height_lookup: dict[tuple[Col, int], str],
+    node_data: dict[str, dict],
+    adj: dict[str, set[str]],
+) -> list[tuple[str, str]]:
+    """Chain edges to add for the clique-size check's tentative graph.
+
+    Iterates over *every* column with ≥2 active heights (the touched
+    candidate's column plus all previously-activated columns) and returns
+    the consecutive-pair chain edges not already in ``adj``.  Covering
+    every active column matters: chain edges in unrelated columns can fold
+    structure-edge endpoints into larger cliques during triangulation, so
+    omitting them would underestimate clique sizes and let oversized
+    candidates slip past the check."""
+    touched_active: dict[Col, set[int]] = {}
+    for n in touched_nodes:
+        d = node_data.get(n)
+        if d is None:
+            continue
+        touched_active.setdefault(_value_col(d), set()).add(d["height"])
+
+    all_active: dict[Col, set[int]] = {}
+    for col, hs in base_active.items():
+        if len(hs) >= 1:
+            all_active[col] = set(hs)
+    for col, hs in touched_active.items():
+        all_active.setdefault(col, set()).update(hs)
+
+    edges: list[tuple[str, str]] = []
+    for col, hs in all_active.items():
+        if len(hs) < 2:
+            continue
+        sorted_h = sorted(hs)
+        # Chain consecutive *active* heights only — intermediate heights
+        # that never got activated are skipped over, e.g. [1, 3, 7] →
+        # h_1—h_3 and h_3—h_7 (no h_2/h_4/h_5/h_6).
+        for h_lo, h_hi in zip(sorted_h, sorted_h[1:]):
+            n_lo = height_lookup.get((col, h_lo))
+            n_hi = height_lookup.get((col, h_hi))
+            if n_lo is None or n_hi is None:
+                continue
+            if n_hi not in adj.get(n_lo, ()):
+                edges.append((n_lo, n_hi))
+    return edges
+
+
+def commit_chain_edges_to_moral(
+    moral: "nx.Graph",
+    base_active: dict[Col, list[int]],
+    height_lookup: dict[tuple[Col, int], str],
+) -> int:
+    """Add chain edges between consecutive *active* heights to ``moral``.
+
+    "Consecutive" here means consecutive within the sorted active set,
+    *not* consecutive integers — intermediate heights that never gained
+    an edge stay isolated, and the chain skips directly across them.
+    For active heights [1, 3, 7] this yields exactly two edges:
+    h_1—h_3 and h_3—h_7 (no h_2/h_4/h_5/h_6 involvement).
+
+    Called once after structure learning so the moral graph handed to
+    junction-tree construction reflects the chain structure that the
+    clique-size check has been provisionally enforcing all along."""
+    n_added = 0
+    for col, hs in base_active.items():
+        if len(hs) < 2:
+            continue
+        sorted_h = sorted(hs)
+        for h_lo, h_hi in zip(sorted_h, sorted_h[1:]):
+            n_lo = height_lookup.get((col, h_lo))
+            n_hi = height_lookup.get((col, h_hi))
+            if n_lo is None or n_hi is None:
+                continue
+            if not moral.has_edge(n_lo, n_hi):
+                moral.add_edge(n_lo, n_hi, chain=True)
+                n_added += 1
+    return n_added
+
+
 def prune_unused_chain_nodes(moral: "nx.Graph") -> int:
     """Compress unused intermediate height nodes out of the moral graph.
 
@@ -643,10 +776,16 @@ def prune_unused_chain_nodes(moral: "nx.Graph") -> int:
 
 
 def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
-    """Build directed height-chain graph (chain edges only, no cross-attribute).
+    """Build directed height-chain graph (cross-attribute edges only).
 
-    Nodes are (attr, value, height) with metadata for table/order.
-    Chain edges connect successive heights within the same (attr, value).
+    Nodes are (attr, value, height) with metadata for table/order.  Chain
+    edges within the same (attr, value) are *not* added here — they would
+    inflate cliques for intermediate heights that no structure edge ever
+    touches.  Necessary chain edges are added later by ``structure_learn``
+    (incrementally as heights become active) and provisionally during the
+    clique-size check, so the final moral graph chains only the heights
+    actually used.
+
     Common values connect to child values at the boundary."""
     g = nx.DiGraph()
 
@@ -672,11 +811,6 @@ def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
                             height=h,
                             is_common=True,
                         )
-                        if h > 0:
-                            g.add_edge(
-                                _node_name(table, order, name, cmn.name, h),
-                                _node_name(table, order, name, cmn.name, h - 1),
-                            )
 
                 for v in attr.vals.values():
                     if not isinstance(v, CatValue):
@@ -692,11 +826,6 @@ def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
                             height=h,
                             is_common=False,
                         )
-                        if h > 0:
-                            g.add_edge(
-                                _node_name(table, order, name, v.name, h),
-                                _node_name(table, order, name, v.name, h - 1),
-                            )
                     if cmn and h_range > 0:
                         g.add_edge(
                             _node_name(table, order, name, cmn.name, 0),
@@ -968,6 +1097,8 @@ def _score_with_one_edge(
     evidence_vars: frozenset[str] | None = None,
     max_root_clique_size: float = float("inf"),
     extra_edges: list[tuple[str, str]] | None = None,
+    base_active: dict[Col, list[int]] | None = None,
+    height_lookup: dict[tuple[Col, int], str] | None = None,
 ) -> tuple[float, bool]:
     """Decide whether adding edge (na, nb) keeps every clique ≤ max_clique_size.
 
@@ -987,6 +1118,12 @@ def _score_with_one_edge(
     by structure_learn to extend the evidence clique when na or nb is an
     evidence var that hasn't been selected yet.  When present, the fast
     path is bypassed (the new edges may create or grow cliques).
+
+    ``base_active`` and ``height_lookup`` enable provisional chain edges:
+    chain edges between consecutive active heights are added to the local
+    adjacency before elimination (covering both the candidate's column
+    and every previously-activated column), since base_adj/moral don't
+    persist chain edges between iterations.
 
     Returns (0, valid). The first element is unused by the caller."""
     # Fast path: edge internal to an existing base clique → no new clique.
@@ -1010,6 +1147,19 @@ def _score_with_one_edge(
             adj[b].add(a)
             touched.add(a)
             touched.add(b)
+
+    # Provisional chain edges over every active column (not just the
+    # candidate's): chain edges are not persisted on base_adj/moral, so
+    # the slow-path triangulation needs them temporarily reconstructed
+    # here to see the same graph the final junction-tree builder will.
+    if base_active is not None and height_lookup is not None:
+        for ca, cb in provisional_chain_edges(
+            touched, base_active, height_lookup, node_data, adj
+        ):
+            adj[ca].add(cb)
+            adj[cb].add(ca)
+            touched.add(ca)
+            touched.add(cb)
 
     # Only touched nodes gained neighbors relative to base, so reuse the
     # cached cost_map and recompute just those.
@@ -1082,13 +1232,17 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
     return f"{a_str} x {b_str} ({a_dom}x{b_dom}={a_dom*b_dom})"
 
 
-def compute_edge_weight(
+_SIZE_PENALTY_BETA = 0.585  # log2(1.5); pairs with size_penalty=0.10 to give
+                            # the 2x→0.9, 4x→0.85 multiplicative scaling spec.
+
+
+def _edge_dom_log2(
     node_a: str,
     node_b: str,
     g: nx.Graph,
     attrs: DatasetAttributes,
-    size_penalty: float,
 ) -> float:
+    """log2 of the candidate edge's clique-domain product (dom_a · dom_b)."""
     from ....graph.hugin import get_attrs as _get_attrs
 
     def _dom_for_node(node: str) -> float:
@@ -1097,7 +1251,30 @@ def compute_edge_weight(
         val = cast(CatValue, a[d["value"]])
         return float(val.get_domain(d["height"]))
 
-    return 1 / (1 + np.log2(_dom_for_node(node_a) * _dom_for_node(node_b)) * size_penalty)
+    return float(np.log2(_dom_for_node(node_a) * _dom_for_node(node_b)))
+
+
+def compute_edge_weight(
+    node_a: str,
+    node_b: str,
+    g: nx.Graph,
+    attrs: DatasetAttributes,
+    size_penalty: float,
+    d_ref_log2: float = 0.0,
+) -> float:
+    """Multiplicative size penalty in score units (boost ∈ [0, 1]).
+
+    boost = 1 - size_penalty · (log2(D / D_ref))^β, clamped to [0, 1].
+
+    With size_penalty=0.10 and β=0.585, a candidate at 2× the smallest
+    candidate's clique domain scores at 0.9× of its raw TVD; 4× scores at
+    0.85×.  ``d_ref_log2`` should be precomputed as the minimum
+    ``log2(dom_a · dom_b)`` across all candidates so the smallest
+    candidate sits at boost=1."""
+    excess = _edge_dom_log2(node_a, node_b, g, attrs) - d_ref_log2
+    if excess <= 0:
+        return 1.0
+    return max(0.0, 1.0 - size_penalty * excess**_SIZE_PENALTY_BETA)
 
 
 # ============================================================
@@ -1318,8 +1495,17 @@ def structure_learn(
         + " [{elapsed}<{remaining}]",
     )
 
-    # Precompute TVD*boost for all candidates (doesn't change across iterations)
+    # Precompute TVD*boost for all candidates (doesn't change across iterations).
+    # d_ref_log2 = log2 of the smallest candidate's clique-domain product so
+    # the smallest candidate sits at boost=1 and all others scale relative
+    # to it (a 2x candidate boosts to 0.9, 4x to 0.85, etc.).
     cand_tvd_boost = np.empty(len(candidates))
+    if candidates:
+        d_ref_log2 = min(
+            _edge_dom_log2(na, nb, directed_graph, attrs) for na, nb in candidates
+        )
+    else:
+        d_ref_log2 = 0.0
     for idx, (na, nb) in enumerate(candidates):
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
         col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
@@ -1328,13 +1514,22 @@ def structure_learn(
         base = (
             float(tvd_arr[da["height"], db["height"]]) if tvd_arr is not None else 0.0
         )
-        boost = compute_edge_weight(na, nb, moral, attrs, size_penalty)
+        boost = compute_edge_weight(
+            na, nb, moral, attrs, size_penalty, d_ref_log2=d_ref_log2
+        )
         cand_tvd_boost[idx] = base * boost
 
     # Cache node data for clique-size checks (immutable, built once)
     node_data = {n: d for n, d in directed_graph.nodes(data=True)}
     # Maintained adjacency dict (updated incrementally, avoids rebuilding from nx)
     base_adj = _build_adj(moral)
+    # Per-column sorted active heights + (col, height) -> node lookup.
+    # base_adj/moral never carry chain edges during the loop; activate_height
+    # just records which heights have a structure or evidence edge, and the
+    # consecutive-pair chain edges are reconstructed temporarily inside
+    # _score_with_one_edge (clique check) and committed once on moral via
+    # commit_chain_edges_to_moral after the loop ends.
+    base_active, height_lookup = init_active_heights(directed_graph, moral)
     # Cached base triangulation — (re)built lazily each iteration after edges
     # get accepted.  Lets the post-EM clique check short-circuit when the
     # picked edge is already internal to an existing clique, and reuses the
@@ -1515,6 +1710,8 @@ def structure_learn(
                 evidence_vars=tentative_ev,
                 max_root_clique_size=max_root_clique_size,
                 extra_edges=extra_edges if extra_edges else None,
+                base_active=base_active,
+                height_lookup=height_lookup,
             )
             if valid:
                 accepted = True
@@ -1571,6 +1768,24 @@ def structure_learn(
         da, db = directed_graph.nodes[na], directed_graph.nodes[nb]
         col_a: Col = (da.get("table"), da.get("order"), da["attr"], da["value"])
         col_b: Col = (db.get("table"), db.get("order"), db["attr"], db["value"])
+
+        # Mark heights as active for the candidate endpoints (and any new
+        # evidence vars pulled in via extra_edges).  Pure book-keeping —
+        # chain edges are added temporarily during the next clique check
+        # via provisional_chain_edges, and committed to the moral graph
+        # once after the loop via commit_chain_edges_to_moral.
+        activate_height(col_a, da["height"], base_active)
+        activate_height(col_b, db["height"], base_active)
+        for ea, eb in extra_edges:
+            for ev in (ea, eb):
+                dev = directed_graph.nodes[ev]
+                col_ev: Col = (
+                    dev.get("table"),
+                    dev.get("order"),
+                    dev["attr"],
+                    dev["value"],
+                )
+                activate_height(col_ev, dev["height"], base_active)
         pair = tuple(sorted([col_a, col_b], key=_col_sort_key))
         connected_pairs.add(pair)
 
@@ -1605,6 +1820,15 @@ def structure_learn(
 
     pbar.close()
     bdg_remaining = rho_avail - bdg_em - bdg_committed
+
+    # Materialise the chain edges between consecutive active heights on
+    # the moral graph now that structure learning has settled.  Up to
+    # this point chain edges only existed transiently inside the
+    # clique-size check; the junction-tree builder needs them present in
+    # the actual graph it triangulates.
+    n_chain = commit_chain_edges_to_moral(moral, base_active, height_lookup)
+    if n_chain:
+        logger.info(f"Adjuvant: committed {n_chain} chain edges to moral graph")
 
     bdg_label = "rho" if dp_type == "cdp" else "eps"
     logger.info(
@@ -2284,7 +2508,7 @@ def adjuvant_fit(
     directed_graph = build_height_chain_graph(attrs)
     logger.info(
         f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
-        f"nodes, {directed_graph.number_of_edges()} chain edges "
+        f"nodes, {directed_graph.number_of_edges()} cross-attribute edges "
         f"(scoring={scoring}, min_score={min_score})"
     )
 
@@ -2389,14 +2613,6 @@ def adjuvant_run_md(
     device = None if device == "auto" else device
 
     mg = moral.copy() if tree_mode != "maximal" and moral is not None else None
-    if mg is not None:
-        n_before = mg.number_of_nodes()
-        n_pruned = prune_unused_chain_nodes(mg)
-        if n_pruned:
-            logger.info(
-                f"Adjuvant: pruned {n_pruned} unused chain nodes "
-                f"({n_before} -> {mg.number_of_nodes()})"
-            )
     logger.info(f"Adjuvant: building junction tree (mode={tree_mode})")
     junction, cliques, messages = build_junction_tree(
         all_obs,
@@ -2413,7 +2629,7 @@ def adjuvant_run_md(
         f"{total_params:_} parameters"
     )
 
-    MAX_PARAMS = 150_000_000
+    MAX_PARAMS = 500_000_000
     if total_params > MAX_PARAMS:
         logger.error(
             f"Total params too high: {total_params} > {MAX_PARAMS}. Clique Information:\n"
