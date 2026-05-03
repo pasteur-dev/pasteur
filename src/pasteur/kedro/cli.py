@@ -242,6 +242,65 @@ def pipe(
             pipeline_name=pipeline,
         )
 
+        _log_run_url(session, pipeline, param_dict)
+
+
+def _get_server_url(ctx) -> str | None:
+    mlflow_hook = getattr(ctx, "mlflow", None)
+    if mlflow_hook is None:
+        return None
+    return getattr(mlflow_hook.mlflow_config.server, "url", None)
+
+
+def _log_run_url(session, pipeline: str, param_dict: dict) -> None:
+    try:
+        from .mlflow.base import (
+            format_run_url,
+            get_git_suffix,
+            get_run_id,
+            get_run_name,
+        )
+
+        ctx = session.load_context()
+        url = _get_server_url(ctx)
+        if not url:
+            return
+        run_name = get_run_name(pipeline, param_dict)
+        run_id = get_run_id(run_name, None, get_git_suffix(), finished=True)
+        if not run_id:
+            return
+        import mlflow
+
+        experiment_id = mlflow.get_run(run_id).info.experiment_id
+        logger.info(f"Run artifacts: {format_run_url(url, experiment_id, run_id)}")
+    except Exception:
+        logger.debug("Failed to log mlflow run URL", exc_info=True)
+
+
+def _log_parent_run_url(ctx, parent_name: str, experiment_id: str) -> None:
+    try:
+        import mlflow
+
+        from .mlflow.base import format_run_url, get_git_suffix, sanitize_name
+
+        url = _get_server_url(ctx)
+        if not url:
+            return
+        git = get_git_suffix()
+        query = (
+            f'tags.pasteur_id = "{sanitize_name(parent_name)}"'
+            f' and tags.pasteur_parent = "1" and tags.pasteur_git = "{git}"'
+        )
+        runs_df = mlflow.search_runs(
+            experiment_ids=[experiment_id], filter_string=query
+        )
+        if not len(runs_df):
+            return
+        run_id = runs_df["run_id"][0]
+        logger.info(f"Parent run artifacts: {format_run_url(url, experiment_id, run_id)}")
+    except Exception:
+        logger.debug("Failed to log mlflow parent run URL", exc_info=True)
+
 
 def _process_iterables(iterables: dict[str, Iterable]):
     sentinel = object()
@@ -625,6 +684,7 @@ def sweep(
         log_parent_run(
             parent_name, run_results, skip_parent=skip_parent, experiment_id=experiment_id
         )
+        _log_parent_run_url(ctx, parent_name, experiment_id)
 
 
 @click.command()

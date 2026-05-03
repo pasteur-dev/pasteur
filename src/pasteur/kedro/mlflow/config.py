@@ -18,6 +18,7 @@ class MlflowServerOptions(BaseModel):
     # mutable default is ok for pydantic : https://stackoverflow.com/questions/63793662/how-to-give-a-pydantic-list-field-a-default-value
     mlflow_tracking_uri: Optional[str] = None
     credentials: Optional[str] = None
+    url: Optional[str] = None
     _mlflow_client: MlflowClient = PrivateAttr()
 
     class Config:

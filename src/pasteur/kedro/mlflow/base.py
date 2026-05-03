@@ -115,6 +115,10 @@ def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
     return mlflow.get_run(run_id)
 
 
+def format_run_url(server_url: str, experiment_id: str, run_id: str) -> str:
+    return f"{server_url.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}/artifacts"
+
+
 def remove_runs(parent: str, delete_parent: bool = False):
     """Removes runs with provided parent"""
 
