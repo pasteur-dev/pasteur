@@ -607,7 +607,7 @@ def fit_pgm(
             obs = obs / obs_sum
         obs = obs.astype(np.float32)
 
-        confidence = n / (n + meas.sigma * obs.size)
+        confidence = 1
         obs_list.append(LinearObservation(source_tuple, None, obs, confidence))
 
     # Build junction tree (hugin: moralize → triangulate → max cliques → MST)
