@@ -1232,10 +1232,6 @@ def _fmt_edge(na: str, nb: str, g, attrs) -> str:
     return f"{a_str} x {b_str} ({a_dom}x{b_dom}={a_dom*b_dom})"
 
 
-_SIZE_PENALTY_BETA = 0.585  # log2(1.5); pairs with size_penalty=0.10 to give
-                            # the 2x→0.9, 4x→0.85 multiplicative scaling spec.
-
-
 def _edge_dom_log2(
     node_a: str,
     node_b: str,
@@ -1262,19 +1258,19 @@ def compute_edge_weight(
     size_penalty: float,
     d_ref_log2: float = 0.0,
 ) -> float:
-    """Multiplicative size penalty in score units (boost ∈ [0, 1]).
+    """Hyperbolic size-penalty boost in score units (boost ∈ (0, 1]).
 
-    boost = 1 - size_penalty · (log2(D / D_ref))^β, clamped to [0, 1].
+    boost = 1 / (1 + size_penalty · max(0, log2(D / D_ref)))
 
-    With size_penalty=0.10 and β=0.585, a candidate at 2× the smallest
-    candidate's clique domain scores at 0.9× of its raw TVD; 4× scores at
-    0.85×.  ``d_ref_log2`` should be precomputed as the minimum
-    ``log2(dom_a · dom_b)`` across all candidates so the smallest
-    candidate sits at boost=1."""
+    Single-parameter, no exponent: a candidate at the reference size
+    scores at boost=1; at size_penalty=0.10 a 2x candidate boosts to
+    ~0.91, a 4x to ~0.83.  ``d_ref_log2`` should be precomputed as the
+    minimum ``log2(dom_a · dom_b)`` across all candidates so the
+    smallest candidate sits at the reference."""
     excess = _edge_dom_log2(node_a, node_b, g, attrs) - d_ref_log2
     if excess <= 0:
         return 1.0
-    return max(0.0, 1.0 - size_penalty * excess**_SIZE_PENALTY_BETA)
+    return 1.0 / (1.0 + size_penalty * excess)
 
 
 # ============================================================
