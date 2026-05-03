@@ -332,7 +332,7 @@ def _visualise_kl(
 
 ASSOC_METRICS = ["cramer", "tschuprow", "pearson"]
 METRICS = ["kl", "tvd", *ASSOC_METRICS]
-PRINT_METRICS = ["kl", "cramer"]
+PRINT_METRICS = ["kl", "tvd", "cramer"]
 # Metrics where lower scores are better (so the worst-tail percentile
 # flips: e.g. ``percentile_lower=5`` is plotted as the 95th percentile).
 _METRIC_LOWER_IS_BETTER = {"tvd": True}
