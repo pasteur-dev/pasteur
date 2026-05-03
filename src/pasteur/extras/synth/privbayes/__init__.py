@@ -893,7 +893,7 @@ def derive_obs_from_model(
         if obs_sum != 0:
             new_obs = new_obs / obs_sum
 
-        confidence = n / (n + noise_scale * new_obs.size)
+        confidence = 1
         lo = LinearObservation(
             source,
             None,
