@@ -320,6 +320,7 @@ class FittedPGM:
         clique_names: list[tuple[str, ...]],  # attr name tuples
         n: int,
         loss_fn,
+        junction,
     ):
         self.potentials = potentials
         self.raw_theta = raw_theta
@@ -327,6 +328,7 @@ class FittedPGM:
         self.clique_names = clique_names
         self.n = n
         self.loss_fn = loss_fn
+        self.junction = junction
 
     def _build_source(self, clique: tuple[str, ...], attrs: DatasetAttributes):
         """Build AttrMeta source tuple for a column-name clique."""
@@ -428,40 +430,17 @@ class FittedPGM:
     def synthetic_data(
         self, n: int, attrs: DatasetAttributes
     ) -> pd.DataFrame:
-        """Generate synthetic data by independent sampling per column.
+        """Generate synthetic data via junction-tree ancestral sampling.
 
-        Columns correspond to get_attr_names(): per-value for split
-        multi-value attributes, per-attribute otherwise."""
-        all_attrs = cast(Attributes, attrs[None])
-        columns = {}
+        Delegates to ``graph.sample.sample_junction_tree``: samples the
+        root clique from its joint, then walks children in BFS order,
+        conditioning each on the separator values already drawn from its
+        parent. This is the same sampler adjuvant/PrivBayes use, so the
+        joint structure MD fits is preserved in the output."""
+        from ....graph.sample import create_sampler_meta, sample_junction_tree
 
-        for col_name in get_attr_names(attrs):
-            attr_name, sel = _col_to_attr_sel(col_name, attrs)
-            attr = all_attrs[attr_name]
-
-            marginal = self.project((col_name,), attrs).ravel()
-            marginal = marginal.clip(0)
-            total = marginal.sum()
-            if total > 0:
-                probs = marginal / total
-            else:
-                probs = np.ones(len(marginal)) / len(marginal)
-            flat_idx = np.random.choice(len(probs), size=n, p=probs)
-
-            if len(sel) == 1:
-                # Single-value column: flat index is the column value
-                val_name = next(iter(sel))
-                columns[val_name] = flat_idx
-            else:
-                # Combined multi-value column (common-value attrs):
-                # decompose into per-value columns.
-                from ....graph.sample import _decompose_dim
-
-                decomposed = _decompose_dim(attr, sel, flat_idx)
-                for vname in attr.vals:
-                    if vname in decomposed:
-                        columns[vname] = decomposed[vname]
-
+        meta = create_sampler_meta(self.junction, self.cliques, attrs)
+        columns = sample_junction_tree(self.potentials, meta, n, attrs)
         return pd.DataFrame(columns)
 
 
@@ -616,7 +595,7 @@ def fit_pgm(
         moral_graph = _build_moral_graph_from_cliques(
             [m.clique for m in measurements], attrs
         )
-    _, jt_cliques, messages = build_junction_tree(
+    junction, jt_cliques, messages = build_junction_tree(
         obs_list,
         attrs,
         tree_mode=tree_mode,
@@ -641,4 +620,6 @@ def fit_pgm(
         device=device, init_potentials=init_potentials, **params
     )
 
-    return FittedPGM(potentials, raw_theta, jt_cliques, clique_names, n, loss_fn)
+    return FittedPGM(
+        potentials, raw_theta, jt_cliques, clique_names, n, loss_fn, junction
+    )
