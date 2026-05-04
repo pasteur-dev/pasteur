@@ -1363,7 +1363,10 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     )
                 else:
                     tick_labels = ["\n".join(l) for l in labels]
-                    ax.set_xticklabels(tick_labels)
+                    try:
+                        ax.set_xticklabels(tick_labels)
+                    except Exception:
+                        logger.warning(f"Could not set tick labels.", exc_info=True)
 
                 if combined:
                     # Dont use legend on combined graph
