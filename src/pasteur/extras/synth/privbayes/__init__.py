@@ -887,12 +887,7 @@ def derive_obs_from_model(
             np.add.at(tmp, o_map, new_obs[i_map])  # type: ignore
             new_obs = tmp
 
-        # Clip negative noise then normalize to probabilities for mirror descent
-        new_obs = new_obs.clip(0)
-        obs_sum = new_obs.sum()
-        if obs_sum != 0:
-            new_obs = new_obs / obs_sum
-
+        new_obs /= n
         confidence = 1
         lo = LinearObservation(
             source,

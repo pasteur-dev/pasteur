@@ -2018,93 +2018,6 @@ def select_cliques_to_measure(
     return measured
 
 
-def measure_cliques(
-    oracle: MarginalOracle,
-    cliques_to_measure: list,
-    attrs: DatasetAttributes,
-    n: int,
-    rho3: float,
-    dp_type: str = "cdp",
-) -> tuple[list, float]:
-    """Measure selected clique marginals with DP noise.
-
-    Returns (list of LinearObservation, sigma3)."""
-    from ....graph.hugin import get_clique_domain, get_attrs as _get_attrs
-    from ....graph.loss import LinearObservation
-    from ....graph.beliefs import convert_sel
-
-    K = len(cliques_to_measure)
-    if K == 0:
-        return [], 0.0
-
-    sigma3 = 0.0 if rho3 <= 0 else _budget_to_sigma(rho3 / K, dp_type)
-
-    # Build oracle requests from CliqueMeta
-    requests = [_clique_to_request(cl) for cl in cliques_to_measure]
-    results = oracle.process(requests, postprocess=None)
-
-    obs_list = []
-    for clique, result in zip(cliques_to_measure, results):
-        # Oracle returns data in naive shape (product of per-value domains)
-        naive_dims = []
-        for _, _, attr_name, sel in clique:
-            a = _get_attrs(attrs, None, None)[attr_name]
-            sel_d = convert_sel(sel)
-            if isinstance(sel_d, int):
-                naive_dims.append(a.common.get_domain(sel_d))
-            else:
-                nd = 1
-                for vn, h in sel_d.items():
-                    nd *= cast(CatValue, a.vals[vn]).get_domain(h)
-                naive_dims.append(nd)
-
-        raw = result.astype(np.float64).ravel()
-        if sigma3 > 0:
-            raw = _add_dp_noise(raw, sigma3, dp_type)
-        raw = raw.clip(0)
-        prob = raw.reshape(naive_dims)
-
-        # Compress naive→compressed for each dim
-        for dim_i, (_, _, attr_name, sel) in enumerate(clique):
-            sel_d = convert_sel(sel)
-            if isinstance(sel_d, int):
-                continue
-            a = _get_attrs(attrs, None, None)[attr_name]
-            naive_dom = prob.shape[dim_i]
-            compressed_dom = a.get_domain(sel_d)
-            if naive_dom == compressed_dom:
-                continue
-
-            raw_naive = a.get_naive_mapping(sel_d)
-            raw_compressed = a.get_mapping(sel_d)
-            _, unique_idx = np.unique(raw_naive, return_index=True)
-            naive_idx = raw_naive[unique_idx]
-            compressed_idx = raw_compressed[unique_idx]
-
-            i_map = tuple(
-                naive_idx if j == dim_i else slice(None) for j in range(len(prob.shape))
-            )
-            o_map = tuple(
-                compressed_idx if j == dim_i else slice(None)
-                for j in range(len(prob.shape))
-            )
-            tmp = np.zeros(
-                [compressed_dom if j == dim_i else d for j, d in enumerate(prob.shape)],
-                dtype=prob.dtype,
-            )
-            np.add.at(tmp, o_map, prob[i_map])
-            prob = tmp
-
-        s = prob.sum()
-        prob = (prob / s if s > 0 else prob).astype(np.float32)
-
-        dom = get_clique_domain(clique, attrs)
-        confidence = calc_confidence(n, sigma3, dom)
-        obs_list.append(LinearObservation(clique, None, prob, confidence))
-
-    return obs_list, sigma3
-
-
 def measure_edges(
     oracle: MarginalOracle,
     structure_edges: set[frozenset[str]],
@@ -2270,7 +2183,6 @@ def measure_edges(
         raw = result.astype(np.float64).ravel()
         if sigma_edge > 0:
             raw = _add_dp_noise(raw, sigma_edge, dp_type)
-        raw = raw.clip(0)
         prob = raw.reshape(oracle_dims)
 
         # Compress oracle→compressed for each multi-value dim with common.
@@ -2357,8 +2269,7 @@ def measure_edges(
                 np.add.at(tmp, o_map, prob)
                 prob = tmp
 
-        s = prob.sum()
-        prob = (prob / s if s > 0 else prob).astype(np.float32)
+        prob = (prob / n).astype(np.float32)
 
         dom = get_clique_domain(source_tuple, attrs)
         confidence = calc_confidence(n, sigma_edge, dom)
@@ -2389,10 +2300,8 @@ def build_1way_observations(
         else:
             source = (AttrMeta(table, order, attr_name, ((val_name, 0),)),)
 
-        raw = noisy_mar.copy().clip(0)
-        s = raw.sum()
-        prob = (raw / s if s > 0 else raw).astype(np.float32)
-        dom = len(raw)
+        prob = (noisy_mar / n).astype(np.float32)
+        dom = len(prob)
         sigma_col = sigmas.get(col, 0.0)
         confidence = calc_confidence(n, sigma_col, dom)
         obs_list.append(LinearObservation(source, None, prob, confidence))

@@ -601,10 +601,7 @@ def fit_pgm(
             obs = obs.transpose(perm)
 
         obs = obs.reshape(src_dims)
-        obs = obs.clip(0)
-        obs_sum = obs.sum()
-        if obs_sum > 0:
-            obs = obs / obs_sum
+        obs = obs / n
         obs = obs.astype(np.float32)
 
         confidence = 1
