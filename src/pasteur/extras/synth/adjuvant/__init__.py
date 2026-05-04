@@ -439,6 +439,7 @@ class AdjuvantSynth(Synth):
         n: int | None = None,
         partitions: int | None = None,
         mirror_descent: dict | None = None,
+        ablation: Literal[None, "1-way", "no-compression", "no-confidence"] = None,
         **kwargs,
     ) -> None:
         if etotal is not None:
@@ -446,6 +447,7 @@ class AdjuvantSynth(Synth):
         else:
             self.e = e
         self.delta = delta
+        self.ablation = ablation
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.em_z = em_z
@@ -480,7 +482,7 @@ class AdjuvantSynth(Synth):
         self._n = data[self.table].shape[0]
         self._partitions = len(data[self.table])
 
-        if self.rebalance:
+        if self.rebalance and self.ablation != "no-compression":
             rebalance_kwargs = (
                 self.rebalance if isinstance(self.rebalance, dict) else {}
             )
@@ -553,6 +555,8 @@ class AdjuvantSynth(Synth):
                 rake=self.rake,
                 scoring=self.scoring,
                 dp_type=self.dp_type,
+                skip_structure=self.ablation == "1-way",
+                no_confidence=self.ablation == "no-confidence",
             )
 
         self._run_md()
@@ -612,7 +616,7 @@ class AdjuvantSynth(Synth):
 
 
 class AdjuvantMareEdp(AdjuvantMare):
-    """AdjuvantMare using zCDP (Gaussian noise, rho budget)."""
+    """AdjuvantMare using e-DP (laplace)."""
 
     dp_type: Literal["dp", "cdp"] = "dp"
 

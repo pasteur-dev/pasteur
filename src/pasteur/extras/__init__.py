@@ -117,15 +117,6 @@ def get_recommended_system_modules() -> list[Module]:
         # Synthesizers
         IdentSynth.get_factory(),
         PrivBayesSynth.get_factory(rebalance=False),
-        PrivBayesSynth.get_factory(name="privbayes_md", mirror_descent=True),
-        PrivBayesSynth.get_factory(name="privbayes_md_s", mirror_descent={"sample": True}),
-        PrivBayesSynth.get_factory(name="privbayes_rb", rebalance=True),
-        PrivBayesSynth.get_factory(
-            name="privbayes_rb_md", rebalance=True, mirror_descent=True
-        ),
-        PrivBayesSynth.get_factory(
-            name="privbayes_rb_md_s", rebalance=True, mirror_descent={"sample": True}
-        ),
         # Metrics
         DistributionMetric.get_factory(),
         NumericalHist.get_factory(),

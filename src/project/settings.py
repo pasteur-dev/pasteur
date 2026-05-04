@@ -82,7 +82,7 @@ from pasteur.extras.encoders import JsonEncoder, FlatEncoder
 
 # from pasteur.synth import IdentSynth
 from pasteur.mare.synth import MareSynth
-from pasteur.extras.synth.privbayes import PrivBayesMare
+from pasteur.extras.synth.privbayes import PrivBayesMare, PrivBayesSynth
 
 # from pasteur.extras.metrics.syntheval import SynthEvalMetric
 from pasteur.amalgam import AmalgamSynth
@@ -93,7 +93,6 @@ from pasteur.extras.metrics.llm import LlmEvaluatorMetric
 #     type = "mare"
 
 from pasteur import IS_AGENT
-
 
 PASTEUR_MODULES = get_recommended_modules() + [
     RefAIM.get_factory(),
@@ -122,3 +121,38 @@ if not IS_AGENT and not SKIP_LLM:
     PASTEUR_MODULES.append(LlmEvaluatorMetric.get_factory())
 if not SKIP_LLM:
     PASTEUR_MODULES.append(AmalgamSynth.get_factory(PrivBayesMare))
+
+PB_EVAL = os.environ.get("PASTEUR_PRIVBAYES_EVAL", False)
+AJ_EVAL = os.environ.get("PASTEUR_ADJUVANT_EVAL", False)
+
+if PB_EVAL:
+    PASTEUR_MODULES.extend(
+        [
+            PrivBayesSynth.get_factory(name="privbayes_md", mirror_descent=True),
+            PrivBayesSynth.get_factory(
+                name="privbayes_md_s", mirror_descent={"sample": True}
+            ),
+            PrivBayesSynth.get_factory(name="privbayes_rb", rebalance=True),
+            PrivBayesSynth.get_factory(
+                name="privbayes_rb_md", rebalance=True, mirror_descent=True
+            ),
+            PrivBayesSynth.get_factory(
+                name="privbayes_rb_md_s",
+                rebalance=True,
+                mirror_descent={"sample": True},
+            ),
+        ]
+    )
+
+if AJ_EVAL:
+    PASTEUR_MODULES.extend(
+        [
+            AdjuvantSynth.get_factory(name="adjuvant_ab_1-way", ablation="1-way"),
+            AdjuvantSynth.get_factory(
+                name="adjuvant_ab_no-compression", ablation="no-compression"
+            ),
+            AdjuvantSynth.get_factory(
+                name="adjuvant_ab_no-confidence", ablation="no-confidence"
+            ),
+        ]
+    )

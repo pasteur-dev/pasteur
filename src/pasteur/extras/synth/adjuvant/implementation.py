@@ -2430,6 +2430,8 @@ def adjuvant_fit(
     max_order: int | None = None,
     dp_type: str = "cdp",
     scoring: str = "tvd",
+    skip_structure: bool = False,
+    no_confidence: bool = False,
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
@@ -2458,8 +2460,13 @@ def adjuvant_fit(
     # When rho=0 (no DP), skip noise entirely — theta-based sigma would
     # add spurious noise independent of the privacy budget.
     if rho > 0:
-        bdg1_max = e_w1_max_ratio * rho
-        bdg1_min = e_w1_min_ratio * rho
+        if skip_structure:
+            # Ablation: route the entire budget to 1-way marginals.
+            bdg1_max = rho
+            bdg1_min = rho
+        else:
+            bdg1_max = e_w1_max_ratio * rho
+            bdg1_min = e_w1_min_ratio * rho
         sigmas_1w, bdg1, eff_theta_1w = compute_1way_budget(
             cached,
             n,
@@ -2491,72 +2498,90 @@ def adjuvant_fit(
     assert (
         bdg_avail >= 0
     ), f"Available budget went negative: {bdg_avail}, 0 for disable and positive for enabled"
-    logger.info(
-        f"Adjuvant Step 2: Structure learning "
-        f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
-    )
-    if scoring == "mi":
-        scores = compute_mi(cached, attrs, all_cols)
-        min_score = min_mi
+
+    if skip_structure:
+        # Ablation: bypass structure learning and edge measurement; produce
+        # only 1-way observations.
+        logger.info(
+            f"Adjuvant Step 2: skipped (ablation=1-way), "
+            f"{bdg_label}_remaining={bdg_avail:.6f}"
+        )
+        moral = nx.Graph()
+        edge_obs: list = []
+        max_sigma = 0.0
+        bdg_remaining = bdg_avail
+        tvd_diag = ""
     else:
-        scores = compute_tvd(cached, attrs, all_cols)
-        min_score = min_tvd
-    directed_graph = build_height_chain_graph(attrs)
-    logger.info(
-        f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
-        f"nodes, {directed_graph.number_of_edges()} cross-attribute edges "
-        f"(scoring={scoring}, min_score={min_score})"
-    )
+        logger.info(
+            f"Adjuvant Step 2: Structure learning "
+            f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
+        )
+        if scoring == "mi":
+            scores = compute_mi(cached, attrs, all_cols)
+            min_score = min_mi
+        else:
+            scores = compute_tvd(cached, attrs, all_cols)
+            min_score = min_tvd
+        directed_graph = build_height_chain_graph(attrs)
+        logger.info(
+            f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
+            f"nodes, {directed_graph.number_of_edges()} cross-attribute edges "
+            f"(scoring={scoring}, min_score={min_score})"
+        )
 
-    max_em_budget = e_em_max_ratio * rho if rho > 0 and e_em_max_ratio else float("inf")
-    min_em_budget = e_em_min_ratio * rho if rho > 0 and e_em_min_ratio else 0.0
-    moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
-        directed_graph,
-        attrs,
-        scores,
-        n,
-        size_penalty,
-        bdg_avail,
-        min_score,
-        em_z=em_z,
-        theta_2w=theta_2w,
-        frozen_nodes=frozen_nodes,
-        n_hist_cols=h,
-        max_clique_size=max_clique_size,
-        max_root_clique_size=max_root_clique_size,
-        rake=rake,
-        max_order=max_order,
-        max_em_budget=max_em_budget,
-        min_em_budget=min_em_budget,
-        em_max=em_max,
-        dp_type=dp_type,
-        scoring=scoring,
-        min_safety_factor=min_safety_factor,
-    )
+        max_em_budget = e_em_max_ratio * rho if rho > 0 and e_em_max_ratio else float("inf")
+        min_em_budget = e_em_min_ratio * rho if rho > 0 and e_em_min_ratio else 0.0
+        moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
+            directed_graph,
+            attrs,
+            scores,
+            n,
+            size_penalty,
+            bdg_avail,
+            min_score,
+            em_z=em_z,
+            theta_2w=theta_2w,
+            frozen_nodes=frozen_nodes,
+            n_hist_cols=h,
+            max_clique_size=max_clique_size,
+            max_root_clique_size=max_root_clique_size,
+            rake=rake,
+            max_order=max_order,
+            max_em_budget=max_em_budget,
+            min_em_budget=min_em_budget,
+            em_max=em_max,
+            dp_type=dp_type,
+            scoring=scoring,
+            min_safety_factor=min_safety_factor,
+        )
 
-    # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
-    # When rho=0, measure without noise (theta_2w would add spurious noise).
-    logger.info(
-        f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
-        f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
-    )
-    edge_obs, max_sigma = measure_edges(
-        oracle,
-        structure_edges,
-        moral,
-        attrs,
-        n,
-        theta_2w,
-        rho_extra=bdg_remaining if rescale else 0.0,
-        dp_type=dp_type,
-        no_noise=rho <= 0,
-    )
+        # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
+        # When rho=0, measure without noise (theta_2w would add spurious noise).
+        logger.info(
+            f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
+            f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
+        )
+        edge_obs, max_sigma = measure_edges(
+            oracle,
+            structure_edges,
+            moral,
+            attrs,
+            n,
+            theta_2w,
+            rho_extra=bdg_remaining if rescale else 0.0,
+            dp_type=dp_type,
+            no_noise=rho <= 0,
+        )
+
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w)
     all_obs = edge_obs + oneway_obs
 
-    max_conf = max((o.confidence for o in all_obs), default=0.0)
-    if max_conf > 0:
-        all_obs = [o._replace(confidence=o.confidence / max_conf) for o in all_obs]
+    if no_confidence:
+        all_obs = [o._replace(confidence=1.0) for o in all_obs]
+    else:
+        max_conf = max((o.confidence for o in all_obs), default=0.0)
+        if max_conf > 0:
+            all_obs = [o._replace(confidence=o.confidence / max_conf) for o in all_obs]
 
     logger.info(
         f"Adjuvant: {len(edge_obs)} edge obs + {len(oneway_obs)} 1-way obs, "
