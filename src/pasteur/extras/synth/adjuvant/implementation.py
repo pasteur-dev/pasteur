@@ -405,18 +405,35 @@ def compute_tvd(
     cached: CachedMarginals,
     attrs: DatasetAttributes,
     all_cols: list[Col],
+    noisy_1way: dict[Col, np.ndarray] | None = None,
+    n: int | None = None,
 ) -> dict[tuple[Col, Col], np.ndarray]:
-    """Compute exact pairwise TVD at every height combination.
+    """Compute exact pairwise TVD-from-independence at every height combination.
 
-    Grabs 2-way histograms at full resolution (height 0), then iteratively
-    aggregates using transition mappings to compute TVD at all (ha, hb) combos.
+    Score: ½|P(X,Y) − P(X)P(Y)|₁. Grabs 2-way histograms at full resolution
+    (height 0), then iteratively aggregates using transition mappings to
+    compute the score at all (ha, hb) combos.
 
-    No noise added — the exponential mechanism provides privacy for selection.
+    When ``noisy_1way`` (and ``n``) are provided, the independence baseline
+    P(X)P(Y) is replaced by the *noisy* 1-ways already released earlier in
+    the pipeline: P̃(X)P̃(Y). Because that side is post-processing of an
+    already-released DP query, ‖Δ‖₁ = 0 there and the EM sensitivity drops
+    from 3/n to 1/n — caller is responsible for picking the right
+    sensitivity in ``structure_learn``. The noisy 1-way at height 0 is
+    aggregated up to higher heights via the same transition mappings as the
+    joint, so per-(ha, hb) cells use the correctly-aggregated baseline.
+
+    No noise added to the score itself — the exponential mechanism provides
+    privacy for selection.
 
     Returns dict mapping (col_a, col_b) -> 2D array of shape (Ha, Hb)
     where Ha, Hb are the number of graph heights for each column.
     Both (ca, cb) and (cb, ca) are stored (the latter transposed)."""
     from ....graph.hugin import get_attrs as _get_attrs
+
+    use_noisy = noisy_1way is not None
+    if use_noisy and n is None:
+        raise ValueError("compute_tvd: n is required when noisy_1way is set")
 
     # Build per-column metadata
     col_meta: dict[Col, tuple[CatValue, int]] = {}
@@ -435,6 +452,26 @@ def compute_tvd(
         col_meta[col] = (val, h_range)
         col_transitions[col] = _build_transition_mappings(val, h_range)
 
+    # When using a noisy-1-way baseline, pre-aggregate it to every height of
+    # each column. Linear aggregation is post-processing of the same released
+    # vector — no extra DP cost — and gives us ``noisy_per_height[col][h]``
+    # directly for the (ha, hb) score below.
+    noisy_per_height: dict[Col, list[np.ndarray]] = {}
+    if use_noisy:
+        assert noisy_1way is not None and n is not None  # for type checkers
+        for col in all_cols:
+            if col not in noisy_1way:
+                continue
+            val, h_range = col_meta[col]
+            chain = [noisy_1way[col].astype(np.float64) / n]
+            trans = col_transitions[col]
+            for h in range(1, h_range):
+                t = trans[h - 1]
+                new = np.zeros(val.get_domain(h), dtype=np.float64)
+                np.add.at(new, t, chain[-1])
+                chain.append(new)
+            noisy_per_height[col] = chain
+
     tvd: dict[tuple[Col, Col], np.ndarray] = {}
 
     for (ca, cb), joint_raw in cached.two_way.items():
@@ -445,7 +482,10 @@ def compute_tvd(
         joint_00 = joint_raw.reshape(dom_a0, dom_b0).astype(np.float64)
         n_total = joint_00.sum()
 
-        if n_total == 0:
+        if n_total == 0 or (
+            use_noisy
+            and (ca not in noisy_per_height or cb not in noisy_per_height)
+        ):
             tvd[ca, cb] = np.zeros((ha_range, hb_range))
             tvd[cb, ca] = np.zeros((hb_range, ha_range))
             continue
@@ -453,6 +493,8 @@ def compute_tvd(
         result = np.zeros((ha_range, hb_range))
         trans_a = col_transitions[ca]
         trans_b = col_transitions[cb]
+        chain_a = noisy_per_height.get(ca)
+        chain_b = noisy_per_height.get(cb)
 
         # Iteratively aggregate dim_a, then for each ha iterate dim_b
         joint_ha_0 = joint_00
@@ -472,9 +514,12 @@ def compute_tvd(
                     joint_ha_hb = new_joint
 
                 p_ab = joint_ha_hb / n_total
-                p_a = p_ab.sum(axis=1)
-                p_b = p_ab.sum(axis=0)
-                indep = np.outer(p_a, p_b)
+                if use_noisy:
+                    indep = np.outer(chain_a[ha], chain_b[hb])
+                else:
+                    p_a = p_ab.sum(axis=1)
+                    p_b = p_ab.sum(axis=0)
+                    indep = np.outer(p_a, p_b)
                 result[ha, hb] = float(np.abs(p_ab - indep).sum() / 2)
 
         tvd[ca, cb] = result
@@ -1399,11 +1444,16 @@ def structure_learn(
     connected_pairs: set[tuple[Col, Col]] = set()
     structure_edges: set[frozenset[str]] = set()
 
-    # EM sensitivity depends on the score function. The TVD score here is
+    # EM sensitivity depends on the score function. The TVD score is
     # ½|P(X,Y) − P(X)P(Y)|₁: one row perturbs P(X,Y) by ≤2/n and P(X)P(Y)
-    # by ≤4/n in L1, so sens ≤ 3/n. MI uses PrivBayes Lemma 3 (log2).
+    # by ≤4/n in L1, so sens ≤ 3/n. With ``tvd_n`` the independence baseline
+    # is the *noisy* 1-ways released in Step 1 — post-processing, so its
+    # contribution is 0 and only ‖ΔP(X,Y)‖₁ ≤ 2/n remains, sens ≤ 1/n.
+    # MI uses PrivBayes Lemma 3 (log2).
     if scoring == "mi":
         sensitivity = float(sens_mutual_info(n))
+    elif scoring == "tvd_n":
+        sensitivity = 1.0 / n
     else:
         sensitivity = 3.0 / n
 
@@ -2428,6 +2478,11 @@ def adjuvant_fit(
         if scoring == "mi":
             scores = compute_mi(cached, attrs, all_cols)
             min_score = min_mi
+        elif scoring == "tvd_n":
+            scores = compute_tvd(
+                cached, attrs, all_cols, noisy_1way=noisy_1way, n=n
+            )
+            min_score = min_tvd
         else:
             scores = compute_tvd(cached, attrs, all_cols)
             min_score = min_tvd
