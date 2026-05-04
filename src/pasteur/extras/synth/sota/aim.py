@@ -28,7 +28,7 @@ from .common import (
     get_attr_names,
     clique_domain_size,
     hypothetical_jt_size_mb,
-    lazy_em_with_rejection,
+    exponential_mechanism,
     _col_to_attr_sel,
 )
 
@@ -193,17 +193,17 @@ class AIM(Synth):
                 {**self.md_params, "max_iters": 5000},
             )
 
-            # Adaptive loop with lazy post-EM rejection (Adjuvant §4(a)):
-            # the EM picks first, then the picked candidate is validated against
-            # the post-triangulation JT size. Invalid picks are added to a
-            # rejection mask and EM is re-sampled from the renormalised softmax
-            # — no extra DP cost, since the validity predicate is data-independent.
+            # Adaptive loop. EM is sampled via the Gumbel-max trick — argmax
+            # of (alpha * q + Gumbel) is distributionally identical to softmax
+            # sampling but numerically stable when q-gaps dwarf 1/eps. As a
+            # bonus, the perturbed scores give a free total order over
+            # candidates, so we can do lazy post-EM rejection on the JT-size
+            # check (public, data-independent) by scanning top-down: only
+            # candidates we actually consider pay the JT cost.
             t = 0
             terminate = False
-            # Permanent rejection mask: candidates whose own raw size already
-            # exceeds the global cap can never become valid (adding more fitted
-            # cliques only grows the JT). Pre-seed and let the lazy EM keep
-            # adding to it as it learns more.
+            # Permanent rejection: candidates whose own raw size already
+            # exceeds the global cap can never become valid. Pre-seed once.
             permanent_mask: set = set()
             for cl in candidates:
                 if (
@@ -234,16 +234,15 @@ class AIM(Synth):
 
                 size_limit = self.max_model_size * rho_used / rho
                 fitted_cliques = [m[0] for m in measurements]
-                # Downward closure of fitted cliques (free: subsumed by an
-                # existing JT clique, so no model-size cost)
+                # Downward closure of fitted cliques: subsumed by an existing
+                # JT clique, so adding them is free (no model-size cost).
                 free = set()
                 for cl in fitted_cliques:
                     for r in range(1, len(cl) + 1):
                         free.update(itertools.combinations(cl, r))
 
                 # Score every (non-permanently-rejected) candidate. This is
-                # the only data-dependent step in the round; the rejection
-                # loop below is post-processing.
+                # the only data-dependent step in the round.
                 errors = {}
                 for cl, wgt in candidates.items():
                     if cl in permanent_mask:
@@ -266,32 +265,41 @@ class AIM(Synth):
                 top = sorted(errors.items(), key=lambda x: -x[1])[:3]
                 logger.info(f"AIM: Top errors: {[(c, f'{e:.1f}') for c, e in top]}")
 
-                # Post-EM rejection: validate each pick by triangulating the
-                # candidate-augmented graph. Cheap-out for free cliques.
+                # Adjuvant-style EM with post-rejection: softmax EM is sampled
+                # fresh from the current pool each iteration; an invalid pick
+                # is dropped and we resample. JT-size validity is a function
+                # of the (public) fitted cliques + domain, so the rejection
+                # is post-processing and costs no extra DP budget. Recomputing
+                # the softmax avoids the underflow-after-rejection bug that
+                # hits a cached probability vector when q-gaps · eps/sens
+                # saturates the exponent (cf. lazy_em_with_rejection).
+                em_pool = dict(errors)
+                cl = None
                 rejections = 0
-
-                def _is_valid(cl_, _free=free, _fitted=fitted_cliques,
-                              _size_limit=size_limit, _max=self.max_model_size,
-                              _attrs=table_attrs):
-                    nonlocal rejections
-                    if cl_ in _free:
-                        return True, False
-                    size = hypothetical_jt_size_mb(_fitted, cl_, _attrs)
-                    if size > _max:
+                while em_pool:
+                    pick = exponential_mechanism(em_pool, epsilon, max_sens)
+                    if pick in free:
+                        cl = pick
+                        break
+                    size = hypothetical_jt_size_mb(
+                        fitted_cliques, pick, table_attrs
+                    )
+                    if size > self.max_model_size:
+                        permanent_mask.add(pick)
+                        del em_pool[pick]
                         rejections += 1
-                        return False, True   # permanent: cap can only grow up to _max
-                    if size > _size_limit:
+                        continue
+                    if size > size_limit:
+                        del em_pool[pick]
                         rejections += 1
-                        return False, False  # temporary: size_limit grows next round
-                    return True, False
+                        continue  # temporary: size_limit grows next round
+                    cl = pick
+                    break
 
-                cl = lazy_em_with_rejection(
-                    errors, epsilon, max_sens, _is_valid, permanent_mask
-                )
                 if cl is None:
                     logger.warning(
-                        f"AIM: All candidates rejected after {rejections} "
-                        f"validations, terminating"
+                        f"AIM: All {len(errors)} candidates rejected "
+                        f"(size_limit={size_limit:.1f}MB), terminating"
                     )
                     break
                 if rejections:
@@ -299,6 +307,7 @@ class AIM(Synth):
                         f"AIM: Lazy rejection: {rejections} invalid picks "
                         f"before accepting (perm mask size {len(permanent_mask)})"
                     )
+
                 # Diagnostic: check if project finds parents for selected clique
                 _src = model._build_source(cl, table_attrs)
                 from ....graph.loss import get_parents as _gp
@@ -310,6 +319,8 @@ class AIM(Synth):
                     f"|x|={_x.sum():.0f}, |xest|={_xest.sum():.1f}, "
                     f"L1={np.linalg.norm(_x - _xest / _xest.sum() * _x.sum() if _xest.sum() > 0 else _xest, 1):.1f}"
                 )
+
+                z = model.project(cl, table_attrs).ravel()
 
                 # Measure
                 new_meas = measure(oracle, table_attrs, [cl], sigma)
@@ -329,7 +340,7 @@ class AIM(Synth):
                     w = model.project(cl, table_attrs).ravel()
                     dom_size = len(answers[cl])
                     if (
-                        np.linalg.norm(w - answers[cl], 1)
+                        np.linalg.norm(w - z, 1)
                         <= sigma * sqrt(2 / np.pi) * dom_size
                     ):
                         logger.info(
