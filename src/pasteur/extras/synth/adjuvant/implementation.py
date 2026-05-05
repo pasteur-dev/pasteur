@@ -1449,7 +1449,7 @@ def structure_learn(
     n: int,
     size_penalty: float,
     rho_avail: float,
-    min_score: "float | str",
+    min_score: "float | tuple[str, float]",
     em_z: float,
     theta_2w: float,
     frozen_nodes: set[str] | None = None,
@@ -1557,7 +1557,11 @@ def structure_learn(
     accepted_doms: list[int] = []  # doms of accepted edges, for "auto" min_score
     edge_budgets: dict[frozenset[str], float] = {}  # per-edge budget reserved at theta_2w
 
-    auto_min_score = isinstance(min_score, str) and min_score == "auto"
+    if isinstance(min_score, tuple):
+        auto_min_score = min_score[0] == "auto"
+        min_score = min_score[1]
+    else:
+        auto_min_score = False
     floor_1w = (
         _tvd_floor_1w_pair(theta_1w_eff, dp_type)
         if auto_min_score and scoring == "tvd_n"
@@ -1580,7 +1584,7 @@ def structure_learn(
         eff_theta = _solve_eff_theta_2w(
             accepted_doms, n, target_bdg, theta_2w, dp_type
         )
-        return _tvd_floor_2w(eff_theta, dp_type) + floor_1w
+        return _tvd_floor_2w(eff_theta, dp_type) + floor_1w + min_score
 
     def _em_cost(n_cands: int) -> tuple[float, float]:
         """Compute (eps, budget_cost) for EM over n_cands candidates.
@@ -2502,7 +2506,7 @@ def adjuvant_fit(
     e_em_min_ratio: float | None = None,
     em_max: float = 50.0,
     size_penalty: float = 0.0,
-    min_tvd: "float | str" = 0.05,
+    min_tvd: "float | tuple[str, float]" = 0.05,
     min_mi: float = 0.0,
     min_safety_factor: float = 3.0,
     frozen_nodes: set[str] | None = None,

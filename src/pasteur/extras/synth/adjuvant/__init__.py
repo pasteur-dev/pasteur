@@ -38,7 +38,7 @@ DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
 DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
-DEFAULT_MIN_TVD = 0.02
+DEFAULT_MIN_TVD = 0.05
 DEFAULT_MIN_MI = 0.005
 DEFAULT_MIN_SAFETY_FACTOR = 3.0
 DEFAULT_MAX_CLIQUE_SIZE = 5e5
@@ -77,7 +77,7 @@ class AdjuvantMare(MareModel):
         theta_2w: float = DEFAULT_THETA_2W,
         em_z: float = DEFAULT_EM_Z,
         size_penalty: float = DEFAULT_SIZE_PENALTY,
-        min_tvd: float | Literal["auto"] = DEFAULT_MIN_TVD,
+        min_tvd: float | tuple(Literal["auto"], float) = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
         min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
