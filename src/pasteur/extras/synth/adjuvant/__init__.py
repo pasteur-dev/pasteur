@@ -439,7 +439,9 @@ class AdjuvantSynth(Synth):
         n: int | None = None,
         partitions: int | None = None,
         mirror_descent: dict | None = None,
-        ablation: Literal[None, "1-way", "no-compression", "no-confidence"] = None,
+        ablation: Literal[
+            None, "1-way", "no-compression", "no-confidence", "no-cost-penalty"
+        ] = None,
         **kwargs,
     ) -> None:
         if etotal is not None:
@@ -557,6 +559,7 @@ class AdjuvantSynth(Synth):
                 dp_type=self.dp_type,
                 skip_structure=self.ablation == "1-way",
                 no_confidence=self.ablation == "no-confidence",
+                cost_penalty=self.ablation != "no-cost-penalty",
             )
 
         self._run_md()

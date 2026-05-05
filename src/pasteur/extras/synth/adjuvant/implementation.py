@@ -252,28 +252,73 @@ def _solve_eff_theta_2w(
 
     Mirrors the binary search used by ``measure_edges`` to boost theta_2w
     when there is leftover budget. Returns +inf if doms is empty (no
-    measurements would consume budget)."""
+    measurements would consume budget).
+
+    Closed form: budget(d, θ) is monotone in θ with a single power per
+    mechanism, so Σ budget(d_i, θ) = c·θ^p·S where S = Σd_iᵖ. CDP: p=2,
+    c=1/(2n²); DP: p=1, c=√2/n."""
     if not doms:
         return float("inf")
     if target_budget <= 0:
         return theta_min
 
-    def total(theta: float) -> float:
-        return sum(
-            compute_budget_for_theta(d, n, theta, dp_type) for d in doms
-        )
+    if dp_type == "cdp":
+        s = sum(d * d for d in doms)
+        if s == 0:
+            return float("inf")
+        theta = n * sqrt(2.0 * target_budget / s)
+    else:
+        s = sum(doms)
+        if s == 0:
+            return float("inf")
+        theta = n * target_budget / (sqrt(2.0) * s)
 
-    hi = max(theta_min * 1000.0, theta_min + 1.0)
-    if total(hi) <= target_budget:
-        return hi
-    lo = theta_min if total(theta_min) <= target_budget else 0.0
-    for _ in range(64):
-        mid = (lo + hi) / 2
-        if total(mid) <= target_budget:
-            lo = mid
-        else:
-            hi = mid
-    return lo
+    hi_cap = max(theta_min * 1000.0, theta_min + 1.0)
+    return min(hi_cap, theta)
+
+
+def _marginal_floor_cost_2w(
+    accepted_doms: list[int],
+    cand_dom_arr: np.ndarray,
+    n: int | float,
+    target_budget: float,
+    theta_min: float,
+    dp_type: str = "cdp",
+) -> np.ndarray:
+    """Per-candidate marginal rise in 2-way noise floor (TVD units).
+
+    Vectorized closed-form: precomputes the accepted-set aggregate once,
+    adds each candidate's contribution in O(1)."""
+    K = len(cand_dom_arr)
+    if K == 0 or target_budget <= 0:
+        return np.zeros(K)
+
+    cand_dom = cand_dom_arr.astype(np.float64)
+    if dp_type == "cdp":
+        s_acc = float(sum(d * d for d in accepted_doms))
+        s_with = s_acc + cand_dom * cand_dom
+        const = 2.0 * target_budget
+        theta_with = n * np.sqrt(const / s_with)
+        theta_now = n * sqrt(const / s_acc) if s_acc > 0 else float("inf")
+        floor_const = sqrt(2.0 / pi) / 2.0
+    else:
+        s_acc = float(sum(accepted_doms))
+        s_with = s_acc + cand_dom
+        const = target_budget / sqrt(2.0)
+        theta_with = n * const / s_with
+        theta_now = n * const / s_acc if s_acc > 0 else float("inf")
+        floor_const = 1.0 / (2.0 * sqrt(2.0))
+
+    hi_cap = max(theta_min * 1000.0, theta_min + 1.0)
+    theta_with = np.minimum(theta_with, hi_cap)
+    floor_with = floor_const / theta_with
+
+    if theta_now == float("inf"):
+        floor_now = 0.0
+    else:
+        floor_now = floor_const / min(theta_now, hi_cap)
+
+    return np.maximum(0.0, floor_with - floor_now)
 
 
 # ============================================================
@@ -1466,6 +1511,7 @@ def structure_learn(
     min_safety_factor: float = 3.0,
     theta_1w_eff: float = 0.0,
     real_tvd: "dict[tuple[Col, Col], np.ndarray] | None" = None,
+    cost_penalty: bool = True,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -1790,8 +1836,35 @@ def structure_learn(
         accepted = False
         stopped = False
         eff_min_score = _current_min_score()
+
+        # Per-candidate marginal-cost penalty (TVD units).
+        # Picking a high-domain edge drops the rescale-effective theta_2w
+        # for every edge, raising the post-measurement noise floor.
+        # We charge each candidate the *marginal* rise in that floor,
+        # i.e. floor(accepted ∪ {cand}) − floor(accepted).  Both terms
+        # depend only on data-independent quantities (doms, budgets), so
+        # EM sensitivity is unchanged.  Disabled when rho_avail<=0 so
+        # selection degenerates exactly to the pre-cost behaviour.
+        cand_cost: dict[int, float] | None = None
+        if cost_penalty and rho_avail > 0 and em_pool:
+            target_bdg = max(0.0, rho_avail - bdg_em)
+            pool_idxs = [idx for idx, _, _ in em_pool]
+            costs = _marginal_floor_cost_2w(
+                accepted_doms,
+                cand_doms[pool_idxs],
+                n,
+                target_bdg,
+                theta_2w,
+                dp_type,
+            )
+            cand_cost = dict(zip(pool_idxs, costs.tolist()))
+
         while em_pool:
             scores = np.array([cand_tvd_boost[idx] for idx, _, _ in em_pool])
+            if cand_cost is not None:
+                scores = scores - np.array(
+                    [cand_cost[idx] for idx, _, _ in em_pool]
+                )
             stop_idx = len(scores)
 
             if rho_avail > 0:
@@ -2520,6 +2593,7 @@ def adjuvant_fit(
     scoring: str = "tvd",
     skip_structure: bool = False,
     no_confidence: bool = False,
+    cost_penalty: bool = True,
 ) -> tuple[list, "nx.Graph", float]:
     """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
 
@@ -2655,6 +2729,7 @@ def adjuvant_fit(
             min_safety_factor=min_safety_factor,
             theta_1w_eff=eff_theta_1w,
             real_tvd=real_tvd_for_diag,
+            cost_penalty=cost_penalty,
         )
 
         # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
