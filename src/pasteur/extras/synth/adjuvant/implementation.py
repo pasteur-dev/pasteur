@@ -285,7 +285,13 @@ def _marginal_floor_cost_2w(
     theta_min: float,
     dp_type: str = "cdp",
 ) -> np.ndarray:
-    """Per-candidate marginal rise in 2-way noise floor (TVD units).
+    """Per-candidate total damage in 2-way noise floor (TVD units).
+
+    The candidate is charged for (a) its own measurement noise and (b) the
+    noise-floor rise it inflicts on already-accepted edges:
+
+        penalty = floor_with + K_acc · (floor_with − floor_now)
+                = (K_acc + 1)·floor_with − K_acc·floor_now
 
     Vectorized closed-form: precomputes the accepted-set aggregate once,
     adds each candidate's contribution in O(1)."""
@@ -294,6 +300,7 @@ def _marginal_floor_cost_2w(
         return np.zeros(K)
 
     cand_dom = cand_dom_arr.astype(np.float64)
+    K_acc = len(accepted_doms)
     if dp_type == "cdp":
         s_acc = float(sum(d * d for d in accepted_doms))
         s_with = s_acc + cand_dom * cand_dom
@@ -318,7 +325,7 @@ def _marginal_floor_cost_2w(
     else:
         floor_now = floor_const / min(theta_now, hi_cap)
 
-    return np.maximum(0.0, floor_with - floor_now)
+    return np.maximum(0.0, (K_acc + 1) * floor_with - K_acc * floor_now)
 
 
 # ============================================================
@@ -1857,6 +1864,9 @@ def structure_learn(
                 theta_2w,
                 dp_type,
             )
+            # Anchor the cheapest candidate at zero penalty so we don't
+            # tilt EM toward the stop option (which carries no cost).
+            costs = costs - costs.min()
             cand_cost = dict(zip(pool_idxs, costs.tolist()))
 
         while em_pool:
