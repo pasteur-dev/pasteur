@@ -843,7 +843,7 @@ def finalize_moral_graph(
     base_active: dict[Col, list[int]],
     height_lookup: dict[tuple[Col, int], str],
 ) -> tuple[int, int]:
-    """Commit chain edges and drop components that carry no observations.
+    """Commit chain edges and prune chain-only height nodes.
 
     Chain edges connect consecutive *active* heights per column — "active"
     here means within the sorted ``base_active`` set, *not* consecutive
@@ -852,16 +852,19 @@ def finalize_moral_graph(
     heights ``[1, 3, 7]`` this yields exactly two edges (h_1—h_3 and
     h_3—h_7) with no h_2/h_4/h_5/h_6 involvement.
 
-    After committing, any connected component that contains no
-    ``structure=True`` edge and no protected (main-table h=0) node is
-    removed.  Such components show up two ways:
-      - intermediate-height singletons left isolated by the active-only
-        chaining above;
-      - whole evidence values that no candidate selected — the
-        ``cmn[0]–v[boundary]`` glue edges from ``build_height_chain_graph``
-        leave them as their own component without ever attaching to the
-        rest of the model, and they would otherwise become singleton or
-        2-node cliques during triangulation and slow down mirror descent.
+    After committing, any node whose only neighbours (if any) sit at
+    other heights of the same ``(table, order, attr, value)`` is dropped:
+    no structure edge, no cross-attribute edge, nothing for triangulation
+    to attach to.  Heights are deterministic refinements of each other,
+    so removing such a node and bridging its two chain neighbours
+    preserves the joint exactly (sum_v[mid] P(v[low], v[mid], v[high]) =
+    P(v[low], v[high])).  Isolated singletons (no neighbours at all) and
+    orphan ``cmn[0]–v[boundary]`` pairs left over from unused evidence
+    values are covered by the same rule, since the cmn-glue spans
+    different ``(attr, value)`` keys.
+
+    Main-table h=0 nodes are protected — that's where 1-way observations
+    attach.
 
     Returns ``(n_chain_edges_added, n_nodes_pruned)``."""
     n_added = 0
@@ -878,21 +881,43 @@ def finalize_moral_graph(
                 moral.add_edge(n_lo, n_hi, chain=True)
                 n_added += 1
 
+    def _key(node):
+        d = moral.nodes[node]
+        return (d.get("table"), d.get("order"), d["attr"], d["value"])
+
     def _protected(node):
         d = moral.nodes[node]
         # 1-way obs cover every main-table column at h=0.
         return d.get("table") is None and d.get("height") == 0
 
     n_pruned = 0
-    for component in list(nx.connected_components(moral)):
-        if any(_protected(n) for n in component):
-            continue
-        sub = moral.subgraph(component)
-        if any(d.get("structure") for _, _, d in sub.edges(data=True)):
-            continue
-        for n in component:
-            moral.remove_node(n)
+    while True:
+        prunable: list[str] = []
+        for node in moral.nodes():
+            if _protected(node):
+                continue
+            key = _key(node)
+            chain_only = True
+            for nb in moral.neighbors(node):
+                if _key(nb) != key:
+                    chain_only = False
+                    break
+            if chain_only:
+                prunable.append(node)
+
+        if not prunable:
+            break
+
+        for node in prunable:
+            if node not in moral:
+                continue
+            nbs = list(moral.neighbors(node))
+            moral.remove_node(node)
             n_pruned += 1
+            if len(nbs) == 2:
+                a, b = nbs
+                if a in moral and b in moral and not moral.has_edge(a, b):
+                    moral.add_edge(a, b, chain_bridged=True)
 
     return n_added, n_pruned
 
@@ -2631,6 +2656,8 @@ def adjuvant_fit(
             for col, mar in cached.one_way.items()
             if not (hist_cols and col in hist_cols)
         }
+        if scoring == "tvd_n":
+            scoring = "tvd"
     logger.info(
         f"Adjuvant Step 1: Noisy 1-way marginals "
         f"(theta_1w={eff_theta_1w:.1f}, {bdg_label}1={bdg1:.6f})"
@@ -2666,7 +2693,7 @@ def adjuvant_fit(
             min_score: "float | str" = (
                 0.0 if isinstance(min_mi, str) else min_mi
             )
-        elif scoring == "tvd_n":
+        elif scoring == "tvd_n" and bdg_avail:
             scores = compute_tvd(
                 cached, attrs, all_cols, noisy_1way=noisy_1way, n=n
             )
@@ -2680,8 +2707,7 @@ def adjuvant_fit(
         directed_graph = build_height_chain_graph(attrs)
         logger.info(
             f"Adjuvant: height-chain graph has {directed_graph.number_of_nodes()} "
-            f"nodes, {directed_graph.number_of_edges()} cross-attribute edges "
-            f"(scoring={scoring}, min_score={min_score})"
+            f"nodes (scoring={scoring}, min_score={min_score})"
         )
 
         max_em_budget = e_em_max_ratio * rho if rho > 0 and e_em_max_ratio else float("inf")
