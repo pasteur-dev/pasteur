@@ -780,7 +780,7 @@ def activate_height(
     graph or base adjacency here.  Instead they are added temporarily
     during the clique-size check (via ``provisional_chain_edges``) and
     permanently materialised on the moral graph just before junction-tree
-    construction (via ``commit_chain_edges_to_moral``)."""
+    construction (via ``finalize_moral_graph``)."""
     import bisect
 
     hs = base_active.setdefault(col, [])
@@ -838,22 +838,32 @@ def provisional_chain_edges(
     return edges
 
 
-def commit_chain_edges_to_moral(
+def finalize_moral_graph(
     moral: "nx.Graph",
     base_active: dict[Col, list[int]],
     height_lookup: dict[tuple[Col, int], str],
-) -> int:
-    """Add chain edges between consecutive *active* heights to ``moral``.
+) -> tuple[int, int]:
+    """Commit chain edges and drop components that carry no observations.
 
-    "Consecutive" here means consecutive within the sorted active set,
-    *not* consecutive integers — intermediate heights that never gained
-    an edge stay isolated, and the chain skips directly across them.
-    For active heights [1, 3, 7] this yields exactly two edges:
-    h_1—h_3 and h_3—h_7 (no h_2/h_4/h_5/h_6 involvement).
+    Chain edges connect consecutive *active* heights per column — "active"
+    here means within the sorted ``base_active`` set, *not* consecutive
+    integers — so intermediate heights that never gained a structure edge
+    stay isolated and the chain skips directly across them.  For active
+    heights ``[1, 3, 7]`` this yields exactly two edges (h_1—h_3 and
+    h_3—h_7) with no h_2/h_4/h_5/h_6 involvement.
 
-    Called once after structure learning so the moral graph handed to
-    junction-tree construction reflects the chain structure that the
-    clique-size check has been provisionally enforcing all along."""
+    After committing, any connected component that contains no
+    ``structure=True`` edge and no protected (main-table h=0) node is
+    removed.  Such components show up two ways:
+      - intermediate-height singletons left isolated by the active-only
+        chaining above;
+      - whole evidence values that no candidate selected — the
+        ``cmn[0]–v[boundary]`` glue edges from ``build_height_chain_graph``
+        leave them as their own component without ever attaching to the
+        rest of the model, and they would otherwise become singleton or
+        2-node cliques during triangulation and slow down mirror descent.
+
+    Returns ``(n_chain_edges_added, n_nodes_pruned)``."""
     n_added = 0
     for col, hs in base_active.items():
         if len(hs) < 2:
@@ -867,33 +877,6 @@ def commit_chain_edges_to_moral(
             if not moral.has_edge(n_lo, n_hi):
                 moral.add_edge(n_lo, n_hi, chain=True)
                 n_added += 1
-    return n_added
-
-
-def prune_unused_chain_nodes(moral: "nx.Graph") -> int:
-    """Compress unused intermediate height nodes out of the moral graph.
-
-    A height node is "chain-only" when all its edges run to other heights
-    of the same (table, order, attr, value) — i.e. no structure-learning
-    edge, no evidence-clique edge, no immorality from another attr.
-    Such a node carries no observation and only inflates the cliques
-    that triangulation forms when its chain neighbours sit at different
-    heights connected to different main vars.
-
-    Heights are deterministic refinements of each other, so removing a
-    chain-only node and bridging its two chain neighbours preserves the
-    joint distribution exactly (the marginal P(v[low], v[high]) equals
-    sum over v[mid] of P(v[low], v[mid], v[high])).
-
-    h=0 of main-table values is kept regardless — that's where 1-way
-    observations attach.
-
-    Returns the number of nodes pruned (for diagnostics).
-    """
-
-    def _key(node):
-        d = moral.nodes[node]
-        return (d.get("table"), d.get("order"), d["attr"], d["value"])
 
     def _protected(node):
         d = moral.nodes[node]
@@ -901,35 +884,17 @@ def prune_unused_chain_nodes(moral: "nx.Graph") -> int:
         return d.get("table") is None and d.get("height") == 0
 
     n_pruned = 0
-    while True:
-        prunable: list[str] = []
-        for node in moral.nodes():
-            if _protected(node):
-                continue
-            key = _key(node)
-            chain_only = True
-            for nb in moral.neighbors(node):
-                if _key(nb) != key:
-                    chain_only = False
-                    break
-            if chain_only:
-                prunable.append(node)
-
-        if not prunable:
-            break
-
-        for node in prunable:
-            if node not in moral:
-                continue
-            nbs = list(moral.neighbors(node))
-            moral.remove_node(node)
+    for component in list(nx.connected_components(moral)):
+        if any(_protected(n) for n in component):
+            continue
+        sub = moral.subgraph(component)
+        if any(d.get("structure") for _, _, d in sub.edges(data=True)):
+            continue
+        for n in component:
+            moral.remove_node(n)
             n_pruned += 1
-            if len(nbs) == 2:
-                a, b = nbs
-                if a in moral and b in moral and not moral.has_edge(a, b):
-                    moral.add_edge(a, b, chain_bridged=True)
 
-    return n_pruned
+    return n_added, n_pruned
 
 
 def build_height_chain_graph(attrs: DatasetAttributes) -> nx.DiGraph:
@@ -1717,7 +1682,7 @@ def structure_learn(
     # just records which heights have a structure or evidence edge, and the
     # consecutive-pair chain edges are reconstructed temporarily inside
     # _score_with_one_edge (clique check) and committed once on moral via
-    # commit_chain_edges_to_moral after the loop ends.
+    # finalize_moral_graph after the loop ends.
     base_active, height_lookup = init_active_heights(directed_graph, moral)
     # Cached base triangulation — (re)built lazily each iteration after edges
     # get accepted.  Lets the post-EM clique check short-circuit when the
@@ -2000,7 +1965,7 @@ def structure_learn(
         # evidence vars pulled in via extra_edges).  Pure book-keeping —
         # chain edges are added temporarily during the next clique check
         # via provisional_chain_edges, and committed to the moral graph
-        # once after the loop via commit_chain_edges_to_moral.
+        # once after the loop via finalize_moral_graph.
         activate_height(col_a, da["height"], base_active)
         activate_height(col_b, db["height"], base_active)
         for ea, eb in extra_edges:
@@ -2052,10 +2017,16 @@ def structure_learn(
     # the moral graph now that structure learning has settled.  Up to
     # this point chain edges only existed transiently inside the
     # clique-size check; the junction-tree builder needs them present in
-    # the actual graph it triangulates.
-    n_chain = commit_chain_edges_to_moral(moral, base_active, height_lookup)
-    if n_chain:
-        logger.info(f"Adjuvant: committed {n_chain} chain edges to moral graph")
+    # the actual graph it triangulates.  Same call also drops components
+    # that carry no observations (unused evidence values, isolated
+    # intermediate heights) so triangulation doesn't waste cliques on
+    # them.
+    n_chain, n_pruned = finalize_moral_graph(moral, base_active, height_lookup)
+    if n_chain or n_pruned:
+        logger.info(
+            f"Adjuvant: committed {n_chain} chain edges, "
+            f"pruned {n_pruned} unused nodes from moral graph"
+        )
 
     bdg_label = "rho" if dp_type == "cdp" else "eps"
     logger.info(
