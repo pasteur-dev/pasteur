@@ -38,14 +38,14 @@ DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
 DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
-DEFAULT_MIN_TVD = 0.09
+DEFAULT_MIN_TVD = 0.02
 DEFAULT_MIN_MI = 0.005
 DEFAULT_MIN_SAFETY_FACTOR = 3.0
 DEFAULT_MAX_CLIQUE_SIZE = 5e5
 DEFAULT_MAX_ROOT_CLIQUE_SIZE = 5e6
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
-DEFAULT_SCORING: Literal["mi", "tvd"] = "tvd"
+DEFAULT_SCORING: Literal["mi", "tvd", "tvd_n"] = "tvd"
 
 
 class AdjuvantMare(MareModel):
@@ -84,7 +84,7 @@ class AdjuvantMare(MareModel):
         max_root_clique_size: float = DEFAULT_MAX_ROOT_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
-        scoring: Literal["mi", "tvd"] = DEFAULT_SCORING,
+        scoring: Literal["mi", "tvd", "tvd_n"] = DEFAULT_SCORING,
         max_order: int | None = 1,
         accountant: bool = True,
         mirror_descent: dict | None = None,
@@ -430,7 +430,7 @@ class AdjuvantSynth(Synth):
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
-        scoring: Literal["mi", "tvd"] = DEFAULT_SCORING,
+        scoring: Literal["mi", "tvd", "tvd_n"] = DEFAULT_SCORING,
         rebalance: bool | dict = True,
         marginal_mode: "MarginalOracle.MODES" = "out_of_core",
         marginal_worker_mult: int = 1,

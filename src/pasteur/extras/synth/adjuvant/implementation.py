@@ -1704,9 +1704,12 @@ def structure_learn(
             stop_idx = len(scores)
 
             if rho_avail > 0:
-                em_scores = np.append(
-                    scores, min_score + log_n_boost if min_score else 0
-                )
+                if min_score > 0:
+                    em_scores = np.append(
+                        scores, min_score + log_n_boost if min_score else 0
+                    )
+                else:
+                    em_scores = scores
                 sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             else:
                 em_scores = np.append(scores, min_score)
