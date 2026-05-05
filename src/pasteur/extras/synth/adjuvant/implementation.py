@@ -7,7 +7,7 @@ mechanism, and measurement/observation building.
 
 import itertools
 import logging
-from math import exp, log1p, sqrt
+from math import exp, log1p, pi, sqrt
 from typing import NamedTuple, Sequence, cast
 
 import networkx as nx
@@ -214,6 +214,66 @@ def _col_sel(col: Col, attrs: DatasetAttributes):
 def calc_confidence(n: int | float, sigma: float, dom: int) -> float:
     dom = max(dom, 1)
     return n / (n + dom * sigma * sigma)
+
+
+def _tvd_floor_2w(theta: float, dp_type: str = "cdp") -> float:
+    """Expected TVD between a noisy and true 2-way marginal at confidence theta.
+
+    Domain-independent: sigma = n / (theta * dom) so the noise contribution
+    summed over dom cells leaves only a 1/theta factor."""
+    if theta <= 0:
+        return float("inf")
+    if dp_type == "cdp":
+        return sqrt(2.0 / pi) / (2.0 * theta)
+    # Laplace: noise is Laplace(0, sigma/sqrt(2)) so E|.| = sigma/sqrt(2)
+    return 1.0 / (2.0 * sqrt(2.0) * theta)
+
+
+def _tvd_floor_1w_pair(theta_1w: float, dp_type: str = "cdp") -> float:
+    """Upper-bound TVD contribution of P̃(X)P̃(Y) − P(X)P(Y) at theta_1w.
+
+    First-order bound ½(Σ|ε_x| + Σ|ε_y|), with both 1-ways at confidence
+    theta_1w (so dom·sigma/n = 1/theta_1w on each side)."""
+    if theta_1w <= 0:
+        return float("inf")
+    if dp_type == "cdp":
+        return sqrt(2.0 / pi) / theta_1w
+    return 1.0 / (sqrt(2.0) * theta_1w)
+
+
+def _solve_eff_theta_2w(
+    doms: list[int],
+    n: int | float,
+    target_budget: float,
+    theta_min: float,
+    dp_type: str = "cdp",
+) -> float:
+    """Find max theta s.t. Σ budget(d, theta) ≤ target_budget across `doms`.
+
+    Mirrors the binary search used by ``measure_edges`` to boost theta_2w
+    when there is leftover budget. Returns +inf if doms is empty (no
+    measurements would consume budget)."""
+    if not doms:
+        return float("inf")
+    if target_budget <= 0:
+        return theta_min
+
+    def total(theta: float) -> float:
+        return sum(
+            compute_budget_for_theta(d, n, theta, dp_type) for d in doms
+        )
+
+    hi = max(theta_min * 1000.0, theta_min + 1.0)
+    if total(hi) <= target_budget:
+        return hi
+    lo = theta_min if total(theta_min) <= target_budget else 0.0
+    for _ in range(64):
+        mid = (lo + hi) / 2
+        if total(mid) <= target_budget:
+            lo = mid
+        else:
+            hi = mid
+    return lo
 
 
 # ============================================================
@@ -1389,7 +1449,7 @@ def structure_learn(
     n: int,
     size_penalty: float,
     rho_avail: float,
-    min_score: float,
+    min_score: "float | str",
     em_z: float,
     theta_2w: float,
     frozen_nodes: set[str] | None = None,
@@ -1404,6 +1464,8 @@ def structure_learn(
     dp_type: str = "cdp",
     scoring: str = "tvd",
     min_safety_factor: float = 3.0,
+    theta_1w_eff: float = 0.0,
+    real_tvd: "dict[tuple[Col, Col], np.ndarray] | None" = None,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
     """Greedy edge addition with exponential mechanism and budget tracking.
 
@@ -1459,18 +1521,15 @@ def structure_learn(
 
     # Pre-compute per-candidate measurement budget and theta-filter
     cand_bdg_edge = np.zeros(len(candidates))
+    cand_doms = np.zeros(len(candidates), dtype=np.int64)
     cand_valid = np.ones(len(candidates), dtype=bool)
+    for idx, (na, nb) in enumerate(candidates):
+        cand_doms[idx] = _edge_clique_domain(na, nb, directed_graph, attrs)
     if rho_avail > 0:
         n_filtered = 0
         for idx in range(len(candidates)):
-            b = _compute_cand_edge_budget(
-                idx,
-                candidates,
-                directed_graph,
-                attrs,
-                n,
-                theta_2w,
-                dp_type,
+            b = compute_budget_for_theta(
+                int(cand_doms[idx]), n, theta_2w, dp_type
             )
             cand_bdg_edge[idx] = b
             if np.isinf(b):
@@ -1495,6 +1554,33 @@ def structure_learn(
     max_steps = d * (max_edges_per_col // 2 + 1)
     bdg_em = 0.0  # cumulative EM selection budget spent
     bdg_committed = 0.0  # cumulative edge measurement budget committed
+    accepted_doms: list[int] = []  # doms of accepted edges, for "auto" min_score
+    edge_budgets: dict[frozenset[str], float] = {}  # per-edge budget reserved at theta_2w
+
+    auto_min_score = isinstance(min_score, str) and min_score == "auto"
+    floor_1w = (
+        _tvd_floor_1w_pair(theta_1w_eff, dp_type)
+        if auto_min_score and scoring == "tvd_n"
+        else 0.0
+    )
+
+    def _current_min_score() -> float:
+        """Effective per-iter stop threshold.
+
+        For "auto", the threshold is the noise floor we'd see if we stopped
+        here: theta_2w boosted by rescaling the leftover budget across the
+        edges accepted so far. For ``tvd_n`` we additionally add the noise
+        contribution that the noisy 1-way baseline already injects into the
+        score itself, so a candidate must clear both noise components."""
+        if not auto_min_score:
+            return float(min_score)
+        if rho_avail <= 0:
+            return 0.0
+        target_bdg = max(0.0, rho_avail - bdg_em)
+        eff_theta = _solve_eff_theta_2w(
+            accepted_doms, n, target_bdg, theta_2w, dp_type
+        )
+        return _tvd_floor_2w(eff_theta, dp_type) + floor_1w
 
     def _em_cost(n_cands: int) -> tuple[float, float]:
         """Compute (eps, budget_cost) for EM over n_cands candidates.
@@ -1699,20 +1785,21 @@ def structure_learn(
         n_invalid_this_iter = 0
         accepted = False
         stopped = False
+        eff_min_score = _current_min_score()
         while em_pool:
             scores = np.array([cand_tvd_boost[idx] for idx, _, _ in em_pool])
             stop_idx = len(scores)
 
             if rho_avail > 0:
-                if min_score > 0:
+                if eff_min_score > 0:
                     em_scores = np.append(
-                        scores, min_score + log_n_boost if min_score else 0
+                        scores, eff_min_score + log_n_boost if eff_min_score else 0
                     )
                 else:
                     em_scores = scores
                 sel = exponential_mechanism(em_scores, eps_step, sensitivity)
             else:
-                em_scores = np.append(scores, min_score)
+                em_scores = np.append(scores, eff_min_score)
                 sel = int(np.argmax(em_scores))
 
             if sel == stop_idx:
@@ -1774,8 +1861,10 @@ def structure_learn(
             n_invalid_this_iter += 1
 
         if stopped:
+            auto_tag = " [auto]" if auto_min_score else ""
             logger.info(
-                f"Adjuvant: exit (EM picked stop option, min_score={min_score}) "
+                f"Adjuvant: exit (EM picked stop option, "
+                f"min_score={eff_min_score:.4f}{auto_tag}) "
                 f"at iter {it}, edges={len(structure_edges)}, "
                 f"rejected={n_invalid_this_iter}"
             )
@@ -1793,6 +1882,8 @@ def structure_learn(
             break
 
         edge_bdg = cand_bdg_edge[cand_idx]
+        accepted_doms.append(int(cand_doms[cand_idx]))
+        edge_budgets[frozenset([na, nb])] = float(edge_bdg)
 
         # Accept edge
         moral.add_edge(na, nb, structure=True)
@@ -1900,8 +1991,10 @@ def structure_learn(
         directed_graph,
         moral,
         attrs,
-        min_score,
+        _current_min_score(),
         label=scoring.upper(),
+        real_tvd=real_tvd,
+        edge_budgets=edge_budgets,
     )
     for line in diag.splitlines():
         logger.info(line)
@@ -1919,6 +2012,8 @@ def format_tvd_diagnostic(
     attrs: DatasetAttributes,
     min_tvd: float,
     label: str = "TVD",
+    real_tvd: "dict[tuple[Col, Col], np.ndarray] | None" = None,
+    edge_budgets: "dict[frozenset[str], float] | None" = None,
 ) -> str:
     """Format score diagnostic showing connected and missing column pairs."""
     candidate_cols = set(c for pair in col_pair_map for c in pair)
@@ -1931,6 +2026,10 @@ def format_tvd_diagnostic(
         ):
             all_pairs_tvd.append((float(val_arr[0, 0]), ca, cb))
     all_pairs_tvd.sort(key=lambda x: (-x[0], _col_sort_key(x[1]), _col_sort_key(x[2])))
+
+    selection_budget = (
+        sum(edge_budgets.values()) if edge_budgets else 0.0
+    )
 
     lines = [f"Connected column pairs (by {label}):"]
     for val, ca, cb in all_pairs_tvd:
@@ -1964,8 +2063,26 @@ def format_tvd_diagnostic(
                     )
                     tvd_arr = tvd.get((col_a_t, col_b_t))
                     tvd_at_h = float(tvd_arr[ha, hb]) if tvd_arr is not None else 0.0
+                    real_tag = ""
+                    if real_tvd is not None:
+                        r_arr = real_tvd.get((col_a_t, col_b_t))
+                        if r_arr is not None:
+                            r_at_h = float(r_arr[ha, hb])
+                            r_at_0 = float(r_arr[0, 0])
+                            real_tag = (
+                                f" (real={r_at_h:.4f}"
+                                + (f"/{r_at_0:.4f}" if ha != 0 or hb != 0 else "")
+                                + ")"
+                            )
+                    bdg_tag = ""
+                    if edge_budgets is not None and selection_budget > 0:
+                        b = edge_budgets.get(edge)
+                        if b is not None:
+                            bdg_tag = f" bdg={100.0 * b / selection_budget:.2f}%"
                     lines.append(
-                        f"  CONNECTED {label}={tvd_at_h:.4f}{f'/{val:.4f}' if ha != 0 or hb != 0 else ''} "
+                        f"  CONNECTED {label}={tvd_at_h:.4f}"
+                        f"{f'/{val:.4f}' if ha != 0 or hb != 0 else ''}"
+                        f"{real_tag}{bdg_tag} "
                         f"{_fmt_edge(ena, enb, moral, attrs)}"
                     )
                     break
@@ -1975,8 +2092,13 @@ def format_tvd_diagnostic(
             # Skip hist-table pairs (they are frozen, not candidates)
             if ca_tbl is not None or cb_tbl is not None:
                 continue
+            real_tag = ""
+            if real_tvd is not None:
+                r_arr = real_tvd.get((ca, cb))
+                if r_arr is not None:
+                    real_tag = f" (real={float(r_arr[0, 0]):.4f})"
             lines.append(
-                f"    MISSING {label}={val:.4f} "
+                f"    MISSING {label}={val:.4f}{real_tag} "
                 f"{_fmt_attr(ca_attr) + '.' if ca_attr != ca_val else ''}{ca_val} x "
                 f"{_fmt_attr(cb_attr) + '.' if cb_attr != cb_val else ''}{cb_val}"
             )
@@ -2380,7 +2502,7 @@ def adjuvant_fit(
     e_em_min_ratio: float | None = None,
     em_max: float = 50.0,
     size_penalty: float = 0.0,
-    min_tvd: float = 0.05,
+    min_tvd: "float | str" = 0.05,
     min_mi: float = 0.0,
     min_safety_factor: float = 3.0,
     frozen_nodes: set[str] | None = None,
@@ -2478,13 +2600,20 @@ def adjuvant_fit(
             f"Adjuvant Step 2: Structure learning "
             f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
         )
+        real_tvd_for_diag: "dict[tuple[Col, Col], np.ndarray] | None" = None
         if scoring == "mi":
             scores = compute_mi(cached, attrs, all_cols)
-            min_score = min_mi
+            # "auto" only makes sense for TVD-based scoring; fall back to 0.
+            min_score: "float | str" = (
+                0.0 if isinstance(min_mi, str) else min_mi
+            )
         elif scoring == "tvd_n":
             scores = compute_tvd(
                 cached, attrs, all_cols, noisy_1way=noisy_1way, n=n
             )
+            # Real (true-baseline) TVD for diagnostics only — selection still
+            # uses the noisy-baseline scores.
+            real_tvd_for_diag = compute_tvd(cached, attrs, all_cols)
             min_score = min_tvd
         else:
             scores = compute_tvd(cached, attrs, all_cols)
@@ -2520,6 +2649,8 @@ def adjuvant_fit(
             dp_type=dp_type,
             scoring=scoring,
             min_safety_factor=min_safety_factor,
+            theta_1w_eff=eff_theta_1w,
+            real_tvd=real_tvd_for_diag,
         )
 
         # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
