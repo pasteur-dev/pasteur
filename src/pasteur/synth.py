@@ -165,6 +165,10 @@ class Synth(ModuleClass, Generic[META]):
             partial(self.sample_partition, i=i, n=n_chunk) for i in range(partitions)
         }
 
+    def visualise(self, dir: str):
+        "Create visualizations for the model in the provided directory."
+        pass
+
 
 def synth_fit(
     factory: SynthFactory,

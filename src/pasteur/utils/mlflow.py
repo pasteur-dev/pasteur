@@ -293,6 +293,29 @@ def mlflow_log_artifacts(*prefix: str, **args):
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
 
 
+class mlflow_log_folder:
+    def __init__(self, subdir: str | None = None):
+        self.tmp = None
+        self.subdir = subdir
+
+    def __enter__(self):
+        from tempfile import TemporaryDirectory
+
+        self.tmp = TemporaryDirectory()
+        return self.tmp.__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if not self.tmp:
+            return
+
+        import mlflow
+        from os.path import join
+
+        mlflow.log_artifacts(dir, self.subdir)
+
+        return self.tmp.__exit__(exc_type, exc_value, traceback)
+
+
 def mlflow_log_figures(path: str, viz: "Figure | dict[str, Figure]"):
     import matplotlib.pyplot as plt
     import mlflow

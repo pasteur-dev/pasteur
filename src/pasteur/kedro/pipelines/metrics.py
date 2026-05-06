@@ -215,7 +215,7 @@ def log_metric(metric: Any, data: Any):
 
 
 def log_model(model):
-    from ...utils.mlflow import mlflow_log_artifacts, mlflow_log_as_str
+    from ...utils.mlflow import mlflow_log_artifacts, mlflow_log_as_str, mlflow_log_folder
 
     # TODO: Enable uploading model
     # mlflow_log_artifacts('model', model=model)
@@ -224,6 +224,9 @@ def log_model(model):
     total_params = getattr(model, "total_params", None)
     if total_params is not None:
         mlflow_log_artifacts("model", total_params=int(total_params))
+
+    with mlflow_log_folder() as fn:
+        model.visualise(fn)
 
 
 def create_metrics_model_pipeline(
