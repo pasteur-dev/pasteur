@@ -2125,6 +2125,19 @@ def structure_learn(
         )
     )
 
+    # Per-pair rejection diagnostics: which MISSING pairs were blocked
+    # for column saturation vs clique-size overflow during the loop.
+    saturated_pairs: set[tuple[Col, Col]] = {
+        pair
+        for pair in col_pair_map
+        if pair[0] in saturated_cols or pair[1] in saturated_cols
+    }
+    clique_rejected_pairs: set[tuple[Col, Col]] = {
+        pair
+        for pair, idxs in col_pair_map.items()
+        if any(cand_invalid_clique[i] for i in idxs)
+    }
+
     diag = format_tvd_diagnostic(
         tvd,
         structure_edges,
@@ -2137,6 +2150,8 @@ def structure_learn(
         label=scoring.upper(),
         real_tvd=real_tvd,
         edge_budgets=edge_budgets,
+        saturated_pairs=saturated_pairs,
+        clique_rejected_pairs=clique_rejected_pairs,
     )
     for line in diag.splitlines():
         logger.info(line)
@@ -2156,6 +2171,8 @@ def format_tvd_diagnostic(
     label: str = "TVD",
     real_tvd: "dict[tuple[Col, Col], np.ndarray] | None" = None,
     edge_budgets: "dict[frozenset[str], float] | None" = None,
+    saturated_pairs: "set[tuple[Col, Col]] | None" = None,
+    clique_rejected_pairs: "set[tuple[Col, Col]] | None" = None,
 ) -> str:
     """Format score diagnostic showing connected and missing column pairs."""
     candidate_cols = set(c for pair in col_pair_map for c in pair)
@@ -2239,10 +2256,19 @@ def format_tvd_diagnostic(
                 r_arr = real_tvd.get((ca, cb))
                 if r_arr is not None:
                     real_tag = f" (real={float(r_arr[0, 0]):.4f})"
+            reason_tag = ""
+            if saturated_pairs is not None and pair in saturated_pairs:
+                reason_tag += " [saturated]"
+            if (
+                clique_rejected_pairs is not None
+                and pair in clique_rejected_pairs
+            ):
+                reason_tag += " [ovf]"
             lines.append(
                 f"    MISSING {label}={val:.4f}{real_tag} "
                 f"{_fmt_attr(ca_attr) + '.' if ca_attr != ca_val else ''}{ca_val} x "
                 f"{_fmt_attr(cb_attr) + '.' if cb_attr != cb_val else ''}{cb_val}"
+                f"{reason_tag}"
             )
 
     return "\n".join(lines)
