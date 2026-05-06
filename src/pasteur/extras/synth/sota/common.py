@@ -74,8 +74,6 @@ def exponential_mechanism(
     return keys[np.random.choice(p.size, p=p)]
 
 
-
-
 def hypothetical_jt_size_mb(
     fitted_cliques: list[tuple[str, ...]],
     candidate: tuple[str, ...] | None,
@@ -433,6 +431,7 @@ def fit_pgm(
     md_params: dict | None = None,
     prev_model: FittedPGM | None = None,
     structure_cliques: list[tuple[str, ...]] | None = None,
+    ephemeral: bool = False,
 ) -> FittedPGM:
     """Fit a PGM model from measurements using our mirror descent + BP.
 
@@ -457,6 +456,7 @@ def fit_pgm(
     params.pop("sample", None)
     tree_mode = params.pop("tree", "hugin")
     elim_max_attempts = params.pop("elim_max_attempts", 5000)
+    elim_max_attempts_eph = params.pop("elim_max_attempts_eph", elim_max_attempts)
     elim_factor_cost = params.pop("elim_factor_cost", 1)
 
     # Build CliqueMeta for each measurement (column-name cliques).
@@ -531,7 +531,7 @@ def fit_pgm(
         tree_mode=tree_mode,
         compress=compress,
         moral_graph=moral_graph,
-        elim_max_attempts=elim_max_attempts,
+        elim_max_attempts=elim_max_attempts_eph if ephemeral else elim_max_attempts,
         elim_factor_cost=elim_factor_cost,
     )
 
@@ -546,8 +546,14 @@ def fit_pgm(
 
     # Run mirror descent
     potentials, loss_fn, raw_theta = mirror_descent(
-        jt_cliques, messages, obs_list, attrs,
-        device=device, init_potentials=init_potentials, **params
+        jt_cliques,
+        messages,
+        obs_list,
+        attrs,
+        device=device,
+        init_potentials=init_potentials,
+        ephemeral=ephemeral,
+        **params,
     )
 
     return FittedPGM(

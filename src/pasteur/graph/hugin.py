@@ -298,8 +298,8 @@ def find_elim_order(
     seed_rng = np.random.RandomState(0)
     all_seeds = seed_rng.randint(0, 2**31, size=max_attempts)
 
-    if MULTIPROCESS_ENABLE and not IS_SUBPROCESS:
-        n_workers = max((cpu_count() or 1) // 2, 1)
+    n_workers = max(min((cpu_count() or 1) // 2, max_attempts // 500), 1)
+    if MULTIPROCESS_ENABLE and not IS_SUBPROCESS and n_workers > 1:
         # Split seeds evenly across workers
         seed_chunks = np.array_split(all_seeds, n_workers)
         futures = [

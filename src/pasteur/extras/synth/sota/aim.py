@@ -333,6 +333,7 @@ class AIM(Synth):
                     n,
                     {**self.md_params, "max_iters": 5000},
                     prev_model=model,
+                    ephemeral=True,
                 )
 
                 # Adaptive sigma reduction

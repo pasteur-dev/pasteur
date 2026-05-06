@@ -43,6 +43,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "optim": "line_search",
     "elim_factor_cost": 1.15,
     "elim_max_attempts": 5000,
+    "elim_max_attempts_eph": 500,
     "tree": "hugin",
 }
 
@@ -67,6 +68,7 @@ def mirror_descent(
     block_unobserved: bool = False,
     # Backwards compat
     line_search: bool | None = None,
+    ephemeral: bool = False,
     **_,
 ) -> list[np.ndarray]:
     # Backwards compat: line_search=True -> optim="line_search"
@@ -146,18 +148,19 @@ def mirror_descent(
         logger.info("Compiling mirror descent compute graph...")
         compute_grad = torch.compile(compute_grad)
 
-    logger.info(
-        f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
-        f"{total_params:_} params, "
-        f"lr={lr}, device={device}, compile={do_compile}, triton={HAS_TRITON}, optim={optim}"
-    )
+    if not ephemeral:
+        logger.info(
+            f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
+            f"{total_params:_} params, "
+            f"lr={lr}, device={device}, compile={do_compile}, triton={HAS_TRITON}, optim={optim}"
+        )
 
     alpha = torch.tensor(lr, device=device)
     best_loss = float("inf")
     stale = 0
     total_iters = 0
     converged = False
-    pbar = piter(range(max_iters), total=max_iters, desc="Mirror descent")
+    pbar = piter(range(max_iters), total=max_iters, desc="Mirror descent", leave=not ephemeral)
     prev_loss, prev_mu, prev_grads = None, None, None
 
     while total_iters < max_iters:
@@ -224,8 +227,11 @@ def mirror_descent(
             if cur_loss < best_loss:
                 best_loss = cur_loss
 
+        detail = ""
+        if ephemeral:
+            detail = f"c={len(cliques)}, o={len(obs)}, p={total_params // 1000:_}k, "
         desc = (
-            f"Mirror descent: loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
+            f"Mirror descent: {detail}loss={loss_vals[-1]:.2e}, best={best_loss:.2e}, "
             f"stale={stale}/{patience}"
         )
         if use_line_search:
@@ -240,7 +246,8 @@ def mirror_descent(
 
     pbar.close()
     if converged:
-        logger.info(f"Mirror descent converged at iter {total_iters}.")
+        if not ephemeral:
+            logger.info(f"Mirror descent converged at iter {total_iters}.")
     else:
         logger.warning(
             f"Mirror descent did not converge after {max_iters} iterations "
