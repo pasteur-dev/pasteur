@@ -302,7 +302,8 @@ class mlflow_log_folder:
         from tempfile import TemporaryDirectory
 
         self.tmp = TemporaryDirectory()
-        return self.tmp.__enter__()
+        self.dir = self.tmp.__enter__()
+        return self.dir
 
     def __exit__(self, exc_type, exc_value, traceback):
         if not self.tmp:
@@ -311,7 +312,7 @@ class mlflow_log_folder:
         import mlflow
         from os.path import join
 
-        mlflow.log_artifacts(dir, self.subdir)
+        mlflow.log_artifacts(self.dir, self.subdir)
 
         return self.tmp.__exit__(exc_type, exc_value, traceback)
 
