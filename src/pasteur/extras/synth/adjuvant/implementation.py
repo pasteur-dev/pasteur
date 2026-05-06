@@ -1270,9 +1270,6 @@ def _score_with_one_edge(
 
     Exact under hugin's min-factor-domain triangulation — no heuristic
     shortcuts:
-      - Fast path: if ``na`` and ``nb`` already share a base clique, the
-        edge is already present in the triangulated base graph, so the
-        new triangulation equals the old.  Provably no clique grows.
       - Slow path: fresh full hugin elimination on ``base_adj ∪ {(na, nb)}``
         with early rejection on first oversized factor.
 
@@ -1292,15 +1289,6 @@ def _score_with_one_edge(
     persist chain edges between iterations.
 
     Returns (0, valid). The first element is unused by the caller."""
-    # Fast path: edge internal to an existing base clique → no new clique.
-    if not extra_edges and cliques_by_node is not None and base_cliques is not None:
-        ca = cliques_by_node.get(na, [])
-        cb = cliques_by_node.get(nb, [])
-        if ca and cb:
-            sa = set(ca)
-            for i in cb:
-                if i in sa:
-                    return 0.0, True
 
     # Slow path: fresh hugin elimination on base_adj + (na, nb) + extra_edges.
     adj = {v: s.copy() for v, s in base_adj.items()}
