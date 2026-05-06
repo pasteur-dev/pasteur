@@ -312,30 +312,49 @@ def _build_induced_graph_into(
         else:
             a_id, b_id = nid(a), nid(b)
 
-        # Source moral graph is undirected; only cross-table aliased
-        # edges carry meaningful direction (data flows from source
-        # table -> consumer).  Orient those with the aliased endpoint
-        # as the tail and drop the arrowhead on everything else.
+        # Source moral graph is undirected, but we orient every edge so
+        # dot can use it as a rank constraint (otherwise the layout
+        # sprawls horizontally inside clusters).  Orientation rules:
+        #   1. Cross-table aliased edges: aliased side is the source.
+        #   2. Inter-order edges (e.g. order=-1 -> order=0/None): the
+        #      earlier timestep precedes the later one.  Visible arrow.
+        #   3. Otherwise: orient by sorted node id so cliques become
+        #      DAGs (no init_rank cycles).  Rendered without arrows.
         a_aliased = a in node_alias
         b_aliased = b in node_alias
+
+        def _swap_endpoints():
+            nonlocal a_id, b_id
+            a_id, b_id = b_id, a_id
+            if "taillabel" in new_data and "headlabel" in new_data:
+                new_data["taillabel"], new_data["headlabel"] = (
+                    new_data["headlabel"], new_data["taillabel"],
+                )
+            elif "taillabel" in new_data:
+                new_data["headlabel"] = new_data.pop("taillabel")
+            elif "headlabel" in new_data:
+                new_data["taillabel"] = new_data.pop("headlabel")
+
         if a_aliased ^ b_aliased:
             if b_aliased:
-                a_id, b_id = b_id, a_id
-                if "taillabel" in new_data and "headlabel" in new_data:
-                    new_data["taillabel"], new_data["headlabel"] = (
-                        new_data["headlabel"], new_data["taillabel"],
-                    )
-                elif "taillabel" in new_data:
-                    new_data["headlabel"] = new_data.pop("taillabel")
-                elif "headlabel" in new_data:
-                    new_data["taillabel"] = new_data.pop("headlabel")
+                _swap_endpoints()
             new_data["dir"] = "forward"
         else:
-            new_data["dir"] = "none"
-            # Don't let undirected moral edges drive dot's rank
-            # computation — they're symmetric, and using them as rank
-            # constraints can produce cycles that fail "init_rank".
-            new_data["constraint"] = "false"
+            a_order = g.nodes[a]["order"]
+            b_order = g.nodes[b]["order"]
+            if a_order != b_order:
+                # Inter-order: earlier (more-negative) precedes later
+                # (None means current).  Orient regardless of table —
+                # the "current main" lives in a table=None bucket but
+                # is conceptually the latest timestep.
+                def _rank_key(o):
+                    return float("inf") if o is None else o
+                if _rank_key(a_order) > _rank_key(b_order):
+                    _swap_endpoints()
+                new_data["dir"] = "forward"
+            else:
+                new_data["dir"] = "none"
+                new_data["constraint"] = "false"
 
         ep = (a_id, b_id) if directed else tuple(sorted((a_id, b_id)))
         key = (ep, category)
