@@ -7,7 +7,7 @@ mechanism, and measurement/observation building.
 
 import itertools
 import logging
-from math import exp, log1p, pi, sqrt
+from math import exp, log, log1p, pi, sqrt
 from typing import NamedTuple, Sequence, cast
 
 import networkx as nx
@@ -109,7 +109,7 @@ def _add_dp_noise(data: np.ndarray, sigma: float, dp_type: str = "cdp") -> np.nd
         return data + np.random.laplace(0, sigma / sqrt(2), size=data.shape)
 
 
-def _em_budget_cost(eps: float, dp_type: str = "cdp") -> float:
+def _sel_budget_cost(eps: float, dp_type: str = "cdp") -> float:
     """Convert exponential mechanism epsilon to budget cost."""
     if dp_type == "cdp":
         return eps * eps / 2.0
@@ -151,6 +151,25 @@ def exponential_mechanism(
     q = q - q.max()
     p = softmax(0.5 * eps / sensitivity * q)
     return keys[np.random.choice(p.size, p=p)]
+
+
+def gaussian_noisy_max(
+    qualities: np.ndarray,
+    sigma: float,
+) -> tuple[int, float]:
+    """Add N(0, σ²) to each quality and return (argmax, noisy_value).
+
+    Under zCDP, releasing only the argmax has the same cost as releasing
+    one Gaussian-noisy quality value: ρ = Δ²/(2σ²). The noisy value at
+    the argmax is also released, which is post-processing of the same
+    noise — no extra privacy cost — and lets the caller compare against
+    a fixed (data-independent) threshold to decide stop vs accept."""
+    if sigma <= 0:
+        i = int(np.argmax(qualities))
+        return i, float(qualities[i])
+    noisy = qualities + np.random.normal(0, sigma, size=qualities.shape)
+    i = int(np.argmax(noisy))
+    return i, float(noisy[i])
 
 
 def get_col_names(
@@ -1492,28 +1511,33 @@ def structure_learn(
     size_penalty: float,
     rho_avail: float,
     min_score: "float | tuple[str, float]",
-    em_z: float,
+    sel_z: float,
     theta_2w: float,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
     max_root_clique_size: float = float("inf"),
-    max_em_budget: float = float("inf"),
-    min_em_budget: float = 0.0,
-    em_max: float = 50.0,
+    max_sel_budget: float = float("inf"),
+    min_sel_budget: float = 0.0,
+    sel_max: float = 50.0,
     rake: bool = True,
     max_order: int | None = None,
     dp_type: str = "cdp",
     scoring: str = "tvd",
-    min_safety_factor: float = 3.0,
+    sel_safety_factor: float = 3.0,
     theta_1w_eff: float = 0.0,
     real_tvd: "dict[tuple[Col, Col], np.ndarray] | None" = None,
     cost_penalty: bool = True,
 ) -> tuple[nx.Graph, set[frozenset[str]], float]:
-    """Greedy edge addition with exponential mechanism and budget tracking.
+    """Greedy edge addition with noisy-max selection and budget tracking.
 
-    Each EM step costs budget derived from em_z.  Each selected edge
-    commits measurement budget derived from theta_2w and the edge's domain.
+    Each selection step uses Gaussian noisy-max (CDP) or Laplace noisy-max
+    (DP) with confidence parameter ``sel_z``.  Noise scale is derived
+    sensitivity-aware from ``sel_z``, ``n_cands``, and the score-gap
+    target Δ_target (≈ ``min_tvd``).  Stopping is a direct comparison
+    of the noisy top against ``Δ_target + sel_safety_factor·noise_scale``
+    (post-processing — no extra privacy cost).  Each selected edge commits
+    measurement budget derived from theta_2w and the edge's domain.
     The loop exits when the remaining budget cannot cover the next step.
 
     Budget is rho (CDP) or epsilon (DP) depending on dp_type.
@@ -1595,7 +1619,7 @@ def structure_learn(
     saturated_cols: set[Col] = set()
 
     max_steps = d * (max_edges_per_col // 2 + 1)
-    bdg_em = 0.0  # cumulative EM selection budget spent
+    bdg_sel = 0.0  # cumulative EM selection budget spent
     bdg_committed = 0.0  # cumulative edge measurement budget committed
     accepted_doms: list[int] = []  # doms of accepted edges, for "auto" min_score
     edge_budgets: dict[frozenset[str], float] = {}  # per-edge budget reserved at theta_2w
@@ -1623,46 +1647,75 @@ def structure_learn(
             return float(min_score)
         if rho_avail <= 0:
             return 0.0
-        target_bdg = max(0.0, rho_avail - bdg_em)
+        target_bdg = max(0.0, rho_avail - bdg_sel)
         eff_theta = _solve_eff_theta_2w(
             accepted_doms, n, target_bdg, theta_2w, dp_type
         )
         return _tvd_floor_2w(eff_theta, dp_type) + floor_1w + min_score
 
-    def _em_cost(n_cands: int) -> tuple[float, float]:
-        """Compute (eps, budget_cost) for EM over n_cands candidates.
+    def _sel_cost(
+        n_cands: int, delta_target: float
+    ) -> tuple[float, float, float]:
+        """Compute (noise_param, budget_cost, eff_z) for Gaussian/Laplace noisy-max.
 
-        eps = em_z * 4 / n_cands; budget cost is rho=eps²/2 (CDP) or eps (DP).
-        If max_em_budget is finite, eps is clamped so the cost does not exceed it."""
-        if em_z <= 0 or rho_avail <= 0 or n_cands <= 0:
+        Sensitivity-aware: for confident selection of the top candidate at
+        z-score ``sel_z``, σ (CDP) or ε (DP) is derived from sensitivity Δ,
+        candidate count, and the score-gap target Δ_target:
+
+            CDP:  σ = Δ_target / w,  ρ = (Δ·w / Δ_target)² / 2
+            DP:   ε = Δ·w / Δ_target
+            where w = sel_z + √(2·log(n_cands))   [CDP, Gaussian tail]
+                  w = sel_z + log(n_cands)        [DP, Laplace tail]
+
+        The cost is then clamped to [min_sel_budget, max_sel_budget] for
+        run-time tuning on heterogeneous budgets; the noise parameter is
+        back-solved from the clamped cost. Returns (σ_or_ε, cost, eff_z).
+        """
+        if sel_z <= 0 or rho_avail <= 0 or n_cands <= 0 or delta_target <= 0:
             return 0.0, 0.0, 0.0
-        eps = em_z * 4.0 / n_cands
-        cost = _em_budget_cost(eps, dp_type)
-        if cost > max_em_budget:
-            # Clamp eps so cost = max_em_budget
-            if dp_type == "cdp":
-                eps_clamped = (2.0 * max_em_budget) ** 0.5
-            else:
-                eps_clamped = max_em_budget
-            em_z_eff = eps_clamped * n_cands / 4.0
-            eps = eps_clamped
-            cost = _em_budget_cost(eps, dp_type)
-        elif cost < min_em_budget and min_em_budget > 0:
-            # Raise eps so cost = min_em_budget (spend more per round, sharper EM)
-            if dp_type == "cdp":
-                eps_clamped = (2.0 * min_em_budget) ** 0.5
-            else:
-                eps_clamped = min_em_budget
-            em_z_eff = eps_clamped * n_cands / 4.0
-            # Cap em_z_eff so a low-candidate round doesn't drive EM arbitrarily sharp
-            if em_max > 0 and em_z_eff > em_max:
-                em_z_eff = em_max
-                eps_clamped = em_max * 4.0 / n_cands
-            eps = eps_clamped
-            cost = _em_budget_cost(eps, dp_type)
+
+        log_term = (
+            sqrt(2.0 * log(max(n_cands, 2)))
+            if dp_type == "cdp"
+            else log(max(n_cands, 2))
+        )
+        w = sel_z + log_term
+
+        if dp_type == "cdp":
+            cost = (sensitivity * w / delta_target) ** 2 / 2.0
         else:
-            em_z_eff = em_z
-        return eps, cost, em_z_eff
+            cost = sensitivity * w / delta_target
+
+        # Clamp to [min, max] for budget tuning
+        if cost > max_sel_budget:
+            cost = max_sel_budget
+        elif cost < min_sel_budget and min_sel_budget > 0:
+            cost = min_sel_budget
+
+        # Back-solve noise scale from clamped cost.  Returned scale is
+        # the parameter passed directly to the noise sampler:
+        #   CDP: σ for N(0, σ²)  with σ = Δ / √(2ρ)
+        #   DP:  b for Laplace(0, b) with b = Δ / ε
+        if dp_type == "cdp":
+            scale = sensitivity / sqrt(2.0 * cost) if cost > 0 else 0.0
+        else:
+            scale = sensitivity / cost if cost > 0 else 0.0
+        # Effective z = (Δ_target / scale) − log_term (for log/diagnostics)
+        w_eff = delta_target / scale if scale > 0 else 0.0
+        sel_z_eff = max(0.0, w_eff - log_term)
+
+        # User-facing cap on effective z (low-n_cands round shouldn't
+        # drive selection arbitrarily sharp)
+        if sel_max > 0 and sel_z_eff > sel_max:
+            sel_z_eff = sel_max
+            w_capped = sel_z_eff + log_term
+            scale = delta_target / w_capped
+            if dp_type == "cdp":
+                cost = (sensitivity / scale) ** 2 / 2.0
+            else:
+                cost = sensitivity / scale
+
+        return scale, cost, sel_z_eff
 
     pbar = piter(
         None,
@@ -1722,7 +1775,7 @@ def structure_learn(
     # separate from ``cand_valid`` (which is *data-independent* exclusion:
     # theta-filter, saturated, connected) because the set of clique-rejected
     # candidates depends on the data-dependent EM draws inside past inner
-    # loops.  Mixing the two would make ``_em_cost``'s ``n_cands`` and
+    # loops.  Mixing the two would make ``_sel_cost``'s ``n_cands`` and
     # therefore ``eps_step`` data-dependent and break composition.
     cand_invalid_clique = np.zeros(len(candidates), dtype=bool)
 
@@ -1736,7 +1789,7 @@ def structure_learn(
         # Filter to active candidates using *only* data-independent state
         # (cand_valid covers the theta filter; saturated/connected are
         # derived from past accepted edges, which are public).  This count
-        # drives _em_cost below and must not depend on any data-dependent
+        # drives _sel_cost below and must not depend on any data-dependent
         # past draws.
         active: list[tuple[int, str, str]] = []
         for idx, (na, nb) in enumerate(candidates):
@@ -1761,49 +1814,63 @@ def structure_learn(
             )
             break
 
-        # --- EM cost + affordability filter (iterate until stable) ---
-        # Filtering candidates raises EM cost (fewer candidates → larger eps),
-        # which may make more candidates unaffordable.  Loop until the
-        # affordable set and EM cost are consistent.
+        # Score-gap target Δ_target — drives σ (CDP) / ε (DP) sizing in
+        # ``_sel_cost``.  Use the auto-min-tvd threshold (or fixed value),
+        # floored by the per-edge measurement noise floor at theta_2w so
+        # we never demand sharper selection than measurement allows.
+        eff_min_score = _current_min_score()
+        delta_target = max(eff_min_score, _tvd_floor_2w(theta_2w, dp_type))
+
+        # --- Selection cost + affordability filter (iterate until stable) ---
+        # Filtering candidates raises selection cost (fewer candidates →
+        # σ smaller, ρ larger), so we loop until the affordable set and
+        # cost are consistent.
         #
         # Both inputs to this fixed-point are data-independent (active is
-        # filtered only by public state; cand_bdg_edge depends on attrs/n
-        # only), so eps_step and bdg_em_step are themselves data-independent.
+        # filtered only by public state; cand_bdg_edge / delta_target
+        # depend only on attrs/n/accepted_doms), so noise_step and
+        # bdg_sel_step are themselves data-independent.
         if rho_avail > 0:
             affordable = list(active)
             while True:
-                eps_step, bdg_em_step, _ = _em_cost(len(affordable))
-                bdg_after_em = rho_avail - bdg_em - bdg_committed - bdg_em_step
-                if bdg_after_em < 0:
+                noise_step, bdg_sel_step, _ = _sel_cost(
+                    len(affordable), delta_target
+                )
+                bdg_after_sel = (
+                    rho_avail - bdg_sel - bdg_committed - bdg_sel_step
+                )
+                if bdg_after_sel < 0:
                     affordable = []
                     break
                 new_affordable = [
                     (idx, na, nb)
                     for idx, na, nb in affordable
-                    if cand_bdg_edge[idx] <= bdg_after_em
+                    if cand_bdg_edge[idx] <= bdg_after_sel
                 ]
                 if len(new_affordable) == len(affordable):
                     break  # stable
                 affordable = new_affordable
-            eps_step, bdg_em_step, em_z_eff = _em_cost(len(affordable))
+            noise_step, bdg_sel_step, sel_z_eff = _sel_cost(
+                len(affordable), delta_target
+            )
         else:
-            eps_step = bdg_em_step = em_z_eff = 0
+            noise_step = bdg_sel_step = sel_z_eff = 0
             affordable = list(active)
 
         if not affordable:
             logger.info(
                 f"Adjuvant: exit (no affordable candidates) at iter {it}. "
                 f"active={len(active)}, budget_avail={rho_avail:.6f}, "
-                f"bdg_em={bdg_em:.6f}, bdg_committed={bdg_committed:.6f}"
+                f"bdg_sel={bdg_sel:.6f}, bdg_committed={bdg_committed:.6f}"
             )
             break
 
         # Apply the data-dependent clique-rejection mask only to the EM pool.
-        # eps_step / bdg_em_step were already locked in above on the
+        # eps_step / bdg_sel_step were already locked in above on the
         # data-independent ``affordable`` set, so excluding past-rejected
         # candidates here doesn't feed back into ε allocation.
-        em_pool = [c for c in affordable if not cand_invalid_clique[c[0]]]
-        if not em_pool:
+        sel_pool = [c for c in affordable if not cand_invalid_clique[c[0]]]
+        if not sel_pool:
             logger.info(
                 f"Adjuvant: exit (no candidates left after clique rejections) "
                 f"at iter {it}."
@@ -1817,22 +1884,17 @@ def structure_learn(
                 base_adj, node_data, attrs
             )
 
-        # Charge EM budget once for this selection event.  Each rejection
-        # below re-runs EM with the same eps_step on a shrinking pool, but
-        # because the validity predicate is data-independent the joint
-        # output distribution equals EM applied directly to the valid set
-        # (rejection sampling on a fixed predicate), which is ε_step-DP.
-        if rho_avail > 0:
-            assert eps_step
-            log_n_boost = min_safety_factor * 2 * sensitivity / eps_step
-        else:
-            log_n_boost = 0
-        bdg_em += bdg_em_step
+        # Charge selection budget once for this event.  Each rejection
+        # below re-runs the noisy-max with the same noise_step on a
+        # shrinking pool, but because the validity predicate is
+        # data-independent the joint output distribution equals
+        # noisy-max applied directly to the valid set (rejection sampling
+        # on a fixed predicate), so the privacy cost is unchanged.
+        bdg_sel += bdg_sel_step
 
         n_invalid_this_iter = 0
         accepted = False
         stopped = False
-        eff_min_score = _current_min_score()
 
         # Per-candidate marginal-cost penalty (TVD units).
         # Picking a high-domain edge drops the rescale-effective theta_2w
@@ -1843,9 +1905,9 @@ def structure_learn(
         # EM sensitivity is unchanged.  Disabled when rho_avail<=0 so
         # selection degenerates exactly to the pre-cost behaviour.
         cand_cost: dict[int, float] | None = None
-        if cost_penalty and rho_avail > 0 and em_pool:
-            target_bdg = max(0.0, rho_avail - bdg_em)
-            pool_idxs = [idx for idx, _, _ in em_pool]
+        if cost_penalty and rho_avail > 0 and sel_pool:
+            target_bdg = max(0.0, rho_avail - bdg_sel)
+            pool_idxs = [idx for idx, _, _ in sel_pool]
             costs = _marginal_floor_cost_2w(
                 accepted_doms,
                 cand_doms[pool_idxs],
@@ -1859,31 +1921,40 @@ def structure_learn(
             costs = costs - costs.min()
             cand_cost = dict(zip(pool_idxs, costs.tolist()))
 
-        while em_pool:
-            scores = np.array([cand_tvd_boost[idx] for idx, _, _ in em_pool])
+        while sel_pool:
+            scores = np.array([cand_tvd_boost[idx] for idx, _, _ in sel_pool])
             if cand_cost is not None:
                 scores = scores - np.array(
-                    [cand_cost[idx] for idx, _, _ in em_pool]
+                    [cand_cost[idx] for idx, _, _ in sel_pool]
                 )
-            stop_idx = len(scores)
 
-            if rho_avail > 0:
-                if eff_min_score > 0:
-                    em_scores = np.append(
-                        scores, eff_min_score + log_n_boost if eff_min_score else 0
-                    )
+            # Noisy-max selection + direct threshold check (no synthetic
+            # stop ballot).  The noise scale is ``noise_step`` (σ for CDP
+            # Gaussian, b=Δ/ε for DP Laplace).  Threshold buffer of
+            # ``sel_safety_factor·noise_step`` compensates for the
+            # max-of-n positive bias and gives the user-facing confidence
+            # margin.  Comparing the noisy max against a data-independent
+            # threshold is post-processing → no extra privacy cost.
+            if rho_avail > 0 and noise_step > 0:
+                if dp_type == "cdp":
+                    sel, noisy_top = gaussian_noisy_max(scores, noise_step)
                 else:
-                    em_scores = scores
-                sel = exponential_mechanism(em_scores, eps_step, sensitivity)
+                    noisy = scores + np.random.laplace(
+                        0, noise_step, size=scores.shape
+                    )
+                    sel = int(np.argmax(noisy))
+                    noisy_top = float(noisy[sel])
+                threshold = eff_min_score + sel_safety_factor * noise_step
+                if noisy_top < threshold:
+                    stopped = True
+                    break
             else:
-                em_scores = np.append(scores, eff_min_score)
-                sel = int(np.argmax(em_scores))
+                sel = int(np.argmax(scores))
+                if scores[sel] < eff_min_score:
+                    stopped = True
+                    break
 
-            if sel == stop_idx:
-                stopped = True
-                break
-
-            cand_idx, na, nb = em_pool[sel]
+            cand_idx, na, nb = sel_pool[sel]
 
             # Dynamic evidence-clique extension: if either endpoint is
             # an evidence var not yet selected, accepting this edge pulls
@@ -1931,16 +2002,16 @@ def structure_learn(
                 break
             # Invalid: mark in the data-dependent rejection mask.  This is
             # used only to shrink the EM pool — never to size eps_step or
-            # bdg_em_step, both of which are computed from data-independent
+            # bdg_sel_step, both of which are computed from data-independent
             # state above.
             cand_invalid_clique[cand_idx] = True
-            em_pool.pop(sel)
+            sel_pool.pop(sel)
             n_invalid_this_iter += 1
 
         if stopped:
             auto_tag = " [auto]" if auto_min_score else ""
             logger.info(
-                f"Adjuvant: exit (EM picked stop option, "
+                f"Adjuvant: exit (noisy top below threshold, "
                 f"min_score={eff_min_score:.4f}{auto_tag}) "
                 f"at iter {it}, edges={len(structure_edges)}, "
                 f"rejected={n_invalid_this_iter}"
@@ -2017,7 +2088,7 @@ def structure_learn(
             f"-> {it+1:3d}/{max_steps} "
             + f"(score={scores[sel]:.4f}"
             + (
-                f", budget={rho_avail - bdg_em - bdg_committed:.6f}, em_z={em_z_eff:.2f}"
+                f", budget={rho_avail - bdg_sel - bdg_committed:.6f}, sel_z={sel_z_eff:.2f}"
                 if rho_avail > 0
                 else ""
             )
@@ -2036,7 +2107,7 @@ def structure_learn(
         pbar.update(1)
 
     pbar.close()
-    bdg_remaining = rho_avail - bdg_em - bdg_committed
+    bdg_remaining = rho_avail - bdg_sel - bdg_committed
 
     # Materialise the chain edges between consecutive active heights on
     # the moral graph now that structure learning has settled.  Up to
@@ -2059,7 +2130,7 @@ def structure_learn(
         + f"{len(structure_edges)} edges, "
         + f"{len(connected_pairs)} column pairs connected, "
         + (
-            f"{bdg_label}_em={bdg_em:.6f}, {bdg_label}_measure={bdg_committed:.6f}, "
+            f"{bdg_label}_em={bdg_sel:.6f}, {bdg_label}_measure={bdg_committed:.6f}, "
             + f"{bdg_label}_remaining={bdg_remaining:.6f}"
             if rho_avail > 0
             else "no budget tracking"
@@ -2196,7 +2267,7 @@ def print_adjuvant(
     rho_remaining: float,
     theta_1w: float,
     theta_2w: float,
-    em_z: float,
+    sel_z: float,
     n_obs: int,
     dp_type: str = "cdp",
     tvd_diag: str = "",
@@ -2206,7 +2277,7 @@ def print_adjuvant(
     s = f"Adjuvant Graphical Model ({dp_type.upper()}):\n"
     s += (
         f"({bdg_label}={rho:.6f}, {bdg_label}_remaining={rho_remaining:.6f}, "
-        f"theta_1w={theta_1w:.1f}, theta_2w={theta_2w:.1f}, em_z={em_z:.1f}, "
+        f"theta_1w={theta_1w:.1f}, theta_2w={theta_2w:.1f}, sel_z={sel_z:.1f}, "
         f"{n_obs} observations)\n"
     )
 
@@ -2578,16 +2649,16 @@ def adjuvant_fit(
     rho: float = 0.0,
     theta_1w: float = 50,
     theta_2w: float = 4,
-    em_z: float = 2.0,
+    sel_z: float = 2.0,
     e_w1_max_ratio: float = 0.8,
     e_w1_min_ratio: float = 0.0,
-    e_em_max_ratio: float | None = None,
-    e_em_min_ratio: float | None = None,
-    em_max: float = 50.0,
+    e_sel_max_ratio: float | None = None,
+    e_sel_min_ratio: float | None = None,
+    sel_max: float = 50.0,
     size_penalty: float = 0.0,
     min_tvd: "float | tuple[str, float]" = 0.05,
     min_mi: float = 0.0,
-    min_safety_factor: float = 3.0,
+    sel_safety_factor: float = 3.0,
     frozen_nodes: set[str] | None = None,
     n_hist_cols: int = 0,
     max_clique_size: float = 1e5,
@@ -2684,14 +2755,14 @@ def adjuvant_fit(
     else:
         logger.info(
             f"Adjuvant Step 2: Structure learning "
-            f"({bdg_label}_avail={bdg_avail:.6f}, em_z={em_z}, theta_2w={theta_2w})"
+            f"({bdg_label}_avail={bdg_avail:.6f}, sel_z={sel_z}, theta_2w={theta_2w})"
         )
         real_tvd_for_diag: "dict[tuple[Col, Col], np.ndarray] | None" = None
         if scoring == "mi":
             scores = compute_mi(cached, attrs, all_cols)
             # "auto" only makes sense for TVD-based scoring; fall back to 0.
-            min_score: "float | str" = (
-                0.0 if isinstance(min_mi, str) else min_mi
+            min_score: "float | tuple[str, float]" = (
+                0.0 if isinstance(min_mi, (str, tuple)) else min_mi
             )
         elif scoring == "tvd_n" and bdg_avail:
             scores = compute_tvd(
@@ -2710,8 +2781,8 @@ def adjuvant_fit(
             f"nodes (scoring={scoring}, min_score={min_score})"
         )
 
-        max_em_budget = e_em_max_ratio * rho if rho > 0 and e_em_max_ratio else float("inf")
-        min_em_budget = e_em_min_ratio * rho if rho > 0 and e_em_min_ratio else 0.0
+        max_sel_budget = e_sel_max_ratio * rho if rho > 0 and e_sel_max_ratio else float("inf")
+        min_sel_budget = e_sel_min_ratio * rho if rho > 0 and e_sel_min_ratio else 0.0
         moral, structure_edges, bdg_remaining, tvd_diag = structure_learn(
             directed_graph,
             attrs,
@@ -2720,7 +2791,7 @@ def adjuvant_fit(
             size_penalty,
             bdg_avail,
             min_score,
-            em_z=em_z,
+            sel_z=sel_z,
             theta_2w=theta_2w,
             frozen_nodes=frozen_nodes,
             n_hist_cols=h,
@@ -2728,12 +2799,12 @@ def adjuvant_fit(
             max_root_clique_size=max_root_clique_size,
             rake=rake,
             max_order=max_order,
-            max_em_budget=max_em_budget,
-            min_em_budget=min_em_budget,
-            em_max=em_max,
+            max_sel_budget=max_sel_budget,
+            min_sel_budget=min_sel_budget,
+            sel_max=sel_max,
             dp_type=dp_type,
             scoring=scoring,
-            min_safety_factor=min_safety_factor,
+            sel_safety_factor=sel_safety_factor,
             theta_1w_eff=eff_theta_1w,
             real_tvd=real_tvd_for_diag,
             cost_penalty=cost_penalty,

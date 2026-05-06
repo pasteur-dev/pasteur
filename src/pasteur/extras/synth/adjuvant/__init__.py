@@ -4,7 +4,7 @@ Combines PrivMRF-style greedy edge addition (scored by noisy pairwise TVD)
 with PrivBayes-style height-chain nodes and exponential mechanism selection.
 Fits clique potentials via mirror descent and samples from the junction tree.
 
-Budget allocation: theta_1w (1-way marginals), theta_2w + em_z (structure learning + measurement).
+Budget allocation: theta_1w (1-way marginals), theta_2w + sel_z (structure learning + measurement).
 """
 
 from __future__ import annotations
@@ -31,16 +31,16 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_E_W1_MAX_RATIO = 0.7
 DEFAULT_E_W1_MIN_RATIO = 0.25
-DEFAULT_E_EM_MAX_RATIO = 0.05
-DEFAULT_E_EM_MIN_RATIO = 0.0015
-DEFAULT_EM_MAX = 50.0
+DEFAULT_E_SEL_MAX_RATIO = 0.05
+DEFAULT_E_SEL_MIN_RATIO = 0.0003
 DEFAULT_THETA_1W = 40
 DEFAULT_THETA_2W = 4
-DEFAULT_EM_Z = 2.0
 DEFAULT_SIZE_PENALTY = 0
+DEFAULT_SEL_MAX = 50.0
+DEFAULT_SEL_SAFETY_FACTOR = 3.0
+DEFAULT_SEL_Z = 2.0
 DEFAULT_MIN_TVD = ("auto", 0)
 DEFAULT_MIN_MI = 0.005
-DEFAULT_MIN_SAFETY_FACTOR = 3.0
 DEFAULT_MAX_CLIQUE_SIZE = 5e5
 DEFAULT_MAX_ROOT_CLIQUE_SIZE = 5e6
 DEFAULT_RESCALE = True
@@ -70,16 +70,16 @@ class AdjuvantMare(MareModel):
         etotal: float | None = None,
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_max_ratio: float | None = DEFAULT_E_EM_MAX_RATIO,
-        e_em_min_ratio: float | None = DEFAULT_E_EM_MIN_RATIO,
-        em_max: float = DEFAULT_EM_MAX,
+        e_sel_max_ratio: float | None = DEFAULT_E_SEL_MAX_RATIO,
+        e_sel_min_ratio: float | None = DEFAULT_E_SEL_MIN_RATIO,
+        sel_max: float = DEFAULT_SEL_MAX,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
-        em_z: float = DEFAULT_EM_Z,
+        sel_z: float = DEFAULT_SEL_Z,
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float | tuple(Literal["auto"], float) = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
-        min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
+        sel_safety_factor: float = DEFAULT_SEL_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         max_root_clique_size: float = DEFAULT_MAX_ROOT_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
@@ -95,16 +95,16 @@ class AdjuvantMare(MareModel):
         self.budget = etotal if etotal is not None else rho
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
-        self.em_z = em_z
+        self.sel_z = sel_z
         self.e_w1_max_ratio = e_w1_max_ratio
         self.e_w1_min_ratio = e_w1_min_ratio
-        self.e_em_max_ratio = e_em_max_ratio
-        self.e_em_min_ratio = e_em_min_ratio
-        self.em_max = em_max
+        self.e_sel_max_ratio = e_sel_max_ratio
+        self.e_sel_min_ratio = e_sel_min_ratio
+        self.sel_max = sel_max
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
-        self.min_safety_factor = min_safety_factor
+        self.sel_safety_factor = sel_safety_factor
         self.max_clique_size = max_clique_size
         self.max_root_clique_size = max_root_clique_size
         self.rescale = rescale if accountant else False
@@ -150,16 +150,16 @@ class AdjuvantMare(MareModel):
             rho=self.budget,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
-            em_z=self.em_z,
+            sel_z=self.sel_z,
             e_w1_max_ratio=self.e_w1_max_ratio,
             e_w1_min_ratio=self.e_w1_min_ratio,
-            e_em_max_ratio=self.e_em_max_ratio,
-            e_em_min_ratio=self.e_em_min_ratio,
-            em_max=self.em_max,
+            e_sel_max_ratio=self.e_sel_max_ratio,
+            e_sel_min_ratio=self.e_sel_min_ratio,
+            sel_max=self.sel_max,
             size_penalty=self.size_penalty,
             min_tvd=self.min_tvd,
             min_mi=self.min_mi,
-            min_safety_factor=self.min_safety_factor,
+            sel_safety_factor=self.sel_safety_factor,
             frozen_nodes=frozen_nodes,
             n_hist_cols=len(hist_cols),
             max_clique_size=self.max_clique_size,
@@ -215,7 +215,7 @@ class AdjuvantMare(MareModel):
             rho_remaining=self.bdg_remaining,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
-            em_z=self.em_z,
+            sel_z=self.sel_z,
             n_obs=len(self.all_obs),
             dp_type=self.dp_type,
             tvd_diag=self.tvd_diag,
@@ -417,16 +417,16 @@ class AdjuvantSynth(Synth):
         delta: float | Literal["tenth"] = "tenth",
         e_w1_max_ratio: float = DEFAULT_E_W1_MAX_RATIO,
         e_w1_min_ratio: float = DEFAULT_E_W1_MIN_RATIO,
-        e_em_max_ratio: float | None = DEFAULT_E_EM_MAX_RATIO,
-        e_em_min_ratio: float | None = DEFAULT_E_EM_MIN_RATIO,
-        em_max: float = DEFAULT_EM_MAX,
+        e_sel_max_ratio: float | None = DEFAULT_E_SEL_MAX_RATIO,
+        e_sel_min_ratio: float | None = DEFAULT_E_SEL_MIN_RATIO,
+        sel_max: float = DEFAULT_SEL_MAX,
         theta_1w: float = DEFAULT_THETA_1W,
         theta_2w: float = DEFAULT_THETA_2W,
-        em_z: float = DEFAULT_EM_Z,
+        sel_z: float = DEFAULT_SEL_Z,
         size_penalty: float = DEFAULT_SIZE_PENALTY,
         min_tvd: float | Literal["auto"] = DEFAULT_MIN_TVD,
         min_mi: float = DEFAULT_MIN_MI,
-        min_safety_factor: float = DEFAULT_MIN_SAFETY_FACTOR,
+        sel_safety_factor: float = DEFAULT_SEL_SAFETY_FACTOR,
         max_clique_size: float = DEFAULT_MAX_CLIQUE_SIZE,
         rescale: bool = DEFAULT_RESCALE,
         rake: bool = DEFAULT_RAKE,
@@ -452,16 +452,16 @@ class AdjuvantSynth(Synth):
         self.ablation = ablation
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
-        self.em_z = em_z
+        self.sel_z = sel_z
         self.e_w1_max_ratio = e_w1_max_ratio
         self.e_w1_min_ratio = e_w1_min_ratio
-        self.e_em_max_ratio = e_em_max_ratio
-        self.e_em_min_ratio = e_em_min_ratio
-        self.em_max = em_max
+        self.e_sel_max_ratio = e_sel_max_ratio
+        self.e_sel_min_ratio = e_sel_min_ratio
+        self.sel_max = sel_max
         self.size_penalty = size_penalty
         self.min_tvd = min_tvd
         self.min_mi = min_mi
-        self.min_safety_factor = min_safety_factor
+        self.sel_safety_factor = sel_safety_factor
         self.max_clique_size = max_clique_size
         self.rescale = rescale
         self.rake = rake
@@ -542,16 +542,16 @@ class AdjuvantSynth(Synth):
                 rho=budget,
                 theta_1w=self.theta_1w,
                 theta_2w=self.theta_2w,
-                em_z=self.em_z,
+                sel_z=self.sel_z,
                 e_w1_max_ratio=self.e_w1_max_ratio,
                 e_w1_min_ratio=self.e_w1_min_ratio,
-                e_em_max_ratio=self.e_em_max_ratio,
-                e_em_min_ratio=self.e_em_min_ratio,
-                em_max=self.em_max,
+                e_sel_max_ratio=self.e_sel_max_ratio,
+                e_sel_min_ratio=self.e_sel_min_ratio,
+                sel_max=self.sel_max,
                 size_penalty=self.size_penalty,
                 min_tvd=self.min_tvd,
                 min_mi=self.min_mi,
-                min_safety_factor=self.min_safety_factor,
+                sel_safety_factor=self.sel_safety_factor,
                 max_clique_size=self.max_clique_size,
                 rescale=self.rescale,
                 rake=self.rake,
@@ -595,7 +595,7 @@ class AdjuvantSynth(Synth):
             rho_remaining=self.bdg_remaining,
             theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
-            em_z=self.em_z,
+            sel_z=self.sel_z,
             n_obs=len(self.all_obs),
             dp_type=self.dp_type,
             tvd_diag=self.tvd_diag,
