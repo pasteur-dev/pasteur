@@ -291,102 +291,111 @@ class AdjuvantMare(MareModel):
             out=os.path.join(dir, "graph.svg"),
         )
 
-        # ---------- junction.svg ----------
-        # Per-submodel junction trees with simple cluster-to-cluster
-        # cross-table arrows.  No nesting / aliasing / filtering — the
-        # junction tree's clique nodes mix variables from many tables,
-        # so those simplifications don't carry over cleanly.
-        j = pydot.Dot(
-            graph_type="digraph",
-            compound="true",
-            rankdir="LR",
-            nodesep="0.18",
-            ranksep="0.55",
-            margin="0.05",
-            pad="0.1",
-            splines="true",
-            overlap="false",
+        # ---------- junction.html ----------
+        # Render one dot graph per table (submodels of the same table
+        # share a per-table figure with rank=same so ctx/seq sit side
+        # by side).  Tables are stacked vertically in the output HTML
+        # in parent->child dependency order, which avoids fighting
+        # dot's layout to enforce cross-cluster vertical ranking.
+
+        # Topological order over parent_table relationships, falling
+        # back to insertion order for tables with no recorded parent.
+        ordered_tables: list[str] = []
+        seen_t: set[str] = set()
+        def _emit(table: str) -> None:
+            if table in seen_t or table not in submodels_by_table:
+                return
+            seen_t.add(table)
+            ordered_tables.append(table)
+            for child in children_by_parent.get(table, []):
+                _emit(child)
+        for root in children_by_parent.get(None, []):
+            _emit(root)
+        for t in submodels_by_table:  # any leftover (cycles / orphans)
+            _emit(t)
+
+        svgs: list[tuple[str, bytes]] = []
+        for table in ordered_tables:
+            jt = pydot.Dot(
+                graph_type="digraph",
+                compound="true",
+                newrank="true",
+                rankdir="TB",
+                nodesep="0.35",
+                ranksep="0.6",
+                margin="0.05",
+                pad="0.1",
+                splines="true",
+                overlap="false",
+            )
+            jt.set_node_defaults(fontsize="9", margin="0")
+            jt.set_edge_defaults(fontsize="9", penwidth="0.8", arrowsize="0.6")
+
+            sub_anchors: list[str] = []
+            for sub_idx in submodels_by_table[table]:
+                ver, model = items[sub_idx]
+                sub_label = f"{ver.ver.name} ({'ctx' if ver.ctx else 'seq'})"
+                sc = pydot.Cluster(
+                    f"sj{sub_idx}", label=sub_label, style="rounded",
+                    penwidth="1.5", margin="10", labeljust="l",
+                )
+                jt.add_subgraph(sc)
+                messages = (
+                    get_message_passing_order(model.junction)
+                    if model.junction.number_of_edges() > 0
+                    else None
+                )
+                node_id = _build_junction_tree_into(
+                    sc, model.junction,
+                    attrs=model.table_attrs,
+                    messages=messages,
+                    prefix=prefixes[sub_idx],
+                )
+                for cl in model.junction.nodes():
+                    sub_anchors.append(node_id(cl))
+                    break
+
+            # Force submodels of this table side by side.
+            if len(sub_anchors) >= 2:
+                rs = pydot.Subgraph(f"row_{table}", rank="same")
+                for a in sub_anchors:
+                    rs.add_node(pydot.Node(a))
+                jt.add_subgraph(rs)
+
+            svg = jt.create(
+                format="svg",
+                prog=["dot", "-Elabeldistance=1.2", "-Elabelangle=20"],
+            )
+            svgs.append((table, svg))
+
+        # Stitch the per-table SVGs into a single HTML file, each
+        # under a table-name heading, stacked vertically.
+        def _strip_svg(svg: bytes) -> str:
+            s = svg.decode("utf-8") if isinstance(svg, bytes) else svg
+            s = s.lstrip()
+            if s.startswith("<?xml"):
+                s = s.split("?>", 1)[1].lstrip()
+            while s.startswith("<!DOCTYPE") or s.startswith("<!doctype"):
+                s = s.split(">", 1)[1].lstrip()
+            return s
+
+        body_parts = [
+            (
+                f'<section style="margin:18px 12px">'
+                f'<h2 style="font:600 14px/1.2 sans-serif;margin:0 0 8px">'
+                f'{table}</h2>{_strip_svg(svg)}</section>'
+            )
+            for table, svg in svgs
+        ]
+        html = (
+            '<!doctype html><html><head><meta charset="utf-8">'
+            '<title>junction</title>'
+            '<style>html,body{margin:0;padding:0;background:#fff;'
+            'overflow:auto}svg{display:block}</style>'
+            '</head><body>' + "".join(body_parts) + '</body></html>'
         )
-        j.set_node_defaults(fontsize="9", margin="0")
-        j.set_edge_defaults(fontsize="9", penwidth="0.8", arrowsize="0.6")
-
-        j_anchor: list[str | None] = []
-        j_cluster: list[str] = []
-        for i, (ver, model) in enumerate(items):
-            label = f"{ver.ver.name} ({'ctx' if ver.ctx else 'seq'})"
-            cname = f"sj{i}"
-            sub = pydot.Cluster(
-                cname, label=label, style="rounded", penwidth="2.0",
-                margin="12", labeljust="l",
-            )
-            j.add_subgraph(sub)
-            messages = (
-                get_message_passing_order(model.junction)
-                if model.junction.number_of_edges() > 0
-                else None
-            )
-            node_id = _build_junction_tree_into(
-                sub, model.junction,
-                attrs=model.table_attrs,
-                messages=messages,
-                prefix=prefixes[i],
-            )
-            anchor = None
-            for cl in model.junction.nodes():
-                anchor = node_id(cl)
-                break
-            j_anchor.append(anchor)
-            j_cluster.append(f"cluster_{cname}")
-
-        # An arrow per parent->child table relationship.  Color: red
-        # if any cross-table moral edge between the two tables is
-        # evidence-induced (moralization fill-in), black otherwise.
-        has_evidence: set[tuple[int, int]] = set()
-        for i, (_, model) in enumerate(items):
-            for u, v, ed in model.moral.edges(data=True):
-                if not ed.get("evidence"):
-                    continue
-                tu = model.moral.nodes[u].get("table")
-                tv = model.moral.nodes[v].get("table")
-                if tu == tv:
-                    continue
-                for src in (tu, tv):
-                    if src is None:
-                        continue
-                    src_idx = seq_owner.get(src)
-                    if src_idx is None or src_idx == i:
-                        continue
-                    has_evidence.add((src_idx, i))
-
-        seen_arrow: set[tuple[int, int]] = set()
-        for i, (ver, _) in enumerate(items):
-            ptable = parent_table(ver)
-            if ptable is None:
-                continue
-            src_idx = seq_owner.get(ptable)
-            if src_idx is None or src_idx == i:
-                continue
-            pair = (src_idx, i)
-            if pair in seen_arrow:
-                continue
-            seen_arrow.add(pair)
-            if not (j_anchor[src_idx] and j_anchor[i]):
-                continue
-            color = "#d62728" if pair in has_evidence else "#000000"
-            j.add_edge(pydot.Edge(
-                j_anchor[src_idx], j_anchor[i],
-                ltail=j_cluster[src_idx],
-                lhead=j_cluster[i],
-                color=color,
-                penwidth="1.6",
-                style="bold",
-            ))
-
-        display_pydot(
-            j,
-            edges={"labeldistance": 1.2, "labelangle": "20"},
-            out=os.path.join(dir, "junction.svg"),
-        )
+        with open(os.path.join(dir, "junction.html"), "w") as f:
+            f.write(html)
 
     @make_deterministic
     def fit(

@@ -332,6 +332,10 @@ def _build_induced_graph_into(
             new_data["dir"] = "forward"
         else:
             new_data["dir"] = "none"
+            # Don't let undirected moral edges drive dot's rank
+            # computation — they're symmetric, and using them as rank
+            # constraints can produce cycles that fail "init_rank".
+            new_data["constraint"] = "false"
 
         ep = (a_id, b_id) if directed else tuple(sorted((a_id, b_id)))
         key = (ep, category)
@@ -465,6 +469,8 @@ def _build_junction_tree_into(
         container.add_node(pydot.Node(node_id(cl), label=label, shape="plaintext"))
 
     for a, b, d in junction.edges(data=True):
+        if not d.get("common"):
+            continue  # empty separator — MST bridge between disjoint cliques
         new_data = {"label": f"{d['common']}  ({d['domain']:,d})"}
 
         if message_order:
