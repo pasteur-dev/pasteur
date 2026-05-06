@@ -2248,9 +2248,6 @@ def format_tvd_diagnostic(
         elif val >= min_tvd:
             ca_tbl, ca_ord, ca_attr, ca_val = ca
             cb_tbl, cb_ord, cb_attr, cb_val = cb
-            # Skip hist-table pairs (they are frozen, not candidates)
-            if ca_tbl is not None or cb_tbl is not None:
-                continue
             real_tag = ""
             if real_tvd is not None:
                 r_arr = real_tvd.get((ca, cb))
@@ -2264,10 +2261,18 @@ def format_tvd_diagnostic(
                 and pair in clique_rejected_pairs
             ):
                 reason_tag += " [ovf]"
+
+            def _fmt_col(tbl, ord_, attr, val):
+                prefix = ""
+                if tbl is not None:
+                    prefix = f"{tbl}[-{1 + ord_}]." if ord_ is not None else f"{tbl}."
+                head = _fmt_attr(attr) + "." if attr != val else ""
+                return f"{prefix}{head}{val}"
+
             lines.append(
                 f"    MISSING {label}={val:.4f}{real_tag} "
-                f"{_fmt_attr(ca_attr) + '.' if ca_attr != ca_val else ''}{ca_val} x "
-                f"{_fmt_attr(cb_attr) + '.' if cb_attr != cb_val else ''}{cb_val}"
+                f"{_fmt_col(ca_tbl, ca_ord, ca_attr, ca_val)} x "
+                f"{_fmt_col(cb_tbl, cb_ord, cb_attr, cb_val)}"
                 f"{reason_tag}"
             )
 
