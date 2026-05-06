@@ -97,6 +97,10 @@ class MareModel:
         self, index: pd.Index, hist: dict[TableSelector, pd.DataFrame]
     ) -> pd.DataFrame: ...
 
+    @classmethod
+    def visualise(self, dir: str, models: dict[ModelVersion, "MareModel"]):
+        pass
+
 
 class MareSynth(Synth):
     name = "mare"
@@ -135,6 +139,9 @@ class MareSynth(Synth):
         self.gen_len = gen_len
 
         self.model_cls = model_cls
+    
+    def visualise(self, dir: str):
+        return self.model_cls.visualise(dir, self.models)
 
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyDataset]):
         logger.info(

@@ -114,6 +114,279 @@ class AdjuvantMare(MareModel):
         self.md_params = mirror_descent if mirror_descent and mirror_descent != True else {}
         self.seed = seed
         self.kwargs = kwargs
+    
+    @classmethod
+    def visualise(cls, dir: str, models: dict):
+        """Render the relational chain of submodels.
+
+        Writes ``graph.svg`` (moral graph view) and ``junction.svg``
+        (junction-tree view).
+
+        ``graph.svg`` uses nested clusters following the relational
+        schema (parent table → child table) and dedupes evidence vars
+        by aliasing each ctx-style hist node to the matching main node
+        in its source-table submodel; cross-table structure edges then
+        cross cluster boundaries naturally.  Lagged evidence
+        sub-clusters use ``[-1]``, ``[-2]`` indexing, and hist nodes
+        with no structure/evidence edges are hidden.
+        """
+        import os
+        from collections import defaultdict
+
+        import pydot
+
+        from ....graph.hugin import get_message_passing_order
+        from ....graph.utils import (
+            _build_induced_graph_into,
+            _build_junction_tree_into,
+            display_pydot,
+        )
+
+        os.makedirs(dir, exist_ok=True)
+
+        items = list(models.items())
+        N = len(items)
+        prefixes = [f"m{i}/" for i in range(N)]
+
+        # Map table -> seq submodel index (the canonical "owner").  Seq
+        # holds main rows of the table; ctx holds reduced/wider context.
+        seq_owner: dict[str, int] = {}
+        for i, (ver, _) in enumerate(items):
+            if not ver.ctx:
+                seq_owner[ver.ver.name] = i
+        for i, (ver, _) in enumerate(items):  # fall back to ctx for tables w/o seq
+            seq_owner.setdefault(ver.ver.name, i)
+
+        def parent_table(ver) -> str | None:
+            for p in (ver.ver.parents or ()):
+                pname = getattr(p, "name", None) or getattr(
+                    getattr(p, "table", None), "name", None
+                )
+                if pname:
+                    return pname
+            return None
+
+        # Catalog of main-var rendered ids in the seq submodel of each
+        # table — used for aliasing ctx-style evidence in consumer models.
+        # We need a dry build to collect val_names; do a throwaway call.
+        seq_val_names: dict[str, dict] = {}
+        for table, src_idx in seq_owner.items():
+            ver, model = items[src_idx]
+            tmp = pydot.Dot(graph_type="graph")
+            info = _build_induced_graph_into(
+                tmp, model.moral, attrs=None, prefix=prefixes[src_idx],
+            )
+            seq_val_names[table] = info["val_names"]
+
+        # Per-submodel: alias map (hist node -> external rendered id)
+        # and skip set (hist nodes with no useful edges).
+        alias_per_submodel: list[dict] = []
+        skip_per_submodel: list[set] = []
+        for i, (ver, model) in enumerate(items):
+            alias: dict[str, str] = {}
+            skip: set[str] = set()
+            # Aliasing: ctx-style hist nodes (order=None) whose source
+            # table has a seq submodel get aliased to the source's main
+            # node with the matching (attr, value).
+            for n, d in model.moral.nodes(data=True):
+                t = d.get("table")
+                if t is None:
+                    continue
+                if d.get("order") is not None:
+                    continue
+                src_idx = seq_owner.get(t)
+                if src_idx is None or src_idx == i:
+                    continue
+                key = (None, None, d["attr"], d["value"])
+                src_id = seq_val_names.get(t, {}).get(key)
+                if src_id is not None:
+                    alias[n] = src_id
+
+            # Hide hist nodes that do not participate in any
+            # structure/evidence edge — they are not "used in the main
+            # graph".
+            useful: set[str] = set()
+            for u, v, ed in model.moral.edges(data=True):
+                if ed.get("structure") or ed.get("evidence"):
+                    useful.add(u)
+                    useful.add(v)
+            for n, d in model.moral.nodes(data=True):
+                if d.get("table") is None:
+                    continue  # always keep main vars
+                if n in alias:
+                    continue  # aliased -> already represented
+                if n not in useful:
+                    skip.add(n)
+            alias_per_submodel.append(alias)
+            skip_per_submodel.append(skip)
+
+        # Build a tree of table containers based on parent_table().
+        # Every table gets one outer "table_cluster"; the table cluster
+        # of a child is nested inside the table cluster of its parent.
+        children_by_parent: dict[str | None, list[str]] = defaultdict(list)
+        seen_tables: set[str] = set()
+        for ver, _ in items:
+            t = ver.ver.name
+            if t in seen_tables:
+                continue
+            seen_tables.add(t)
+            children_by_parent[parent_table(ver)].append(t)
+
+        submodels_by_table: dict[str, list[int]] = defaultdict(list)
+        for i, (ver, _) in enumerate(items):
+            submodels_by_table[ver.ver.name].append(i)
+
+        # ---------- graph.svg ----------
+        o = pydot.Dot(
+            graph_type="digraph",
+            compound="true",
+            rankdir="TB",
+            nodesep="0.12",
+            ranksep="0.45",
+            margin="0.05",
+            pad="0.1",
+            splines="true",
+            overlap="false",
+        )
+        o.set_node_defaults(fontsize="9", margin="0.03,0.015")
+        o.set_edge_defaults(fontsize="9", penwidth="0.8", arrowsize="0.6")
+
+        order_label = lambda ord_: f"-{ord_ + 1}"
+
+        def render_table(table: str, parent_container) -> None:
+            tc_name = f"t_{table}"
+            tc = pydot.Cluster(
+                tc_name, label=table, style="rounded,filled",
+                fillcolor="#fafafa", penwidth="2.5", margin="14",
+                labeljust="l", fontname="bold",
+            )
+            parent_container.add_subgraph(tc)
+
+            for sub_idx in submodels_by_table[table]:
+                ver, model = items[sub_idx]
+                sub_label = f"{ver.ver.name} ({'ctx' if ver.ctx else 'seq'})"
+                sc = pydot.Cluster(
+                    f"sm{sub_idx}", label=sub_label, style="rounded",
+                    penwidth="1.5", margin="10", labeljust="l",
+                )
+                tc.add_subgraph(sc)
+                _build_induced_graph_into(
+                    sc, model.moral,
+                    attrs=model.table_attrs,
+                    prefix=prefixes[sub_idx],
+                    skip_nodes=skip_per_submodel[sub_idx],
+                    node_alias=alias_per_submodel[sub_idx],
+                    order_label=order_label,
+                )
+
+            for child in children_by_parent.get(table, []):
+                render_table(child, tc)
+
+        for root in children_by_parent.get(None, []):
+            render_table(root, o)
+
+        display_pydot(
+            o,
+            edges={"labeldistance": 1.0, "labelfontsize": 8, "arrowsize": 0.6},
+            out=os.path.join(dir, "graph.svg"),
+        )
+
+        # ---------- junction.svg ----------
+        # Per-submodel junction trees with simple cluster-to-cluster
+        # cross-table arrows.  No nesting / aliasing / filtering — the
+        # junction tree's clique nodes mix variables from many tables,
+        # so those simplifications don't carry over cleanly.
+        j = pydot.Dot(
+            graph_type="digraph",
+            compound="true",
+            rankdir="LR",
+            nodesep="0.18",
+            ranksep="0.55",
+            margin="0.05",
+            pad="0.1",
+            splines="true",
+            overlap="false",
+        )
+        j.set_node_defaults(fontsize="9", margin="0")
+        j.set_edge_defaults(fontsize="9", penwidth="0.8", arrowsize="0.6")
+
+        j_anchor: list[str | None] = []
+        j_cluster: list[str] = []
+        for i, (ver, model) in enumerate(items):
+            label = f"{ver.ver.name} ({'ctx' if ver.ctx else 'seq'})"
+            cname = f"sj{i}"
+            sub = pydot.Cluster(
+                cname, label=label, style="rounded", penwidth="2.0",
+                margin="12", labeljust="l",
+            )
+            j.add_subgraph(sub)
+            messages = (
+                get_message_passing_order(model.junction)
+                if model.junction.number_of_edges() > 0
+                else None
+            )
+            node_id = _build_junction_tree_into(
+                sub, model.junction,
+                attrs=model.table_attrs,
+                messages=messages,
+                prefix=prefixes[i],
+            )
+            anchor = None
+            for cl in model.junction.nodes():
+                anchor = node_id(cl)
+                break
+            j_anchor.append(anchor)
+            j_cluster.append(f"cluster_{cname}")
+
+        # An arrow per parent->child table relationship.  Color: red
+        # if any cross-table moral edge between the two tables is
+        # evidence-induced (moralization fill-in), black otherwise.
+        has_evidence: set[tuple[int, int]] = set()
+        for i, (_, model) in enumerate(items):
+            for u, v, ed in model.moral.edges(data=True):
+                if not ed.get("evidence"):
+                    continue
+                tu = model.moral.nodes[u].get("table")
+                tv = model.moral.nodes[v].get("table")
+                if tu == tv:
+                    continue
+                for src in (tu, tv):
+                    if src is None:
+                        continue
+                    src_idx = seq_owner.get(src)
+                    if src_idx is None or src_idx == i:
+                        continue
+                    has_evidence.add((src_idx, i))
+
+        seen_arrow: set[tuple[int, int]] = set()
+        for i, (ver, _) in enumerate(items):
+            ptable = parent_table(ver)
+            if ptable is None:
+                continue
+            src_idx = seq_owner.get(ptable)
+            if src_idx is None or src_idx == i:
+                continue
+            pair = (src_idx, i)
+            if pair in seen_arrow:
+                continue
+            seen_arrow.add(pair)
+            if not (j_anchor[src_idx] and j_anchor[i]):
+                continue
+            color = "#d62728" if pair in has_evidence else "#000000"
+            j.add_edge(pydot.Edge(
+                j_anchor[src_idx], j_anchor[i],
+                ltail=j_cluster[src_idx],
+                lhead=j_cluster[i],
+                color=color,
+                penwidth="1.6",
+                style="bold",
+            ))
+
+        display_pydot(
+            j,
+            edges={"labeldistance": 1.2, "labelangle": "20"},
+            out=os.path.join(dir, "junction.svg"),
+        )
 
     @make_deterministic
     def fit(
@@ -615,6 +888,25 @@ class AdjuvantSynth(Synth):
             {self.table: pd.DataFrame()},
             {self.table: df},
             partition=i if self.partitions > 1 else None,
+        )
+
+    def visualise(self, dir: str):
+        import os
+
+        from ....graph.hugin import get_message_passing_order
+        from ....graph.utils import display_induced_graph, display_junction_tree
+
+        os.makedirs(dir, exist_ok=True)
+
+        display_induced_graph(
+            self.moral, attrs=self.table_attrs,
+            out=os.path.join(dir, "graph.svg"),
+        )
+        display_junction_tree(
+            self.junction, self.moral,
+            messages=get_message_passing_order(self.junction),
+            attrs=self.table_attrs,
+            out=os.path.join(dir, "junction.svg"),
         )
 
 
