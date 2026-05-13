@@ -182,6 +182,7 @@ class AdjuvantMare(MareModel):
         # and skip set (hist nodes with no useful edges).
         alias_per_submodel: list[dict] = []
         skip_per_submodel: list[set] = []
+        useful_per_submodel: list[set] = []
         for i, (ver, model) in enumerate(items):
             alias: dict[str, str] = {}
             skip: set[str] = set()
@@ -219,6 +220,44 @@ class AdjuvantMare(MareModel):
                     skip.add(n)
             alias_per_submodel.append(alias)
             skip_per_submodel.append(skip)
+            useful_per_submodel.append(useful)
+
+        # Lagged evidence (order != None) gets centralized: each
+        # (source_table, order) pair becomes a single rectangle under
+        # the source_table cluster, regardless of how many consumers
+        # reference it.  Build the canonical id map and the alias from
+        # each consumer's lagged hist node into that canonical id.
+        lagged_usage: dict[tuple[str, int], dict[str, dict[str, set[int]]]] = {}
+        for i, (_, model) in enumerate(items):
+            useful = useful_per_submodel[i]
+            for n, d in model.moral.nodes(data=True):
+                if d.get("table") is None or d.get("order") is None:
+                    continue
+                if n not in useful:
+                    continue
+                t = d["table"]
+                o = d["order"]
+                attrs_dict = lagged_usage.setdefault((t, o), {})
+                vals_dict = attrs_dict.setdefault(d["attr"], {})
+                vals_dict.setdefault(d["value"], set()).add(d["height"])
+
+        canonical_lagged: dict[tuple[str, int, str, str], str] = {}
+        for (t, o), attrs_dict in lagged_usage.items():
+            for attr, vals in attrs_dict.items():
+                for value in vals:
+                    canonical_lagged[(t, o, attr, value)] = (
+                        f"lag/{t}/{o}/{attr}/{value}"
+                    )
+
+        for i, (_, model) in enumerate(items):
+            for n, d in model.moral.nodes(data=True):
+                if d.get("table") is None or d.get("order") is None:
+                    continue
+                if n in skip_per_submodel[i] or n in alias_per_submodel[i]:
+                    continue
+                key = (d["table"], d["order"], d["attr"], d["value"])
+                if key in canonical_lagged:
+                    alias_per_submodel[i][n] = canonical_lagged[key]
 
         # Build a tree of table containers based on parent_table().
         # Every table gets one outer "table_cluster"; the table cluster
@@ -253,6 +292,46 @@ class AdjuvantMare(MareModel):
 
         order_label = lambda ord_: f"-{ord_ + 1}"
 
+        def render_lagged_cluster(parent, table: str, order: int) -> None:
+            """One ``<table>[-N]`` rectangle holding centralized lagged
+            evidence nodes referenced by any consumer submodel."""
+            attrs_dict = lagged_usage.get((table, order), {})
+            if not attrs_dict:
+                return
+            sub = pydot.Cluster(
+                f"lag_{table}_{order}",
+                label=f"{table}[{order_label(order)}]",
+                style="rounded,dashed",
+                color="#666666",
+                penwidth="1.4",
+                margin="8",
+                labeljust="l",
+            )
+            parent.add_subgraph(sub)
+            for attr, vals in attrs_dict.items():
+                unique_vals = list(vals.keys())
+                multi = len(unique_vals) > 1
+                if multi:
+                    asub = pydot.Cluster(
+                        f"lag_{table}_{order}_a_{attr}", label=attr,
+                        penwidth="1.2", margin="4",
+                    )
+                    sub.add_subgraph(asub)
+                    target = asub
+                else:
+                    asub = pydot.Subgraph(
+                        f"lag_{table}_{order}_a_{attr}", label="",
+                    )
+                    sub.add_subgraph(asub)
+                    target = asub
+                for value in unique_vals:
+                    node_id = canonical_lagged[(table, order, attr, value)]
+                    if multi:
+                        text = value.replace(attr + "_", "")
+                    else:
+                        text = value
+                    target.add_node(pydot.Node(node_id, label=text))
+
         def render_table(table: str, parent_container) -> None:
             tc_name = f"t_{table}"
             tc = pydot.Cluster(
@@ -261,6 +340,14 @@ class AdjuvantMare(MareModel):
                 labeljust="l", fontname="bold",
             )
             parent_container.add_subgraph(tc)
+
+            # Centralized [-N] rectangles must be declared *before* any
+            # consumer submodel that references the lag/... node ids,
+            # so graphviz binds those nodes to this cluster (a node's
+            # first mention wins cluster ownership).
+            for (lt, lo) in sorted(lagged_usage.keys()):
+                if lt == table:
+                    render_lagged_cluster(tc, lt, lo)
 
             for sub_idx in submodels_by_table[table]:
                 ver, model = items[sub_idx]
@@ -284,6 +371,33 @@ class AdjuvantMare(MareModel):
 
         for root in children_by_parent.get(None, []):
             render_table(root, o)
+
+        # Evidence edges between two aliased (centralized) lagged
+        # nodes get filtered by _build_induced_graph_into's
+        # both-aliased-skip rule.  Collect them here and emit once at
+        # the top level, deduped across submodels.
+        ev_pairs: set[tuple[str, str]] = set()
+        for i, (_, model) in enumerate(items):
+            alias = alias_per_submodel[i]
+            for u, v, ed in model.moral.edges(data=True):
+                if not ed.get("evidence"):
+                    continue
+                if u not in alias or v not in alias:
+                    continue
+                a_id = alias[u]
+                b_id = alias[v]
+                if not (a_id.startswith("lag/") and b_id.startswith("lag/")):
+                    continue
+                if a_id == b_id:
+                    continue
+                ev_pairs.add(tuple(sorted((a_id, b_id))))
+        for a_id, b_id in ev_pairs:
+            o.add_edge(pydot.Edge(
+                a_id, b_id,
+                color="#7f7f7f", style="dashed",
+                penwidth="0.8", dir="none",
+                constraint="false",
+            ))
 
         display_pydot(
             o,
@@ -370,30 +484,15 @@ class AdjuvantMare(MareModel):
 
         # Stitch the per-table SVGs into a single HTML file, each
         # under a table-name heading, stacked vertically.
-        def _strip_svg(svg: bytes) -> str:
-            s = svg.decode("utf-8") if isinstance(svg, bytes) else svg
-            s = s.lstrip()
-            if s.startswith("<?xml"):
-                s = s.split("?>", 1)[1].lstrip()
-            while s.startswith("<!DOCTYPE") or s.startswith("<!doctype"):
-                s = s.split(">", 1)[1].lstrip()
-            return s
+        from ....graph.utils import strip_svg_preamble, wrap_zoom_html
 
-        body_parts = [
-            (
-                f'<section style="margin:18px 12px">'
-                f'<h2 style="font:600 14px/1.2 sans-serif;margin:0 0 8px">'
-                f'{table}</h2>{_strip_svg(svg)}</section>'
-            )
+        body = "".join(
+            f'<section style="margin:18px 12px">'
+            f'<h2 style="font:600 14px/1.2 sans-serif;margin:0 0 8px">'
+            f"{table}</h2>{strip_svg_preamble(svg)}</section>"
             for table, svg in svgs
-        ]
-        html = (
-            '<!doctype html><html><head><meta charset="utf-8">'
-            '<title>junction</title>'
-            '<style>html,body{margin:0;padding:0;background:#fff;'
-            'overflow:auto}svg{display:block}</style>'
-            '</head><body>' + "".join(body_parts) + '</body></html>'
         )
+        html = wrap_zoom_html(body, "junction")
         with open(os.path.join(dir, "junction.html"), "w") as f:
             f.write(html)
 
