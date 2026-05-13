@@ -2,7 +2,9 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, Sequence
 import networkx as nx
 from IPython.core.display import display, SVG
+import logging
 
+logger = logging.getLogger(__name__)
 
 # Edge-category palette used by display_induced_graph.  Tuned for legibility
 # against a white background and to read distinctly when overlapping.
@@ -164,7 +166,30 @@ def display_pydot(g, prog="dot", graph={}, nodes={}, edges={}, out=None):
         + process_args(nodes, "-N")
     )
 
-    svg = g.create(format="svg", prog=[prog, *args])
+    # Invoke graphviz directly instead of pydot's Dot.create() so we
+    # can keep the SVG even when dot emits warnings (returncode=1)
+    # — e.g. "trouble in init_rank" from cluster/rank-constraint
+    # conflicts.  The SVG is still valid; pydot would raise otherwise.
+    import subprocess
+
+    try:
+        res = subprocess.run(
+            [prog, "-Tsvg", *args],
+            input=g.to_string().encode(),
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        logger.warning(f"graphviz '{prog}' not found; skipping render to {out}")
+        return
+    svg = res.stdout
+    if res.returncode != 0 and res.stderr:
+        logger.info(
+            "graphviz %s returncode=%d; stderr=%s",
+            prog, res.returncode, res.stderr.decode(errors="replace").strip(),
+        )
+    if not svg or not svg.lstrip().startswith((b"<?xml", b"<svg")):
+        logger.warning(f"graphviz '{prog}' produced no SVG for {out}")
+        return
     if out is not None:
         if str(out).endswith(".svg"):
             write_svg_html(svg, out)
