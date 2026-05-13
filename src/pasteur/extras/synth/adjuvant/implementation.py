@@ -1606,7 +1606,7 @@ def structure_learn(
     col_edge_count: dict[Col, int] = {}
     saturated_cols: set[Col] = set()
 
-    max_steps = d * (max_edges_per_col // 2 + 1)
+    max_steps = d * d # (max_edges_per_col // 2 + 1)
     bdg_sel = 0.0  # cumulative EM selection budget spent
     bdg_committed = 0.0  # cumulative edge measurement budget committed
     accepted_doms: list[int] = []  # doms of accepted edges, for "auto" min_score
@@ -2067,10 +2067,10 @@ def structure_learn(
 
         col_edge_count[col_a] = col_edge_count.get(col_a, 0) + 1
         col_edge_count[col_b] = col_edge_count.get(col_b, 0) + 1
-        if col_edge_count[col_a] >= max_edges_per_col:
-            saturated_cols.add(col_a)
-        if col_edge_count[col_b] >= max_edges_per_col:
-            saturated_cols.add(col_b)
+        # if col_edge_count[col_a] >= max_edges_per_col:
+        #     saturated_cols.add(col_a)
+        # if col_edge_count[col_b] >= max_edges_per_col:
+        #     saturated_cols.add(col_b)
 
         logger.info(
             f"-> {it+1:3d}/{max_steps} "
