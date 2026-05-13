@@ -282,7 +282,7 @@ class PrivMRF(Synth):
         t: float = 0.8,
         ed_steps: int = 3,
         max_clique_size: float = 3e6,
-        max_parameter_size: float = 2e7,
+        max_parameter_size: float = 1e8,
         size_penalty: float = 1e-8,
         max_measure_attr_num: int = 6,
         theta: float = 6,
