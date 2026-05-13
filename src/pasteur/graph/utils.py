@@ -339,9 +339,13 @@ def _build_induced_graph_into(
             if b_aliased:
                 _swap_endpoints()
             new_data["dir"] = "forward"
+            new_data["color"] = "#d62728"
+            new_data["fontcolor"] = "#d62728"
         else:
             a_order = g.nodes[a]["order"]
             b_order = g.nodes[b]["order"]
+            a_common = g.nodes[a].get("is_common", False)
+            b_common = g.nodes[b].get("is_common", False)
             if a_order != b_order:
                 # Inter-order: earlier (more-negative) precedes later
                 # (None means current).  Orient regardless of table —
