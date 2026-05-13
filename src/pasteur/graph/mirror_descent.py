@@ -39,7 +39,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "atol": 1e-6,
     "patience": 50,
     "device": "auto",
-    "compile": 50_000_000,
+    "compile": False,
     "optim": "line_search",
     "elim_factor_cost": 1.15,
     "elim_max_attempts": 5000,
