@@ -36,7 +36,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "lr": 1,
     "max_iters": 10_000,
     "ptol": 2e-4,
-    "atol": 1e-6,
+    "atol": 1e-8,
     "patience": 50,
     "device": "auto",
     "compile": False,
