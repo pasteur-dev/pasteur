@@ -1315,25 +1315,61 @@ def _score_with_one_edge(
             touched.add(ca)
             touched.add(cb)
 
-    # Only touched nodes gained neighbors relative to base, so reuse the
-    # cached cost_map and recompute just those.
-    if base_cost_map is not None:
-        cost_map = dict(base_cost_map)
-        for v in touched:
-            cost_map[v] = _factor_domain(adj[v] | {v}, node_data, attrs)
-    else:
-        cost_map = {v: _factor_domain(adj[v] | {v}, node_data, attrs) for v in adj}
-
-    _, valid = _hugin_eliminate(
-        adj,
-        cost_map,
-        node_data,
-        attrs,
-        max_clique_size,
-        evidence_vars=evidence_vars,
-        max_root_clique_size=max_root_clique_size,
+    # Estimate the junction tree exactly as ``build_junction_tree`` will.
+    # Three steps in order, mirroring its pipeline:
+    #   1. ``finalize_moral_graph`` — prune chain-only nodes and bridge
+    #      two-neighbor cuts.  Without this, the check's g keeps every
+    #      directed_graph height (consecutive 0..h_range-1) and
+    #      ``cap_heights`` is a no-op; the final tree, fed the pruned
+    #      moral, sees the gaps and caps heights → different elim cost
+    #      map → different elim order → bigger cliques.
+    #   2. ``cap_heights`` — lowers some node heights, which lowers
+    #      their elim cost; without it, capped nodes are eliminated
+    #      late here but early in the final tree, growing the final
+    #      tree's cliques past what this check predicted.
+    #   3. ``elimination_order_greedy(stochastic=False)`` — the
+    #      deterministic baseline ``find_elim_order`` will start from.
+    # Factor domains are read from the post-cap graph so cap-aware caps
+    # compare against cap-aware doms.
+    from ....graph.hugin import (
+        _factor_domain_direct,
+        _triangulate,
+        cap_heights,
+        elimination_order_greedy,
     )
-    return 0.0, valid
+    from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT
+
+    tree_mode = str(MIRROR_DESCENT_DEFAULT["tree"])
+
+    g = nx.Graph()
+    for v, d in node_data.items():
+        g.add_node(v, **d)
+    for v, nbs in adj.items():
+        for u in nbs:
+            g.add_edge(v, u)
+
+    if base_active is not None and height_lookup is not None:
+        finalize_moral_graph(g, base_active, height_lookup)
+    if tree_mode != "hugin_comp":
+        cap_heights(g, mode=tree_mode)
+
+    _, fill, _ = elimination_order_greedy(
+        g,
+        attrs,
+        stochastic=False,
+        elim_factor_cost=float(MIRROR_DESCENT_DEFAULT["elim_factor_cost"]),
+    )
+    tri = _triangulate(g, fill)
+
+    for clique in nx.find_cliques(tri):
+        dom = _factor_domain_direct(clique, tri.nodes, attrs)
+        if evidence_vars and evidence_vars.issubset(clique):
+            cap = max_root_clique_size
+        else:
+            cap = max_clique_size
+        if dom > cap:
+            return 0.0, False
+    return 0.0, True
 
 
 def _fmt_node(node: str, g, attrs) -> str:
