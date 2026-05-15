@@ -31,6 +31,7 @@ from .common import (
     clique_domain_size,
     attr_domain_size,
     _col_to_attr_sel,
+    strip_common,
 )
 
 if TYPE_CHECKING:
@@ -338,6 +339,7 @@ class PrivMRF(Synth):
         self.n = self.n or (table.shape[0] // self.partitions)
         n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
+        strip_common(table_attrs)
 
         if self.delta == "tenth":
             self.delta = 1.0 / (10 * n)

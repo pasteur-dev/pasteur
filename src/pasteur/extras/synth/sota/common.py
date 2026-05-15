@@ -126,6 +126,21 @@ def _is_split_attr(attr) -> bool:
     return len(attr.vals) > 1 and not attr.common
 
 
+def strip_common(attrs: DatasetAttributes) -> None:
+    """Destructively drop the common indicator from every attribute.
+
+    Why: SOTA (AIM/MST/PrivMRF/PrivPGD) is not common aware and making it
+    handle the common value is not tractable."""
+
+    for table_attrs in attrs.values():
+        for attr in cast(Attributes, table_attrs).values():
+            if attr.common is not None:
+                attr.common = None
+            for val in attr.vals.values():
+                if getattr(val, "common", None) is not None:
+                    val.common = None
+
+
 def _col_to_attr_sel(col_name: str, attrs: DatasetAttributes):
     """Map a column name to (attribute_name, oracle_sel).
 

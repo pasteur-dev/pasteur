@@ -20,7 +20,7 @@ from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
-from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, _col_to_attr_sel
+from .common import cdp_rho, measure, fit_pgm, exponential_mechanism, get_attr_names, _col_to_attr_sel, strip_common
 
 if TYPE_CHECKING:
     pass
@@ -83,6 +83,7 @@ class MST(Synth):
         self.n = self.n or (table.shape[0] // self.partitions)
         n = self._n
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
+        strip_common(table_attrs)
 
         if self.delta == "tenth":
             self.delta = 1.0 / (10 * n)

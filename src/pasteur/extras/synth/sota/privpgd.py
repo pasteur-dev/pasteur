@@ -28,6 +28,7 @@ from .common import (
     attr_domain_size,
     clique_domain_size,
     get_attr_names,
+    strip_common,
 )
 
 if TYPE_CHECKING:
@@ -289,6 +290,7 @@ class PrivPGD(Synth):
         n = self._n
 
         table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
+        strip_common(table_attrs)
         device = torch.device(
             self.device or ("cuda" if torch.cuda.is_available() else "cpu")
         )
