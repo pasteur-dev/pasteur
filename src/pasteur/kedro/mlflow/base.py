@@ -38,7 +38,8 @@ def get_git_suffix():
 
         repo = git.Repo(search_parent_directories=True)
         sha = repo.head.object.hexsha
-        return sha[:8]
+        _git_id = sha[:8]
+        return _git_id
     except Exception:
         return ""
 
