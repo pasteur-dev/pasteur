@@ -193,7 +193,7 @@ def generate_pipelines(
 
         # `<view>.<alg>` pipelines run all steps required for synthetic data
         # Steps that are view specific (common for all algs) can be run with `<vuew>`
-        extr_pipes[f"ingest_view.{name}"] = pipe_ingest
+        extr_pipes[f"ingest_view.{name}"] = pipe_ingest + pipe_ds_ingest
         extr_pipes[f"{name}.ingest"] = pipe_ingest_trn
 
         # Algorithm pipeline

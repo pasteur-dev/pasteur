@@ -151,6 +151,7 @@ def pipe(
 
     from .pipelines.meta import (
         TAG_ALWAYS,
+        TAG_VIEW,
         TAG_CHANGES_HYPERPARAMETER,
         TAG_CHANGES_PER_ALGORITHM,
         TAG_REVERSE,
@@ -180,9 +181,15 @@ def pipe(
     with create_session(
         KedroSession, runtime_params=param_dict, session_id=session_id
     ) as session:
-        if "ingest" in pipeline:
+        if "ingest_dataset" in pipeline:
             logger.debug("Skipping tags for ingest pipeline.")
             tags = []
+        elif "ingest" in pipeline:
+            if all:
+                logger.info("Also ingesting dataset due to --all")
+                tags = []
+            else:
+                tags = [TAG_VIEW]
         elif all:
             logger.info("Nodes for ingesting the dataset will be run.")
             tags = []
