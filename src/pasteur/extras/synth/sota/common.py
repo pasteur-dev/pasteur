@@ -262,7 +262,6 @@ class FittedPGM:
         cliques: list,  # list of CliqueMeta tuples
         clique_names: list[tuple[str, ...]],  # attr name tuples
         n: int,
-        loss_fn,
         junction,
     ):
         self.potentials = potentials
@@ -270,7 +269,6 @@ class FittedPGM:
         self.cliques = cliques
         self.clique_names = clique_names
         self.n = n
-        self.loss_fn = loss_fn
         self.junction = junction
 
     def _build_source(self, clique: tuple[str, ...], attrs: DatasetAttributes):
@@ -559,8 +557,10 @@ def fit_pgm(
                 prev_idx = prev_model.cliques.index(cl)
                 init_potentials[i] = prev_model.raw_theta[prev_idx]
 
-    # Run mirror descent
-    potentials, loss_fn, raw_theta = mirror_descent(
+    # Run mirror descent. ``loss_fn`` holds CUDA tensors that we'd otherwise
+    # carry on FittedPGM — discard it here since it's only used during fit
+    # and would crash CUDA on unpickle.
+    potentials, _loss_fn, raw_theta = mirror_descent(
         jt_cliques,
         messages,
         obs_list,
@@ -572,5 +572,5 @@ def fit_pgm(
     )
 
     return FittedPGM(
-        potentials, raw_theta, jt_cliques, clique_names, n, loss_fn, junction
+        potentials, raw_theta, jt_cliques, clique_names, n, junction
     )
