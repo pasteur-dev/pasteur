@@ -8,7 +8,8 @@ import mlflow
 from mlflow.entities import Run
 from mlflow.environment_variables import MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT
 
-from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_perf, mlflow_log_energy
+from ...utils.mlflow import ARTIFACT_DIR, mlflow_log_energy, mlflow_log_perf
+from ...utils.progress import piter
 from .base import get_git_suffix, get_run, sanitize_name
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,12 @@ def get_run_artifacts(run: Run):
 
 
 def get_artifacts(runs: dict[str, Run]):
-    return {name: get_run_artifacts(run) for name, run in runs.items()}
+    return {
+        name: get_run_artifacts(run)
+        for name, run in piter(
+            runs.items(), desc="Downloading run artifacts for metrics"
+        )
+    }
 
 
 def prettify_run_names(run_params: dict[str, dict[str, Any]]):
@@ -369,13 +375,17 @@ def log_parent_run(
             logger.error(f"Error logging energy info.", exc_info=True)
 
         # Copy top-level files from each run's artifact dir into model/<pretty>/
-        for name, run in runs.items():
+        for name, run in piter(
+            runs.items(), desc="Saving model data to parent run (e.g., graphs)"
+        ):
             try:
                 from tempfile import TemporaryDirectory
 
                 with TemporaryDirectory() as run_artifact_dir:
                     mlflow.artifacts.download_artifacts(
-                        run_id=run.info.run_id, artifact_path="./", dst_path=run_artifact_dir
+                        run_id=run.info.run_id,
+                        artifact_path="./",
+                        dst_path=run_artifact_dir,
                     )
                     for entry in os.listdir(run_artifact_dir):
                         full_path = os.path.join(run_artifact_dir, entry)
@@ -384,9 +394,7 @@ def log_parent_run(
                                 full_path, artifact_path=f"model/{pretty[name]}"
                             )
             except Exception:
-                logger.error(
-                    f"Error logging model files for '{name}'.", exc_info=True
-                )
+                logger.error(f"Error logging model files for '{name}'.", exc_info=True)
 
         # Log model parameter count plot
         try:
