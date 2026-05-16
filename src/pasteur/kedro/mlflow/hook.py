@@ -11,6 +11,7 @@ from mlflow.entities import RunStatus
 from mlflow.environment_variables import (
     MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT,
     MLFLOW_HTTP_POOL_MAXSIZE,
+    MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR,
 )
 from mlflow.utils.validation import MAX_PARAM_VAL_LENGTH
 
@@ -67,6 +68,7 @@ class MlflowTrackingHook:
     ) -> None:
         MLFLOW_HTTP_POOL_MAXSIZE.set(MLFLOW_MAX_CONNECTIONS)
         MLFLOW_SUPPRESS_PRINTING_URL_TO_STDOUT.set(True)
+        MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR.set(False)
 
         try:
             patterns = getattr(context.config_loader, "config_patterns", {})
