@@ -569,6 +569,21 @@ def sweep(
     num_hyper = reduce(mul, (len(v) for v in all_iterables.values()), 1)
     total = num_runs * num_hyper * num_algs
 
+    # Positional params (-p style) whose values depend on an -i iterator,
+    # i.e. they change across sweep iterations. Detect by token-matching the
+    # raw RHS against iterator names.
+    import re as _re
+
+    _iter_names = set(iterable_dict.keys())
+    varying_param_keys: set[str] = set()
+    for _p in params:
+        if "=" not in _p:
+            continue
+        _k, _v = _p.split("=", 1)
+        _k = _k.strip()
+        if any(_re.search(r"\b" + _re.escape(n) + r"\b", _v) for n in _iter_names):
+            varying_param_keys.add(_k)
+
     run_results = {}
     runtime_params = {}
     run_count = 0
@@ -595,7 +610,21 @@ def sweep(
                     if num_runs > 1:
                         parts.append(f"Repeat={run_idx + 1}/{num_runs}")
                     if num_hyper > 1:
-                        parts.append(f"Hyper={hyper_idx}/{num_hyper}")
+                        overrides = {
+                            **{
+                                k: v
+                                for k, v in param_dict.items()
+                                if k in varying_param_keys
+                            },
+                            **hyper_dict,
+                        }
+                        ov_str = " ".join(
+                            f"{k.rsplit('.', 1)[-1]}={v}" for k, v in overrides.items()
+                        )
+                        if ov_str:
+                            parts.append(f"Hyper={hyper_idx}/{num_hyper} ({ov_str})")
+                        else:
+                            parts.append(f"Hyper={hyper_idx}/{num_hyper}")
                     if num_algs > 1:
                         alg_name = pipeline.split(".")[-1]
                         parts.append(f"Alg={i + 1}/{num_algs} ({alg_name})")
