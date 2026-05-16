@@ -195,19 +195,39 @@ class MareSynth(Synth):
             self._sensitivities = None
         self._budget_remaining = self._budget_init
 
-        # Per-version preprocess in topological (parent-tables-first)
-        # order. Each model is instantiated with its budget slice, runs
-        # model.preprocess (consuming whatever portion of its budget
-        # that step needs), and may return rebalanced attrs. For series
-        # versions, the rebalanced attrs propagate back to master meta
-        # and into every yet-unprocessed ModelVersion's hist view.
-        self.models: dict[ModelVersion, MareModel | None] = {}
+        from .unroll import generate_fit_attrs, generate_fit_tables
+        from functools import partial as _partial
+
         ordered = self._topological_order()
-        for idx, ver in enumerate(ordered):
-            attrs, load = self.versions[ver]
-            if not attrs[None]:
+
+        # Phase 1 — preprocess in parent-tables-first order. The model
+        # gets a DatasetAttributes whose *parent* hist views already
+        # reflect any previously-applied rebalance; its own self-seq
+        # hist (for series versions of sequence tables) is still
+        # un-rebalanced at this point — that's fine, preprocess only
+        # operates on attrs[None]. The model returns the rebalanced
+        # attrs[None], which we merge back into `self._rebalanced[table]`
+        # so subsequent ModelVersions see it.
+        self.models: dict[ModelVersion, MareModel | None] = {}
+        for ver in ordered:
+            attrs = generate_fit_attrs(
+                ver.ver,
+                self._rebalanced,
+                ver.ctx,
+                no_hist=self.no_hist,
+                gen_len=self.gen_len,
+            )
+            if attrs is None or not attrs[None]:
                 self.models[ver] = None
                 continue
+
+            load = _partial(
+                generate_fit_tables,
+                attrs=self._rebalanced,
+                ver=ver.ver,
+                ctx=ver.ctx,
+                new_attrs=attrs,
+            )
 
             kwargs = self._kwargs_for(ver)
             model = self.model_cls(**kwargs)
@@ -225,7 +245,39 @@ class MareSynth(Synth):
                 )
 
             self.models[ver] = model
-            self._apply_preprocessed_attrs(ver, new_attrs, ordered[idx + 1:])
+
+            # Series versions propagate their rebalanced columns into
+            # `self._rebalanced`. Ctx versions are local (synthetic
+            # attrs[None]) and don't propagate.
+            if not ver.ctx and new_attrs is not attrs[None]:
+                self._rebalanced[ver.ver.name] = _merge_rebalanced(
+                    self._meta[ver.ver.name], new_attrs
+                )
+
+        # Phase 2 — build the fit-time DatasetAttributes using the
+        # fully-updated `self._rebalanced`. Every hist (parent and the
+        # table's own self-seq) is now derived from rebalanced columns
+        # so adjuvant's height-chain graph sees multiple heights per
+        # lagged sequential variable.
+        for ver in ordered:
+            if self.models.get(ver) is None:
+                continue
+            attrs = generate_fit_attrs(
+                ver.ver,
+                self._rebalanced,
+                ver.ctx,
+                no_hist=self.no_hist,
+                gen_len=self.gen_len,
+            )
+            assert attrs is not None
+            load = _partial(
+                generate_fit_tables,
+                attrs=self._rebalanced,
+                ver=ver.ver,
+                ctx=ver.ctx,
+                new_attrs=attrs,
+            )
+            self.versions[ver] = (attrs, load)
 
     def bake(self, data: dict[str, LazyDataset]): ...
 
@@ -344,65 +396,6 @@ class MareSynth(Synth):
             self.versions,
             key=lambda v: (order_idx.get(v.ver.name, len(order_idx)), not v.ctx),
         )
-
-    def _apply_preprocessed_attrs(
-        self,
-        ver: ModelVersion,
-        new_attrs: Attributes,
-        remaining: list[ModelVersion],
-        data: dict[str, LazyDataset] | None = None,
-    ):
-        """Stash `new_attrs` as `attrs[None]` for `ver`. If `ver` is a
-        series version, merge it (preserving any SeqValue from the
-        original) into `self._rebalanced[table]` and rebuild any
-        yet-unprocessed ModelVersion's DatasetAttributes whose hist
-        referenced this table.
-        """
-        attrs, load = self.versions[ver]
-        if new_attrs is attrs[None]:
-            return  # no change — nothing to propagate
-
-        updated = dict(attrs)
-        updated[None] = new_attrs
-        self.versions[ver] = (updated, load)
-
-        if ver.ctx:
-            # ctx attrs[None] is synthetic (e.g. {table}_n); no master-meta
-            # origin to write back to.
-            return
-
-        table = ver.ver.name
-        # Merge rebalanced (stripped) attrs back into the table's full
-        # entry so SeqValue/wholly-stripped attributes are preserved.
-        self._rebalanced[table] = _merge_rebalanced(self._meta[table], new_attrs)
-
-        # Rebuild remaining versions' DatasetAttributes whose hist
-        # references `table`. `generate_fit_attrs` calls
-        # `gen_history_attributes`, which inspects the table entry for
-        # SeqValue — that's why the merge above matters.
-        for other in remaining:
-            other_attrs, _ = self.versions[other]
-            if not _references_table(other_attrs, table):
-                continue
-            from .unroll import generate_fit_attrs, generate_fit_tables
-            from functools import partial as _partial
-
-            rebuilt = generate_fit_attrs(
-                other.ver,
-                self._rebalanced,
-                other.ctx,
-                no_hist=self.no_hist,
-                gen_len=self.gen_len,
-            )
-            assert rebuilt is not None
-            new_load = _partial(
-                generate_fit_tables,
-                attrs=self._rebalanced,
-                ver=other.ver,
-                ctx=other.ctx,
-                new_attrs=rebuilt,
-            )
-            self.versions[other] = (rebuilt, new_load)
 
     def __str__(self) -> str:
         out = ""
@@ -1003,17 +996,6 @@ def _merge_rebalanced(original: Attributes, rebalanced: Attributes) -> Attribute
             gate=attr.gate,
         )
     return out
-
-
-def _references_table(attrs: DatasetAttributes, table: str) -> bool:
-    """True if `attrs` carries any hist entry keyed on `table`."""
-    for key in attrs:
-        if key is None:
-            continue
-        name = key[0] if isinstance(key, tuple) else key
-        if name == table:
-            return True
-    return False
 
 
 def meets_requirements(ver: ModelVersion, todo: list[ModelVersion]):
