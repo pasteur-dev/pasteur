@@ -484,7 +484,7 @@ class AdjuvantMare(MareModel):
 
         # Stitch the per-table SVGs into a single HTML file, each
         # under a table-name heading, stacked vertically.
-        from ....graph.utils import strip_svg_preamble, wrap_zoom_html
+        from ....utils.mlflow import strip_svg_preamble, wrap_zoom_html
 
         body = "".join(
             f'<section style="margin:18px 12px">'

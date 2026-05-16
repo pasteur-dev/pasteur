@@ -117,7 +117,7 @@ def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
 
 
 def format_run_url(server_url: str, experiment_id: str, run_id: str) -> str:
-    return f"{server_url.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}/artifacts"
+    return f"{server_url.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}/artifacts/overall.html"
 
 
 def remove_runs(parent: str, delete_parent: bool = False):

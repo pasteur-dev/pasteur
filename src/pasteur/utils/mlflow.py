@@ -69,6 +69,132 @@ ARTIFACT_DIR = "_raw"
 _SAVE_HTML = True
 
 
+# CSS / control / script bundle that turns an inlined-SVG page into a
+# pannable, scroll-zoomable surface.  Shared by graph SVGs and metric
+# multiplots so both flavours have the same navigation affordances.
+_ZOOM_CSS = (
+    "html,body{margin:0;padding:0;background:#fff}"
+    "body{cursor:grab;min-height:100vh}"
+    "html.dragging,html.dragging body{cursor:grabbing!important;"
+    "user-select:none}"
+    "html.dragging *{cursor:grabbing!important}"
+    "svg{display:block}"
+    "#zoom-ctl{position:fixed;top:8px;right:8px;z-index:1000;"
+    "display:flex;gap:4px;background:#fff;border:1px solid #ccc;"
+    "border-radius:4px;padding:3px;"
+    "font:13px/1 -apple-system,Segoe UI,sans-serif}"
+    "#zoom-ctl button{width:26px;height:26px;cursor:pointer;"
+    "border:1px solid #ccc;background:#fafafa;border-radius:3px;"
+    "padding:0;font:600 14px/1 inherit}"
+    "#zoom-ctl button:hover{background:#eee}"
+    "#zoom-ctl span{align-self:center;min-width:36px;text-align:center;"
+    "color:#666;font-size:11px}"
+)
+
+_ZOOM_CTL = (
+    '<div id="zoom-ctl">'
+    '<button title="Zoom out (or scroll down)" onclick="zoomBy(0.8)">−</button>'
+    '<span id="zoom-lvl">100%</span>'
+    '<button title="Zoom in (or scroll up)" onclick="zoomBy(1.25)">+</button>'
+    '<button title="Reset zoom" onclick="resetZoom()">⤢</button>'
+    "</div>"
+)
+
+# Cursor-anchored wheel zoom + drag-to-pan, applied to every <svg> in
+# the document so it works for both single-SVG and stitched multi-SVG
+# pages.
+_ZOOM_JS = (
+    "<script>(function(){"
+    "var svgs=Array.from(document.querySelectorAll('svg'));"
+    "if(!svgs.length)return;"
+    "var bases=svgs.map(function(s){"
+    "var w=s.getAttribute('width')||'';"
+    "var h=s.getAttribute('height')||'';"
+    "return{w:parseFloat(w),h:parseFloat(h),"
+    "unit:(w.match(/[a-z%]+$/i)||['px'])[0]};"
+    "});"
+    "var scale=1;var lvl=document.getElementById('zoom-lvl');"
+    "function apply(){"
+    "svgs.forEach(function(s,i){"
+    "s.setAttribute('width',(bases[i].w*scale)+bases[i].unit);"
+    "s.setAttribute('height',(bases[i].h*scale)+bases[i].unit);"
+    "});"
+    "lvl.textContent=Math.round(scale*100)+'%';"
+    "}"
+    "function zoomAt(factor,px,py){"
+    "var oldScale=scale;"
+    "scale=Math.max(0.05,Math.min(20,scale*factor));"
+    "if(scale===oldScale)return;"
+    "apply();"
+    "var r=scale/oldScale;"
+    "window.scrollBy(px*(r-1),py*(r-1));"
+    "}"
+    "window.zoomBy=function(f){"
+    "zoomAt(f,window.scrollX+window.innerWidth/2,"
+    "window.scrollY+window.innerHeight/2);"
+    "};"
+    "window.resetZoom=function(){scale=1;apply();};"
+    # Only intercept wheel events that look like a zoom gesture
+    # (ctrl/⌘+wheel, or trackpad pinch — browsers signal pinch with
+    # ctrlKey).  Plain two-finger swipes fall through so the page
+    # scrolls naturally.
+    "document.addEventListener('wheel',function(e){"
+    "if(e.target.closest('#zoom-ctl'))return;"
+    "if(!(e.ctrlKey||e.metaKey))return;"
+    "e.preventDefault();"
+    "var f=Math.exp(-e.deltaY*0.0015);"
+    "zoomAt(f,e.pageX,e.pageY);"
+    "},{passive:false});"
+    "var drag=null;"
+    "document.addEventListener('mousedown',function(e){"
+    "if(e.button!==0)return;"
+    "if(e.target.closest('#zoom-ctl'))return;"
+    "drag={x:e.clientX,y:e.clientY,"
+    "sx:window.scrollX,sy:window.scrollY};"
+    "document.documentElement.classList.add('dragging');"
+    "e.preventDefault();"
+    "});"
+    "document.addEventListener('mousemove',function(e){"
+    "if(!drag)return;"
+    "window.scrollTo(drag.sx-(e.clientX-drag.x),"
+    "drag.sy-(e.clientY-drag.y));"
+    "});"
+    "function endDrag(){"
+    "if(!drag)return;"
+    "drag=null;"
+    "document.documentElement.classList.remove('dragging');"
+    "}"
+    "document.addEventListener('mouseup',endDrag);"
+    "document.addEventListener('mouseleave',endDrag);"
+    "})();</script>"
+)
+
+
+def strip_svg_preamble(svg) -> str:
+    """Strip the <?xml ?> preamble and any DOCTYPE declarations from
+    an SVG so it can be safely inlined into an HTML body."""
+    if isinstance(svg, bytes):
+        svg = svg.decode("utf-8")
+    svg = svg.lstrip()
+    if svg.startswith("<?xml"):
+        svg = svg.split("?>", 1)[1].lstrip()
+    while svg.startswith("<!DOCTYPE") or svg.startswith("<!doctype"):
+        svg = svg.split(">", 1)[1].lstrip()
+    return svg
+
+
+def wrap_zoom_html(body: str, title: str, extra_css: str = "") -> str:
+    """Wrap ``body`` (which contains one or more inlined <svg> blocks)
+    in an HTML page with zoom controls, cursor-anchored wheel zoom,
+    and drag-to-pan."""
+    return (
+        '<!doctype html><html><head><meta charset="utf-8">'
+        f"<title>{title}</title>"
+        f"<style>{_ZOOM_CSS}{extra_css}</style></head><body>"
+        f"{_ZOOM_CTL}{body}{_ZOOM_JS}</body></html>"
+    )
+
+
 def gen_html_figure_container(viz: dict[str, "Figure"]):
     import base64
 

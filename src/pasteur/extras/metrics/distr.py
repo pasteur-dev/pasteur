@@ -578,6 +578,246 @@ def _parse_pretty_names(names: list[str]):
     return parsed
 
 
+# Extra CSS layered on top of wrap_zoom_html's _ZOOM_CSS so the matplotlib
+# SVGs sit on a padded white surface with a heading.  The zoom-CSS turns
+# ``body`` into a grab-cursor surface; we re-introduce the section title
+# styling without re-enabling default body margins (those would fight the
+# scroll-zoom maths).
+_MULTIPLOT_EXTRA_CSS = (
+    "body{font-family:-apple-system,BlinkMacSystemFont,sans-serif}"
+    "h2{color:#333;margin:18px 24px 8px}"
+    "svg{margin:0 24px 24px}"
+)
+
+
+def _draw_multiplot_subplot(
+    ax,
+    label: str,
+    scores: dict[str, float | list[float]],
+    parsed: dict,
+    algorithms: list[str],
+    steps: list,
+    has_runs: bool,
+    percentile: float,
+    cmap,
+):
+    """Draw a single multiplot subplot into *ax*.
+
+    See :func:`_render_multiplot` for what ``scores`` looks like.
+    """
+    n_alg = len(algorithms)
+
+    # Y-axis bounds are computed only from mean lines, run dots, and the
+    # ref line — so the dashed worst-tail percentile is allowed to fall
+    # off-screen for very bad runs (low privacy budgets).
+    y_main: list[float] = []
+
+    for alg_idx, alg in enumerate(algorithms):
+        color = cmap[alg_idx % len(cmap)]
+
+        pos_list: list[int] = []
+        mean_list: list[float] = []
+        vals_list: list[list[float]] = []
+        combos_list: list[list[float]] = []
+
+        for step_idx, step in enumerate(steps):
+            run_values: list[float] = []
+            combo_values: list[float] = []
+            for name, (a, s, _r) in parsed.items():
+                if a == alg and s == step:
+                    score = scores.get(name)
+                    if score is None:
+                        continue
+                    if isinstance(score, (list, tuple, np.ndarray)):
+                        run_combos = [
+                            float(v) for v in score if not np.isnan(v)
+                        ]
+                        if not run_combos:
+                            continue
+                        run_values.append(float(np.mean(run_combos)))
+                        combo_values.extend(run_combos)
+                    else:
+                        fval = float(score)
+                        if np.isnan(fval):
+                            continue
+                        run_values.append(fval)
+                        combo_values.append(fval)
+
+            if not run_values:
+                continue
+
+            pos_list.append(step_idx)
+            mean_list.append(float(np.mean(run_values)))
+            vals_list.append(run_values)
+            combos_list.append(combo_values)
+
+        if not pos_list:
+            continue
+
+        # --- 10th percentile bound across per-combo values ---
+        if any(len(c) > 1 for c in combos_list):
+            pl = [float(np.percentile(c, percentile)) for c in combos_list]
+            ax.plot(
+                pos_list,
+                pl,
+                color=color,
+                linestyle=(0, (4, 2)),
+                linewidth=1.0,
+                alpha=0.7,
+                zorder=1,
+            )
+
+        # --- Line through means ---
+        ax.plot(
+            pos_list,
+            mean_list,
+            color=color,
+            label=alg,
+            marker="o",
+            markersize=5,
+            linewidth=1.5,
+            zorder=4,
+        )
+        y_main.extend(mean_list)
+        for vals in vals_list:
+            y_main.extend(vals)
+
+        # --- Individual run dots + CI overlay ---
+        if has_runs:
+            offset = (alg_idx - (n_alg - 1) / 2) * 0.06
+            for pos, vals in zip(pos_list, vals_list):
+                if len(vals) > 1:
+                    q25, q75 = np.percentile(vals, [25, 75])
+                    vmin, vmax = float(np.min(vals)), float(np.max(vals))
+
+                    # Thin whisker: full range
+                    ax.plot(
+                        [pos + offset, pos + offset],
+                        [vmin, vmax],
+                        color=color,
+                        linewidth=1,
+                        alpha=0.4,
+                        zorder=2,
+                    )
+                    # Thick bar: IQR
+                    ax.plot(
+                        [pos + offset, pos + offset],
+                        [q25, q75],
+                        color=color,
+                        linewidth=4,
+                        alpha=0.3,
+                        zorder=2,
+                    )
+
+                # Scatter individual dots with slight jitter
+                jitter = np.linspace(-0.03, 0.03, len(vals)) + offset
+                ax.scatter(
+                    [pos + j for j in jitter],
+                    vals,
+                    color=color,
+                    alpha=0.5,
+                    s=15,
+                    zorder=3,
+                )
+
+    # --- Horizontal reference line + 10th percentile bound ---
+    ref_raw = scores.get("ref", float("nan"))
+    if isinstance(ref_raw, (list, tuple, np.ndarray)):
+        ref_combos = [float(v) for v in ref_raw if not np.isnan(v)]
+        ref_score = (
+            float(np.mean(ref_combos)) if ref_combos else float("nan")
+        )
+    else:
+        ref_combos = []
+        ref_score = float(ref_raw)
+        if not np.isnan(ref_score):
+            ref_combos = [ref_score]
+    if not np.isnan(ref_score):
+        ax.axhline(
+            ref_score,
+            color="grey",
+            linestyle="-",
+            linewidth=1,
+            alpha=0.7,
+            zorder=1,
+            label="ref",
+        )
+        y_main.append(ref_score)
+    if len(ref_combos) > 1:
+        ax.axhline(
+            float(np.percentile(ref_combos, percentile)),
+            color="grey",
+            linestyle=(0, (4, 2)),
+            linewidth=1,
+            alpha=0.7,
+            zorder=1,
+        )
+
+    # Lock y-limits to the main artists; dashed worst-tail bounds may
+    # extend below/above and get clipped.
+    if y_main:
+        ymin = float(min(y_main))
+        ymax = float(max(y_main))
+        if ymax > ymin:
+            pad = 0.05 * (ymax - ymin)
+            ax.set_ylim(ymin - pad, ymax + pad)
+
+    # --- Axes formatting ---
+    ax.set_xticks(range(len(steps)))
+    step_labels = [s if s is not None else "default" for s in steps]
+    if any(len(str(lb)) > 10 for lb in step_labels) or len(step_labels) > 6:
+        ax.set_xticklabels(step_labels, rotation=45, ha="right", fontsize=8)
+    else:
+        ax.set_xticklabels(step_labels, fontsize=8)
+
+    ax.set_title(label, fontweight="bold", fontsize=11)
+    ax.set_ylabel("Score", fontsize=9)
+    ax.legend(fontsize=7, loc="best")
+    ax.grid(True, alpha=0.3, linewidth=0.5)
+
+
+def _parse_sweep_axes(split_names: list[str]):
+    """Resolve the algorithm / step / has-runs axes shared by every
+    subplot in a multiplot.  Returns ``(parsed, algorithms, steps,
+    has_runs)`` or ``None`` if the run set isn't worth plotting (single
+    point with no variation)."""
+    if not split_names:
+        return None
+
+    parsed = _parse_pretty_names(split_names)
+    algorithms = list(dict.fromkeys(alg for alg, _, _ in parsed.values()))
+    steps = list(dict.fromkeys(step for _, step, _ in parsed.values()))
+    has_runs = any(r is not None for _, _, r in parsed.values())
+    has_steps = len(steps) > 1 or (len(steps) == 1 and steps[0] is not None)
+
+    if not has_steps and len(algorithms) <= 1 and not has_runs:
+        return None
+
+    if not has_steps:
+        steps = [None]
+
+    return parsed, algorithms, steps, has_runs
+
+
+def _fig_to_html(fig, title: str, extra_css: str = _MULTIPLOT_EXTRA_CSS) -> str:
+    """Render *fig* as an inlined SVG inside the shared zoom/pan HTML
+    shell used by ``graph.html`` etc."""
+    from io import BytesIO
+
+    import matplotlib.pyplot as plt
+
+    from ...utils.mlflow import strip_svg_preamble, wrap_zoom_html
+
+    buf = BytesIO()
+    fig.savefig(buf, format="svg", bbox_inches="tight")
+    buf.seek(0)
+    svg = buf.read().decode("utf-8")
+    plt.close(fig)
+
+    body = f'<h2>{title}</h2>\n{strip_svg_preamble(svg)}'
+    return wrap_zoom_html(body, title, extra_css=extra_css)
+
+
 def _render_multiplot(
     subplot_scores: dict[str, dict[str, float | list[float]]],
     title: str,
@@ -596,38 +836,21 @@ def _render_multiplot(
     *ref* baseline is drawn when available.  The result is logged to
     *artifact_path* in mlflow.
     """
-    from io import BytesIO
-
     import matplotlib.pyplot as plt
     import mlflow
-    import numpy as np
 
     from ...utils.styles import use_style
 
     use_style("mlflow")
 
-    # -- Parse pretty names → (algorithm, step, run_idx) --
     split_names = [
         k for k in next(iter(subplot_scores.values())).keys() if k != "ref"
     ]
-    if not split_names:
+    axes_info = _parse_sweep_axes(split_names)
+    if axes_info is None:
         return
+    parsed, algorithms, steps, has_runs = axes_info
 
-    parsed = _parse_pretty_names(split_names)
-
-    algorithms = list(dict.fromkeys(alg for alg, _, _ in parsed.values()))
-    steps = list(dict.fromkeys(step for _, step, _ in parsed.values()))
-
-    has_runs = any(r is not None for _, _, r in parsed.values())
-    has_steps = len(steps) > 1 or (len(steps) == 1 and steps[0] is not None)
-
-    if not has_steps and len(algorithms) <= 1 and not has_runs:
-        return
-
-    if not has_steps:
-        steps = [None]
-
-    # -- Build the figure --
     subplot_labels = list(subplot_scores.keys())
     n_plots = len(subplot_labels)
     ncols = min(n_plots, 2)
@@ -638,180 +861,20 @@ def _render_multiplot(
     fig, axes = plt.subplots(nrows, ncols, figsize=(fig_w, fig_h), squeeze=False)
 
     cmap = plt.cm.tab10.colors  # type: ignore[attr-defined]
-    n_alg = len(algorithms)
 
     for idx, label in enumerate(subplot_labels):
         row, col = divmod(idx, ncols)
-        ax = axes[row][col]
-        scores = subplot_scores[label]
-
-        # Y-axis bounds are computed only from mean lines, run dots, and the
-        # ref line — so the dashed worst-tail percentile is allowed to fall
-        # off-screen for very bad runs (low privacy budgets).
-        y_main: list[float] = []
-
-        for alg_idx, alg in enumerate(algorithms):
-            color = cmap[alg_idx % len(cmap)]
-
-            pos_list: list[int] = []
-            mean_list: list[float] = []
-            vals_list: list[list[float]] = []
-            combos_list: list[list[float]] = []
-
-            for step_idx, step in enumerate(steps):
-                run_values: list[float] = []
-                combo_values: list[float] = []
-                for name, (a, s, _r) in parsed.items():
-                    if a == alg and s == step:
-                        score = scores.get(name)
-                        if score is None:
-                            continue
-                        if isinstance(score, (list, tuple, np.ndarray)):
-                            run_combos = [
-                                float(v) for v in score if not np.isnan(v)
-                            ]
-                            if not run_combos:
-                                continue
-                            run_values.append(float(np.mean(run_combos)))
-                            combo_values.extend(run_combos)
-                        else:
-                            fval = float(score)
-                            if np.isnan(fval):
-                                continue
-                            run_values.append(fval)
-                            combo_values.append(fval)
-
-                if not run_values:
-                    continue
-
-                pos_list.append(step_idx)
-                mean_list.append(float(np.mean(run_values)))
-                vals_list.append(run_values)
-                combos_list.append(combo_values)
-
-            if not pos_list:
-                continue
-
-            # --- 10th percentile bound across per-combo values ---
-            if any(len(c) > 1 for c in combos_list):
-                pl = [float(np.percentile(c, percentile)) for c in combos_list]
-                ax.plot(
-                    pos_list,
-                    pl,
-                    color=color,
-                    linestyle=(0, (4, 2)),
-                    linewidth=1.0,
-                    alpha=0.7,
-                    zorder=1,
-                )
-
-            # --- Line through means ---
-            ax.plot(
-                pos_list,
-                mean_list,
-                color=color,
-                label=alg,
-                marker="o",
-                markersize=5,
-                linewidth=1.5,
-                zorder=4,
-            )
-            y_main.extend(mean_list)
-            for vals in vals_list:
-                y_main.extend(vals)
-
-            # --- Individual run dots + CI overlay ---
-            if has_runs:
-                offset = (alg_idx - (n_alg - 1) / 2) * 0.06
-                for pos, vals in zip(pos_list, vals_list):
-                    if len(vals) > 1:
-                        q25, q75 = np.percentile(vals, [25, 75])
-                        vmin, vmax = float(np.min(vals)), float(np.max(vals))
-
-                        # Thin whisker: full range
-                        ax.plot(
-                            [pos + offset, pos + offset],
-                            [vmin, vmax],
-                            color=color,
-                            linewidth=1,
-                            alpha=0.4,
-                            zorder=2,
-                        )
-                        # Thick bar: IQR
-                        ax.plot(
-                            [pos + offset, pos + offset],
-                            [q25, q75],
-                            color=color,
-                            linewidth=4,
-                            alpha=0.3,
-                            zorder=2,
-                        )
-
-                    # Scatter individual dots with slight jitter
-                    jitter = np.linspace(-0.03, 0.03, len(vals)) + offset
-                    ax.scatter(
-                        [pos + j for j in jitter],
-                        vals,
-                        color=color,
-                        alpha=0.5,
-                        s=15,
-                        zorder=3,
-                    )
-
-        # --- Horizontal reference line + 10th percentile bound ---
-        ref_raw = scores.get("ref", float("nan"))
-        if isinstance(ref_raw, (list, tuple, np.ndarray)):
-            ref_combos = [float(v) for v in ref_raw if not np.isnan(v)]
-            ref_score = (
-                float(np.mean(ref_combos)) if ref_combos else float("nan")
-            )
-        else:
-            ref_combos = []
-            ref_score = float(ref_raw)
-            if not np.isnan(ref_score):
-                ref_combos = [ref_score]
-        if not np.isnan(ref_score):
-            ax.axhline(
-                ref_score,
-                color="grey",
-                linestyle="-",
-                linewidth=1,
-                alpha=0.7,
-                zorder=1,
-                label="ref",
-            )
-            y_main.append(ref_score)
-        if len(ref_combos) > 1:
-            ax.axhline(
-                float(np.percentile(ref_combos, percentile)),
-                color="grey",
-                linestyle=(0, (4, 2)),
-                linewidth=1,
-                alpha=0.7,
-                zorder=1,
-            )
-
-        # Lock y-limits to the main artists; dashed worst-tail bounds may
-        # extend below/above and get clipped.
-        if y_main:
-            ymin = float(min(y_main))
-            ymax = float(max(y_main))
-            if ymax > ymin:
-                pad = 0.05 * (ymax - ymin)
-                ax.set_ylim(ymin - pad, ymax + pad)
-
-        # --- Axes formatting ---
-        ax.set_xticks(range(len(steps)))
-        step_labels = [s if s is not None else "default" for s in steps]
-        if any(len(str(lb)) > 10 for lb in step_labels) or len(step_labels) > 6:
-            ax.set_xticklabels(step_labels, rotation=45, ha="right", fontsize=8)
-        else:
-            ax.set_xticklabels(step_labels, fontsize=8)
-
-        ax.set_title(label, fontweight="bold", fontsize=11)
-        ax.set_ylabel("Score", fontsize=9)
-        ax.legend(fontsize=7, loc="best")
-        ax.grid(True, alpha=0.3, linewidth=0.5)
+        _draw_multiplot_subplot(
+            axes[row][col],
+            label,
+            subplot_scores[label],
+            parsed,
+            algorithms,
+            steps,
+            has_runs,
+            percentile,
+            cmap,
+        )
 
     # Hide empty subplot slots
     for idx in range(n_plots, nrows * ncols):
@@ -819,25 +882,70 @@ def _render_multiplot(
         axes[row][col].set_visible(False)
 
     plt.tight_layout()
+    mlflow.log_text(_fig_to_html(fig, title), artifact_path)
 
-    # -- Embed as SVG inside a minimal HTML page --
-    buf = BytesIO()
-    fig.savefig(buf, format="svg", bbox_inches="tight")
-    buf.seek(0)
-    svg = buf.read().decode("utf-8")
-    plt.close(fig)
 
-    html = (
-        "<!DOCTYPE html>\n<html>\n<head><style>\n"
-        "body { margin: 20px; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }\n"
-        "svg { max-width: 100%%; height: auto; }\n"
-        "h2 { color: #333; }\n"
-        "</style></head>\n<body>\n"
-        f"<h2>{title}</h2>\n"
-        f"{svg}\n"
-        "</body>\n</html>"
-    )
-    mlflow.log_text(html, artifact_path)
+def _render_combined_multiplot(
+    rows: list[tuple[str, dict[str, dict[str, float | list[float]]], float]],
+    title: str,
+    artifact_path: str,
+):
+    """Render one HTML page with a row per (metric, subplot_scores,
+    percentile) in *rows*.  Subplot ordering and dedup are pre-applied
+    by the caller (so ``subplot_scores`` is what should be drawn)."""
+    import matplotlib.pyplot as plt
+    import mlflow
+
+    from ...utils.styles import use_style
+
+    use_style("mlflow")
+
+    if not rows:
+        return
+
+    first_scores = rows[0][1]
+    split_names = [
+        k for k in next(iter(first_scores.values())).keys() if k != "ref"
+    ]
+    axes_info = _parse_sweep_axes(split_names)
+    if axes_info is None:
+        return
+    parsed, algorithms, steps, has_runs = axes_info
+
+    nrows = len(rows)
+    ncols = max(len(scores) for _, scores, _ in rows)
+
+    fig_w = max(6, 3 + 1.2 * len(steps)) * ncols
+    fig_h = 4.5 * nrows
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_w, fig_h), squeeze=False)
+
+    cmap = plt.cm.tab10.colors  # type: ignore[attr-defined]
+
+    for row_idx, (fancy, scores, percentile) in enumerate(rows):
+        labels = list(scores.keys())
+        for col_idx in range(ncols):
+            ax = axes[row_idx][col_idx]
+            if col_idx >= len(labels):
+                ax.set_visible(False)
+                continue
+            label = labels[col_idx]
+            # Prefix the first subplot in each row with the metric name
+            # so the row is self-identifying even without a row title.
+            sub_label = f"{fancy} — {label}" if col_idx == 0 else label
+            _draw_multiplot_subplot(
+                ax,
+                sub_label,
+                scores[label],
+                parsed,
+                algorithms,
+                steps,
+                has_runs,
+                percentile,
+                cmap,
+            )
+
+    plt.tight_layout()
+    mlflow.log_text(_fig_to_html(fig, title), artifact_path)
 
 
 _CORR_TYPES = {
@@ -908,8 +1016,10 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
         return
 
     # ------------------------------------------------------------------
-    # One HTML per metric
+    # One HTML per metric (+ a top-level overall.html across PRINT_METRICS)
     # ------------------------------------------------------------------
+    combined_rows: list[tuple[str, dict[str, dict[str, float | list[float]]], float]] = []
+
     for metr, corr_data in raw.items():
         subplot_scores: dict[str, dict[str, float | list[float]]] = {}
         ordered_splits = split_order[metr]
@@ -924,16 +1034,20 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
         subplot_scores["Overall"] = overall
 
         # -- Per corr-type subplots (in fixed order, only if present) --
-        for ct_key, ct_label in _CORR_TYPES.items():
-            if ct_key not in corr_data:
-                continue
-            ct_dict = corr_data[ct_key]
-            subplot_scores[ct_label] = {
-                split: list(ct_dict[split])
-                if ct_dict.get(split)
-                else float("nan")
-                for split in ordered_splits
-            }
+        # When only one corr type is present (e.g. a single-table dataset
+        # with no sequential/unrolled marginals) the lone per-type subplot
+        # would just duplicate "Overall", so suppress it.
+        if len(corr_data) > 1:
+            for ct_key, ct_label in _CORR_TYPES.items():
+                if ct_key not in corr_data:
+                    continue
+                ct_dict = corr_data[ct_key]
+                subplot_scores[ct_label] = {
+                    split: list(ct_dict[split])
+                    if ct_dict.get(split)
+                    else float("nan")
+                    for split in ordered_splits
+                }
 
         # Artifact path mirrors existing _overall folders
         pref = "assoc/" if metr in ASSOC_METRICS else ""
@@ -953,6 +1067,16 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
             f"{fancy} - Sweep",
             path,
             percentile=percentile,
+        )
+
+        if metr in PRINT_METRICS:
+            combined_rows.append((fancy, subplot_scores, percentile))
+
+    if combined_rows:
+        _render_combined_multiplot(
+            combined_rows,
+            "Distribution Metrics — Sweep",
+            "overall.html",
         )
 
 
