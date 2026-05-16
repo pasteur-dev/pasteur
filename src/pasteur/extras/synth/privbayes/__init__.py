@@ -302,7 +302,7 @@ class PrivBayesMare(MareModel):
         skip_zero_counts: bool = True,
         minimum_cutoff: int | None = 3,
         rake: bool = True,
-        rebalance: bool | dict = True,
+        rebalance: bool | dict = False,
         mirror_descent: MirrorDescentParams | bool = False,
         **kwargs,
     ) -> None:
