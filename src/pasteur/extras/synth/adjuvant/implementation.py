@@ -2696,52 +2696,43 @@ def build_1way_observations(
 # ============================================================
 # High-level pipeline functions
 # ============================================================
-def adjuvant_fit(
+class Adjuvant1WayResult(NamedTuple):
+    """Output of Step 0 + Step 1 — true marginals cache plus noisy 1-ways."""
+
+    cached: CachedMarginals
+    noisy_1way: dict
+    sigmas_1w: dict
+    bdg1: float
+    eff_theta_1w: float
+    scoring: str  # may be downgraded from tvd_n if not applicable
+    hist_cols: set | None
+
+
+def adjuvant_fit_1way(
     oracle: MarginalOracle,
     attrs: DatasetAttributes,
     n: int,
     *,
     rho: float = 0.0,
     theta_1w: float = 50,
-    theta_2w: float = 4,
-    sel_z: float = 2.0,
     e_w1_max_ratio: float = 0.8,
     e_w1_min_ratio: float = 0.0,
-    e_sel_max_ratio: float | None = None,
-    e_sel_min_ratio: float | None = None,
-    sel_max: float = 50.0,
-    size_penalty: float = 0.0,
-    min_tvd: "float | tuple[str, float]" = 0.05,
-    min_mi: float = 0.0,
-    sel_safety_factor: float = 3.0,
-    frozen_nodes: set[str] | None = None,
-    n_hist_cols: int = 0,
-    max_clique_size: float = 1e5,
-    max_root_clique_size: float = float("inf"),
-    rescale: bool = True,
-    rake: bool = True,
-    max_order: int | None = None,
     dp_type: str = "cdp",
     scoring: str = "tvd",
     skip_structure: bool = False,
-    no_confidence: bool = False,
-    cost_penalty: bool = True,
-) -> tuple[list, "nx.Graph", float]:
-    """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
+) -> Adjuvant1WayResult:
+    """Adjuvant Step 0 + Step 1: compute true 1/2-way marginals (Step 0)
+    and add DP noise to the 1-way marginals (Step 1).
 
-    Budget parameter `rho` is rho (CDP) or epsilon (DP) depending on dp_type.
-
-    Returns (all_obs, moral, budget_remaining) where all_obs is a list of
-    LinearObservation, moral is the moralized graph with structure-learning
-    edges, and budget_remaining is the unspent budget."""
+    Pure preprocessing — does not consume budget beyond the 1-way step.
+    Returns a payload usable by `adjuvant_fit_structure` for Step 2+3."""
 
     bdg_label = "rho" if dp_type == "cdp" else "eps"
     all_cols = get_col_names(attrs)
     hist_cols = get_hist_cols(all_cols)
     d = len(all_cols)
-    h = n_hist_cols or len(hist_cols)
+    h = len(hist_cols)
 
-    # Step 0: Compute all 1-way and 2-way marginals
     logger.info(
         f"Adjuvant Step 0: Computing marginals ({d} cols, {h} hist, {n} rows, {dp_type})"
     )
@@ -2753,13 +2744,8 @@ def adjuvant_fit(
         logger.warning("TVD_N not supported for evidence vars, switching to TVD scoring")
         scoring = "tvd"
 
-    # Step 1: Noisy 1-way marginals (budget from theta_1w)
-    # Skip hist columns — they are provided as evidence, not generated
-    # When rho=0 (no DP), skip noise entirely — theta-based sigma would
-    # add spurious noise independent of the privacy budget.
     if rho > 0:
         if skip_structure:
-            # Ablation: route the entire budget to 1-way marginals.
             bdg1_max = rho
             bdg1_min = rho
         else:
@@ -2788,10 +2774,66 @@ def adjuvant_fit(
         }
         if scoring == "tvd_n":
             scoring = "tvd"
+
     logger.info(
         f"Adjuvant Step 1: Noisy 1-way marginals "
         f"(theta_1w={eff_theta_1w:.1f}, {bdg_label}1={bdg1:.6f})"
     )
+
+    return Adjuvant1WayResult(
+        cached=cached,
+        noisy_1way=noisy_1way,
+        sigmas_1w=sigmas_1w,
+        bdg1=bdg1,
+        eff_theta_1w=eff_theta_1w,
+        scoring=scoring,
+        hist_cols=hist_cols,
+    )
+
+
+def adjuvant_fit_structure(
+    oracle: MarginalOracle,
+    attrs: DatasetAttributes,
+    n: int,
+    onew: Adjuvant1WayResult,
+    *,
+    rho: float = 0.0,
+    theta_2w: float = 4,
+    sel_z: float = 2.0,
+    e_sel_max_ratio: float | None = None,
+    e_sel_min_ratio: float | None = None,
+    sel_max: float = 50.0,
+    size_penalty: float = 0.0,
+    min_tvd: "float | tuple[str, float]" = 0.05,
+    min_mi: float = 0.0,
+    sel_safety_factor: float = 3.0,
+    frozen_nodes: set[str] | None = None,
+    n_hist_cols: int = 0,
+    max_clique_size: float = 1e5,
+    max_root_clique_size: float = float("inf"),
+    rescale: bool = True,
+    rake: bool = True,
+    max_order: int | None = None,
+    dp_type: str = "cdp",
+    skip_structure: bool = False,
+    no_confidence: bool = False,
+    cost_penalty: bool = True,
+) -> tuple[list, "nx.Graph", float, str]:
+    """Adjuvant Step 2 + Step 3: structure learning and edge measurement.
+
+    Consumes the precomputed marginals from `adjuvant_fit_1way`."""
+
+    bdg_label = "rho" if dp_type == "cdp" else "eps"
+    cached = onew.cached
+    noisy_1way = onew.noisy_1way
+    sigmas_1w = onew.sigmas_1w
+    bdg1 = onew.bdg1
+    eff_theta_1w = onew.eff_theta_1w
+    scoring = onew.scoring
+    hist_cols = onew.hist_cols
+
+    all_cols = get_col_names(attrs)
+    h = n_hist_cols or len(hist_cols or ())
 
     # Step 2: Structure learning (remaining budget)
     bdg_avail = rho - bdg1
@@ -2800,8 +2842,6 @@ def adjuvant_fit(
     ), f"Available budget went negative: {bdg_avail}, 0 for disable and positive for enabled"
 
     if skip_structure:
-        # Ablation: bypass structure learning and edge measurement; produce
-        # only 1-way observations.
         logger.info(
             f"Adjuvant Step 2: skipped (ablation=1-way), "
             f"{bdg_label}_remaining={bdg_avail:.6f}"
@@ -2819,7 +2859,6 @@ def adjuvant_fit(
         real_tvd_for_diag: "dict[tuple[Col, Col], np.ndarray] | None" = None
         if scoring == "mi":
             scores = compute_mi(cached, attrs, all_cols)
-            # "auto" only makes sense for TVD-based scoring; fall back to 0.
             min_score: "float | tuple[str, float]" = (
                 0.0 if isinstance(min_mi, (str, tuple)) else min_mi
             )
@@ -2827,8 +2866,6 @@ def adjuvant_fit(
             scores = compute_tvd(
                 cached, attrs, all_cols, noisy_1way=noisy_1way, n=n
             )
-            # Real (true-baseline) TVD for diagnostics only — selection still
-            # uses the noisy-baseline scores.
             real_tvd_for_diag = compute_tvd(cached, attrs, all_cols)
             min_score = min_tvd
         else:
@@ -2869,8 +2906,7 @@ def adjuvant_fit(
             cost_penalty=cost_penalty,
         )
 
-        # Step 3: Measure edge marginals (per-edge sigma from theta_2w)
-        # When rho=0, measure without noise (theta_2w would add spurious noise).
+        # Step 3: Measure edge marginals
         logger.info(
             f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
             f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
@@ -2903,6 +2939,85 @@ def adjuvant_fit(
     )
 
     return all_obs, moral, bdg_remaining, tvd_diag
+
+
+def adjuvant_fit(
+    oracle: MarginalOracle,
+    attrs: DatasetAttributes,
+    n: int,
+    *,
+    rho: float = 0.0,
+    theta_1w: float = 50,
+    theta_2w: float = 4,
+    sel_z: float = 2.0,
+    e_w1_max_ratio: float = 0.8,
+    e_w1_min_ratio: float = 0.0,
+    e_sel_max_ratio: float | None = None,
+    e_sel_min_ratio: float | None = None,
+    sel_max: float = 50.0,
+    size_penalty: float = 0.0,
+    min_tvd: "float | tuple[str, float]" = 0.05,
+    min_mi: float = 0.0,
+    sel_safety_factor: float = 3.0,
+    frozen_nodes: set[str] | None = None,
+    n_hist_cols: int = 0,
+    max_clique_size: float = 1e5,
+    max_root_clique_size: float = float("inf"),
+    rescale: bool = True,
+    rake: bool = True,
+    max_order: int | None = None,
+    dp_type: str = "cdp",
+    scoring: str = "tvd",
+    skip_structure: bool = False,
+    no_confidence: bool = False,
+    cost_penalty: bool = True,
+) -> tuple[list, "nx.Graph", float, str]:
+    """Run the full Adjuvant pipeline: marginals, noise, structure learn, measure.
+
+    Backwards-compatible wrapper around `adjuvant_fit_1way` +
+    `adjuvant_fit_structure`. Budget parameter `rho` is rho (CDP) or
+    epsilon (DP) depending on dp_type."""
+
+    onew = adjuvant_fit_1way(
+        oracle,
+        attrs,
+        n,
+        rho=rho,
+        theta_1w=theta_1w,
+        e_w1_max_ratio=e_w1_max_ratio,
+        e_w1_min_ratio=e_w1_min_ratio,
+        dp_type=dp_type,
+        scoring=scoring,
+        skip_structure=skip_structure,
+    )
+
+    return adjuvant_fit_structure(
+        oracle,
+        attrs,
+        n,
+        onew,
+        rho=rho,
+        theta_2w=theta_2w,
+        sel_z=sel_z,
+        e_sel_max_ratio=e_sel_max_ratio,
+        e_sel_min_ratio=e_sel_min_ratio,
+        sel_max=sel_max,
+        size_penalty=size_penalty,
+        min_tvd=min_tvd,
+        min_mi=min_mi,
+        sel_safety_factor=sel_safety_factor,
+        frozen_nodes=frozen_nodes,
+        n_hist_cols=n_hist_cols,
+        max_clique_size=max_clique_size,
+        max_root_clique_size=max_root_clique_size,
+        rescale=rescale,
+        rake=rake,
+        max_order=max_order,
+        dp_type=dp_type,
+        skip_structure=skip_structure,
+        no_confidence=no_confidence,
+        cost_penalty=cost_penalty,
+    )
 
 
 def adjuvant_run_md(

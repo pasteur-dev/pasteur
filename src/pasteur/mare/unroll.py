@@ -32,7 +32,6 @@ from .reduce import (
     TableVersion,
     _calculate_stripped_meta,
     merge_versions,
-    merge_versions_heuristic,
 )
 
 
@@ -712,78 +711,32 @@ class ModelVersion(NamedTuple):
 def calculate_model_versions(
     attrs: dict[str, Attributes],
     data: Mapping[str, LazyDataset],
-    max_vers: int,
     no_hist: bool = False,
     gen_len: int | None = None,
 ) -> dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]]:
     ids, tables = data_to_tables(data)
     chains = calculate_table_chains(attrs, ids, tables)
-    meta = _calculate_stripped_meta(attrs)
 
     out: dict[ModelVersion, tuple[DatasetAttributes, PreprocessFun]] = {}
     for name, vers in chains.items():
         assert vers, f"Table {name} has 0 versions."
-        tmeta = meta[name]
 
-        if tmeta.unroll:
-            preproc_fn = lambda v: set(v.unrolls) if v.unrolls else set()
-            merge_fn = lambda a, b: a.union(b)
-            score_fn = lambda a, b: len(a.symmetric_difference(b))
-
-            # Unroll context models
-            new_vers = merge_versions_heuristic(
-                vers, max_vers, preproc_fn, merge_fn, score_fn
+        # Merge every chain variant for this table into a single version
+        # (merge_versions unions partitions / unrolls / parents). Each
+        # table emits at most one ctx + one series ModelVersion.
+        ver = merge_versions(vers)
+        for ctx in (True, False):
+            new_attrs = generate_fit_attrs(
+                ver, attrs, ctx, no_hist=no_hist, gen_len=gen_len
             )
-
-            if not new_vers:
-                new_vers = vers
-
-            for ver in new_vers:
-                new_attrs = generate_fit_attrs(
-                    ver, attrs, True, no_hist=no_hist, gen_len=gen_len
-                )
-                assert new_attrs is not None
-
+            if new_attrs is not None:
                 load_fn = partial(
                     generate_fit_tables,
                     attrs=attrs,
                     ver=ver,
-                    ctx=True,
+                    ctx=ctx,
                     new_attrs=new_attrs,
                 )
-                out[ModelVersion(ver, True)] = new_attrs, load_fn
-
-            # Unroll series model
-            ver = merge_versions(vers)
-            new_attrs = generate_fit_attrs(
-                ver, attrs, False, no_hist=no_hist, gen_len=gen_len
-            )
-            assert new_attrs is not None
-
-            load_fn = partial(
-                generate_fit_tables,
-                attrs=attrs,
-                ver=ver,
-                ctx=False,
-                new_attrs=new_attrs,
-            )
-            out[ModelVersion(ver, False)] = new_attrs, load_fn
-        else:
-            # Apart from unroll, create one ctx model and one series model
-            # for each table
-            ver = merge_versions(vers)
-            for ctx in (True, False):
-                new_attrs = generate_fit_attrs(
-                    ver, attrs, ctx, no_hist=no_hist, gen_len=gen_len
-                )
-                if new_attrs is not None:
-                    load_fn = partial(
-                        generate_fit_tables,
-                        attrs=attrs,
-                        ver=ver,
-                        ctx=ctx,
-                        new_attrs=new_attrs,
-                    )
-                    out[ModelVersion(ver, ctx)] = new_attrs, load_fn
+                out[ModelVersion(ver, ctx)] = new_attrs, load_fn
 
     return out

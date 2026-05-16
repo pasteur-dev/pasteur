@@ -7,14 +7,15 @@ import pandas as pd
 import numpy as np
 
 from ..attribute import (
+    Attribute,
     Attributes,
     CatValue,
     DatasetAttributes,
     SeqAttributes,
+    SeqValue,
     get_dtype,
 )
-from ..hierarchy import rebalance_attributes
-from ..marginal import MarginalOracle, counts_preprocess
+from ..marginal import MarginalOracle
 from ..marginal.numpy import TableSelector
 from ..synth import Synth, make_deterministic
 from ..utils import LazyDataset
@@ -85,6 +86,15 @@ def cdp_eps(rho: float, delta: float) -> float:
 class MareModel:
     dp_type: Literal["dp", "cdp"] = "dp"
 
+    def preprocess(
+        self,
+        n: int,
+        table: str | None,
+        attrs: DatasetAttributes,
+        oracle: MarginalOracle,
+    ) -> Attributes:
+        return attrs[None]
+
     def fit(
         self,
         n: int,
@@ -113,8 +123,6 @@ class MareSynth(Synth):
         marginal_mode: MarginalOracle.MODES = "out_of_core",
         marginal_worker_mult: int = 1,
         marginal_min_chunk: int = 100,
-        max_vers: int = 20,
-        rebalance: bool = False,
         etotal: float | None = None,
         delta: float | Literal["tenth"] = "tenth",
         accountant: bool = True,
@@ -128,8 +136,6 @@ class MareSynth(Synth):
         self.marginal_mode: MarginalOracle.MODES = marginal_mode
         self.marginal_worker_mult = marginal_worker_mult
         self.marginal_min_chunk = marginal_min_chunk
-        self.max_vers = max_vers
-        self.rebalance = rebalance
         self.etotal = etotal
         self.delta = delta
         self.accountant = accountant
@@ -144,48 +150,18 @@ class MareSynth(Synth):
         return self.model_cls.visualise(dir, self.models)
 
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyDataset]):
-        logger.info(
-            f"Calculating required model versions for dataset (max versions per model: {self.max_vers})..."
-        )
-
-        if self.rebalance:
-            with MarginalOracle(
-                data,  # type: ignore
-                meta,  # type: ignore
-                mode=self.marginal_mode,
-                min_chunk_size=self.marginal_min_chunk,
-                max_worker_mult=self.marginal_worker_mult,
-                preprocess=counts_preprocess,
-            ) as o:
-                counts = o.get_counts(desc="Calculating counts for column rebalancing")
-
-            self.counts = counts
-            new_meta = {
-                k: (
-                    rebalance_attributes(
-                        counts[k],
-                        v,
-                        unbounded_dp=self.kwargs.get("unbounded_dp", True),
-                        **self.kwargs,
-                    )
-                    if v
-                    else {}
-                )
-                for k, v in meta.items()
-            }
-        else:
-            new_meta = meta
+        logger.info("Calculating required model versions for dataset...")
 
         if self.no_seq:
             logger.warning("Disabling order by dirty overwriting meta")
-            for table in new_meta.values():
+            for table in meta.values():
                 for attr in table.values():
                     for val in attr.vals.values():
                         if hasattr(val, "order"):
                             setattr(val, "order", 0)
 
         self.versions = calculate_model_versions(
-            new_meta, data, self.max_vers, no_hist=self.no_hist, gen_len=self.gen_len
+            meta, data, no_hist=self.no_hist, gen_len=self.gen_len
         )
         # TODO: Find better sampling strategy. Pick a top level table and
         # use its stats for now.
@@ -194,9 +170,239 @@ class MareSynth(Synth):
                 self._n = ver.ver.rows
                 self._partitions = len(data[ver.ver.name])
         self.attrs = meta
+        self._meta = meta
+        # Mirror of meta that gets updated as series-version preprocesses
+        # return rebalanced attrs. Hist views for not-yet-processed
+        # ModelVersions are regenerated from this so child models see
+        # parents' rebalanced columns.
+        self._rebalanced = dict(meta)
         logger.info(f"Calculated {len(self.versions)} model versions.")
 
+        self._resolve_delta_and_budget()
+        if self.etotal and self.accountant:
+            self._budgets, self._sensitivities = calc_privacy_budgets(
+                self._budget_init,
+                self.versions,
+                params={
+                    "rake": self.kwargs.get("rake", True),
+                    "no_hist": self.no_hist,
+                    "no_seq": self.no_seq,
+                    "max_sens": self.max_sens,
+                },
+            )
+        else:
+            self._budgets = None
+            self._sensitivities = None
+        self._budget_remaining = self._budget_init
+
+        # Per-version preprocess in topological (parent-tables-first)
+        # order. Each model is instantiated with its budget slice, runs
+        # model.preprocess (consuming whatever portion of its budget
+        # that step needs), and may return rebalanced attrs. For series
+        # versions, the rebalanced attrs propagate back to master meta
+        # and into every yet-unprocessed ModelVersion's hist view.
+        self.models: dict[ModelVersion, MareModel | None] = {}
+        ordered = self._topological_order()
+        for idx, ver in enumerate(ordered):
+            attrs, load = self.versions[ver]
+            if not attrs[None]:
+                self.models[ver] = None
+                continue
+
+            kwargs = self._kwargs_for(ver)
+            model = self.model_cls(**kwargs)
+
+            with MarginalOracle(
+                data,
+                attrs,
+                load,
+                mode=self.marginal_mode,
+                max_worker_mult=self.marginal_worker_mult,
+                min_chunk_size=self.marginal_min_chunk,
+            ) as o:
+                new_attrs = model.preprocess(
+                    self._n_for(ver), ver.ver.name, attrs, o
+                )
+
+            self.models[ver] = model
+            self._apply_preprocessed_attrs(ver, new_attrs, ordered[idx + 1:])
+
     def bake(self, data: dict[str, LazyDataset]): ...
+
+    def _resolve_delta_and_budget(self):
+        self._is_cdp = self.kwargs.get(
+            "dp_type", getattr(self.model_cls, "dp_type", "dp")
+        ) == "cdp"
+
+        if self.delta == "tenth":
+            self.delta = 1.0 / (10 * self._n)
+            logger.info(
+                f"Resolved delta='tenth' to delta={self.delta:.2e} (n={self._n})"
+            )
+
+        if self.etotal:
+            if self._is_cdp:
+                self._budget_init = (
+                    cdp_rho(self.etotal, self.delta) if self.etotal > 0 else 0.0
+                )
+                logger.info(
+                    f"Converting etotal={self.etotal:.5f} (delta={self.delta:.2e}) to rho={self._budget_init:.6f}"
+                )
+            else:
+                self._budget_init = self.etotal
+        else:
+            self._budget_init = 0.0
+
+    def _kwargs_for(self, ver: ModelVersion) -> dict:
+        """Return self.kwargs with rho= / etotal= injected for `ver`.
+
+        Uses the accountant's per-version allocation when available; for
+        non-accountant DP, falls back to the current `_budget_remaining`
+        divided by sensitivity. For non-DP, kwargs are untouched.
+        """
+        kwargs = dict(self.kwargs)
+        if not self.etotal:
+            return kwargs
+
+        tag = f"{ver.ver.name}[{'ctx' if ver.ctx else 'seq'}]"
+        if self._budgets is not None and self._sensitivities is not None:
+            sens = self._sensitivities[ver]
+            if self._is_cdp:
+                adj_budget = self._budgets[ver] / (sens ** 2)
+                logger.info(
+                    f"{tag}: using rho budget {self._budgets[ver]:.5f}/{self._budget_init:.5f} "
+                    f"with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
+                )
+                kwargs["rho"] = adj_budget
+            else:
+                adj_budget = self._budgets[ver] / sens
+                logger.info(
+                    f"{tag}: using privacy budget {self._budgets[ver]:.5f}/{self.etotal:.5f} "
+                    f"with sensitivity {sens}, adjusted to e_adj = {adj_budget:.5f}"
+                )
+                kwargs["etotal"] = adj_budget
+        elif not self.accountant:
+            sens = calc_sens(ver.ver, ctx=ver.ctx)
+            if smax := self.max_sens:
+                sens = min(sens, smax)
+            if self._is_cdp:
+                adj_budget = self._budget_remaining / (sens ** 2)
+                logger.info(
+                    f"{tag}: sequential rho_remaining={self._budget_remaining:.6f} "
+                    f"with sensitivity {sens}, giving rho_adj = {adj_budget:.5f}"
+                )
+                kwargs["rho"] = adj_budget
+            else:
+                adj_budget = self._budget_remaining / sens
+                logger.info(
+                    f"{tag}: sequential e_remaining={self._budget_remaining:.6f} "
+                    f"with sensitivity {sens}, giving e_adj = {adj_budget:.5f}"
+                )
+                kwargs["etotal"] = adj_budget
+        return kwargs
+
+    def _n_for(self, ver: ModelVersion) -> int:
+        if ver.ctx:
+            n = -1
+            for p in ver.ver.parents:
+                if isinstance(p, TablePartition):
+                    p = p.table
+                if p.rows > n:
+                    n = p.rows
+            assert n != -1, f"No parents found for context model {ver.ver.name}"
+            return n
+        return ver.ver.rows
+
+    def _topological_order(self) -> list[ModelVersion]:
+        """ModelVersions ordered so parent tables precede their children.
+
+        Within a table, ctx comes before series (arbitrary but stable).
+        """
+        # Per-table parent set (string names).
+        table_parents: dict[str, set[str]] = {}
+        for ver in self.versions:
+            t = ver.ver.name
+            if t in table_parents:
+                continue
+            table_parents[t] = get_parents(ver.ver)
+
+        # Kahn topo on tables.
+        table_order: list[str] = []
+        remaining = dict(table_parents)
+        while remaining:
+            roots = [t for t, ps in remaining.items() if not ps & set(remaining)]
+            if not roots:
+                # cycle / disconnected — fall back to insertion order
+                roots = list(remaining)
+            roots.sort()
+            for t in roots:
+                table_order.append(t)
+                remaining.pop(t)
+
+        order_idx = {t: i for i, t in enumerate(table_order)}
+        return sorted(
+            self.versions,
+            key=lambda v: (order_idx.get(v.ver.name, len(order_idx)), not v.ctx),
+        )
+
+    def _apply_preprocessed_attrs(
+        self,
+        ver: ModelVersion,
+        new_attrs: Attributes,
+        remaining: list[ModelVersion],
+        data: dict[str, LazyDataset] | None = None,
+    ):
+        """Stash `new_attrs` as `attrs[None]` for `ver`. If `ver` is a
+        series version, merge it (preserving any SeqValue from the
+        original) into `self._rebalanced[table]` and rebuild any
+        yet-unprocessed ModelVersion's DatasetAttributes whose hist
+        referenced this table.
+        """
+        attrs, load = self.versions[ver]
+        if new_attrs is attrs[None]:
+            return  # no change — nothing to propagate
+
+        updated = dict(attrs)
+        updated[None] = new_attrs
+        self.versions[ver] = (updated, load)
+
+        if ver.ctx:
+            # ctx attrs[None] is synthetic (e.g. {table}_n); no master-meta
+            # origin to write back to.
+            return
+
+        table = ver.ver.name
+        # Merge rebalanced (stripped) attrs back into the table's full
+        # entry so SeqValue/wholly-stripped attributes are preserved.
+        self._rebalanced[table] = _merge_rebalanced(self._meta[table], new_attrs)
+
+        # Rebuild remaining versions' DatasetAttributes whose hist
+        # references `table`. `generate_fit_attrs` calls
+        # `gen_history_attributes`, which inspects the table entry for
+        # SeqValue — that's why the merge above matters.
+        for other in remaining:
+            other_attrs, _ = self.versions[other]
+            if not _references_table(other_attrs, table):
+                continue
+            from .unroll import generate_fit_attrs, generate_fit_tables
+            from functools import partial as _partial
+
+            rebuilt = generate_fit_attrs(
+                other.ver,
+                self._rebalanced,
+                other.ctx,
+                no_hist=self.no_hist,
+                gen_len=self.gen_len,
+            )
+            assert rebuilt is not None
+            new_load = _partial(
+                generate_fit_tables,
+                attrs=self._rebalanced,
+                ver=other.ver,
+                ctx=other.ctx,
+                new_attrs=rebuilt,
+            )
+            self.versions[other] = (rebuilt, new_load)
 
     def __str__(self) -> str:
         out = ""
@@ -227,52 +433,14 @@ class MareSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
-        self.models: dict[ModelVersion, MareModel] = {}
-        is_cdp = self.kwargs.get("dp_type", getattr(self.model_cls, "dp_type", "dp")) == "cdp"
-
-        if self.delta == "tenth":
-            self.delta = 1.0 / (10 * self._n)
-            logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={self._n})")
-
-        # For CDP this is rho, for DP this is epsilon
-        if self.etotal:
-            if is_cdp:
-                budget_remaining = cdp_rho(self.etotal, self.delta) if self.etotal > 0 else 0.0
-                logger.info(
-                    f"Converting etotal={self.etotal:.5f} (delta={self.delta:.2e}) to rho={budget_remaining:.6f}"
-                )
-            else:
-                budget_remaining = self.etotal
-
-            if self.accountant:
-                budgets, sensitivities = calc_privacy_budgets(
-                    budget_remaining,
-                    self.versions,
-                    params={
-                        "rake": self.kwargs.get("rake", True),
-                        "no_hist": self.no_hist,
-                        "no_seq": self.no_seq,
-                        "max_sens": self.max_sens,
-                    },
-                )
-            else:
-                budgets = None
-                sensitivities = None
-        else:
-            budget_remaining = 0.0
-            budgets = None
-            sensitivities = None
-
-        budget_remaining_init = budget_remaining
-
         for i, (ver, (attrs, load)) in enumerate(self.versions.items()):
+            model = self.models[ver]
             logger.info(
-                f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' model for table '{ver.ver.name}'"
+                f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' "
+                f"model for table '{ver.ver.name}'"
             )
 
-            if not attrs[None]:
-                # Empty table, skip
-                self.models[ver] = None
+            if model is None:
                 continue
 
             with MarginalOracle(
@@ -283,73 +451,26 @@ class MareSynth(Synth):
                 max_worker_mult=self.marginal_worker_mult,
                 min_chunk_size=self.marginal_min_chunk,
             ) as o:
-                kwargs = dict(self.kwargs)
-                if budgets and sensitivities:
-                    sens = sensitivities[ver]
-                    if is_cdp:
-                        adj_budget = budgets[ver] / (sens ** 2)
-                        logger.info(
-                            f"Using rho budget {budgets[ver]:.5f}/{budget_remaining_init:.5f} with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
-                        )
-                        kwargs["rho"] = adj_budget
-                    else:
-                        adj_budget = budgets[ver] / sens
-                        logger.info(
-                            f"Using privacy budget {budgets[ver]:.5f}/{self.etotal:.5f} with sensitivity {sens}, adjusted to e_adj = {adj_budget:.5f}"
-                        )
-                        kwargs["etotal"] = adj_budget
-                elif not self.accountant and self.etotal:
-                    sens = calc_sens(ver.ver, ctx=ver.ctx)
-                    if smax := self.max_sens:
-                        sens = min(sens, smax)
-                    if is_cdp:
-                        adj_budget = budget_remaining / (sens ** 2)
-                        logger.info(
-                            f"Sequential: rho_remaining={budget_remaining:.6f} with sensitivity {sens}, giving rho_adj = {adj_budget:.5f}"
-                        )
-                        kwargs["rho"] = adj_budget
-                    else:
-                        adj_budget = budget_remaining / sens
-                        logger.info(
-                            f"Sequential: e_remaining={budget_remaining:.6f} with sensitivity {sens}, giving e_adj = {adj_budget:.5f}"
-                        )
-                        kwargs["etotal"] = adj_budget
+                rho_returned = model.fit(self._n_for(ver), ver.ver.name, attrs, o)
 
-                model = self.model_cls(**kwargs)
-
-                if ver.ctx:
-                    # Use biggest parent instead
-                    n = -1
-                    for p in ver.ver.parents:
-                        if isinstance(p, TablePartition):
-                            p = p.table
-                        if p.rows > n:
-                            n = p.rows
-                    assert n != -1, f"No parents found for context model {ver.ver.name}"
+            if not self.accountant and self.etotal and rho_returned is not None:
+                sens = calc_sens(ver.ver, ctx=ver.ctx)
+                if smax := self.max_sens:
+                    sens = min(sens, smax)
+                if self._is_cdp:
+                    self._budget_remaining = rho_returned * (sens ** 2)
                 else:
-                    n = ver.ver.rows
+                    self._budget_remaining = rho_returned * sens
+                logger.info(
+                    f"Sequential: model returned {rho_returned:.6f}, "
+                    f"scaled back to budget_remaining={self._budget_remaining:.6f}"
+                )
 
-                rho_returned = model.fit(n, ver.ver.name, attrs, o)
-                self.models[ver] = model
-
-                if not self.accountant and self.etotal and rho_returned is not None:
-                    sens = calc_sens(ver.ver, ctx=ver.ctx)
-                    if smax := self.max_sens:
-                        sens = min(sens, smax)
-                    if is_cdp:
-                        budget_remaining = rho_returned * (sens ** 2)
-                    else:
-                        budget_remaining = rho_returned * sens
-                    logger.info(
-                        f"Sequential: model returned {rho_returned:.6f}, "
-                        f"scaled back to budget_remaining={budget_remaining:.6f}"
-                    )
-
-        if is_cdp and self.etotal:
-            budget_used = budget_remaining_init - budget_remaining
+        if self._is_cdp and self.etotal:
+            budget_used = self._budget_init - self._budget_remaining
             eps_used = cdp_eps(budget_used, self.delta)
             logger.info(
-                f"Total rho used: {budget_used:.6f}/{budget_remaining_init:.6f}, "
+                f"Total rho used: {budget_used:.6f}/{self._budget_init:.6f}, "
                 f"equivalent to eps={eps_used:.5f} (delta={self.delta:.2e})"
             )
             self.budget_used = budget_used
@@ -843,6 +964,56 @@ def is_finished(table: str, ctx: bool, todo: list[ModelVersion]):
             return False
 
     return True
+
+
+def _merge_rebalanced(original: Attributes, rebalanced: Attributes) -> Attributes:
+    """Merge a (possibly seq-stripped) rebalanced `Attributes` view back
+    into the table's full original entry.
+
+    `model.preprocess` sees `attrs[None]` which, for series ModelVersions
+    of sequence tables, is `strip_seq_vals(meta[table])`. The returned
+    rebalanced version therefore lacks any `SeqValue` (and any Attribute
+    that only held a SeqValue). When propagating to children's hist
+    views, those entries must be restored so `gen_history_attributes`
+    keeps building `SeqAttributes` correctly.
+    """
+    out: dict[str, Attribute] = {}
+    for name, attr in original.items():
+        if name not in rebalanced:
+            # Attribute was wholly stripped (only had SeqValue) — keep original.
+            out[name] = attr
+            continue
+
+        reb_attr = rebalanced[name]
+        seq_vals = [v for v in attr.vals.values() if isinstance(v, SeqValue)]
+        if not seq_vals:
+            out[name] = reb_attr
+            continue
+
+        # Rebuild: rebalanced non-SeqValue children + original SeqValue(s).
+        merged_vals = list(reb_attr.vals.values()) + seq_vals
+        out[name] = Attribute(
+            reb_attr.name,
+            merged_vals,
+            common=reb_attr.common,
+            unroll=reb_attr.unroll,
+            along=reb_attr.along,
+            partition=attr.partition,
+            seq_repeat=attr.seq_repeat,
+            gate=attr.gate,
+        )
+    return out
+
+
+def _references_table(attrs: DatasetAttributes, table: str) -> bool:
+    """True if `attrs` carries any hist entry keyed on `table`."""
+    for key in attrs:
+        if key is None:
+            continue
+        name = key[0] if isinstance(key, tuple) else key
+        if name == table:
+            return True
+    return False
 
 
 def meets_requirements(ver: ModelVersion, todo: list[ModelVersion]):

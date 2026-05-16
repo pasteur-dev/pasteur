@@ -16,11 +16,9 @@ import numpy as np
 import pandas as pd
 
 from ....attribute import Attributes, DatasetAttributes
-from ....hierarchy import rebalance_attributes
 from ....mare.synth import MareModel
 from ....marginal import MarginalOracle
 from ....marginal.numpy import TableSelector
-from ....marginal.oracle import counts_preprocess
 from ....synth import Synth, make_deterministic
 from ....utils import LazyFrame, data_to_tables, tables_to_data
 
@@ -46,6 +44,39 @@ DEFAULT_MAX_ROOT_CLIQUE_SIZE = 1e7
 DEFAULT_RESCALE = True
 DEFAULT_RAKE = False
 DEFAULT_SCORING: Literal["mi", "tvd", "tvd_n"] = "tvd_n"
+
+
+def _rebalance_with_noisy_1way(
+    table_attrs: Attributes,
+    noisy_1way: dict,
+    rebalance_kwargs: dict,
+) -> Attributes:
+    """Run `rebalance_attributes` against adjuvant's `noisy_1way`.
+
+    `noisy_1way` is keyed by `(_table, _order, attr_name, val_name)` (a
+    CachedMarginals Col tuple); `rebalance_attributes` wants a flat
+    `{val_name: array}` per-table dict. Synthetic ctx attrs (a single
+    `GenerationValue`) are passed through unchanged — wrapping them in
+    `RebalancedValue` would hide their `.gen_vals` / `.max_len`
+    attributes that the MARE sampler relies on.
+    """
+    from ....attribute import GenerationValue
+    from ....hierarchy import rebalance_attributes
+
+    # Skip synthetic ctx attrs[None] (only GenerationValue children).
+    for attr in table_attrs.values():
+        for val in attr.vals.values():
+            if isinstance(val, GenerationValue):
+                return table_attrs
+
+    counts: dict[str, np.ndarray] = {}
+    for key, arr in noisy_1way.items():
+        val_name = key[-1] if isinstance(key, tuple) else key
+        counts[val_name] = arr
+
+    if not counts:
+        return table_attrs
+    return rebalance_attributes(counts, table_attrs, **rebalance_kwargs)
 
 
 class AdjuvantMare(MareModel):
@@ -88,11 +119,13 @@ class AdjuvantMare(MareModel):
         max_order: int | None = 1,
         accountant: bool = True,
         mirror_descent: dict | None = None,
+        rebalance: bool | dict = True,
         seed: int | None = None,
         **kwargs,
     ) -> None:
         # MARE passes rho= for CDP, etotal= for DP; accept either
         self.budget = etotal if etotal is not None else rho
+        self.rebalance = rebalance
         self.theta_1w = theta_1w
         self.theta_2w = theta_2w
         self.sel_z = sel_z
@@ -497,6 +530,51 @@ class AdjuvantMare(MareModel):
             f.write(html)
 
     @make_deterministic
+    def preprocess(
+        self,
+        n: int,
+        table: str | None,
+        attrs: DatasetAttributes,
+        oracle: MarginalOracle,
+    ) -> Attributes:
+        """Compute DP-noisy 1-way marginals, stash them on self, and
+        rebalance `attrs[None]` using those noisy counts.
+
+        The noisy 1-ways are reused by `fit()` as `Adjuvant1WayResult`
+        input to `adjuvant_fit_structure`, so this is the *only* place
+        1-way DP noise gets added under the MARE flow.
+        """
+        from .implementation import adjuvant_fit_1way
+
+        self.table_attrs = attrs
+        self._n_rows = n
+        self._onew = adjuvant_fit_1way(
+            oracle,
+            attrs,
+            n,
+            rho=self.budget,
+            theta_1w=self.theta_1w,
+            e_w1_max_ratio=self.e_w1_max_ratio,
+            e_w1_min_ratio=self.e_w1_min_ratio,
+            dp_type=self.dp_type,
+            scoring=self.scoring,
+            skip_structure=False,
+        )
+
+        # Rebalance attrs[None] using the noisy 1-ways. rebalance_attributes
+        # only wraps StratifiedValue, so non-stratified entries
+        # (GenAttribute, CommonValue) pass through unchanged — safe for
+        # both ctx (synthetic attrs[None]) and series.
+        if not self.rebalance:
+            return attrs[None]
+        rebalance_kwargs = (
+            self.rebalance if isinstance(self.rebalance, dict) else {}
+        )
+        return _rebalance_with_noisy_1way(
+            attrs[None], self._onew.noisy_1way, rebalance_kwargs
+        )
+
+    @make_deterministic
     def fit(
         self,
         n: int,
@@ -505,7 +583,8 @@ class AdjuvantMare(MareModel):
         oracle: MarginalOracle,
     ) -> float:
         from .implementation import (
-            adjuvant_fit,
+            adjuvant_fit_1way,
+            adjuvant_fit_structure,
             adjuvant_run_md,
             get_hist_cols,
             get_col_names,
@@ -524,16 +603,30 @@ class AdjuvantMare(MareModel):
             if data.get("table") is not None:
                 frozen_nodes.add(node)
 
-        all_obs, moral, bdg_remaining, tvd_diag = adjuvant_fit(
+        # Preprocess may not have run (e.g. if attrs[None] was empty).
+        # In normal MARE flow it has — reuse the stashed noisy 1-ways.
+        if getattr(self, "_onew", None) is None:
+            self._onew = adjuvant_fit_1way(
+                oracle,
+                attrs,
+                n,
+                rho=self.budget,
+                theta_1w=self.theta_1w,
+                e_w1_max_ratio=self.e_w1_max_ratio,
+                e_w1_min_ratio=self.e_w1_min_ratio,
+                dp_type=self.dp_type,
+                scoring=self.scoring,
+                skip_structure=False,
+            )
+
+        all_obs, moral, bdg_remaining, tvd_diag = adjuvant_fit_structure(
             oracle,
             attrs,
             n,
+            self._onew,
             rho=self.budget,
-            theta_1w=self.theta_1w,
             theta_2w=self.theta_2w,
             sel_z=self.sel_z,
-            e_w1_max_ratio=self.e_w1_max_ratio,
-            e_w1_min_ratio=self.e_w1_min_ratio,
             e_sel_max_ratio=self.e_sel_max_ratio,
             e_sel_min_ratio=self.e_sel_min_ratio,
             sel_max=self.sel_max,
@@ -547,7 +640,6 @@ class AdjuvantMare(MareModel):
             max_root_clique_size=self.max_root_clique_size,
             rescale=self.rescale,
             rake=self.rake,
-            scoring=self.scoring,
             max_order=self.max_order,
             dp_type=self.dp_type,
         )
@@ -861,27 +953,54 @@ class AdjuvantSynth(Synth):
 
     @make_deterministic
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyFrame]):
+        from .implementation import adjuvant_fit_1way, cdp_rho
+
         self.table = next(iter(meta))
         self._n = data[self.table].shape[0]
         self._partitions = len(data[self.table])
+
+        # Resolve budget upfront so Step-1 noise can be calibrated.
+        n = self._n
+        if self.dp_type == "cdp":
+            if self.delta == "tenth":
+                self.delta = 1.0 / (10 * n)
+                logger.info(
+                    f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})"
+                )
+            self._budget = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
+        else:
+            self._budget = self.e
+
+        table_attrs: DatasetAttributes = {None: meta[self.table]}
+
+        with MarginalOracle(
+            data,
+            table_attrs,
+            mode=self.marginal_mode,
+            min_chunk_size=self.marginal_min_chunk,
+            max_worker_mult=self.marginal_worker_mult,
+        ) as oracle:
+            self._onew = adjuvant_fit_1way(
+                oracle,
+                table_attrs,
+                n,
+                rho=self._budget,
+                theta_1w=self.theta_1w,
+                e_w1_max_ratio=self.e_w1_max_ratio,
+                e_w1_min_ratio=self.e_w1_min_ratio,
+                dp_type=self.dp_type,
+                scoring=self.scoring,
+                skip_structure=self.ablation == "1-way",
+            )
 
         if self.rebalance and self.ablation != "no-compression":
             rebalance_kwargs = (
                 self.rebalance if isinstance(self.rebalance, dict) else {}
             )
-            with MarginalOracle(
-                data,
-                meta,
-                mode=self.marginal_mode,
-                min_chunk_size=self.marginal_min_chunk,
-                max_worker_mult=self.marginal_worker_mult,
-                preprocess=counts_preprocess,
-            ) as o:
-                counts = o.get_counts(desc="Calculating counts for column rebalancing")
-
             self.attrs = {
-                k: rebalance_attributes(counts[k], v, **rebalance_kwargs)
-                for k, v in meta.items()
+                self.table: _rebalance_with_noisy_1way(
+                    meta[self.table], self._onew.noisy_1way, rebalance_kwargs
+                )
             }
         else:
             self.attrs = meta
@@ -892,7 +1011,7 @@ class AdjuvantSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyFrame]):
-        from .implementation import adjuvant_fit, adjuvant_run_md, cdp_rho
+        from .implementation import adjuvant_fit_structure
 
         ids, tables = data_to_tables(data)
         table = tables[self.table]
@@ -901,14 +1020,6 @@ class AdjuvantSynth(Synth):
         n = table.shape[0]
         self.table_attrs: DatasetAttributes = {None: self.attrs[self.table]}
 
-        if self.dp_type == "cdp":
-            if self.delta == "tenth":
-                self.delta = 1.0 / (10 * n)
-                logger.info(f"Resolved delta='tenth' to delta={self.delta:.2e} (n={n})")
-            budget = cdp_rho(self.e, self.delta) if self.e > 0 else 0.0
-        else:
-            budget = self.e
-
         with MarginalOracle(
             data,
             self.table_attrs,
@@ -916,31 +1027,30 @@ class AdjuvantSynth(Synth):
             min_chunk_size=self.marginal_min_chunk,
             max_worker_mult=self.marginal_worker_mult,
         ) as oracle:
-            self.all_obs, self.moral, self.bdg_remaining, self.tvd_diag = adjuvant_fit(
-                oracle,
-                self.table_attrs,
-                n,
-                rho=budget,
-                theta_1w=self.theta_1w,
-                theta_2w=self.theta_2w,
-                sel_z=self.sel_z,
-                e_w1_max_ratio=self.e_w1_max_ratio,
-                e_w1_min_ratio=self.e_w1_min_ratio,
-                e_sel_max_ratio=self.e_sel_max_ratio,
-                e_sel_min_ratio=self.e_sel_min_ratio,
-                sel_max=self.sel_max,
-                size_penalty=self.size_penalty,
-                min_tvd=self.min_tvd,
-                min_mi=self.min_mi,
-                sel_safety_factor=self.sel_safety_factor,
-                max_clique_size=self.max_clique_size,
-                rescale=self.rescale,
-                rake=self.rake,
-                scoring=self.scoring,
-                dp_type=self.dp_type,
-                skip_structure=self.ablation == "1-way",
-                no_confidence=self.ablation == "no-confidence",
-                cost_penalty=self.ablation != "no-cost-penalty",
+            self.all_obs, self.moral, self.bdg_remaining, self.tvd_diag = (
+                adjuvant_fit_structure(
+                    oracle,
+                    self.table_attrs,
+                    n,
+                    self._onew,
+                    rho=self._budget,
+                    theta_2w=self.theta_2w,
+                    sel_z=self.sel_z,
+                    e_sel_max_ratio=self.e_sel_max_ratio,
+                    e_sel_min_ratio=self.e_sel_min_ratio,
+                    sel_max=self.sel_max,
+                    size_penalty=self.size_penalty,
+                    min_tvd=self.min_tvd,
+                    min_mi=self.min_mi,
+                    sel_safety_factor=self.sel_safety_factor,
+                    max_clique_size=self.max_clique_size,
+                    rescale=self.rescale,
+                    rake=self.rake,
+                    dp_type=self.dp_type,
+                    skip_structure=self.ablation == "1-way",
+                    no_confidence=self.ablation == "no-confidence",
+                    cost_penalty=self.ablation != "no-cost-penalty",
+                )
             )
 
         self._run_md()
