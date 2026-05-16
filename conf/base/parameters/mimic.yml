@@ -25,7 +25,6 @@ mimic_core:
     mare:
       etotal: 2
       theta: 5
-      rebalance: True
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20

@@ -3,7 +3,6 @@ rfel_ce:
     mare: &mare
       etotal: 2
       theta: 5
-      rebalance: True
       fixed: [4, 9, 18, 32]
       u: 7
       max_sens: 20
@@ -54,7 +53,6 @@ rfel_sl:
   algs:
     mare:
       <<: *mare
-      rebalance: True
     amalgam:
       <<: *amalgam
       samples: null
@@ -92,7 +90,6 @@ rfel_fnc:
   algs:
     mare:
       <<: *mare
-      rebalance: True
     amalgam:
       <<: *amalgam
       samples: 50
