@@ -20,6 +20,7 @@ from ..marginal.numpy import TableSelector
 from ..synth import Synth, make_deterministic
 from ..utils import LazyDataset
 from ..utils.data import LazyFrame, tables_to_data
+from ..utils.progress import piter
 from .chains import (
     TableMeta,
     TablePartition,
@@ -209,50 +210,59 @@ class MareSynth(Synth):
         # attrs[None], which we merge back into `self._rebalanced[table]`
         # so subsequent ModelVersions see it.
         self.models: dict[ModelVersion, MareModel | None] = {}
-        for ver in ordered:
-            attrs = generate_fit_attrs(
-                ver.ver,
-                self._rebalanced,
-                ver.ctx,
-                no_hist=self.no_hist,
-                gen_len=self.gen_len,
-            )
-            if attrs is None or not attrs[None]:
-                self.models[ver] = None
-                continue
+        pbar = piter(total=len(ordered), desc="MARE preprocess", leave=False)
+        try:
+            for ver in ordered:
+                tag = f"{ver.ver.name}[{'ctx' if ver.ctx else 'seq'}]"
+                pbar.set_description(f"MARE preprocess {tag}")
 
-            load = _partial(
-                generate_fit_tables,
-                attrs=self._rebalanced,
-                ver=ver.ver,
-                ctx=ver.ctx,
-                new_attrs=attrs,
-            )
+                attrs = generate_fit_attrs(
+                    ver.ver,
+                    self._rebalanced,
+                    ver.ctx,
+                    no_hist=self.no_hist,
+                    gen_len=self.gen_len,
+                )
+                if attrs is None or not attrs[None]:
+                    self.models[ver] = None
+                    pbar.update(1)
+                    continue
 
-            kwargs = self._kwargs_for(ver)
-            model = self.model_cls(**kwargs)
-
-            with MarginalOracle(
-                data,
-                attrs,
-                load,
-                mode=self.marginal_mode,
-                max_worker_mult=self.marginal_worker_mult,
-                min_chunk_size=self.marginal_min_chunk,
-            ) as o:
-                new_attrs = model.preprocess(
-                    self._n_for(ver), ver.ver.name, attrs, o
+                load = _partial(
+                    generate_fit_tables,
+                    attrs=self._rebalanced,
+                    ver=ver.ver,
+                    ctx=ver.ctx,
+                    new_attrs=attrs,
                 )
 
-            self.models[ver] = model
+                kwargs = self._kwargs_for(ver)
+                model = self.model_cls(**kwargs)
 
-            # Series versions propagate their rebalanced columns into
-            # `self._rebalanced`. Ctx versions are local (synthetic
-            # attrs[None]) and don't propagate.
-            if not ver.ctx and new_attrs is not attrs[None]:
-                self._rebalanced[ver.ver.name] = _merge_rebalanced(
-                    self._meta[ver.ver.name], new_attrs
-                )
+                with MarginalOracle(
+                    data,
+                    attrs,
+                    load,
+                    mode=self.marginal_mode,
+                    max_worker_mult=self.marginal_worker_mult,
+                    min_chunk_size=self.marginal_min_chunk,
+                ) as o:
+                    new_attrs = model.preprocess(
+                        self._n_for(ver), ver.ver.name, attrs, o
+                    )
+
+                self.models[ver] = model
+
+                # Series versions propagate their rebalanced columns into
+                # `self._rebalanced`. Ctx versions are local (synthetic
+                # attrs[None]) and don't propagate.
+                if not ver.ctx and new_attrs is not attrs[None]:
+                    self._rebalanced[ver.ver.name] = _merge_rebalanced(
+                        self._meta[ver.ver.name], new_attrs
+                    )
+                pbar.update(1)
+        finally:
+            pbar.close()
 
         # Phase 2 — build the fit-time DatasetAttributes using the
         # fully-updated `self._rebalanced`. Every hist (parent and the
@@ -426,38 +436,47 @@ class MareSynth(Synth):
 
     @make_deterministic
     def fit(self, data: dict[str, LazyDataset]):
-        for i, (ver, (attrs, load)) in enumerate(self.versions.items()):
-            model = self.models[ver]
-            logger.info(
-                f"Fitting {i + 1:2d}/{len(self.versions)} '{'context' if ver.ctx else 'series'}' "
-                f"model for table '{ver.ver.name}'"
-            )
-
-            if model is None:
-                continue
-
-            with MarginalOracle(
-                data,
-                attrs,
-                load,
-                mode=self.marginal_mode,
-                max_worker_mult=self.marginal_worker_mult,
-                min_chunk_size=self.marginal_min_chunk,
-            ) as o:
-                rho_returned = model.fit(self._n_for(ver), ver.ver.name, attrs, o)
-
-            if not self.accountant and self.etotal and rho_returned is not None:
-                sens = calc_sens(ver.ver, ctx=ver.ctx)
-                if smax := self.max_sens:
-                    sens = min(sens, smax)
-                if self._is_cdp:
-                    self._budget_remaining = rho_returned * (sens ** 2)
-                else:
-                    self._budget_remaining = rho_returned * sens
+        items = list(self.versions.items())
+        pbar = piter(total=len(items), desc="MARE fit", leave=False)
+        try:
+            for i, (ver, (attrs, load)) in enumerate(items):
+                model = self.models[ver]
+                tag = f"{ver.ver.name}[{'ctx' if ver.ctx else 'seq'}]"
+                pbar.set_description(f"MARE fit {tag}")
                 logger.info(
-                    f"Sequential: model returned {rho_returned:.6f}, "
-                    f"scaled back to budget_remaining={self._budget_remaining:.6f}"
+                    f"Fitting {i + 1:2d}/{len(items)} '{'context' if ver.ctx else 'series'}' "
+                    f"model for table '{ver.ver.name}'"
                 )
+
+                if model is None:
+                    pbar.update(1)
+                    continue
+
+                with MarginalOracle(
+                    data,
+                    attrs,
+                    load,
+                    mode=self.marginal_mode,
+                    max_worker_mult=self.marginal_worker_mult,
+                    min_chunk_size=self.marginal_min_chunk,
+                ) as o:
+                    rho_returned = model.fit(self._n_for(ver), ver.ver.name, attrs, o)
+
+                if not self.accountant and self.etotal and rho_returned is not None:
+                    sens = calc_sens(ver.ver, ctx=ver.ctx)
+                    if smax := self.max_sens:
+                        sens = min(sens, smax)
+                    if self._is_cdp:
+                        self._budget_remaining = rho_returned * (sens ** 2)
+                    else:
+                        self._budget_remaining = rho_returned * sens
+                    logger.info(
+                        f"Sequential: model returned {rho_returned:.6f}, "
+                        f"scaled back to budget_remaining={self._budget_remaining:.6f}"
+                    )
+                pbar.update(1)
+        finally:
+            pbar.close()
 
         if self._is_cdp and self.etotal:
             budget_used = self._budget_init - self._budget_remaining
