@@ -76,7 +76,9 @@ def get_parent_name(
         algs_str = " -a [" + ", ".join(algs) + "]"
     hyper_str = "".join(map(lambda x: f" -h {x}", hyperparams))
     iter_str = "".join(map(lambda x: f" -i {x}", iterators))
-    param_str = "".join(map(lambda x: f" {x}", filter(lambda x: not x.startswith("_"), params)))
+    param_str = "".join(
+        map(lambda x: f" {x}", filter(lambda x: not x.startswith("_"), params))
+    )
     return f"{pipeline}{algs_str}{hyper_str}{iter_str}{param_str}"
 
 
@@ -116,8 +118,13 @@ def get_run(name: str, parent: str | None, git: str | None) -> Run | None:
     return mlflow.get_run(run_id)
 
 
-def format_run_url(server_url: str, experiment_id: str, run_id: str) -> str:
-    return f"{server_url.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}/artifacts/overall.html"
+def format_run_url(
+    server_url: str, experiment_id: str, run_id: str, parent: bool = False
+) -> str:
+    return (
+        f"{server_url.rstrip('/')}/#/experiments/{experiment_id}/runs/{run_id}/artifacts"
+        + ("/overall.html" if parent else "")
+    )
 
 
 def remove_runs(parent: str, delete_parent: bool = False):

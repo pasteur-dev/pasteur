@@ -307,7 +307,7 @@ def _log_parent_run_url(ctx, parent_name: str, experiment_id: str) -> None:
         if not len(runs_df):
             return
         run_id = runs_df["run_id"][0]
-        logger.info(f"Parent run artifacts: {format_run_url(url, experiment_id, run_id)}")
+        logger.info(f"Parent run artifacts: {format_run_url(url, experiment_id, run_id, parent=True)}")
     except Exception:
         logger.debug("Failed to log mlflow parent run URL", exc_info=True)
 
