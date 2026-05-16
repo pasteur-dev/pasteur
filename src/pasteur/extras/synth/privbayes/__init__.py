@@ -1084,19 +1084,20 @@ class PrivBayesSynth(Synth):
 
 
 def _build_moral(nodes: Sequence[Node], attrs: DatasetAttributes):
-    """Build the moral (undirected) graph from a PrivBayes BN.
+    """Build the directed BN graph for visualisation.
 
-    Used by the visualise hooks; mirrors what _fit_mirror_descent
-    constructs internally but does not require mirror descent to be
-    enabled.  The graph carries `structure=True` on chosen BN parent
-    edges, `chain=True` / `chain_bridged=True` on height-chain edges,
-    and `immorality=True` / `immoral=True` on edges added or touched
-    by moralization (set by to_moral).
+    PrivBayes is a Bayesian network — the rendered graph keeps the
+    natural parent → child / common → value / higher-height → lower-
+    height direction.  Edges carry `structure=True` (BN parent edges)
+    or `chain=True` / `chain_bridged=True` (height-chain edges); the
+    induced-graph renderer reads those flags for coloring.
+
+    Note: this is *not* the moralized graph used by mirror descent —
+    that one is built internally by `_fit_mirror_descent` via
+    `to_moral`.  Kept under the name `moral` only for parity with the
+    visualise interface other synth backends use.
     """
-    from ....graph.hugin import to_moral
-
-    g = derive_graph_from_nodes(nodes, attrs, prune=True)
-    return to_moral(g)
+    return derive_graph_from_nodes(nodes, attrs, prune=True)
 
 
 def derive_graph_from_nodes(

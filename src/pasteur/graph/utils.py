@@ -347,7 +347,20 @@ def _build_induced_graph_into(
             elif "headlabel" in new_data:
                 new_data["taillabel"] = new_data.pop("headlabel")
 
-        if a_aliased ^ b_aliased:
+        if directed:
+            # Input already carries the semantically correct direction
+            # (e.g. PrivBayes BN: parent → child).  Preserve it, just
+            # color/style by category and aliasing.
+            a_order = g.nodes[a]["order"]
+            b_order = g.nodes[b]["order"]
+            if a_aliased ^ b_aliased or a_order != b_order:
+                new_data["color"] = "#d62728"
+                new_data["fontcolor"] = "#d62728"
+            if category == "chain":
+                new_data["dir"] = "none"
+            else:
+                new_data["dir"] = "forward"
+        elif a_aliased ^ b_aliased:
             if b_aliased:
                 _swap_endpoints()
             new_data["dir"] = "forward"
