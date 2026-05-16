@@ -2749,6 +2749,10 @@ def adjuvant_fit(
         oracle, attrs, all_cols, skip_pair_cols=hist_cols if hist_cols else None
     )
 
+    if scoring == "tvd_n" and len(attrs) > 1:
+        logger.warning("TVD_N not supported for evidence vars, switching to TVD scoring")
+        scoring = "tvd"
+
     # Step 1: Noisy 1-way marginals (budget from theta_1w)
     # Skip hist columns — they are provided as evidence, not generated
     # When rho=0 (no DP), skip noise entirely — theta-based sigma would
