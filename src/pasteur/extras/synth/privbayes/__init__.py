@@ -30,6 +30,64 @@ logger = logging.getLogger(__name__)
 from ....graph.mirror_descent import MirrorDescentParams, MIRROR_DESCENT_DEFAULT
 
 
+def _noisy_1way_counts(
+    oracle: MarginalOracle,
+    ep: float,
+    unbounded_dp: bool,
+    desc: str = "Calculating 1-way counts for DP rebalancing",
+) -> dict[TableSelector, dict[str, np.ndarray]]:
+    """Compute Laplace-noised 1-way counts via the oracle.
+
+    Returns a `{table_sel: {val_name: counts}}` dict matching
+    `MarginalOracle.get_counts`. Total DP cost is `ep`, split evenly
+    across all columns in `attrs[None]` only — hist/parent columns are
+    returned without added noise (they were already noised under their
+    own preprocess) but we still pass them through so the rebalance
+    machinery can use them as common-value lookups.
+
+    Sensitivity is 1 (unbounded_dp) or 2 (bounded_dp). With sequential
+    composition for `d` per-column Laplace queries each at scale `b`,
+    total epsilon = sens * d / b ⇒ pick `b = sens * d / ep`.
+    """
+    raw = oracle.get_counts(desc=desc)
+    main = raw.get(None, {})
+    out: dict[TableSelector, dict[str, np.ndarray]] = {k: v for k, v in raw.items()}
+    if not main or ep <= 0:
+        return out
+
+    sens = 1 if unbounded_dp else 2
+    d = max(len(main), 1)
+    scale = sens * d / ep
+    noisy_main: dict[str, np.ndarray] = {}
+    for name, count in main.items():
+        noise = np.random.laplace(scale=scale, size=count.shape)
+        noisy_main[name] = count + noise
+    out[None] = noisy_main
+    return out
+
+
+def _rebalance_with_noisy_counts(
+    table_attrs: Attributes,
+    noisy_counts: dict[str, np.ndarray],
+    rebalance_kwargs: dict,
+) -> Attributes:
+    """Run `rebalance_attributes` against pre-noised 1-way counts.
+
+    Skips synthetic attrs (those containing a `GenerationValue`) — those
+    are MARE-injected generation count attributes and have no
+    meaningful counts to rebalance against.
+    """
+    from ....attribute import GenerationValue
+
+    for attr in table_attrs.values():
+        for val in attr.vals.values():
+            if isinstance(val, GenerationValue):
+                return table_attrs
+    if not noisy_counts:
+        return table_attrs
+    return rebalance_attributes(noisy_counts, table_attrs, **rebalance_kwargs)
+
+
 def _fit_mirror_descent(
     mirror_descent: MirrorDescentParams | bool,
     nodes: Sequence[Node],
@@ -244,6 +302,7 @@ class PrivBayesMare(MareModel):
         skip_zero_counts: bool = True,
         minimum_cutoff: int | None = 3,
         rake: bool = True,
+        rebalance: bool | dict = True,
         mirror_descent: MirrorDescentParams | bool = False,
         **kwargs,
     ) -> None:
@@ -259,9 +318,41 @@ class PrivBayesMare(MareModel):
         self.unbounded_dp = unbounded_dp
         self.skip_zero_counts = skip_zero_counts
         self.rake = rake
+        self.rebalance = rebalance
         self.mirror_descent = mirror_descent
         self.kwargs = kwargs
         self.minimum_cutoff = minimum_cutoff
+
+    @make_deterministic
+    def preprocess(
+        self,
+        n: int,
+        table: str | None,
+        attrs: DatasetAttributes,
+        oracle: MarginalOracle,
+    ) -> Attributes:
+        """Spend `self.ep` budget on Laplace-noised 1-way counts and
+        rebalance `attrs[None]` against them."""
+        if not self.rebalance:
+            return attrs[None]
+
+        if not self.ep:
+            logger.warning(
+                f"PrivBayes[{table}]: rebalance=True with ep=None, "
+                "rebalancing against raw counts (no DP noise on 1-ways)."
+            )
+
+        noisy = _noisy_1way_counts(
+            oracle, self.ep or 0.0, self.unbounded_dp,
+        )
+        main_counts = noisy.get(None, {})
+        rebalance_kwargs = (
+            self.rebalance if isinstance(self.rebalance, dict) else {}
+        )
+        rebalance_kwargs = {"unbounded_dp": self.unbounded_dp, **rebalance_kwargs}
+        return _rebalance_with_noisy_counts(
+            attrs[None], main_counts, rebalance_kwargs
+        )
 
     @make_deterministic
     def fit(self, n: int, table: str, attrs: DatasetAttributes, oracle: MarginalOracle):
@@ -418,26 +509,30 @@ class PrivBayesSynth(Synth):
         self.table_name = table_name
 
         if self.rebalance:
+            if not self.ep:
+                logger.warning(
+                    "PrivBayesSynth: rebalance=True with ep=None — rebalancing "
+                    "against raw counts (no DP noise on 1-ways)."
+                )
+            single_table: DatasetAttributes = {None: attrs[table_name]}
             with MarginalOracle(
                 data,  # type: ignore
-                attrs,
+                single_table,
                 mode=self.marginal_mode,
                 min_chunk_size=self.marginal_min_chunk,
                 max_worker_mult=self.marginal_worker_mult,
                 preprocess=counts_preprocess,
             ) as o:
-                counts = o.get_counts(desc="Calculating counts for column rebalancing")
+                # ep=0 / None → _noisy_1way_counts skips noise.
+                noisy = _noisy_1way_counts(o, self.ep or 0.0, self.unbounded_dp)
 
-            # TODO: Add noise and remove save support
-            self.counts = counts
+            rebalance_kwargs = {"unbounded_dp": self.unbounded_dp, **self.kwargs}
             self.attrs = {
-                k: rebalance_attributes(
-                    counts[k],
-                    v,
-                    unbounded_dp=self.unbounded_dp,
-                    **self.kwargs,
+                table_name: _rebalance_with_noisy_counts(
+                    attrs[table_name],
+                    noisy.get(None, {}),
+                    rebalance_kwargs,
                 )
-                for k, v in attrs.items()
             }
         else:
             self.attrs = attrs
