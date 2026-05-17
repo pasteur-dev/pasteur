@@ -54,13 +54,27 @@ def get_run_artifacts(run: Run):
                             f"Error loading pickle artifact.\n'{fn}'", exc_info=True
                         )
                         continue
+                elif fn.endswith(".pkl.gz"):
+                    import gzip
+
+                    try:
+                        with gzip.open(fn, "rb") as gf:
+                            art = pickle.load(gf)
+                    except Exception:
+                        logger.error(
+                            f"Error loading pickle artifact.\n'{fn}'", exc_info=True
+                        )
+                        continue
                 else:
                     continue
 
-            try:
-                no_ext = name[: name.rindex(".")]
-            except Exception:
-                no_ext = name
+            if name.endswith(".pkl.gz"):
+                no_ext = name[: -len(".pkl.gz")]
+            else:
+                try:
+                    no_ext = name[: name.rindex(".")]
+                except Exception:
+                    no_ext = name
             sub_dict[no_ext] = art
 
     return artifacts

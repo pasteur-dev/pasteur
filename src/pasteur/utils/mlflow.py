@@ -404,6 +404,7 @@ def mlflow_log_as_str(path: str, obj, font_size: str = "16px"):
 
 
 def mlflow_log_artifacts(*prefix: str, **args):
+    import gzip
     import pickle
     from os.path import join
     from tempfile import TemporaryDirectory
@@ -412,9 +413,9 @@ def mlflow_log_artifacts(*prefix: str, **args):
 
     with TemporaryDirectory() as dir:
         for name, val in args.items():
-            fn = join(dir, name + ".pkl")
-            with open(fn, "wb") as f:
-                pickle.dump(val, f)
+            fn = join(dir, name + ".pkl.gz")
+            with gzip.open(fn, "wb", compresslevel=3) as f:
+                pickle.dump(val, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         mlflow.log_artifacts(dir, join(ARTIFACT_DIR, *prefix))
 
