@@ -351,6 +351,18 @@ def get_junction_tree(
 ):
     full_tree = nx.Graph()
 
+    # Materialize maximal cliques once and add them all as nodes up front so
+    # an isolated or single-clique graph doesn't return an empty tree
+    # `combinations(..., 2)` yields no pairs when there's only one clique,
+    # which would otherwise leave the JT with zero nodes and orphan every
+    # observation downstream.
+    all_cliques = [
+        create_clique_meta(cl, triangulated, attrs, compress=compress)
+        for cl in nx.find_cliques(triangulated)
+    ]
+    for cm in all_cliques:
+        full_tree.add_node(cm)
+
     for a, b in combinations(nx.find_cliques(triangulated), 2):
         full_tree.add_edge(
             create_clique_meta(a, triangulated, attrs, compress=compress),
