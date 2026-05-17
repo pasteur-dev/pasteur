@@ -207,6 +207,9 @@ class AcsDataset(Dataset):
                     continue
                 for fn in os.listdir(horizon_dir):
                     if fn.endswith(".zip"):
+                        if "2014" in horizon_dir and "nh.zip" in fn:
+                            # 2014 household survey is corrupted, skip it
+                            continue
                         jobs.append(
                             {"loc": horizon_dir, "fn": fn, "dst_year": dst_year}
                         )
