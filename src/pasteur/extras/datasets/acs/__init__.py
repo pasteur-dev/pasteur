@@ -230,7 +230,13 @@ class AcsDataset(Dataset):
 
     @to_chunked
     def keys(self, person: LazyChunk):
-        return person()[[]]
+        # Keys are household-level (one row per SERIALNO) so that splits and
+        # chunkings keep every person of a household together. Views that
+        # care about person-level uniqueness still get unique-per-person
+        # filtering via person.SERIALNO column matching keys.index.
+        df = person()
+        serialnos = df["SERIALNO"].drop_duplicates()
+        return pd.DataFrame(index=pd.Index(serialnos.values, name="SERIALNO"))
 
 
 class AcsCSVDataset(CSVDataset):

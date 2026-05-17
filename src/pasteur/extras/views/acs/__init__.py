@@ -11,6 +11,7 @@ task's target column, after applying the same row filter folktables uses
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, Callable, ClassVar
 
 from ....utils import LazyFrame, gen_closure, get_relative_fn
@@ -68,11 +69,16 @@ def _process_target(
     filter_fn: Callable | None,
     needed_cols: list[str],
 ):
-    """Load only the columns we need, filter rows, select features, label."""
+    """Load only the columns we need, filter rows, select features, label.
+    Keeps SERIALNO as a column so `filter_by_keys` can match the table
+    against `acs.keys` (which is SERIALNO-indexed)."""
     df = load(columns=needed_cols)
     if filter_fn is not None:
         df = df[filter_fn(df)]
-    out = df[features]
+    cols = list(features)
+    if "SERIALNO" in df.columns and "SERIALNO" not in cols:
+        cols.append("SERIALNO")
+    out = df[cols]
     out = out.assign(label=target_fn(df[target_col]))
     return out
 
@@ -169,7 +175,11 @@ class _AcsTaskView(TabularView):
 
     @property
     def _needed_cols(self) -> list[str]:
-        return sorted(set(self._features) | {self._target_col} | set(self._filter_extra_cols))
+        return sorted(
+            set(self._features)
+            | {self._target_col, "SERIALNO"}
+            | set(self._filter_extra_cols)
+        )
 
     def query(self, name: str, **tables: LazyFrame):
         assert name == "table"
@@ -278,30 +288,38 @@ class AcsTravelTimeView(_AcsTaskView):
     _filter_fn = staticmethod(_filter_travel_time)
 
 
-# Each year is split into this many equal-row chunks so the grouped-by-year
+# Each year is split into this many SERIALNO-hash chunks so the grouped-by-year
 # view emits ~6× as many partitions, parallelizing per-partition processing
-# without going back to the original 459-way (state, year) partitioning.
+# without going back to the original 459-way (state, year) partitioning. The
+# hash assigns every SERIALNO (household) to one chunk, so all of a
+# household's persons stay together in the same partition.
 _CHUNKS_PER_YEAR = 6
 
 
-def _slice_chunk(df, chunk_idx: int, n_chunks: int):
-    """Deterministic row-range slice of df. Boundaries are computed as
-    ceil(n / n_chunks) * chunk_idx so the same cuts apply in the keys
-    pipeline and the table pipeline (same n, same chunk_idx, same boundaries)."""
-    n = len(df)
-    chunk_size = -(-n // n_chunks)  # ceil division
-    start = chunk_idx * chunk_size
-    end = min(n, start + chunk_size)
-    return df.iloc[start:end]
+def _serialno_chunk_idx(serialno, n_chunks: int) -> int:
+    """Deterministic chunk assignment for a single SERIALNO. Stable across
+    runs/processes (uses md5, not Python `hash`, whose seed varies)."""
+    return int(hashlib.md5(str(serialno).encode()).hexdigest()[:8], 16) % n_chunks
+
+
+def _serialno_chunk_mask(serialnos, chunk_idx: int, n_chunks: int):
+    """Boolean mask: True for SERIALNOs whose hash assigns them to `chunk_idx`."""
+    return serialnos.map(lambda s: _serialno_chunk_idx(s, n_chunks)) == chunk_idx
+
+
+def _state_prefix_serialno(s, state: str):
+    """Prefix SERIALNO with state code. Pre-2018 PUMS SERIALNOs are only unique
+    within a state-year, so the prefix is required when concatenating across
+    states so household-level keys stay collision-free."""
+    return state + "_" + s.astype("string")
 
 
 def _concat_year_for_view(state_funs, year: str, chunk_idx: int, n_chunks: int):
-    """Concatenate all states' person partitions for one year, then slice the
-    requested chunk. Pads the union schema and tags each row with `state`
-    (per-source) and `year` (constant). States are loaded in the order they
-    were given; the caller is expected to pass them sorted alphabetically so
-    the fresh `id` index matches what `_concat_keys_for_year` produces from
-    the keys side."""
+    """Concatenate all states' person partitions for one year, state-prefix
+    SERIALNO so it's unique across states, then keep rows whose SERIALNO
+    hashes to `chunk_idx`. Households stay together in the same chunk.
+    States are loaded in the order given; callers should pass them sorted
+    alphabetically for determinism."""
     import pandas as pd
 
     parts = []
@@ -310,22 +328,33 @@ def _concat_year_for_view(state_funs, year: str, chunk_idx: int, n_chunks: int):
         df = _pad_missing(df, _PERSON_FULL_COLS)
         if "state" not in df.columns:
             df = df.assign(state=state)
+        df = df.assign(SERIALNO=_state_prefix_serialno(df["SERIALNO"], state))
+        df = df.loc[_serialno_chunk_mask(df["SERIALNO"], chunk_idx, n_chunks).values]
         parts.append(df)
     df = pd.concat(parts, ignore_index=True)
     if "year" not in df.columns:
         df = df.assign(year=int(year))
     df.index = df.index.astype("int64").rename("id")
-    return _slice_chunk(df, chunk_idx, n_chunks)
+    return df
 
 
-def _concat_keys_for_year(loaders, chunk_idx: int, n_chunks: int):
-    """Mirror `_concat_year_for_view` for the keys (no-column) DataFrame so
-    keys.id and table.id agree row-by-row after the per-year regrouping."""
+def _concat_keys_for_year(state_loaders, chunk_idx: int, n_chunks: int):
+    """Mirror `_concat_year_for_view` for the keys frame. `acs.keys` is
+    SERIALNO-indexed (one row per household) — state-prefix the SERIALNO
+    and keep entries whose hash assigns them to `chunk_idx`, matching
+    `_concat_year_for_view`."""
     import pandas as pd
 
-    df = pd.concat([ld() for ld in loaders], ignore_index=True)
-    df.index = df.index.astype("int64").rename("id")
-    return _slice_chunk(df, chunk_idx, n_chunks)
+    parts = []
+    for state, ld in state_loaders:
+        df = ld()
+        df.index = pd.Index(
+            _state_prefix_serialno(df.index.to_series(), state).values,
+            name="SERIALNO",
+        )
+        df = df.loc[_serialno_chunk_mask(df.index.to_series(), chunk_idx, n_chunks).values]
+        parts.append(df)
+    return pd.concat(parts)
 
 
 def _is_state_year_pid(pid: str) -> bool:
@@ -370,9 +399,8 @@ def _group_by_year(lf: LazyFrame, table_view: bool) -> LazyFrame:
                     _CHUNKS_PER_YEAR,
                 )
             else:
-                loaders = [p for _, p in items]
                 new_parts[pid] = LazyPartition(
-                    _concat_keys_for_year, None, loaders, chunk_idx, _CHUNKS_PER_YEAR
+                    _concat_keys_for_year, None, items, chunk_idx, _CHUNKS_PER_YEAR
                 )
     return LazyDataset(lf.merged_load, new_parts)
 
@@ -415,12 +443,125 @@ class AcsPersonView(TabularView):
         )
 
 
+def _concat_person_relational_for_year(state_funs, year: str, chunk_idx: int, n_chunks: int):
+    """Concatenate person partitions across states for one year, state-prefix
+    SERIALNO, and keep persons whose SERIALNO hashes to `chunk_idx`. All of
+    a household's persons stay in the same chunk."""
+    import pandas as pd
+
+    parts = []
+    for state, fun in state_funs:
+        df = fun()
+        df = _pad_missing(df, _PERSON_FULL_COLS)
+        if "state" not in df.columns:
+            df = df.assign(state=state)
+        df = df.assign(SERIALNO=_state_prefix_serialno(df["SERIALNO"], state))
+        df = df.loc[_serialno_chunk_mask(df["SERIALNO"], chunk_idx, n_chunks).values]
+        parts.append(df)
+    df = pd.concat(parts, ignore_index=True)
+    if "year" not in df.columns:
+        df = df.assign(year=int(year))
+    df.index = df.index.astype("int64").rename("id")
+    return df
+
+
+def _concat_household_for_year(state_funs, year: str, chunk_idx: int, n_chunks: int):
+    """Concatenate household partitions across states for one year,
+    state-prefix the SERIALNO index, and keep households whose SERIALNO
+    hashes to `chunk_idx`. Aligned with `_concat_person_relational_for_year`
+    via the shared hash, so household chunk[i] always matches person
+    chunk[i]'s SERIALNO set."""
+    import pandas as pd
+
+    parts = []
+    for state, fun in state_funs:
+        df = fun()
+        df = _pad_missing(df, _HOUSEHOLD_FULL_COLS)
+        if "state" not in df.columns:
+            df = df.assign(state=state)
+        if df.index.name != "SERIALNO":
+            df = df.set_index("SERIALNO")
+        df.index = pd.Index(
+            _state_prefix_serialno(df.index.to_series(), state).values,
+            name="SERIALNO",
+        )
+        df = df.loc[_serialno_chunk_mask(df.index.to_series(), chunk_idx, n_chunks).values]
+        parts.append(df)
+    df = pd.concat(parts)
+    if "year" not in df.columns:
+        df = df.assign(year=int(year))
+    return df
+
+
+def _group_relational_by_year(lf: LazyFrame, kind: str) -> LazyFrame:
+    """Re-partition a `{state}_{year}`-keyed LazyFrame into ``_CHUNKS_PER_YEAR``
+    SERIALNO-hash chunks per year (pids `{year}_{chunk}`). `kind` is
+    `"person"`, `"household"`, or `"keys"`. The shared hash function means
+    all three sides chunk to the same SERIALNO set per `{year}_{chunk}`,
+    so the household-person join (and the keys-table filter) stays valid
+    without cross-table loads at partition time.
+
+    Idempotent: pids already in `{year}_{chunk}` form pass through."""
+    if not lf.partitioned:
+        return lf
+    sample = next(iter(lf.keys()))
+    if not _is_state_year_pid(sample):
+        return lf
+
+    by_year: dict[str, list] = {}
+    for pid, p in lf.items():
+        state, year = pid.rsplit("_", 1)
+        by_year.setdefault(year, []).append((state, p))
+
+    new_parts: dict[str, LazyPartition] = {}
+    for year, items in by_year.items():
+        items.sort(key=lambda sp: sp[0])  # alphabetical, deterministic
+        for chunk_idx in range(_CHUNKS_PER_YEAR):
+            pid = f"{year}_{chunk_idx}"
+            if kind == "household":
+                new_parts[pid] = LazyPartition(
+                    _concat_household_for_year,
+                    None,
+                    items,
+                    year,
+                    chunk_idx,
+                    _CHUNKS_PER_YEAR,
+                )
+            elif kind == "person":
+                new_parts[pid] = LazyPartition(
+                    _concat_person_relational_for_year,
+                    None,
+                    items,
+                    year,
+                    chunk_idx,
+                    _CHUNKS_PER_YEAR,
+                )
+            elif kind == "keys":
+                new_parts[pid] = LazyPartition(
+                    _concat_keys_for_year,
+                    None,
+                    items,
+                    chunk_idx,
+                    _CHUNKS_PER_YEAR,
+                )
+            else:
+                raise AssertionError(f"unknown kind {kind!r}")
+    return LazyDataset(lf.merged_load, new_parts)
+
+
 class AcsRelationalView(View):
     """Two-table relational view: household (one row per SERIALNO) plus the
     person table (multiple rows per SERIALNO) for hierarchical/relational
-    synthesizers like Mare. Partitioned the same way as the dataset; both
-    tables share the `{state}_{year}` partition key so per-partition
-    SERIALNO uniqueness is preserved."""
+    synthesizers like Mare.
+
+    Source `{state}_{year}` partitions are regrouped into
+    ``_CHUNKS_PER_YEAR`` SERIALNO-hash chunks per year (pids
+    `{year}_{chunk}`), mirroring [[AcsPersonView]]. Each chunk contains
+    complete households (all persons of a SERIALNO land in the same chunk),
+    and the household table's chunks line up with person via the shared
+    hash. SERIALNO is state-prefixed on both sides so the join survives
+    cross-state concatenation (pre-2018 PUMS SERIALNOs are only unique
+    within a state-year)."""
 
     name = "acs"
     dataset = "acs"
@@ -434,19 +575,28 @@ class AcsRelationalView(View):
                 src = tables["household"]
                 if not src.partitioned:
                     return _process_household(lambda: src(), "unknown", "0")
-                return {
-                    pid: gen_closure(
-                        _process_household, fun, *pid.rsplit("_", 1)
-                    )
-                    for pid, fun in src.items()
-                }
+                regrouped = _group_relational_by_year(src, kind="household")
+                return {pid: regrouped[pid] for pid in regrouped.keys()}
             case "person":
                 src = tables["person"]
                 if not src.partitioned:
                     return _add_state_year(lambda: src(), "unknown", "0")
-                return {
-                    pid: gen_closure(_add_state_year, fun, *pid.rsplit("_", 1))
-                    for pid, fun in src.items()
-                }
+                regrouped = _group_relational_by_year(src, kind="person")
+                return {pid: regrouped[pid] for pid in regrouped.keys()}
             case other:
                 raise AssertionError(f"Table {other!r} not part of view {self.name}")
+
+    def split_keys(self, keys, req_splits, splits, random_state):
+        return super().split_keys(
+            _group_relational_by_year(keys, kind="keys"),
+            req_splits,
+            splits,
+            random_state,
+        )
+
+    def filter_table(self, name, keys: LazyFrame, **tables: LazyFrame):
+        return super().filter_table(
+            name,
+            _group_relational_by_year(keys, kind="keys"),
+            **tables,
+        )

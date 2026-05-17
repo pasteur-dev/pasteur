@@ -6,7 +6,7 @@ tables:
       SERIALNO: id
       state: categorical
       year: ordinal
-      ST: categorical
+      ST: categorical?
       PUMA: categorical
       NP: numerical
       HINCP: numerical?
@@ -36,9 +36,9 @@ tables:
     fields:
       id: id
       SERIALNO: id:household.SERIALNO
-      state: categorical
-      year: ordinal
-      ST: categorical
+      # state: categorical # duped
+      # year: ordinal # duped
+      ST: categorical?
       PUMA: categorical
       PWGTP: numerical
       SPORDER: ordinal
@@ -47,31 +47,31 @@ tables:
       SCHL: ordinal?
       MAR: categorical
       OCCP: categorical?
-      POBP: categorical
+      POBP: categorical?
       POWPUMA: categorical?
-      RELP: categorical?
-      RELSHIPP: categorical?
+      RELP: categorical?       # 2014–2018 only
+      RELSHIPP: categorical?   # 2019+ only
       WKHP: numerical?
-      SEX: categorical
-      RAC1P: categorical
+      SEX: categorical?
+      RAC1P: categorical?
       PINCP: numerical?
       PUBCOV: categorical?
       ESR: categorical?
-      DIS: categorical
+      DIS: categorical?
       ESP: categorical?
       CIT: categorical
       MIG: categorical?
       MIL: categorical?
-      ANC: categorical
-      NATIVITY: categorical
+      ANC: categorical?
+      NATIVITY: categorical?
       DEAR: categorical
       DEYE: categorical
       DREM: categorical?
       FER: categorical?
       GCL: categorical?
       JWMNP: numerical?
-      JWTR: categorical?
-      JWTRNS: categorical?
+      JWTR: categorical?       # 2014–2018 only
+      JWTRNS: categorical?     # 2019+ only
       POVPIP: numerical?
       NWLA: categorical?
       NWAB: categorical?
