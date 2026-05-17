@@ -38,8 +38,8 @@ tables:
       SERIALNO: id:household.SERIALNO
       # state: categorical # duped
       # year: ordinal # duped
-      ST: categorical?
-      PUMA: categorical
+      # ST: categorical? # duped (household.ST is the same; person inherits state)
+      # PUMA: categorical # duped (household.PUMA is the same; person inherits geo)
       PWGTP: numerical
       SPORDER: ordinal
       AGEP: numerical
