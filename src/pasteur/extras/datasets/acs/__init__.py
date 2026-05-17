@@ -138,14 +138,40 @@ def _extract(loc: str, fn: str, dst_year: str) -> None:
             if state.isdigit():
                 state = _FIPS_TO_ABBR.get(state, state)
             out_path = os.path.join(dst_year, f"{survey}_{state}.csv")
-            if os.path.exists(out_path):
+            expected_size = zf.getinfo(member).file_size
+            # If a previous extraction is complete (same size as the zip
+            # member), reuse it. Otherwise re-extract — a stale partial file
+            # from an interrupted run is the silent cause of "missing ids
+            # for rows" drops at filter-table time, because the truncated
+            # CSV loses ~half the household records.
+            if (
+                os.path.exists(out_path)
+                and os.path.getsize(out_path) == expected_size
+            ):
                 continue
-            with zf.open(member) as src, open(out_path, "wb") as dst:
-                while True:
-                    buf = src.read(1 << 20)
-                    if not buf:
-                        break
-                    dst.write(buf)
+            if os.path.exists(out_path):
+                logger.warning(
+                    "Re-extracting %s: existing file is %d bytes but zip "
+                    "member is %d bytes (previous extraction was truncated).",
+                    out_path,
+                    os.path.getsize(out_path),
+                    expected_size,
+                )
+            tmp_path = out_path + ".tmp"
+            try:
+                with zf.open(member) as src, open(tmp_path, "wb") as dst:
+                    while True:
+                        buf = src.read(1 << 20)
+                        if not buf:
+                            break
+                        dst.write(buf)
+                # Atomic rename so a future run never sees a half-written file.
+                os.replace(tmp_path, out_path)
+            except BaseException:
+                # Don't leave a partial .tmp behind if we were interrupted.
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+                raise
 
 
 def _add_id(load: Callable) -> "pd.DataFrame":
