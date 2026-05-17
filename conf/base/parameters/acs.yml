@@ -1,0 +1,4 @@
+acs:
+  # Sensitivity is per person, not household, therefore it needs to be always 1
+  alg:
+    max_sens: 1
