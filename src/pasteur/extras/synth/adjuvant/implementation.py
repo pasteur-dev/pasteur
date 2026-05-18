@@ -2124,9 +2124,11 @@ def structure_learn(
             + f"): {_fmt_edge(na, nb, moral, attrs)}"
         )
 
+        auto_tag = " (auto)" if auto_min_score else ""
         pbar.set_description(
             f"Adjuvant structure [{len(structure_edges)} edges, "
-            f"score={scores[sel]:.4f}]"
+            f"score={scores[sel]:.4f}, "
+            f"min_score={eff_min_score:.4f}{auto_tag}]"
         )
         pbar.update(1)
 
