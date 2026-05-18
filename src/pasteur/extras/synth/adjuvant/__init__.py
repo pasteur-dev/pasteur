@@ -91,7 +91,7 @@ class AdjuvantMare(MareModel):
       "cdp" -> Gaussian noise, rho budget (zCDP composition)
     """
 
-    dp_type: Literal["dp", "cdp"] = "dp"
+    dp_type: Literal["dp", "cdp"] = "cdp"
     total_params: int | None = None
 
     def __init__(
