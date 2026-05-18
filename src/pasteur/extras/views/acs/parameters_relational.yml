@@ -4,10 +4,10 @@ tables:
 
     fields:
       SERIALNO: id
-      state: categorical
+      # state: categorical
       year: ordinal
       ST: categorical?
-      PUMA: categorical
+      # PUMA: categorical
       NP: numerical
       HINCP: numerical?
       FINCP: numerical?
@@ -46,9 +46,9 @@ tables:
       COW: categorical?
       SCHL: ordinal?
       MAR: categorical
-      OCCP: categorical?
-      POBP: categorical?
-      POWPUMA: categorical?
+      # OCCP: categorical?
+      # POBP: categorical?
+      # POWPUMA: categorical?
       RELP: categorical?       # 2014–2018 only
       RELSHIPP: categorical?   # 2019+ only
       WKHP: numerical?
