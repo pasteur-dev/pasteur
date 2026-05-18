@@ -635,8 +635,7 @@ def sweep(
                 params_skipped = False
                 if (alg_only_hyper or i) and ingested:
                     params_skipped = True
-                    if TAG_CHANGES_HYPERPARAMETER in tags:
-                        tags.remove(TAG_CHANGES_HYPERPARAMETER)
+                    tags = [TAG_ALWAYS, TAG_CHANGES_PER_ALGORITHM]
 
                 suffix_dict = (
                     {"_mlflow_run_suffix": f"r{run_idx + 1}"}
