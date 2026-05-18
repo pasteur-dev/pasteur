@@ -131,6 +131,7 @@ class MareSynth(Synth):
         no_hist: bool = False,
         max_sens: int | None = None,
         gen_len: int | None = None,
+        seed: int | None = None,
         **kwargs,
     ) -> None:
         self.kwargs = kwargs
@@ -144,6 +145,7 @@ class MareSynth(Synth):
         self.no_hist = no_hist
         self.max_sens = max_sens
         self.gen_len = gen_len
+        self.seed = seed
 
         self.model_cls = model_cls
     
