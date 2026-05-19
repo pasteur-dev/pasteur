@@ -152,6 +152,23 @@ class MareSynth(Synth):
     def visualise(self, dir: str):
         return self.model_cls.visualise(dir, self.models)
 
+    @property
+    def total_params(self) -> int | None:
+        models = getattr(self, "models", None)
+        if not models:
+            return None
+        total = 0
+        found = False
+        for m in models.values():
+            if m is None:
+                continue
+            tp = getattr(m, "total_params", None)
+            if tp is None:
+                continue
+            total += int(tp)
+            found = True
+        return total if found else None
+
     def preprocess(self, meta: dict[str, Attributes], data: dict[str, LazyDataset]):
         logger.info("Calculating required model versions for dataset...")
 
