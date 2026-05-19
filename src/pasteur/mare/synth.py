@@ -497,7 +497,7 @@ class MareSynth(Synth):
         finally:
             pbar.close()
 
-        if self._is_cdp and self.etotal:
+        if self._is_cdp and self.etotal and not self.accountant:
             budget_used = self._budget_init - self._budget_remaining
             eps_used = cdp_eps(budget_used, self.delta)
             logger.info(

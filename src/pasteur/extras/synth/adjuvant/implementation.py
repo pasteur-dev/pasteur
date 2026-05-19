@@ -2911,7 +2911,7 @@ def adjuvant_fit_structure(
         # Step 3: Measure edge marginals
         logger.info(
             f"Adjuvant Step 3: Measuring {len(structure_edges)} edge marginals "
-            f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.6f})"
+            f"(theta_2w={theta_2w}, {bdg_label}_remaining={bdg_remaining:.3e})"
         )
         edge_obs, max_sigma = measure_edges(
             oracle,
@@ -2924,6 +2924,9 @@ def adjuvant_fit_structure(
             dp_type=dp_type,
             no_noise=rho <= 0,
         )
+    
+        if rescale:
+            bdg_remaining = 0.0
 
     oneway_obs = build_1way_observations(noisy_1way, attrs, n, sigmas_1w)
     all_obs = edge_obs + oneway_obs
