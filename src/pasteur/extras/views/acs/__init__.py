@@ -85,21 +85,118 @@ def _process_target(
 
 # Union of all columns the catalog declares per table — every partition the
 # acs_person / acs (relational) views emit gets padded to this column set so
-# the union-schema parameters.yml validates against any sample year. Year-
-# specific columns (RELP/RELSHIPP, JWTR/JWTRNS, TYPE/TYPEHUGQ, YBL/YRBLT) are
-# all-NaN in the partitions whose schema generation doesn't carry them.
+# the union-schema parameters.yml validates against any sample year. The
+# year-versioned column pairs (TYPE/TYPEHUGQ, YBL/YRBLT, RELP/RELSHIPP,
+# JWTR/JWTRNS) are coalesced in `_combine_*_versioned_cols` before padding,
+# so only the unified names appear here.
 _PERSON_FULL_COLS = (
     "ST", "PUMA", "PWGTP", "SPORDER", "AGEP", "COW", "SCHL", "MAR", "OCCP",
-    "POBP", "POWPUMA", "RELP", "RELSHIPP", "WKHP", "SEX", "RAC1P", "PINCP",
+    "POBP", "POWPUMA", "RELP", "WKHP", "SEX", "RAC1P", "PINCP",
     "PUBCOV", "ESR", "DIS", "ESP", "CIT", "MIG", "MIL", "ANC", "NATIVITY",
-    "DEAR", "DEYE", "DREM", "FER", "GCL", "JWMNP", "JWTR", "JWTRNS", "POVPIP",
+    "DEAR", "DEYE", "DREM", "FER", "GCL", "JWMNP", "JWTR", "POVPIP",
     "NWLA", "NWAB", "NWAV", "NWLK", "NWRE",
 )
 _HOUSEHOLD_FULL_COLS = (
-    "ST", "PUMA", "NP", "HINCP", "FINCP", "TYPE", "TYPEHUGQ", "BLD", "TEN",
-    "VEH", "YBL", "YRBLT", "HHL", "HHT", "HUPAC", "FS", "ACR", "BDSP", "RMSP",
+    "ST", "PUMA", "NP", "HINCP", "FINCP", "TYPE", "BLD", "TEN",
+    "VEH", "YRBLT", "HHL", "HHT", "HUPAC", "FS", "ACR", "BDSP", "RMSP",
     "VALP", "RNTP", "BROADBND", "ACCESS",
 )
+
+
+# YBL (pre-2020) uses mixed-width bin codes; YRBLT (2020+) uses the first
+# year of a decade as the bin label. Project YBL onto YRBLT's decade scale
+# so a single `YRBLT` column spans 2014–2023. The mapping is lossy for
+# YBL 9–22 (per-year 2005–2017 bins collapse into the 2000s/2010s decades),
+# which is acceptable since 2020+ rows have no finer resolution anyway.
+_YBL_TO_YRBLT = {
+    1: 1939,
+    2: 1940, 3: 1950, 4: 1960, 5: 1970, 6: 1980, 7: 1990,
+    8: 2000, 9: 2000, 10: 2000, 11: 2000, 12: 2000, 13: 2000,
+    14: 2010, 15: 2010, 16: 2010, 17: 2010, 18: 2010, 19: 2010,
+    20: 2010, 21: 2010, 22: 2010, 23: 2010,
+}
+
+
+def _combine_household_versioned_cols(df):
+    """Coalesce year-versioned ACS household column pairs:
+      - TYPE (≤2021) + TYPEHUGQ (2022+) share the same {1,2,3} code space →
+        merged into `TYPE`.
+      - YBL (≤2019) is a 22-level mixed-width bin code; YRBLT (2020+) is a
+        decade-stamp year. YBL is remapped to YRBLT's decade scale and the
+        two are merged into `YRBLT`.
+    The redundant source columns are dropped so downstream padding and the
+    schema only see the unified names."""
+    if "TYPEHUGQ" in df.columns:
+        if "TYPE" in df.columns:
+            df = df.assign(TYPE=df["TYPE"].fillna(df["TYPEHUGQ"]))
+        else:
+            df = df.rename(columns={"TYPEHUGQ": "TYPE"})
+        if "TYPEHUGQ" in df.columns:
+            df = df.drop(columns=["TYPEHUGQ"])
+    if "YBL" in df.columns:
+        mapped = df["YBL"].map(_YBL_TO_YRBLT).astype("Int16")
+        if "YRBLT" in df.columns:
+            df = df.assign(YRBLT=df["YRBLT"].fillna(mapped))
+        else:
+            df = df.assign(YRBLT=mapped)
+        df = df.drop(columns=["YBL"])
+    return df
+
+
+# RELSHIPP (2019+ codes 20-38) → RELP (≤2018 codes 0-17).
+# Same-sex/opposite-sex spouse splits (21+23) and partner splits (22+24)
+# collapse to RELP's combined spouse (1) and unmarried partner (13). RELSHIPP
+# dropped "roomer/boarder" (RELP 11), folding it into "other nonrelative" (36).
+_RELSHIPP_TO_RELP = {
+    20: 0,
+    21: 1, 22: 13, 23: 1, 24: 13,
+    25: 2, 26: 3, 27: 4, 28: 5, 29: 6,
+    30: 7, 31: 8, 32: 9, 33: 10,
+    34: 12, 35: 14, 36: 15,
+    37: 16, 38: 17,
+}
+# RELP code 11 (roomer/boarder) was retired in RELSHIPP — fold it into 15
+# (other nonrelative) so the unified column has one codebook across all years.
+_RELP_NORMALIZE = {11: 15}
+
+# The 2019 PUMS redesign reshuffled JWTR codes 2-5 into different transit
+# categories (bus vs trolley split, subway/streetcar/light rail/long-distance
+# rebinned). Collapse all rail variants into a single "rail" bucket (3) so
+# JWTR and JWTRNS agree code-for-code; bus stays at 2.
+#   1=car · 2=bus · 3=rail · 6=ferry · 7=taxi · 8=motorcycle · 9=bike
+#   10=walk · 11=worked-from-home · 12=other
+_JWTR_TO_UNIFIED = {1: 1, 2: 2, 3: 3, 4: 3, 5: 3, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12}
+_JWTRNS_TO_UNIFIED = {1: 1, 2: 2, 3: 3, 4: 3, 5: 3, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12}
+
+
+def _combine_person_versioned_cols(df):
+    """Coalesce year-versioned ACS person column pairs into a single column each:
+      - RELP (≤2018) + RELSHIPP (2019+) → `RELP`. RELSHIPP's 20-38 codes are
+        projected onto RELP's 0-17 codebook; same-sex/opposite-sex spouse and
+        partner distinctions are lost (not available pre-2019 anyway).
+      - JWTR (≤2018) + JWTRNS (2019+) → `JWTR`. Codes 2-5 mean different
+        transit modes in each era; both are collapsed to bus (2) + rail (3).
+    Drops the source columns so downstream padding and schema only see the
+    unified names."""
+    if "RELSHIPP" in df.columns:
+        mapped = df["RELSHIPP"].map(_RELSHIPP_TO_RELP).astype("Int8")
+        if "RELP" in df.columns:
+            df = df.assign(RELP=df["RELP"].fillna(mapped))
+        else:
+            df = df.assign(RELP=mapped)
+        df = df.drop(columns=["RELSHIPP"])
+    if "RELP" in df.columns:
+        df = df.assign(RELP=df["RELP"].replace(_RELP_NORMALIZE))
+    if "JWTRNS" in df.columns:
+        mapped = df["JWTRNS"].map(_JWTRNS_TO_UNIFIED).astype("Int8")
+        if "JWTR" in df.columns:
+            df = df.assign(JWTR=df["JWTR"].fillna(mapped))
+        else:
+            df = df.assign(JWTR=mapped)
+        df = df.drop(columns=["JWTRNS"])
+    if "JWTR" in df.columns:
+        df = df.assign(JWTR=df["JWTR"].replace(_JWTR_TO_UNIFIED))
+    return df
 
 
 def _pad_missing(df, cols):
@@ -115,8 +212,9 @@ def _pad_missing(df, cols):
 def _add_state_year(load: Callable, state: str, year: str):
     """Materialize a partition, tag it with `state` (postal abbrev) and `year`
     (int), and pad in any catalog-declared columns the partition's year
-    doesn't carry (e.g. RELSHIPP/JWTRNS in pre-2019 partitions)."""
+    doesn't carry. RELP/RELSHIPP and JWTR/JWTRNS are unified first."""
     df = load()
+    df = _combine_person_versioned_cols(df)
     df = _pad_missing(df, _PERSON_FULL_COLS)
     if "state" not in df.columns:
         df = df.assign(state=state)
@@ -128,6 +226,7 @@ def _add_state_year(load: Callable, state: str, year: str):
 def _process_household(load: Callable, state: str, year: str):
     """Materialize a household partition keyed by SERIALNO."""
     df = load()
+    df = _combine_household_versioned_cols(df)
     df = _pad_missing(df, _HOUSEHOLD_FULL_COLS)
     if "state" not in df.columns:
         df = df.assign(state=state)
@@ -325,6 +424,7 @@ def _concat_year_for_view(state_funs, year: str, chunk_idx: int, n_chunks: int):
     parts = []
     for state, fun in state_funs:
         df = fun()
+        df = _combine_person_versioned_cols(df)
         df = _pad_missing(df, _PERSON_FULL_COLS)
         if "state" not in df.columns:
             df = df.assign(state=state)
@@ -452,6 +552,7 @@ def _concat_person_relational_for_year(state_funs, year: str, chunk_idx: int, n_
     parts = []
     for state, fun in state_funs:
         df = fun()
+        df = _combine_person_versioned_cols(df)
         df = _pad_missing(df, _PERSON_FULL_COLS)
         if "state" not in df.columns:
             df = df.assign(state=state)
@@ -476,6 +577,7 @@ def _concat_household_for_year(state_funs, year: str, chunk_idx: int, n_chunks: 
     parts = []
     for state, fun in state_funs:
         df = fun()
+        df = _combine_household_versioned_cols(df)
         df = _pad_missing(df, _HOUSEHOLD_FULL_COLS)
         if "state" not in df.columns:
             df = df.assign(state=state)

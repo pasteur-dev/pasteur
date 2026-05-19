@@ -16,8 +16,7 @@ tables:
       # OCCP: categorical?
       # POBP: categorical
       # POWPUMA: categorical?
-      RELP: categorical?       # 2014–2018 only
-      RELSHIPP: categorical?   # 2019+ only
+      RELP: categorical?       # unified RELP (≤2018) + RELSHIPP (2019+) projected onto RELP's 0-17 codes
       WKHP: numerical?
       SEX: categorical
       RAC1P: categorical
@@ -37,8 +36,7 @@ tables:
       FER: categorical?
       GCL: categorical?
       JWMNP: numerical?
-      JWTR: categorical?       # 2014–2018 only
-      JWTRNS: categorical?     # 2019+ only
+      JWTR: categorical?       # unified JWTR (≤2018) + JWTRNS (2019+); rail variants collapsed to code 3
       POVPIP: numerical?
       NWLA: categorical?
       NWAB: categorical?
