@@ -597,12 +597,12 @@ def _visualise_2way(
                 )
                 for k, v in pres.items()
             }
-            for k, v in presults[name].items():
-                corrected = k.replace("-", "o") if k.startswith("-") else k
-                mlflow.log_metric(
-                    f"{sname}.metr_norm.{table}.{corrected}",
-                    v["metr_norm"].mean(),
-                )
+            # for k, v in presults[name].items():
+            #     corrected = k.replace("-", "o") if k.startswith("-") else k
+            #     mlflow.log_metric(
+            #         f"{sname}.metr_norm.{table}.{corrected}",
+            #         v["metr_norm"].mean(),
+            #     )
 
     kl_formatters = {"metr_norm": {"precision": 3}}
     kl_formatters_overall = {"mean_metr_norm": {"precision": 3}}
