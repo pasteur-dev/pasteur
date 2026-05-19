@@ -32,6 +32,8 @@ class RfelView(View):
 
 
 class ConsumerExpendituresView(RfelView):
+    fit_global = True
+
     def __init__(self, **kwargs) -> None:
         super().__init__(
             short_name="ce",
