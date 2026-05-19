@@ -2112,7 +2112,7 @@ def structure_learn(
             f"-> {it+1:3d}/{max_steps} "
             + f"(score={scores[sel]:.4f}"
             + (
-                f", budget={rho_avail - bdg_sel - bdg_committed:.6f}, sel_z={sel_z_eff:.2f}"
+                f", budget={rho_avail - bdg_sel - bdg_committed:.4e}, sel_z={sel_z_eff:.2f}"
                 if rho_avail > 0
                 else ""
             )

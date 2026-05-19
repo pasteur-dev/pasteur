@@ -148,7 +148,7 @@ class MareSynth(Synth):
         self.seed = seed
 
         self.model_cls = model_cls
-    
+
     def visualise(self, dir: str):
         return self.model_cls.visualise(dir, self.models)
 
@@ -334,15 +334,15 @@ class MareSynth(Synth):
             if self._is_cdp:
                 adj_budget = self._budgets[ver] / (sens ** 2)
                 logger.info(
-                    f"{tag}: using rho budget {self._budgets[ver]:.5f}/{self._budget_init:.5f} "
-                    f"with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.5f}"
+                    f"{tag}: using rho budget {self._budgets[ver]:.3e}/{self._budget_init:.3e} "
+                    f"with sensitivity {sens}, adjusted to rho_adj = {adj_budget:.3e}"
                 )
                 kwargs["rho"] = adj_budget
             else:
                 adj_budget = self._budgets[ver] / sens
                 logger.info(
-                    f"{tag}: using privacy budget {self._budgets[ver]:.5f}/{self.etotal:.5f} "
-                    f"with sensitivity {sens}, adjusted to e_adj = {adj_budget:.5f}"
+                    f"{tag}: using privacy budget {self._budgets[ver]:.3e}/{self.etotal:.3e} "
+                    f"with sensitivity {sens}, adjusted to e_adj = {adj_budget:.3e}"
                 )
                 kwargs["etotal"] = adj_budget
         elif not self.accountant:
@@ -352,15 +352,15 @@ class MareSynth(Synth):
             if self._is_cdp:
                 adj_budget = self._budget_remaining / (sens ** 2)
                 logger.info(
-                    f"{tag}: sequential rho_remaining={self._budget_remaining:.6f} "
-                    f"with sensitivity {sens}, giving rho_adj = {adj_budget:.5f}"
+                    f"{tag}: sequential rho_remaining={self._budget_remaining:.3e} "
+                    f"with sensitivity {sens}, giving rho_adj = {adj_budget:.3e}"
                 )
                 kwargs["rho"] = adj_budget
             else:
                 adj_budget = self._budget_remaining / sens
                 logger.info(
-                    f"{tag}: sequential e_remaining={self._budget_remaining:.6f} "
-                    f"with sensitivity {sens}, giving e_adj = {adj_budget:.5f}"
+                    f"{tag}: sequential e_remaining={self._budget_remaining:.3e} "
+                    f"with sensitivity {sens}, giving e_adj = {adj_budget:.3e}"
                 )
                 kwargs["etotal"] = adj_budget
         return kwargs
@@ -415,7 +415,7 @@ class MareSynth(Synth):
             f"MARE synthesis algorithm encapsulating model type '{self.model_cls}'.\n"
         )
         if self.budget_used is not None:
-            out += f"Budget used: rho={self.budget_used:.6f}, eps={self.eps_used:.5f} (delta={self.delta:.2e})\n"
+            out += f"Budget used: rho={self.budget_used:.3e}, eps={self.eps_used:.3e} (delta={self.delta:.2e})\n"
         out += f"Created {len(self.models)} models, which synthesize the following {len(set(v.ver.name for v in self.models))} tables:\n"
         out += str(sorted(set(v.ver.name for v in self.models))) + "\n"
 
@@ -473,8 +473,8 @@ class MareSynth(Synth):
                     else:
                         self._budget_remaining = rho_returned * sens
                     logger.info(
-                        f"Sequential: model returned {rho_returned:.6f}, "
-                        f"scaled back to budget_remaining={self._budget_remaining:.6f}"
+                        f"Sequential: model returned {rho_returned:.3e}, "
+                        f"scaled back to budget_remaining={self._budget_remaining:.3e}"
                     )
                 pbar.update(1)
         finally:
@@ -484,8 +484,8 @@ class MareSynth(Synth):
             budget_used = self._budget_init - self._budget_remaining
             eps_used = cdp_eps(budget_used, self.delta)
             logger.info(
-                f"Total rho used: {budget_used:.6f}/{self._budget_init:.6f}, "
-                f"equivalent to eps={eps_used:.5f} (delta={self.delta:.2e})"
+                f"Total rho used: {budget_used:.3e}/{self._budget_init:.3e}, "
+                f"equivalent to eps={eps_used:.3e} (delta={self.delta:.2e})"
             )
             self.budget_used = budget_used
             self.eps_used = eps_used
