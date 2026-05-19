@@ -283,14 +283,15 @@ def create_cliques(
     cliques: Sequence[CliqueMeta],
     attrs: DatasetAttributes,
     device: "torch.device | None" = None,
+    dtype: "torch.dtype" = torch.float32,
 ):
     out = []
     for shape, weight in zip(
         get_clique_shapes(cliques, attrs), get_clique_weights(cliques, attrs)
     ):
-        v = torch.scalar_tensor(1).to(device)
+        v = torch.scalar_tensor(1, dtype=dtype, device=device)
         for s, w in zip(shape, weight):
-            v = torch.from_numpy(w).type(torch.float32).to(device) * v.unsqueeze(-1)
+            v = torch.from_numpy(w).to(device=device, dtype=dtype) * v.unsqueeze(-1)
             assert v.shape[-1] == s
         out.append(v.log())
     return out

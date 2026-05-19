@@ -1,5 +1,5 @@
 import logging
-from typing import Sequence, TypedDict
+from typing import Literal, Sequence, TypedDict
 
 import numpy as np
 import torch
@@ -16,6 +16,27 @@ from .linear_loss import LinearLoss
 
 logger = logging.getLogger(__name__)
 
+Quant = Literal[
+    "fp64",
+    "fp32",
+    "tf32",
+    "fp16",
+    "bf16",
+    "fp8_e4m3",
+    "fp8_e5m2",
+]
+
+_QUANT_DTYPE: dict[str, torch.dtype] = {
+    "fp64": torch.float64,
+    "fp32": torch.float32,
+    "tf32": torch.float32,
+    # Useless but why not
+    "fp16": torch.float16,
+    "bf16": torch.bfloat16,
+    "fp8_e4m3": torch.float8_e4m3fn,
+    "fp8_e5m2": torch.float8_e5m2,
+}
+
 
 class MirrorDescentParams(TypedDict, total=False):
     lr: float
@@ -30,13 +51,14 @@ class MirrorDescentParams(TypedDict, total=False):
     elim_factor_cost: float  # Cost factor for elimination order clique domain
     elim_max_attempts: int  # Number of stochastic elimination order attempts
     tree: str  # "hugin", "maximal", "hugin_comp"
+    quant: Quant
 
 
 MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "lr": 1,
     "max_iters": 10_000,
     "ptol": 2e-4,
-    "atol": 1e-8,
+    "atol": 2e-7,
     "patience": 50,
     "device": "auto",
     "compile": False,
@@ -45,6 +67,7 @@ MIRROR_DESCENT_DEFAULT: MirrorDescentParams = {
     "elim_max_attempts": 5000,
     "elim_max_attempts_eph": 500,
     "tree": "hugin",
+    "quant": "fp32",
 }
 
 
@@ -66,6 +89,7 @@ def mirror_descent(
     init_potentials: dict[int, np.ndarray] | None = None,
     loss_type: str = "l2",
     block_unobserved: bool = False,
+    quant: Quant = "fp32",
     # Backwards compat
     line_search: bool | None = None,
     ephemeral: bool = False,
@@ -76,6 +100,16 @@ def mirror_descent(
         optim = "line_search" if line_search else "sgd"
     use_line_search = optim == "line_search"
     use_adam = optim == "adam"
+
+    if quant not in _QUANT_DTYPE:
+        raise ValueError(
+            f"Unknown quant {quant!r}; expected one of {list(_QUANT_DTYPE)}"
+        )
+    dtype = _QUANT_DTYPE[quant]
+    # TF32 is FP32 storage with reduced-precision matmul accumulators
+    if quant == "tf32":
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
 
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -94,7 +128,9 @@ def mirror_descent(
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
     # Build modules
-    loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type).to(device)
+    loss_fn = LinearLoss(obs, cliques, attrs, loss_type=loss_type, dtype=dtype).to(
+        device
+    )
 
     # Identify observed cliques (those targeted by at least one observation)
     observed: set[int] | None = None
@@ -108,13 +144,13 @@ def mirror_descent(
         block_unobserved=block_unobserved,
     ).to(device)
 
-    # Initialize potentials (uniform weighted prior in log-space)
-    theta = create_cliques(cliques, attrs, device=device)
+    # Initialize potentials (uniform weighted prior in log-space) directly in dtype
+    theta = create_cliques(cliques, attrs, device=device, dtype=dtype)
 
     # Warm start: override with previous model's raw theta (already log-space)
     if init_potentials:
         for idx, raw in init_potentials.items():
-            theta[idx] = torch.from_numpy(raw).to(device).float()
+            theta[idx] = torch.from_numpy(raw).to(device=device, dtype=dtype)
 
     theta = [t.requires_grad_(True) for t in theta]
 
@@ -152,15 +188,18 @@ def mirror_descent(
         logger.info(
             f"Mirror descent: {len(cliques)} cliques, {len(obs)} observations, "
             f"{total_params:_} params, "
-            f"lr={lr}, device={device}, compile={do_compile}, triton={HAS_TRITON}, optim={optim}"
+            f"lr={lr}, device={device}, quant={quant}, compile={do_compile}, "
+            f"triton={HAS_TRITON}, optim={optim}"
         )
 
-    alpha = torch.tensor(lr, device=device)
+    alpha = torch.tensor(lr, device=device, dtype=dtype)
     best_loss = float("inf")
     stale = 0
     total_iters = 0
     converged = False
-    pbar = piter(range(max_iters), total=max_iters, desc="Mirror descent", leave=not ephemeral)
+    pbar = piter(
+        range(max_iters), total=max_iters, desc="Mirror descent", leave=not ephemeral
+    )
     prev_loss, prev_mu, prev_grads = None, None, None
 
     while total_iters < max_iters:

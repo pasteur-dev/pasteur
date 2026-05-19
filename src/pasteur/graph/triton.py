@@ -25,6 +25,7 @@ def _scatter_logsumexp_kernel(
     out_ptr,
     rest_dom: tl.constexpr,
     BLOCK_J: tl.constexpr,
+    DTYPE: tl.constexpr,
 ):
     """Segmented logsumexp: for each target row b, compute
     logsumexp over the gathered source rows that map to b.
@@ -41,26 +42,28 @@ def _scatter_logsumexp_kernel(
     j_offsets = j_base + tl.arange(0, BLOCK_J)
     j_mask = j_offsets < rest_dom
 
+    neg_inf = tl.full([BLOCK_J], float("-inf"), dtype=DTYPE)
+
     # Pass 1: find max over segment
-    max_val = tl.full([BLOCK_J], float("-inf"), dtype=tl.float32)
+    max_val = neg_inf
     for k in range(start, end):
         src_row = tl.load(gather_idx_ptr + k)
         vals = tl.load(
             proc_ptr + src_row * rest_dom + j_offsets,
             mask=j_mask,
             other=float("-inf"),
-        )
+        ).to(DTYPE)
         max_val = tl.maximum(max_val, vals)
 
     # Pass 2: sum of exp(x - max)
-    acc = tl.zeros([BLOCK_J], dtype=tl.float32)
+    acc = tl.zeros([BLOCK_J], dtype=DTYPE)
     for k in range(start, end):
         src_row = tl.load(gather_idx_ptr + k)
         vals = tl.load(
             proc_ptr + src_row * rest_dom + j_offsets,
             mask=j_mask,
             other=float("-inf"),
-        )
+        ).to(DTYPE)
         acc += tl.exp(vals - max_val)
 
     result = tl.log(acc) + max_val
@@ -97,8 +100,17 @@ def scatter_logsumexp(
     identity = torch.arange(n_rows, device=proc.device, dtype=torch.int64)
     BLOCK_J = min(triton.next_power_of_2(rest_dom), 1024)
     grid = (b_idx_dom, triton.cdiv(rest_dom, BLOCK_J))
+    _TORCH_TO_TL = {
+        torch.float16: tl.float16,
+        torch.bfloat16: tl.bfloat16,
+        torch.float32: tl.float32,
+        torch.float64: tl.float64,
+    }
+    tl_dtype = _TORCH_TO_TL.get(proc.dtype)
+    if tl_dtype is None:
+        raise TypeError(f"scatter_logsumexp: unsupported dtype {proc.dtype}")
     _scatter_logsumexp_kernel[grid](
         proc, identity, group_offsets, out,
-        rest_dom=rest_dom, BLOCK_J=BLOCK_J,
+        rest_dom=rest_dom, BLOCK_J=BLOCK_J, DTYPE=tl_dtype,
     )
     return out

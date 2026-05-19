@@ -104,6 +104,7 @@ class LinearLoss(torch.nn.Module):
         cliques: Sequence[CliqueMeta],
         attrs: DatasetAttributes,
         loss_type: str = "l2",
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         self.loss_type = loss_type
@@ -111,7 +112,7 @@ class LinearLoss(torch.nn.Module):
         self.obs = torch.nn.ParameterList(
             [
                 torch.nn.Parameter(
-                    torch.from_numpy(o.obs).to(torch.float32), requires_grad=False
+                    torch.from_numpy(o.obs).to(dtype), requires_grad=False
                 )
                 for o in obs
             ]
@@ -157,7 +158,7 @@ class LinearLoss(torch.nn.Module):
         Returns (loss, grads) where grads[i] = dL/d(mu[i]).
         """
         grads = [torch.zeros_like(m) for m in mu]
-        loss = torch.tensor(0.0, device=mu[0].device)
+        loss = torch.tensor(0.0, device=mu[0].device, dtype=mu[0].dtype)
 
         for idx, obs, ometa, pmeta in zip(
             self.cidx, self.obs, self.obs_meta, self.parent_meta
