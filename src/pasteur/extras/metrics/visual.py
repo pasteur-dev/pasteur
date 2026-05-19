@@ -1,4 +1,6 @@
 import logging
+import re
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, NamedTuple, Sequence, TypeVar, cast
 
 import numpy as np
@@ -30,9 +32,64 @@ logger = logging.getLogger(__name__)
 
 A = TypeVar("A")
 
+_RUN_SUFFIX_RE = re.compile(r"\s*r\d+$")
+
+
+def _strip_run_suffix(name: str) -> str:
+    return _RUN_SUFFIX_RE.sub("", name).rstrip()
+
+
+def _combine_runs(
+    splits: dict[str, np.ndarray],
+) -> tuple[dict[str, np.ndarray], dict[str, tuple[np.ndarray, np.ndarray]]]:
+    """Group splits whose name shares a base prefix once the ``rN`` run
+    suffix is stripped. Each per-run array is normalized to sum to 1
+    before aggregating; the result is the mean histogram per group plus
+    a 5/95 percentile band for groups with at least two runs."""
+    groups: dict[str, list[np.ndarray]] = defaultdict(list)
+    order: list[str] = []
+    for name, arr in splits.items():
+        base = _strip_run_suffix(name)
+        if base not in groups:
+            order.append(base)
+        a = np.asarray(arr, dtype=float)
+        total = a.sum()
+        if total > 0:
+            a = a / total
+        groups[base].append(a)
+
+    means: dict[str, np.ndarray] = {}
+    cis: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for base in order:
+        stack = np.stack(groups[base], axis=0)
+        means[base] = stack.mean(axis=0)
+        if stack.shape[0] >= 2:
+            cis[base] = (
+                np.percentile(stack, 5, axis=0),
+                np.percentile(stack, 95, axis=0),
+            )
+    return means, cis
+
 
 def _percent_formatter(x, pos):
     return f"{100*x:.1f}%"
+
+
+def _darken(color, factor: float = 0.55):
+    import matplotlib.colors as mcolors
+
+    r, g, b, a = mcolors.to_rgba(color)
+    return (r * factor, g * factor, b * factor, a)
+
+
+def _draw_ci_caps(ax, xs, h_norm, p5, p95, bar_color, width):
+    """Draw only the horizontal 5/95 percentile caps (no connecting vertical
+    line) in a darker shade of the bar color."""
+    color = _darken(bar_color)
+    half = width * 0.35
+    for x, lo, hi in zip(xs, p5, p95):
+        ax.hlines(lo, x - half, x + half, colors=[color], linewidth=1.8)
+        ax.hlines(hi, x - half, x + half, colors=[color], linewidth=1.8)
 
 
 def _gen_hist(
@@ -42,6 +99,7 @@ def _gen_hist(
     heights: dict[str, np.ndarray],
     xticks_x=None,
     xticks_label=None,
+    cis: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
 ):
     import matplotlib.pyplot as plt
 
@@ -51,7 +109,17 @@ def _gen_hist(
         w = (x[1] - x[0]) / len(heights)
 
         for i, (name, h) in enumerate(heights.items()):
-            ax.bar(x + w * i, h / h.sum(), width=w, label=name, log=y_log)
+            total = h.sum()
+            h_norm = h / total if total > 0 else h
+            xs = x + w * i
+
+            container = ax.bar(xs, h_norm, width=w, label=name, log=y_log)
+
+            ci = cis.get(name) if cis else None
+            if ci is not None:
+                p5, p95 = ci
+                bar_color = container.patches[0].get_facecolor()
+                _draw_ci_caps(ax, xs, h_norm, p5, p95, bar_color, w)
 
         ax.legend()
         ax.set_title(title)
@@ -67,7 +135,13 @@ def _gen_hist(
         return None
 
 
-def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndarray]):
+def _gen_bar(
+    y_log: bool,
+    title: str,
+    cols: list[str],
+    counts: dict[str, np.ndarray],
+    cis: dict[str, tuple[np.ndarray, np.ndarray]] | None = None,
+):
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots()
@@ -77,14 +151,22 @@ def _gen_bar(y_log: bool, title: str, cols: list[str], counts: dict[str, np.ndar
 
     for i, (name, c) in enumerate(counts.items()):
         h = c / c.sum() if c.sum() > 0 else c
-        ax.bar(
-            x - 0.45 + w * i,
+        xs = x - 0.45 + w * i
+
+        container = ax.bar(
+            xs,
             h,
             width=w,
             align="edge",
             label=name,
             log=y_log,
         )
+
+        ci = cis.get(name) if cis else None
+        if ci is not None:
+            p5, p95 = ci
+            bar_color = container.patches[0].get_facecolor()
+            _draw_ci_caps(ax, xs + w / 2, h, p5, p95, bar_color, w)
 
     plt.xticks(x, cols)
     rot = min(3 * len(cols), 90)
@@ -193,12 +275,15 @@ class NumericalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             assert split.syn is not None, f"Received null syn split for split {name}."
             splits[name] = split.syn
 
+        means, cis = _combine_runs(splits)
+
         load_matplotlib_style()
         v = _gen_hist(
             self.y_log,
             self.col.capitalize(),
             self.bins,
-            splits,
+            means,
+            cis=cis,
         )
 
         if v:
@@ -248,12 +333,15 @@ class CategoricalHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]
             assert split.syn is not None, f"Received null syn split for split {name}."
             splits[name] = split.syn
 
+        means, cis = _combine_runs(splits)
+
         load_matplotlib_style()
         v = _gen_bar(
             self.y_log,
             self.col.capitalize(),
             self.cols,
-            splits,
+            means,
+            cis=cis,
         )
         mlflow_log_hists(self.table, self.col, v)
 
@@ -475,6 +563,9 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
         )
 
     def _viz_days(self, data: dict[str, DateData]):
+        means, cis = _combine_runs(
+            {n: d.days for n, d in data.items() if d.days is not None}
+        )
         return _gen_bar(
             y_log=self.y_log,
             title=name_style_title(self.col, "Weekday"),
@@ -487,34 +578,47 @@ class DateHist(RefColumnMetric[Summaries[DateData], Summaries[DateData]]):
                 "Saturday",
                 "Sunday",
             ],
-            counts={n: d.days for n, d in data.items() if d.days is not None},
+            counts=means,
+            cis=cis,
         )
 
     def _viz_weeks(self, data: dict[str, DateData]):
         bins = np.array(range(54 if self.weeks53 else 53)) - 0.5
+        means, cis = _combine_runs(
+            {n: d.weeks for n, d in data.items() if d.weeks is not None}
+        )
         return _gen_hist(
             y_log=self.y_log,
             title=name_style_title(self.col, "Season"),
             bins=bins,
-            heights={n: d.weeks for n, d in data.items() if d.weeks is not None},
+            heights=means,
             xticks_x=[2, 15, 28, 41],
             xticks_label=["Winter", "Spring", "Summer", "Autumn"],
+            cis=cis,
         )
 
     def _viz_binned(self, data: dict[str, DateData]):
+        means, cis = _combine_runs(
+            {n: d.span for n, d in data.items() if d.span is not None}
+        )
         return _gen_hist(
             self.y_log,
             name_style_title(self.col, f"{self.span.capitalize()}s"),
             self.bins,
-            {n: d.span for n, d in data.items() if d.span is not None},
+            means,
+            cis=cis,
         )
 
     def _viz_na(self, data: dict[str, DateData]):
+        means, cis = _combine_runs(
+            {n: d.na for n, d in data.items() if d.na is not None}
+        )
         return _gen_bar(
             self.y_log,
             name_style_title(self.col, "NA"),
             ["Val", "NA"],
-            {n: d.na for n, d in data.items() if d.na is not None},
+            means,
+            cis=cis,
         )
 
     def _visualise(self, data: dict[str, Summaries[DateData]]) -> dict[str, "Figure"]:
@@ -600,6 +704,8 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             assert split.syn is not None, f"Received null syn split for split {name}."
             splits[name] = split.syn
 
+        means, cis = _combine_runs(splits)
+
         if self.span == "hour":
             seg_len = 24
             mult = 1
@@ -620,9 +726,10 @@ class TimeHist(ColumnMetric[Summaries[np.ndarray], Summaries[np.ndarray]]):
             y_log=self.y_log,
             title=f"{col.capitalize()} Time",
             bins=bins,
-            heights=splits,
+            heights=means,
             xticks_x=tick_x,
             xticks_label=tick_label,
+            cis=cis,
         )
 
     def visualise(self, data: dict[str, Summaries[np.ndarray]]):
@@ -764,11 +871,14 @@ class SeqHist(
         for name, split in data.items():
             splits[name] = split.syn
 
+        means, cis = _combine_runs(splits)
+
         f = _gen_hist(
             self.y_log,
             f"N-1 with parent '{self.parent}'",
             np.arange(self.max_len + 1) - 0.5,
-            splits,
+            means,
+            cis=cis,
         )
 
         if f:

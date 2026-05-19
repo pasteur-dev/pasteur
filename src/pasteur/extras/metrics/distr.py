@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
+import re
+from collections import OrderedDict, defaultdict
 from functools import reduce
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -103,13 +104,44 @@ def _visualise_cs(
         "X^2": {"precision": 3},
         "p": {"formatter": lambda x: f"{100*x:.1f}"},
     }
+
+    chi_fmt = lambda m, lo, hi: f"{m:.3f} ({lo:.3f}, {hi:.3f})"
+    p_fmt = lambda m, lo, hi: f"{100*m:.1f} ({100*lo:.1f}, {100*hi:.1f})"
+
+    agg_chi, display_chi = _aggregate_run_dfs(
+        results, key_cols=["col"], val_col="X^2", fmt=chi_fmt
+    )
+    agg_p, display_p = _aggregate_run_dfs(
+        results, key_cols=["col"], val_col="p", fmt=p_fmt
+    )
+    # Merge the two aggregated frames per base (one carries the mean X^2,
+    # the other the mean p) so color_dataframe sees a single DataFrame per
+    # base with both value columns.
+    agg_results: dict[str, pd.DataFrame] = {}
+    for base in agg_chi:
+        chi_df = agg_chi[base][["col", "X^2"]]
+        p_df = agg_p[base][["col", "p"]]
+        agg_results[base] = chi_df.merge(p_df, on="col", how="outer")
+
+    # Flatten the display lookup keyed by (val_name, base).
+    display_strs = {("X^2", b): display_chi[b] for b in display_chi}
+    display_strs.update({("p", b): display_p[b] for b in display_p})
+
     style = color_dataframe(
-        results,
+        agg_results,
         idx=["col"],
         cols=[],
         vals=["X^2", "p"],
         formatters=cs_formatters,
         split_ref="ref",
+    )
+    # cl = (val_name, base); rl = col_value
+    style = _override_display(
+        style,
+        display_strs,
+        lambda rl, cl: (
+            ((cl[0], cl[-1]), (rl,)) if isinstance(cl, tuple) and len(cl) >= 2 else None
+        ),
     )
 
     fn = f"distr/cs.html" if table == "table" else f"distr/cs/{table}.html"
@@ -179,8 +211,8 @@ def _visualise_basetable(
     CAT_VALS = 5
     CAT_MIN_VAL = 0.001
 
-    TRE = re.compile(r"\d{2}:\d{2}") # 12:34
-    MRE = re.compile(r"\+?\d{2}:\d{2}") # +12:34
+    TRE = re.compile(r"\d{2}:\d{2}")  # 12:34
+    MRE = re.compile(r"\+?\d{2}:\d{2}")  # +12:34
 
     hvals_prev = {}
     for attr in attrs.values():
@@ -338,6 +370,138 @@ PRINT_METRICS = ["kl", "tvd", "cramer"]
 _METRIC_LOWER_IS_BETTER = {"tvd": True}
 
 
+_RUN_SUFFIX_RE = re.compile(r"\s*r\d+$")
+
+
+def _strip_run_suffix(name: str) -> str:
+    return _RUN_SUFFIX_RE.sub("", name).rstrip()
+
+
+def _darken_color(color, factor: float = 0.55):
+    import matplotlib.colors as mcolors
+
+    r, g, b, a = mcolors.to_rgba(color)
+    return (r * factor, g * factor, b * factor, a)
+
+
+def _draw_ci_caps(ax, xs, heights, p5, p95, bar_color, width):
+    color = _darken_color(bar_color)
+    half = width * 0.35
+    for x, _h, lo, hi in zip(xs, heights, p5, p95):
+        ax.hlines(lo, x - half, x + half, colors=[color], linewidth=1.8)
+        ax.hlines(hi, x - half, x + half, colors=[color], linewidth=1.8)
+
+
+def _aggregate_runs_scalar(
+    values: dict[str, float],
+) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+    """Group ``{split_name: scalar}`` by stripped base name. Returns mean
+    per base plus (p5, p95) per base for groups with ≥ 2 runs."""
+    groups: OrderedDict[str, list[float]] = OrderedDict()
+    for name, val in values.items():
+        groups.setdefault(_strip_run_suffix(name), []).append(float(val))
+    means: OrderedDict[str, float] = OrderedDict()
+    cis: dict[str, tuple[float, float]] = {}
+    for base, vs in groups.items():
+        means[base] = float(np.mean(vs)) if vs else 0.0
+        if len(vs) >= 2:
+            cis[base] = (
+                float(np.percentile(vs, 5)),
+                float(np.percentile(vs, 95)),
+            )
+    return means, cis
+
+
+def _aggregate_run_dfs(
+    results: dict[str, pd.DataFrame],
+    key_cols: list[str],
+    val_col: str,
+    fmt: Callable[[float, float, float], str] | None = None,
+) -> tuple[dict[str, pd.DataFrame], dict[str, dict[tuple, str]]]:
+    """Group ``results`` by base name (stripping the ``rN`` run suffix).
+    Within each multi-run group, aggregate per ``key_cols``: take the mean
+    of ``val_col`` (the column kept in the returned DataFrame) and build a
+    parallel ``"mean (p5, p95)"`` string lookup keyed by the key-col tuple.
+
+    ``fmt`` overrides the default 3-decimal cell rendering; it receives
+    ``(mean, p5, p95)`` and returns the displayed string.
+
+    Single-run groups pass the original DataFrame through with an empty
+    string lookup (so the caller falls back to its default formatter)."""
+    if fmt is None:
+        fmt = lambda m, lo, hi: f"{m:.3f} ({lo:.3f}, {hi:.3f})"
+    groups: OrderedDict[str, list[pd.DataFrame]] = OrderedDict()
+    for name, df in results.items():
+        groups.setdefault(_strip_run_suffix(name), []).append(df)
+
+    agg_results: OrderedDict[str, pd.DataFrame] = OrderedDict()
+    display_strs: OrderedDict[str, dict[tuple, str]] = OrderedDict()
+
+    def _p(q):
+        def _f(s):
+            v = s.dropna()
+            return float(np.percentile(v, q)) if v.size else float("nan")
+
+        return _f
+
+    for base, dfs in groups.items():
+        if len(dfs) == 1:
+            agg_results[base] = dfs[0]
+            display_strs[base] = {}
+            continue
+
+        merged = pd.concat(dfs, ignore_index=True)
+        stats = merged.groupby(key_cols, sort=False)[val_col].agg(
+            mean="mean", p5=_p(5), p95=_p(95)
+        )
+
+        agg = stats[["mean"]].rename(columns={"mean": val_col}).reset_index()
+        other_cols = [c for c in dfs[0].columns if c not in key_cols and c != val_col]
+        if other_cols:
+            first_other = (
+                merged.groupby(key_cols, sort=False)[other_cols].first().reset_index()
+            )
+            agg = agg.merge(first_other, on=key_cols, how="left")
+        agg_results[base] = agg
+
+        strs: dict[tuple, str] = {}
+        for keys_vals, row in stats.iterrows():
+            m = float(row["mean"])
+            if np.isnan(m):
+                continue
+            tup = keys_vals if isinstance(keys_vals, tuple) else (keys_vals,)
+            strs[tup] = fmt(m, float(row["p5"]), float(row["p95"]))
+        display_strs[base] = strs
+
+    return agg_results, display_strs
+
+
+def _override_display(
+    pts,
+    display_strs: dict[str, dict[tuple, str]],
+    key_extract: Callable,
+):
+    """Override cell display strings on a pandas Styler.
+
+    ``key_extract`` receives ``(row_label, col_label)`` and returns
+    ``(split_name, key_tuple)`` or ``None``. When the lookup hits, the
+    cell's display function is replaced via ``Styler._display_funcs``."""
+    if not any(display_strs.values()):
+        return pts
+    pt = pts.data
+    for ridx, row_label in enumerate(pt.index):
+        for cidx, col_label in enumerate(pt.columns):
+            extracted = key_extract(row_label, col_label)
+            if extracted is None:
+                continue
+            split, key_tuple = extracted
+            text = display_strs.get(split, {}).get(key_tuple)
+            if text is None:
+                continue
+            pts._display_funcs[(ridx, cidx)] = lambda _v, t=text: t
+    return pts
+
+
 def _visualise_2way(
     table: str, data: dict[str, Summaries[TwoWaySummary]], metr: str = "kl", domain=None
 ):
@@ -471,52 +635,109 @@ def _visualise_2way(
     # Print results as a table
     if metr in PRINT_METRICS:
         outs = f"{metr.upper():>5s} Table '{table:15s}' results:\n"
-        ores = []
-        for v in res.values():
-            ores.extend(v)
-        split_order = list(res.keys())
-        outs += (
-            pd.DataFrame(ores)
-            .pivot(index=["table"], columns=["split"], values=["mean_metr_norm"])
-            .xs("mean_metr_norm", axis=1)
-            [split_order]
-            .sort_index()
-            .to_markdown()
+
+        print_agg, print_display = _aggregate_run_dfs(
+            {k: pd.DataFrame(v) for k, v in res.items()},
+            key_cols=["table"],
+            val_col="mean_metr_norm",
         )
+        ordered_bases = list(print_agg.keys())
+
+        cells: dict[tuple[str, str], str] = {}
+        for base in ordered_bases:
+            df = print_agg[base]
+            for _, row in df.iterrows():
+                tbl = row["table"]
+                mean = row["mean_metr_norm"]
+                if pd.isna(mean):
+                    cells[(tbl, base)] = ""
+                    continue
+                strs = print_display.get(base, {})
+                fmt = strs.get((tbl,))
+                cells[(tbl, base)] = fmt if fmt is not None else f"{float(mean):.3f}"
+
+        tables = sorted({tbl for tbl, _ in cells.keys()})
+        outs += pd.DataFrame(
+            {
+                base: [cells.get((tbl, base), "") for tbl in tables]
+                for base in ordered_bases
+            },
+            index=tables,
+        ).to_markdown()
         outs += "\n"
         logger.info(outs)
 
     for v in results.values():
         if v.empty:
             return res
-    
+
+    agg_results, base_display = _aggregate_run_dfs(
+        results, key_cols=["col_i", "col_j"], val_col="metr_norm"
+    )
     base = color_dataframe(
-        results,
+        agg_results,
         idx=["col_j"],
         cols=["col_i"],
         vals=["metr_norm"],
         formatters=kl_formatters,
         split_ref="ref",
     )
-    overall = color_dataframe(
+    # cl = ('metr_norm', col_i_value, split_name); rl = col_j_value
+    base = _override_display(
+        base,
+        base_display,
+        lambda rl, cl: (
+            (cl[-1], (cl[1], rl)) if isinstance(cl, tuple) and len(cl) >= 3 else None
+        ),
+    )
+
+    agg_res, overall_display = _aggregate_run_dfs(
         {k: pd.DataFrame(v) for k, v in res.items()},
+        key_cols=["table"],
+        val_col="mean_metr_norm",
+    )
+    overall = color_dataframe(
+        agg_res,
         idx=["table"],
         cols=[],
         vals=["mean_metr_norm"],
         formatters=kl_formatters_overall,
         split_ref="ref",
     )
+    # cl = ('mean_metr_norm', split_name); rl = table_value
+    overall = _override_display(
+        overall,
+        overall_display,
+        lambda rl, cl: (
+            (cl[-1], (rl,)) if isinstance(cl, tuple) and len(cl) >= 2 else None
+        ),
+    )
     dfs = {"overall": overall, "same table": base}
 
     if presults:
         for p in next(iter(presults.values())):
-            dfs[p] = color_dataframe(
-                {k: v[p] for k, v in presults.items()},
+            agg_p, p_display = _aggregate_run_dfs(
+                {k: v[p] for k, v in presults.items() if p in v},
+                key_cols=["col_i", "col_j"],
+                val_col="metr_norm",
+            )
+            pair = color_dataframe(
+                agg_p,
                 idx=["col_i"],
                 cols=["col_j"],
                 vals=["metr_norm"],
                 formatters=kl_formatters,
                 split_ref="ref",
+            )
+            # cl = ('metr_norm', col_j_value, split_name); rl = col_i_value
+            dfs[p] = _override_display(
+                pair,
+                p_display,
+                lambda rl, cl: (
+                    (cl[-1], (rl, cl[1]))
+                    if isinstance(cl, tuple) and len(cl) >= 3
+                    else None
+                ),
             )
 
     pref = ""
@@ -629,9 +850,7 @@ def _draw_multiplot_subplot(
                     if score is None:
                         continue
                     if isinstance(score, (list, tuple, np.ndarray)):
-                        run_combos = [
-                            float(v) for v in score if not np.isnan(v)
-                        ]
+                        run_combos = [float(v) for v in score if not np.isnan(v)]
                         if not run_combos:
                             continue
                         run_values.append(float(np.mean(run_combos)))
@@ -724,9 +943,7 @@ def _draw_multiplot_subplot(
     ref_raw = scores.get("ref", float("nan"))
     if isinstance(ref_raw, (list, tuple, np.ndarray)):
         ref_combos = [float(v) for v in ref_raw if not np.isnan(v)]
-        ref_score = (
-            float(np.mean(ref_combos)) if ref_combos else float("nan")
-        )
+        ref_score = float(np.mean(ref_combos)) if ref_combos else float("nan")
     else:
         ref_combos = []
         ref_score = float(ref_raw)
@@ -814,7 +1031,7 @@ def _fig_to_html(fig, title: str, extra_css: str = _MULTIPLOT_EXTRA_CSS) -> str:
     svg = buf.read().decode("utf-8")
     plt.close(fig)
 
-    body = f'<h2>{title}</h2>\n{strip_svg_preamble(svg)}'
+    body = f"<h2>{title}</h2>\n{strip_svg_preamble(svg)}"
     return wrap_zoom_html(body, title, extra_css=extra_css)
 
 
@@ -843,9 +1060,7 @@ def _render_multiplot(
 
     use_style("mlflow")
 
-    split_names = [
-        k for k in next(iter(subplot_scores.values())).keys() if k != "ref"
-    ]
+    split_names = [k for k in next(iter(subplot_scores.values())).keys() if k != "ref"]
     axes_info = _parse_sweep_axes(split_names)
     if axes_info is None:
         return
@@ -904,9 +1119,7 @@ def _render_combined_multiplot(
         return
 
     first_scores = rows[0][1]
-    split_names = [
-        k for k in next(iter(first_scores.values())).keys() if k != "ref"
-    ]
+    split_names = [k for k in next(iter(first_scores.values())).keys() if k != "ref"]
     axes_info = _parse_sweep_axes(split_names)
     if axes_info is None:
         return
@@ -1018,7 +1231,9 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
     # ------------------------------------------------------------------
     # One HTML per metric (+ a top-level overall.html across PRINT_METRICS)
     # ------------------------------------------------------------------
-    combined_rows: list[tuple[str, dict[str, dict[str, float | list[float]]], float]] = []
+    combined_rows: list[
+        tuple[str, dict[str, dict[str, float | list[float]]], float]
+    ] = []
 
     for metr, corr_data in raw.items():
         subplot_scores: dict[str, dict[str, float | list[float]]] = {}
@@ -1043,9 +1258,7 @@ def _visualise_multiplot(overall_metr: dict, percentile_lower: float = 5):
                     continue
                 ct_dict = corr_data[ct_key]
                 subplot_scores[ct_label] = {
-                    split: list(ct_dict[split])
-                    if ct_dict.get(split)
-                    else float("nan")
+                    split: list(ct_dict[split]) if ct_dict.get(split) else float("nan")
                     for split in ordered_splits
                 }
 
@@ -1325,7 +1538,7 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             DistrSummary,
         ],
     ):
-        # import time 
+        # import time
 
         overall_metr = {}
         for name in self.domain:
@@ -1438,34 +1651,101 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
             ]:
                 combined = "_single" in table
                 fig, ax = plt.subplots()
-                bar_width = 0.3
 
+                nonempty_stypes = set()
                 for split, split_scores in split_scores_per_table.items():
                     for stype, type_scores in split_scores.items():
                         if stype not in lines:
                             lines[stype] = {}
+                        if type_scores:
+                            nonempty_stypes.add(stype)
                         lines[stype][split] = np.mean(type_scores) if type_scores else 0
+
+                # Drop stypes (seq / hist) that have no data in any split for
+                # this plot, so we don't render bars of height 0.
+                for stype in list(lines.keys()):
+                    if stype not in nonempty_stypes:
+                        del lines[stype]
+
+                # Aggregate runs (strip `rN`) for each stype: bar height = mean
+                # across runs; CI caps from `_aggregate_runs_scalar`.
+                lines_agg: dict[str, dict[str, float]] = {}
+                cis_agg: dict[str, dict[str, tuple[float, float]]] = {}
+                for stype, split_means in lines.items():
+                    lines_agg[stype], cis_agg[stype] = _aggregate_runs_scalar(
+                        split_means
+                    )
+
+                # Scale per-bar width to the number of stypes so the group
+                # fills ~0.9 of each x-slot regardless of how many stypes are
+                # plotted (otherwise a single stype leaves a huge empty gap).
+                bar_width = 0.9 / max(1, len(lines_agg))
 
                 l_res = 0
                 split_scores = {}
                 if combined:
-                    l_res = len(split_scores_per_table)
-                    split_scores = split_scores_per_table
-                    for x, y in enumerate(split_scores_per_table.values()):
-                        ax.bar(
-                            x,
-                            np.nanmean([np.nanmean(v) for v in y.values() if len(v)]),
+                    per_split_overall = {
+                        split: float(
+                            np.nanmean([np.nanmean(v) for v in y.values() if len(v)])
                         )
+                        for split, y in split_scores_per_table.items()
+                    }
+                    combined_means, combined_cis = _aggregate_runs_scalar(
+                        per_split_overall
+                    )
+                    l_res = len(combined_means)
+                    split_scores = combined_means
+                    xs = np.arange(l_res)
+                    container = ax.bar(xs, list(combined_means.values()))
+                    if combined_cis and container.patches:
+                        bar_color = container.patches[0].get_facecolor()
+                        cap_xs, cap_h, cap_p5, cap_p95 = [], [], [], []
+                        for j, b in enumerate(combined_means.keys()):
+                            if b in combined_cis:
+                                cap_xs.append(j)
+                                cap_h.append(combined_means[b])
+                                cap_p5.append(combined_cis[b][0])
+                                cap_p95.append(combined_cis[b][1])
+                        if cap_xs:
+                            _draw_ci_caps(
+                                ax,
+                                np.array(cap_xs),
+                                np.array(cap_h),
+                                np.array(cap_p5),
+                                np.array(cap_p95),
+                                bar_color,
+                                0.8,
+                            )
                 else:
-                    for i, (stype, split_scores) in enumerate(lines.items()):
+                    for i, (stype, split_scores) in enumerate(lines_agg.items()):
                         l_res = len(split_scores)
                         x = np.arange(l_res)
-                        ax.bar(
+                        container = ax.bar(
                             x + i * bar_width,
-                            split_scores.values(),
+                            list(split_scores.values()),
                             bar_width,
                             label=fancy_names[stype],
                         )
+                        stype_cis = cis_agg.get(stype, {})
+                        if stype_cis and container.patches:
+                            bar_color = container.patches[0].get_facecolor()
+                            cap_xs, cap_h, cap_p5, cap_p95 = [], [], [], []
+                            for j, b in enumerate(split_scores.keys()):
+                                if b in stype_cis:
+                                    cap_xs.append(j + i * bar_width)
+                                    cap_h.append(split_scores[b])
+                                    cap_p5.append(stype_cis[b][0])
+                                    cap_p95.append(stype_cis[b][1])
+                            if cap_xs:
+                                _draw_ci_caps(
+                                    ax,
+                                    np.array(cap_xs),
+                                    np.array(cap_h),
+                                    np.array(cap_p5),
+                                    np.array(cap_p95),
+                                    bar_color,
+                                    bar_width,
+                                )
 
                 ax.set_xlabel("Experiment")
                 ax.set_ylabel(f"Mean Norm {metr.upper()}")
@@ -1477,7 +1757,10 @@ class DistributionMetric(Metric[DistrSummary, DistrSummary]):
                     for param in params:
                         max_len = max(max_len, len(param))
 
-                ax.set_xticks(np.arange(l_res) + (0 if combined else 0.3))
+                xtick_offset = (
+                    0 if combined else max(0, (len(lines_agg) - 1)) / 2 * bar_width
+                )
+                ax.set_xticks(np.arange(l_res) + xtick_offset)
                 if max_len > 15 or l_res > 7:
                     tick_labels = [" ".join(l) for l in labels]
                     rot = min(3 * l_res, 90)
