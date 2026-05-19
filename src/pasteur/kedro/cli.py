@@ -716,7 +716,9 @@ def sweep(
         logger.info("Only 1 run executed, skipping summary.")
         return
 
-    with KedroSession.create(runtime_params=runtime_params) as session:
+    with logging_redirect_pbar(), KedroSession.create(
+        runtime_params=runtime_params
+    ) as session:
         ctx = session.load_context()
         experiment_id = getattr(ctx, "mlflow").get_experiment_id(pipeline.split(".")[0])
         log_parent_run(
