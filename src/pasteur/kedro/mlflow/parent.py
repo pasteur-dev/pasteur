@@ -389,24 +389,28 @@ def log_parent_run(
             logger.error(f"Error logging energy info.", exc_info=True)
 
         # Copy top-level files from each run's artifact dir into model/<pretty>/
+        from mlflow.tracking import MlflowClient
+        from tempfile import TemporaryDirectory
+
+        client = MlflowClient()
         for name, run in piter(
             runs.items(), desc="Saving model data to parent run (e.g., graphs)"
         ):
             try:
-                from tempfile import TemporaryDirectory
-
+                top_level = client.list_artifacts(run.info.run_id)
+                files = [a for a in top_level if not a.is_dir]
+                if not files:
+                    continue
                 with TemporaryDirectory() as run_artifact_dir:
-                    mlflow.artifacts.download_artifacts(
-                        run_id=run.info.run_id,
-                        artifact_path="./",
-                        dst_path=run_artifact_dir,
+                    for a in files:
+                        mlflow.artifacts.download_artifacts(
+                            run_id=run.info.run_id,
+                            artifact_path=a.path,
+                            dst_path=run_artifact_dir,
+                        )
+                    mlflow.log_artifacts(
+                        run_artifact_dir, artifact_path=f"model/{pretty[name]}"
                     )
-                    for entry in os.listdir(run_artifact_dir):
-                        full_path = os.path.join(run_artifact_dir, entry)
-                        if os.path.isfile(full_path):
-                            mlflow.log_artifact(
-                                full_path, artifact_path=f"model/{pretty[name]}"
-                            )
             except Exception:
                 logger.error(f"Error logging model files for '{name}'.", exc_info=True)
 

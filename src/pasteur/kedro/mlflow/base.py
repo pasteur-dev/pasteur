@@ -87,8 +87,9 @@ def sanitize_name(name: str):
     # Use double-quoted strings and escape double quotes within.
     return name.replace("\\", "\\\\").replace('"', '\\"')
 
+exp_ids = None
 
-def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = True):
+def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = True, exp_id: str | None = None):
     filter_string = f'tags.pasteur_id = "{sanitize_name(name)}"'
     if parent:
         filter_string += f' and tags.pasteur_pid = "{sanitize_name(parent)}"'
@@ -98,8 +99,23 @@ def get_run_id(name: str, parent: str | None, git: str | None, finished: bool = 
         filter_string += (
             f" and attribute.status = '{RunStatus.to_string(RunStatus.FINISHED)}'"
         )
+
+    # Try to cache experiment ids
+    if exp_id:
+        experiment_ids = [exp_id]
+    else:
+        global exp_ids
+
+        if exp_ids is None:
+            exp_ids = mlflow.search_experiments()
+
+        view = name.split(".")[0]
+        experiment_ids = [
+            exp.experiment_id for exp in exp_ids if exp.name == view
+        ] or [exp.experiment_id for exp in exp_ids]
+
     tmp = mlflow.search_runs(
-        experiment_ids=[exp.experiment_id for exp in mlflow.search_experiments()],
+        experiment_ids=experiment_ids,
         filter_string=filter_string,
     )
     if len(tmp):
