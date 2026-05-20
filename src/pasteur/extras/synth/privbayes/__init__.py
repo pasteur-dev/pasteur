@@ -3,7 +3,7 @@ from itertools import chain
 
 import logging
 from math import ceil
-from typing import Any, Sequence, cast
+from typing import Any, Sequence, cast, TYPE_CHECKING
 
 import pandas as pd
 import numpy as np
@@ -25,9 +25,10 @@ from .implementation import (
     sample_rows,
 )
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from ....graph.mirror_descent import MirrorDescentParams
 
-from ....graph.mirror_descent import MirrorDescentParams, MIRROR_DESCENT_DEFAULT
+logger = logging.getLogger(__name__)
 
 
 def _noisy_1way_counts(
@@ -100,6 +101,7 @@ def _fit_mirror_descent(
 ):
     from ....graph.hugin import to_moral
     from ....graph.mirror_descent import fit_model
+    from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT
 
     md = mirror_descent if isinstance(mirror_descent, dict) else {}
     params = {**MIRROR_DESCENT_DEFAULT, **md}
@@ -303,7 +305,7 @@ class PrivBayesMare(MareModel):
         minimum_cutoff: int | None = 3,
         rake: bool = True,
         rebalance: bool | dict = False,
-        mirror_descent: MirrorDescentParams | bool = False,
+        mirror_descent: "MirrorDescentParams" | bool = False,
         **kwargs,
     ) -> None:
         if etotal is None:

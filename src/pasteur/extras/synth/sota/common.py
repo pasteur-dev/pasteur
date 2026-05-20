@@ -15,7 +15,6 @@ from scipy.special import softmax
 
 from ....attribute import Attributes, DatasetAttributes
 from ....marginal import MarginalOracle
-from ....graph.mirror_descent import MIRROR_DESCENT_DEFAULT
 
 logger = logging.getLogger(__name__)
 
@@ -460,7 +459,11 @@ def fit_pgm(
     from ....graph.beliefs import convert_sel
     from ....graph.hugin import AttrMeta, get_attrs
     from ....graph.loss import LinearObservation
-    from ....graph.mirror_descent import build_junction_tree, mirror_descent
+    from ....graph.mirror_descent import (
+        build_junction_tree,
+        mirror_descent,
+        MIRROR_DESCENT_DEFAULT,
+    )
 
     params = {**MIRROR_DESCENT_DEFAULT, **(md_params or {})}
     device = params.pop("device", "auto")
